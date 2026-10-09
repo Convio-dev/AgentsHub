@@ -1,0 +1,33 @@
+# build output
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+publish/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider / VS Code
+.idea/
+.vscode/
+
+# Native AOT artifacts
+*.iobj
+*.ipdb
+
+# secrets
+appsettings.Development.json
+appsettings.Production.json
+
+# logs
+*.log
+logs/
+
+# OS junk
+Thumbs.db
+desktop.ini
+.DS_Store
