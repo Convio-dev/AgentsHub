@@ -12,11 +12,12 @@ public partial class MainForm : Form
     private const int WM_NCLBUTTONDOWN = 0xA1;
     private const int HT_CAPTION = 0x2;
 
-    [DllImport("user32.dll")]
-    private static extern int SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
 
-    [DllImport("user32.dll")]
-    private static extern bool ReleaseCapture();
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ReleaseCapture();
 
     private readonly HermesProcessService _hermesService;
     private readonly LanProxyService _lanProxyService;
@@ -238,12 +239,16 @@ public partial class MainForm : Form
         _trayContextMenu.BackColor = Color.FromArgb(24, 24, 27);
         _trayContextMenu.ForeColor = Color.FromArgb(250, 250, 250);
 
-        _trayOpenWebUiItem = new ToolStripMenuItem("Open Hermes WebUI", null, (_, _) => OpenDashboard());
-        _trayOpenWebUiItem.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        _trayOpenWebUiItem = new ToolStripMenuItem("Open Hermes WebUI", null, (_, _) => OpenDashboard())
+        {
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+        };
 
         _trayStartItem = new ToolStripMenuItem("Start Engine", null, (_, _) => _hermesService.Start());
-        _trayStopItem = new ToolStripMenuItem("Stop Engine", null, async (_, _) => await _hermesService.StopAsync());
-        _trayStopItem.Enabled = false;
+        _trayStopItem = new ToolStripMenuItem("Stop Engine", null, async (_, _) => await _hermesService.StopAsync())
+        {
+            Enabled = false
+        };
 
         _trayBroadcastItem = new ToolStripMenuItem($"Broadcast on :{_lanProxyService.ListenPort}", null, (_, _) =>
         {
@@ -909,8 +914,8 @@ public partial class MainForm : Form
     {
         if (e.Button == MouseButtons.Left)
         {
-            ReleaseCapture();
-            SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
+            _ = ReleaseCapture();
+            _ = SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
         }
     }
 
