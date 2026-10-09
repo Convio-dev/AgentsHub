@@ -1,0 +1,2 @@
+C:\Users\Gaming\Desktop\Folders-Z\userscript\WebAPPS\APPS\HermesOn\bin\Release\net10.0-windows\win-x64\publish\HermesHub.pdb
+C:\Users\Gaming\Desktop\Folders-Z\userscript\WebAPPS\APPS\HermesOn\bin\Release\net10.0-windows\win-x64\publish\HermesHub.exe

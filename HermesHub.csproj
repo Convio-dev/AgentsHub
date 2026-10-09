@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <StartupObject>HermesHub.Program</StartupObject>
+    <RootNamespace>HermesHub</RootNamespace>
+    <AssemblyName>HermesHub</AssemblyName>
+
+    <!-- Native AOT and Trimming Configuration -->
+    <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
+    <_SuppressWinFormsTrimError>true</_SuppressWinFormsTrimError>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <StripSymbols>true</StripSymbols>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <IlcTrimReflection>true</IlcTrimReflection>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <NoWarn>$(NoWarn);IL2104;NETSDK1175</NoWarn>
+
+    <!-- Assembly Metadata -->
+    <AssemblyTitle>Hermes Desktop Hub</AssemblyTitle>
+    <AssemblyDescription>Ultra-Lightweight Standalone Hermes Desktop Hub and LAN Proxy</AssemblyDescription>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <FileVersion>1.0.2.0</FileVersion>
+    <Version>1.0.2</Version>
+  </PropertyGroup>
+
+  <!-- Trimming roots for WinForms and application assembly -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="HermesHub" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Net.Codecrete.QrCodeGenerator" Version="3.2.1" />
+  </ItemGroup>
+
+</Project>
