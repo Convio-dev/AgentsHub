@@ -12,7 +12,7 @@ public partial class MainForm : Form
     private const int WM_NCLBUTTONDOWN = 0xA1;
     private const int HT_CAPTION = 0x2;
 
-    [LibraryImport("user32.dll")]
+    [LibraryImport("user32.dll", EntryPoint = "SendMessageW")]
     private static partial IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
 
     [LibraryImport("user32.dll")]
