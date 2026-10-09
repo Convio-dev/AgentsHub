@@ -10,13 +10,19 @@
     <RootNamespace>HermesHub</RootNamespace>
     <AssemblyName>HermesHub</AssemblyName>
 
-    <!-- Native AOT and Trimming Configuration -->
-    <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
+    <!-- Standalone Single-File & Trimming Configuration -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishTrimmed>true</PublishTrimmed>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <PublishAot Condition="'$(PublishAot)' == ''">false</PublishAot>
     <_SuppressWinFormsTrimError>true</_SuppressWinFormsTrimError>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <StripSymbols>true</StripSymbols>
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <OptimizationPreference>Size</OptimizationPreference>
     <IlcTrimReflection>true</IlcTrimReflection>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>

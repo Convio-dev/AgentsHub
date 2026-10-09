@@ -1,71 +1,141 @@
-# HermesHub: Ultra-Lightweight Standalone Hermes Desktop Hub (v1.0.1)
+# Hermes Desktop Hub
 
-HermesHub is a high-performance Windows desktop tray utility and LAN reverse proxy for the Hermes agent engine built with C# and .NET 10 WinForms, optimized for fast startup and low memory footprint (< 25 MB RAM).
+A lightweight, standalone Windows tray utility and LAN reverse proxy for the [Hermes](https://github.com/anthropics) agent engine. Hermes Desktop Hub packages process lifecycle management, LAN broadcasting, QR code generation, and firewall management into a portable, single-file Windows executable (~16 MB) with low memory usage (< 25 MB RAM).
 
-## Key Features
+[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20x64-blue.svg)]()
+[![.NET](https://img.shields.io/badge/.NET-10.0-purple.svg)]()
 
-- **System Tray Lifecycle**: Runs quietly in the Windows system tray with single-instance mutex enforcement. Minimizes directly to tray on minimize or close.
+---
+
+## Features
+
+- **Portable Single-File Executable**: Completely self-contained binary. No .NET runtime installation required. Copy `HermesHub.exe` to any folder or USB drive and run.
 - **Hermes Process Controller**:
-  - Starts `hermes dashboard --port <PORT>` in a detached background process.
-  - Safely stops the agent process tree, child node processes, and Python runtimes.
-  - Real-time heartbeat poller continuously probes the engine port to report live status (`Online`, `Starting`, `Offline`).
+  - Spawns `hermes dashboard --port <PORT>` in a detached background process.
+  - Clean process termination across child process trees (Python, Node, shell).
+  - Background heartbeat poller reporting real-time status (`Online`, `Starting`, `Offline`, `Error`).
 - **LAN Broadcast Reverse Proxy**:
-  - Transparent TCP reverse proxy listening on `0.0.0.0:<LAN_PORT>` that bridges requests to `127.0.0.1:<ENGINE_PORT>`.
-  - Full support for HTTP, WebSocket upgrades, and Server-Sent Events (SSE) with strict CRLF preservation.
-  - Automatically resolves active local LAN IPv4 address (Wi-Fi or Ethernet) with 1-click clipboard copy.
-  - Interactive offline landing page allowing users to launch Hermes directly over the LAN with live auto-refresh.
-  - Releases the port immediately when disabled.
-- **Windows Defender Firewall Helper**:
-  - Real-time status indicator (`Firewall: Allowed` or `Allow in Firewall`).
-  - 1-click elevation action that automatically creates the inbound TCP firewall rule for the active LAN port.
-- **Custom Port Configuration**:
-  - Custom configurable ports for both Hermes Daemon (default: `9119`) and LAN Broadcast (default: `9191`).
-  - Persistent registry storage with dynamic proxy rebound on change.
-- **Remote Connection Alerts**:
-  - Displays a Windows notification whenever a new remote IP address on the local network connects to the Hermes LAN broadcast.
-- **Sleek Modern Dark UI**:
-  - Borderless 450x600 window with draggable header.
-  - Dark Emerald and Zinc palette (`#09090b`, `#18181b`, `#27272a`, `#10b981`).
-  - High-contrast typography and full keyboard navigation.
-- **Automation & Persistence**:
-  - Toggle Windows autostart via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
-  - Optional auto-start for Hermes engine on launch.
-  - Optional auto-enable for LAN broadcast on launch.
-  - Live process working set memory monitor in the status bar.
+  - TCP proxy listening on `0.0.0.0:<LAN_PORT>` that forwards traffic to `127.0.0.1:<ENGINE_PORT>`.
+  - Transparent support for HTTP, WebSocket connections, and Server-Sent Events (SSE).
+  - Resolves local network IPv4 address (Ethernet and Wi-Fi) with 1-click clipboard copy.
+  - Serves a built-in offline landing page over LAN with 1-click engine startup and auto-refresh.
+- **Mobile QR Code Sharing**:
+  - Generates an instant, scannable QR code for the LAN address to quickly open the dashboard on phones or tablets connected to the same Wi-Fi.
+- **Windows Defender Firewall Integration**:
+  - Automatically detects whether an inbound firewall rule allows the LAN proxy port.
+  - One-click elevation to create the inbound rule without manual firewall configuration.
+- **Remote Client Notifications**:
+  - Notifies you via Windows balloon alert when a new device on your LAN connects to the hub.
+  - Status bar client counter showing active connections.
+- **System Tray Integration**:
+  - Minimizes to the Windows notification area.
+  - Single-instance mutex prevents duplicate processes; launching a second copy focuses the existing window.
+  - Tray context menu provides quick controls to start/stop the engine, toggle LAN broadcast, open WebUI, or quit.
+- **Configuration Persistence**:
+  - Custom configurable ports for the engine and LAN broadcast.
+  - Preferences saved under `HKCU\Software\HermesHub`.
+  - Optional Windows startup on boot (`--tray` flag).
+
+---
+
+## Quick Start
+
+### 1. Download or Build
+Grab the published `HermesHub.exe` or build it from source (see [Building from Source](#building-from-source)).
+
+### 2. Run
+Launch `HermesHub.exe`. By default:
+- **Hermes Engine Port**: `9119`
+- **LAN Broadcast Port**: `9191`
+
+### 3. Usage
+- Click **Start Engine** to launch the local Hermes agent dashboard.
+- Toggle **Broadcast on Local Network** to allow access from other devices on your Wi-Fi/LAN.
+- Click **QR Code** to scan and connect directly from mobile devices.
+- Click **Allow in Firewall** if prompted so devices on your local network can reach the port.
+
+---
+
+## Command-Line Arguments
+
+| Flag | Description |
+| :--- | :--- |
+| `--tray` | Starts the application minimized to the system tray. Used for Windows startup. |
+| `-minimized` | Alias for `--tray`. |
+
+---
+
+## Configuration & Registry Storage
+
+All application settings are stored under the current user's registry hive:
+
+```text
+HKEY_CURRENT_USER\Software\HermesHub
+  ├── EnginePort          (DWORD, default: 9119)
+  ├── LanPort             (DWORD, default: 9191)
+  ├── AutoStartHermes     (DWORD, 0 or 1)
+  ├── AutoEnableLan       (DWORD, 0 or 1)
+  └── NotifyRemoteClients (DWORD, 0 or 1)
+```
+
+Autostart is toggled via:
+```text
+HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+  └── HermesHub = "<Path>\HermesHub.exe --tray"
+```
+
+---
 
 ## Project Structure
 
 ```text
 HermesOn/
-├── HermesHub.csproj               # .NET 10 project with Native AOT & Trimming roots
-├── Program.cs                     # Mutex guard, DPI awareness, startup dispatch
-├── MainForm.cs                    # Controller logic, tray integration, proxy binding
-├── MainForm.Designer.cs           # Dark-mode GUI layout and control definitions
+├── HermesHub.csproj               # .NET 10 project file (configured for single-file self-contained publish)
+├── Program.cs                     # Mutex guard, single-instance signaling, startup handler
+├── MainForm.cs                    # Main form logic, tray lifecycle, event coordination
+├── MainForm.Designer.cs           # Dark-mode UI components and layout
 ├── Services/
-│   ├── HermesProcessService.cs    # Background process spawning, heartbeat & cleanup
-│   └── LanProxyService.cs         # Low-overhead TCP forwarder with remote alerts
-└── Helpers/
-    ├── FirewallHelper.cs          # Windows Defender Firewall inspection and registration
-    ├── NetworkHelper.cs           # Active LAN IPv4 resolver (Ethernet & Wi-Fi)
-    └── StartupHelper.cs           # Windows registry autostart and settings storage
+│   ├── HermesProcessService.cs    # Process controller, background heartbeat, stdout/stderr capture
+│   └── LanProxyService.cs         # Low-overhead TCP forwarder, WebSocket support, remote client tracking
+├── Helpers/
+│   ├── FirewallHelper.cs          # Windows Defender Firewall inspection and inbound rule creation
+│   ├── NetworkHelper.cs           # Active LAN IPv4 resolver (Ethernet & Wi-Fi adapter priority)
+│   ├── QrCodeHelper.cs            # Vector QR code generation for LAN connection sharing
+│   └── StartupHelper.cs           # Windows registry settings and autostart persistence
+├── LICENSE                        # MIT License
+└── README.md                      # Project documentation
 ```
 
-## Building and Publishing
+---
 
-### Development Build
+## Building from Source
+
+### Prerequisites
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- Windows 10 or 11 (x64)
+
+### Development Run
+To run the project in development mode:
 ```powershell
-dotnet build -c Release
+dotnet run
 ```
 
-### Single-File Self-Contained Executable
+### Build Single-File Standalone Executable
+To produce a single, portable, self-contained binary:
 ```powershell
-dotnet publish -c Release -r win-x64 /p:PublishAot=false /p:PublishTrimmed=true /p:_SuppressWinFormsTrimError=true /p:PublishSingleFile=true
+dotnet publish -c Release
 ```
 
-Output binary:
-`bin\Release\net10.0-windows\win-x64\publish\HermesHub.exe`
-
-### Native AOT Build (requires Visual Studio C++ Build Tools)
-```powershell
-dotnet publish -c Release -r win-x64
+The resulting standalone executable will be located at:
+```text
+bin\Release\net10.0-windows\win-x64\publish\HermesHub.exe
 ```
+
+The output is ~15.6 MB and contains all dependencies and runtime components needed to run on any 64-bit Windows machine.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
