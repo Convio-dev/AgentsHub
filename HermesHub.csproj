@@ -10,6 +10,7 @@
     <StartupObject>HermesHub.Program</StartupObject>
     <RootNamespace>HermesHub</RootNamespace>
     <AssemblyName>HermesHub</AssemblyName>
+    <ApplicationIcon>assets\app.ico</ApplicationIcon>
 
     <!-- Standalone Single-File & Trimming Configuration -->
     <PublishSingleFile>true</PublishSingleFile>

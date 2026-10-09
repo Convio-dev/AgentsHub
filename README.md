@@ -92,6 +92,8 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
 ```text
 HermesOn/
 ├── HermesHub.csproj               # .NET 10 project file (configured for single-file self-contained publish)
+├── HermesHub.iss                  # Inno Setup 6 installer script
+├── build-installer.cmd            # Automated publish and setup compilation script
 ├── Program.cs                     # Mutex guard, single-instance signaling, startup handler
 ├── MainForm.cs                    # Main form logic, tray lifecycle, event coordination
 ├── MainForm.Designer.cs           # Dark-mode UI components and layout
@@ -103,6 +105,10 @@ HermesOn/
 │   ├── NetworkHelper.cs           # Active LAN IPv4 resolver (Ethernet & Wi-Fi adapter priority)
 │   ├── QrCodeHelper.cs            # Vector QR code generation for LAN connection sharing
 │   └── StartupHelper.cs           # Windows registry settings and autostart persistence
+├── assets/
+│   └── app.ico                    # High-resolution application and installer icon
+├── dist/
+│   └── HermesHub-Setup-v1.0.2.exe # Generated Windows setup installer
 ├── LICENSE                        # MIT License
 └── README.md                      # Project documentation
 ```
@@ -114,6 +120,7 @@ HermesOn/
 ### Prerequisites
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - Windows 10 or 11 (x64)
+- [Inno Setup 6](https://jrsoftware.org/isdl.php) (for creating the installer `.exe`)
 
 ### Development Run
 To run the project in development mode:
@@ -132,7 +139,21 @@ The resulting standalone executable will be located at:
 bin\Release\net10.0-windows\win-x64\publish\HermesHub.exe
 ```
 
-The output is ~15.6 MB and contains all dependencies and runtime components needed to run on any 64-bit Windows machine.
+### Build Windows Installer (.exe)
+To compile both the standalone executable and the Inno Setup installer package in one step:
+```cmd
+.\build-installer.cmd
+```
+
+Or manually via the Inno Setup CLI:
+```powershell
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" HermesHub.iss
+```
+
+The resulting setup installer is saved to:
+```text
+dist\HermesHub-Setup-v1.0.2.exe
+```
 
 ---
 
