@@ -35,6 +35,9 @@ partial class MainForm
     private Button launchDeepSeekButton = null!;
     private Button launchOpenCodeButton = null!;
     private Button resetOpenCodeQuotaButton = null!;
+    private Label publicIpLabel = null!;
+    private Button toggleIpMaskButton = null!;
+    private Button refreshIpButton = null!;
 
     private Panel lanCard = null!;
     private Label lanCardTitle = null!;
@@ -126,6 +129,9 @@ partial class MainForm
         launchDeepSeekButton = new Button();
         launchOpenCodeButton = new Button();
         resetOpenCodeQuotaButton = new Button();
+        publicIpLabel = new Label();
+        toggleIpMaskButton = new Button();
+        refreshIpButton = new Button();
 
         lanCard = new Panel();
         lanCardTitle = new Label();
@@ -355,6 +361,9 @@ partial class MainForm
         quickAppsCard.Controls.Add(launchClineButton);
         quickAppsCard.Controls.Add(launchDeepSeekButton);
         quickAppsCard.Controls.Add(launchOpenCodeButton);
+        quickAppsCard.Controls.Add(publicIpLabel);
+        quickAppsCard.Controls.Add(toggleIpMaskButton);
+        quickAppsCard.Controls.Add(refreshIpButton);
 
         quickAppsCardTitle.AutoSize = true;
         quickAppsCardTitle.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
@@ -396,6 +405,23 @@ partial class MainForm
         resetOpenCodeQuotaButton.Font = new Font("Segoe UI", 9.5F);
         resetOpenCodeQuotaButton.Text = "🔄";
         resetOpenCodeQuotaButton.Cursor = Cursors.Hand;
+
+        publicIpLabel.AutoSize = true;
+        publicIpLabel.Font = new Font("Segoe UI", 8.25F);
+        publicIpLabel.Location = new Point(14, 124);
+        publicIpLabel.Text = "🌐 IP: Loading...";
+
+        toggleIpMaskButton.FlatStyle = FlatStyle.Flat;
+        toggleIpMaskButton.FlatAppearance.BorderSize = 0;
+        toggleIpMaskButton.Font = new Font("Segoe UI", 8.5F);
+        toggleIpMaskButton.Text = "👁";
+        toggleIpMaskButton.Cursor = Cursors.Hand;
+
+        refreshIpButton.FlatStyle = FlatStyle.Flat;
+        refreshIpButton.FlatAppearance.BorderSize = 0;
+        refreshIpButton.Font = new Font("Segoe UI", 8.5F);
+        refreshIpButton.Text = "↻";
+        refreshIpButton.Cursor = Cursors.Hand;
 
         // 
         // LAN Card
@@ -648,7 +674,7 @@ partial class MainForm
         // 
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(510, 760);
+        ClientSize = new Size(510, 780);
         MinimumSize = new Size(460, 560);
         MaximumSize = new Size(680, 0);
         Controls.Add(scrollContainer);

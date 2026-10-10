@@ -32,6 +32,9 @@ public partial class MainForm : Form
     private bool _firewallAllowed = false;
     private int _scrollOffsetY;
     private int _maxScrollY;
+    private string? _currentPublicIp;
+    private bool _isIpMasked = false;
+    private static readonly HttpClient _publicIpHttpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
 
     public MainForm()
     {
@@ -146,6 +149,9 @@ public partial class MainForm : Form
         enginePortNumeric.Value = savedEnginePort;
         lanPortNumeric.Value = savedLanPort;
 
+        _isIpMasked = StartupHelper.GetPreference("MaskPublicIp", false);
+        _ = RefreshPublicIpAsync();
+
         // Apply theme initially
         ApplyTheme();
 
@@ -226,7 +232,9 @@ public partial class MainForm : Form
         toolTip.SetToolTip(launchClineButton, "Launch Cline Desktop App");
         toolTip.SetToolTip(launchDeepSeekButton, "Launch DeepSeek Harness");
         toolTip.SetToolTip(launchOpenCodeButton, "Launch OpenCode Desktop");
-        toolTip.SetToolTip(resetOpenCodeQuotaButton, "Reset OpenCode Quota (run launch.vbs)");
+        toolTip.SetToolTip(resetOpenCodeQuotaButton, "Reset OpenCode Quota (Rotate Cloudflare WARP IP)");
+        toolTip.SetToolTip(toggleIpMaskButton, "Show / Hide IP Address");
+        toolTip.SetToolTip(refreshIpButton, "Refresh Public IP");
     }
 
     protected override void OnShown(EventArgs e)
@@ -335,8 +343,8 @@ public partial class MainForm : Form
         int extraQr = qrDrawerPanel.Visible ? 180 : 0;
         int logsH = logsPanel.Visible ? 212 : 0;
 
-        // Base height accommodating AI dev tools card (760px), expanding for drawers
-        int targetClientHeight = 760 + extraQr + logsH;
+        // Base height accommodating AI dev tools card (780px), expanding for drawers
+        int targetClientHeight = 780 + extraQr + logsH;
 
         var screen = Screen.FromControl(this) ?? Screen.PrimaryScreen;
         int maxAvailableHeight = (screen?.WorkingArea.Height ?? 1080) - 40;
@@ -365,7 +373,7 @@ public partial class MainForm : Form
 
         // Precompute total content height for scroll bounds
         int lanH = qrDrawerPanel.Visible ? 330 : 150;
-        int totalContentHeight = 10 + 162 + spacing + 128 + spacing + lanH + spacing + 176;
+        int totalContentHeight = 10 + 162 + spacing + 152 + spacing + lanH + spacing + 176;
         if (logsPanel.Visible)
         {
             totalContentHeight += spacing + 200;
@@ -404,7 +412,7 @@ public partial class MainForm : Form
         // 2. AI Dev Tools / Quick Apps Card
         quickAppsCard.Location = new Point(margin, currentY);
         quickAppsCard.Width = cardWidth;
-        quickAppsCard.Height = 128;
+        quickAppsCard.Height = 152;
 
         int innerW = cardWidth - 28;
         int row1Gap = 8;
@@ -426,6 +434,13 @@ public partial class MainForm : Form
 
         resetOpenCodeQuotaButton.Location = new Point(launchOpenCodeButton.Width - 34, 3);
         resetOpenCodeQuotaButton.Size = new Size(30, 28);
+
+        publicIpLabel.Location = new Point(14, 124);
+        refreshIpButton.Location = new Point(cardWidth - 14 - 26, 121);
+        refreshIpButton.Size = new Size(26, 22);
+
+        toggleIpMaskButton.Location = new Point(refreshIpButton.Left - 4 - 26, 121);
+        toggleIpMaskButton.Size = new Size(26, 22);
 
         currentY += quickAppsCard.Height + spacing;
 
@@ -583,6 +598,26 @@ public partial class MainForm : Form
         resetOpenCodeQuotaButton.MouseEnter += OnResetButtonMouseEnter;
         resetOpenCodeQuotaButton.MouseLeave += OnResetButtonMouseLeave;
 
+        publicIpLabel.ForeColor = c.TextSecondary;
+        toggleIpMaskButton.BackColor = Color.Transparent;
+        toggleIpMaskButton.ForeColor = c.TextMuted;
+        toggleIpMaskButton.FlatAppearance.BorderSize = 0;
+        refreshIpButton.BackColor = Color.Transparent;
+        refreshIpButton.ForeColor = c.TextMuted;
+        refreshIpButton.FlatAppearance.BorderSize = 0;
+
+        toggleIpMaskButton.MouseEnter -= OnResetButtonMouseEnter;
+        toggleIpMaskButton.MouseLeave -= OnResetButtonMouseLeave;
+        toggleIpMaskButton.MouseEnter += OnResetButtonMouseEnter;
+        toggleIpMaskButton.MouseLeave += OnResetButtonMouseLeave;
+
+        refreshIpButton.MouseEnter -= OnResetButtonMouseEnter;
+        refreshIpButton.MouseLeave -= OnResetButtonMouseLeave;
+        refreshIpButton.MouseEnter += OnResetButtonMouseEnter;
+        refreshIpButton.MouseLeave += OnResetButtonMouseLeave;
+
+        UpdatePublicIpDisplay();
+
         StyleStandardButton(copyLanButton);
         StyleStandardButton(openLanButton);
         StyleStandardButton(toggleQrButton);
@@ -714,7 +749,7 @@ public partial class MainForm : Form
         var trayToolsMenu = new ToolStripMenuItem("Launch AI Tools");
         trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("⚡ FreeBuff", null, (_, _) => LaunchApp("FreeBuff", @"C:\Users\Gaming\AppData\Local\Programs\@codebufffreebuff-desktop\Freebuff.exe")));
         trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("💻 OpenCode", null, (_, _) => LaunchApp("OpenCode", @"C:\Users\Gaming\AppData\Local\Programs\@opencodedesktop\OpenCode.exe")));
-        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🔄 OpenCode Quota Reset", null, (_, _) => LaunchApp("OpenCode Quota Reset", @"C:\Windows\System32\wscript.exe", "\"C:\\Users\\Gaming\\Desktop\\Folders-Z\\userscript\\TeleBot\\gui\\launch.vbs\"")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🔄 OpenCode Quota Reset", null, async (_, _) => await ResetOpenCodeQuotaAsync()));
         trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🤖 Cline", null, (_, _) => LaunchApp("Cline", @"C:\Users\Gaming\AppData\Local\Cline\cline-app.exe")));
         trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🧠 DeepSeek", null, (_, _) => LaunchApp("DeepSeek", @"E:\DeepSeek Harness\DeepSeek Harness.exe")));
 
@@ -770,7 +805,14 @@ public partial class MainForm : Form
         launchClineButton.Click += (_, _) => LaunchApp("Cline", @"C:\Users\Gaming\AppData\Local\Cline\cline-app.exe");
         launchDeepSeekButton.Click += (_, _) => LaunchApp("DeepSeek", @"E:\DeepSeek Harness\DeepSeek Harness.exe");
         launchOpenCodeButton.Click += (_, _) => LaunchApp("OpenCode", @"C:\Users\Gaming\AppData\Local\Programs\@opencodedesktop\OpenCode.exe");
-        resetOpenCodeQuotaButton.Click += (_, _) => LaunchApp("OpenCode Quota Reset", @"C:\Windows\System32\wscript.exe", "\"C:\\Users\\Gaming\\Desktop\\Folders-Z\\userscript\\TeleBot\\gui\\launch.vbs\"");
+        resetOpenCodeQuotaButton.Click += async (_, _) => await ResetOpenCodeQuotaAsync();
+        toggleIpMaskButton.Click += (_, _) =>
+        {
+            _isIpMasked = !_isIpMasked;
+            StartupHelper.SetPreference("MaskPublicIp", _isIpMasked);
+            UpdatePublicIpDisplay();
+        };
+        refreshIpButton.Click += async (_, _) => await RefreshPublicIpAsync();
 
         // LAN controls
         lanToggleCheckBox.CheckedChanged += LanToggleCheckBox_CheckedChanged;
@@ -1503,6 +1545,199 @@ public partial class MainForm : Form
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning
             );
+        }
+    }
+
+    private void UpdatePublicIpDisplay()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(UpdatePublicIpDisplay);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_currentPublicIp))
+        {
+            publicIpLabel.Text = "🌐 IP: Loading...";
+            return;
+        }
+
+        publicIpLabel.Text = _isIpMasked ? "🌐 IP: ****" : $"🌐 IP: {_currentPublicIp}";
+    }
+
+    private async Task RefreshPublicIpAsync()
+    {
+        try
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(() => publicIpLabel.Text = "🌐 IP: Fetching...");
+            }
+            else
+            {
+                publicIpLabel.Text = "🌐 IP: Fetching...";
+            }
+
+            var ip = await FetchPublicIpAsync();
+            if (!string.IsNullOrWhiteSpace(ip))
+            {
+                _currentPublicIp = ip;
+            }
+        }
+        catch
+        {
+            // Ignore fetch issues
+        }
+        finally
+        {
+            UpdatePublicIpDisplay();
+        }
+    }
+
+    private static async Task<string?> FetchPublicIpAsync(CancellationToken ct = default)
+    {
+        string[] endpoints =
+        [
+            "https://api.ipify.org",
+            "https://icanhazip.com",
+            "https://ifconfig.me/ip"
+        ];
+
+        foreach (var url in endpoints)
+        {
+            try
+            {
+                using var response = await _publicIpHttpClient.GetAsync(url, ct);
+                if (response.IsSuccessStatusCode)
+                {
+                    var text = (await response.Content.ReadAsStringAsync(ct)).Trim();
+                    if (!string.IsNullOrWhiteSpace(text) && text.Length <= 45 && !text.Contains('<'))
+                    {
+                        return text;
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback to next endpoint
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<bool> RunWarpCliCommandAsync(string arguments)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "warp-cli.exe",
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc == null) return false;
+
+            await proc.WaitForExitAsync();
+            return proc.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task ResetOpenCodeQuotaAsync()
+    {
+        try
+        {
+            resetOpenCodeQuotaButton.Enabled = false;
+            resetOpenCodeQuotaButton.Text = "⏳";
+            publicIpLabel.Text = "🌐 IP: Rotating WARP...";
+            AppendLog("QuotaReset", "Initiating Cloudflare WARP IP rotation for OpenCode...");
+
+            string oldIp = _currentPublicIp ?? (await FetchPublicIpAsync()) ?? "unknown";
+
+            // 1. Disconnect WARP
+            await RunWarpCliCommandAsync("disconnect");
+            await Task.Delay(1500);
+
+            // 2. Connect WARP
+            var connected = await RunWarpCliCommandAsync("connect");
+            if (!connected)
+            {
+                await Task.Delay(1000);
+                await RunWarpCliCommandAsync("connect");
+            }
+
+            // 3. Retry loop to wait until internet connection stabilizes
+            string? newIp = null;
+            for (int i = 0; i < 12; i++)
+            {
+                await Task.Delay(1800);
+                var ip = await FetchPublicIpAsync();
+                if (!string.IsNullOrWhiteSpace(ip))
+                {
+                    newIp = ip;
+                    if (oldIp == "unknown" || ip != oldIp)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(newIp))
+            {
+                throw new Exception("Internet connection did not stabilize after Cloudflare WARP reconnect.");
+            }
+
+            // Key rotation fallback if IP did not change
+            if (oldIp != "unknown" && newIp == oldIp)
+            {
+                await RunWarpCliCommandAsync("tunnel rotate-keys");
+                await Task.Delay(2000);
+                var retryIp = await FetchPublicIpAsync();
+                if (!string.IsNullOrWhiteSpace(retryIp))
+                {
+                    newIp = retryIp;
+                }
+            }
+
+            _currentPublicIp = newIp;
+            UpdatePublicIpDisplay();
+
+            string msg = oldIp != "unknown" && oldIp != newIp
+                ? $"Public IP successfully rotated from {oldIp} to {newIp}!\n\nOpenCode quota refreshed."
+                : $"WARP reconnected with active IP {newIp}!\n\nOpenCode quota refreshed.";
+
+            AppendLog("QuotaReset", $"SUCCESS: {msg.Replace("\n\n", " ")}");
+            MessageBox.Show(
+                msg,
+                "OpenCode Quota Reset Succeeded",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            );
+        }
+        catch (Exception ex)
+        {
+            AppendLog("QuotaReset", $"ERROR: {ex.Message}");
+            _ = RefreshPublicIpAsync();
+            MessageBox.Show(
+                $"Quota Reset Failed:\n\n{ex.Message}",
+                "Quota Reset Failed",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning
+            );
+        }
+        finally
+        {
+            resetOpenCodeQuotaButton.Text = "🔄";
+            resetOpenCodeQuotaButton.Enabled = true;
         }
     }
 
