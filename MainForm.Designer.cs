@@ -15,11 +15,14 @@ partial class MainForm
 
     private Panel hermesCard = null!;
     private Label hermesCardTitle = null!;
+    private Label cliSummaryLabel = null!;
+    private ComboBox cliSelectComboBox = null!;
     private Button viewLogsButton = null!;
     private Label hermesStatusLabel = null!;
     private Button startHermesButton = null!;
     private Button stopHermesButton = null!;
     private Button openDashboardButton = null!;
+    private Label cliDotsLabel = null!;
 
     private Panel lanCard = null!;
     private Label lanCardTitle = null!;
@@ -88,11 +91,14 @@ partial class MainForm
 
         hermesCard = new Panel();
         hermesCardTitle = new Label();
+        cliSummaryLabel = new Label();
+        cliSelectComboBox = new ComboBox();
         viewLogsButton = new Button();
         hermesStatusLabel = new Label();
         startHermesButton = new Button();
         stopHermesButton = new Button();
         openDashboardButton = new Button();
+        cliDotsLabel = new Label();
 
         lanCard = new Panel();
         lanCardTitle = new Label();
@@ -195,23 +201,32 @@ partial class MainForm
         closeButton.TabStop = false;
 
         // 
-        // Hermes Service Card
+        // Hermes / CLI Services Card
         // 
         hermesCard.BackColor = Color.FromArgb(24, 24, 27);
         hermesCard.Location = new Point(16, 68);
-        hermesCard.Size = new Size(418, 126);
+        hermesCard.Size = new Size(418, 150);
         hermesCard.Controls.Add(hermesCardTitle);
+        hermesCard.Controls.Add(cliSummaryLabel);
         hermesCard.Controls.Add(viewLogsButton);
+        hermesCard.Controls.Add(cliSelectComboBox);
         hermesCard.Controls.Add(hermesStatusLabel);
         hermesCard.Controls.Add(startHermesButton);
         hermesCard.Controls.Add(stopHermesButton);
         hermesCard.Controls.Add(openDashboardButton);
+        hermesCard.Controls.Add(cliDotsLabel);
 
         hermesCardTitle.AutoSize = true;
         hermesCardTitle.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
         hermesCardTitle.ForeColor = Color.FromArgb(113, 113, 122);
         hermesCardTitle.Location = new Point(14, 12);
-        hermesCardTitle.Text = "HERMES SERVICE";
+        hermesCardTitle.Text = "CLI SERVICES";
+
+        cliSummaryLabel.AutoSize = true;
+        cliSummaryLabel.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
+        cliSummaryLabel.ForeColor = Color.FromArgb(16, 185, 129);
+        cliSummaryLabel.Location = new Point(96, 12);
+        cliSummaryLabel.Text = "Active: 0/3";
 
         viewLogsButton.FlatStyle = FlatStyle.Flat;
         viewLogsButton.FlatAppearance.BorderSize = 1;
@@ -219,15 +234,24 @@ partial class MainForm
         viewLogsButton.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
         viewLogsButton.BackColor = Color.FromArgb(24, 24, 27);
         viewLogsButton.ForeColor = Color.FromArgb(161, 161, 170);
-        viewLogsButton.Location = new Point(334, 10);
+        viewLogsButton.Location = new Point(334, 8);
         viewLogsButton.Size = new Size(70, 24);
         viewLogsButton.Text = "Logs";
         viewLogsButton.Cursor = Cursors.Hand;
 
+        cliSelectComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        cliSelectComboBox.FlatStyle = FlatStyle.Flat;
+        cliSelectComboBox.BackColor = Color.FromArgb(16, 16, 20);
+        cliSelectComboBox.ForeColor = Color.FromArgb(250, 250, 250);
+        cliSelectComboBox.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        cliSelectComboBox.Location = new Point(14, 38);
+        cliSelectComboBox.Size = new Size(188, 26);
+        cliSelectComboBox.Cursor = Cursors.Hand;
+
         hermesStatusLabel.AutoSize = true;
-        hermesStatusLabel.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
+        hermesStatusLabel.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
         hermesStatusLabel.ForeColor = Color.FromArgb(239, 68, 68);
-        hermesStatusLabel.Location = new Point(14, 34);
+        hermesStatusLabel.Location = new Point(208, 42);
         hermesStatusLabel.Text = "Engine: Offline";
 
         startHermesButton.FlatStyle = FlatStyle.Flat;
@@ -235,7 +259,7 @@ partial class MainForm
         startHermesButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         startHermesButton.BackColor = Color.FromArgb(16, 185, 129);
         startHermesButton.ForeColor = Color.FromArgb(9, 9, 11);
-        startHermesButton.Location = new Point(14, 70);
+        startHermesButton.Location = new Point(14, 74);
         startHermesButton.Size = new Size(122, 38);
         startHermesButton.Text = "Start Hermes";
         startHermesButton.Cursor = Cursors.Hand;
@@ -245,7 +269,7 @@ partial class MainForm
         stopHermesButton.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
         stopHermesButton.BackColor = Color.FromArgb(24, 24, 27);
         stopHermesButton.ForeColor = Color.FromArgb(161, 161, 170);
-        stopHermesButton.Location = new Point(144, 70);
+        stopHermesButton.Location = new Point(144, 74);
         stopHermesButton.Size = new Size(118, 38);
         stopHermesButton.Text = "Stop Hermes";
         stopHermesButton.Cursor = Cursors.Hand;
@@ -255,16 +279,22 @@ partial class MainForm
         openDashboardButton.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
         openDashboardButton.BackColor = Color.FromArgb(24, 24, 27);
         openDashboardButton.ForeColor = Color.FromArgb(250, 250, 250);
-        openDashboardButton.Location = new Point(270, 70);
+        openDashboardButton.Location = new Point(270, 74);
         openDashboardButton.Size = new Size(134, 38);
-        openDashboardButton.Text = "Open Dashboard";
+        openDashboardButton.Text = "Open Webview";
         openDashboardButton.Cursor = Cursors.Hand;
+
+        cliDotsLabel.AutoSize = true;
+        cliDotsLabel.Font = new Font("Segoe UI", 8F, FontStyle.Regular);
+        cliDotsLabel.ForeColor = Color.FromArgb(113, 113, 122);
+        cliDotsLabel.Location = new Point(14, 124);
+        cliDotsLabel.Text = "Hermes: ○ Offline   Claude: ○ Offline   Gemini: ○ Offline";
 
         // 
         // LAN Card
         // 
         lanCard.BackColor = Color.FromArgb(24, 24, 27);
-        lanCard.Location = new Point(16, 206);
+        lanCard.Location = new Point(16, 230);
         lanCard.Size = new Size(418, 152);
         lanCard.Controls.Add(lanCardTitle);
         lanCard.Controls.Add(lanToggleCheckBox);

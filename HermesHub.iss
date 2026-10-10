@@ -54,6 +54,7 @@ Source: "bin\Release\net10.0-windows\win-x64\publish\{#MyAppExeName}"; DestDir: 
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "assets\app.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "bin\Release\net10.0-windows\win-x64\publish\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

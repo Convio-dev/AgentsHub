@@ -22,7 +22,7 @@ public class LanProxyService : IDisposable
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _listenTask;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private readonly ConcurrentDictionary<string, DateTime> _recentlyNotifiedRemoteIps = new();
     private readonly ConcurrentDictionary<string, ConnectedClientInfo> _clients = new();
 
@@ -112,11 +112,10 @@ public class LanProxyService : IDisposable
     public IReadOnlyList<ConnectedClientInfo> GetActiveClients()
     {
         var now = DateTime.UtcNow;
-        return _clients.Values
+        return [.. _clients.Values
             .Where(c => c.ActiveConnections > 0 || (now - c.LastActivity).TotalSeconds < 90)
             .OrderByDescending(c => c.ActiveConnections > 0)
-            .ThenByDescending(c => c.LastActivity)
-            .ToList();
+            .ThenByDescending(c => c.LastActivity)];
     }
 
     public string GetConnectedClientsSummary()
@@ -697,5 +696,6 @@ public class LanProxyService : IDisposable
     public void Dispose()
     {
         Stop();
+        GC.SuppressFinalize(this);
     }
 }

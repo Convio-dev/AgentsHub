@@ -22,8 +22,8 @@ public class HermesProcessService : IDisposable
     private string _statusMessage = "Offline";
     private DateTime? _startRequestedTime;
 
-    private readonly List<string> _logHistory = new();
-    private readonly object _logLock = new();
+    private readonly List<string> _logHistory = [];
+    private readonly Lock _logLock = new();
     private const int MaxLogEntries = 600;
 
     public HermesStatus CurrentStatus => _status;
@@ -56,7 +56,7 @@ public class HermesProcessService : IDisposable
     {
         lock (_logLock)
         {
-            return _logHistory.ToList();
+            return [.. _logHistory];
         }
     }
 
@@ -294,5 +294,7 @@ public class HermesProcessService : IDisposable
         {
             // Suppress cleanup exceptions on process shutdown
         }
+
+        GC.SuppressFinalize(this);
     }
 }

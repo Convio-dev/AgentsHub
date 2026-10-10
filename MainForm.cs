@@ -20,6 +20,7 @@ public partial class MainForm : Form
     private static partial bool ReleaseCapture();
 
     private readonly HermesProcessService _hermesService;
+    private readonly CliManagerService _cliManager;
     private readonly LanProxyService _lanProxyService;
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _trayContextMenu;
@@ -37,6 +38,8 @@ public partial class MainForm : Form
     private Bitmap? _currentQrBitmap;
     private int _totalLogLines;
     private readonly ToolTip _clientsToolTip = new();
+    private CliWebviewForm? _cliWebviewForm;
+    private CliType _selectedCliType = CliType.Hermes;
 
     public MainForm(bool startMinimized = false)
     {
@@ -44,6 +47,7 @@ public partial class MainForm : Form
         var savedLanPort = StartupHelper.GetIntPreference("LanPort", 9191);
 
         _hermesService = new HermesProcessService(savedEnginePort);
+        _cliManager = new CliManagerService(_hermesService);
         _lanProxyService = new LanProxyService
         {
             ListenPort = savedLanPort,
@@ -56,11 +60,11 @@ public partial class MainForm : Form
         {
             if (InvokeRequired)
             {
-                BeginInvoke(() => _hermesService.Start());
+                BeginInvoke(() => _cliManager.Start(CliType.Hermes));
             }
             else
             {
-                _hermesService.Start();
+                _cliManager.Start(CliType.Hermes);
             }
             return Task.CompletedTask;
         };
@@ -88,6 +92,28 @@ public partial class MainForm : Form
         _lanProxyService.ActiveClientsChanged += (clients) => UpdateClientsUi(clients);
 
         InitializeComponent();
+
+        // Populate CLI selection dropdown
+        cliSelectComboBox.Items.Clear();
+        cliSelectComboBox.Items.Add("Hermes (Web Dashboard)");
+        cliSelectComboBox.Items.Add("Claude Code (CLI)");
+        cliSelectComboBox.Items.Add("Gemini CLI");
+
+        var savedCliIndex = StartupHelper.GetIntPreference("SelectedCli", 0);
+        if (savedCliIndex < 0 || savedCliIndex >= cliSelectComboBox.Items.Count)
+        {
+            savedCliIndex = 0;
+        }
+        cliSelectComboBox.SelectedIndex = savedCliIndex;
+        _selectedCliType = (CliType)savedCliIndex;
+
+        cliSelectComboBox.SelectedIndexChanged += (_, _) =>
+        {
+            _selectedCliType = (CliType)cliSelectComboBox.SelectedIndex;
+            StartupHelper.SetIntPreference("SelectedCli", (int)_selectedCliType);
+            UpdateCliStatusUi();
+        };
+
         InitializeCustomStyles();
         InitializeTrayIcon();
         HookEvents();
@@ -115,13 +141,15 @@ public partial class MainForm : Form
         // Apply automation if enabled
         if (autoStartHermesCheckBox.Checked)
         {
-            _hermesService.Start();
+            _cliManager.Start(CliType.Hermes);
         }
 
         if (autoEnableLanCheckBox.Checked)
         {
             lanToggleCheckBox.Checked = true;
         }
+
+        UpdateCliStatusUi();
 
         if (startMinimized)
         {
@@ -239,13 +267,13 @@ public partial class MainForm : Form
         _trayContextMenu.BackColor = Color.FromArgb(24, 24, 27);
         _trayContextMenu.ForeColor = Color.FromArgb(250, 250, 250);
 
-        _trayOpenWebUiItem = new ToolStripMenuItem("Open Hermes WebUI", null, (_, _) => OpenDashboard())
+        _trayOpenWebUiItem = new ToolStripMenuItem("Open CLI Webview Hub", null, (_, _) => OpenCliWebview())
         {
             Font = new Font("Segoe UI", 9F, FontStyle.Bold)
         };
 
-        _trayStartItem = new ToolStripMenuItem("Start Engine", null, (_, _) => _hermesService.Start());
-        _trayStopItem = new ToolStripMenuItem("Stop Engine", null, async (_, _) => await _hermesService.StopAsync())
+        _trayStartItem = new ToolStripMenuItem("Start CLI", null, (_, _) => _cliManager.Start(_selectedCliType));
+        _trayStopItem = new ToolStripMenuItem("Stop CLI", null, async (_, _) => await _cliManager.StopAsync(_selectedCliType))
         {
             Enabled = false
         };
@@ -290,10 +318,10 @@ public partial class MainForm : Form
         minimizeButton.Click += (_, _) => Hide();
         closeButton.Click += (_, _) => ConfirmAndExitApplication();
 
-        // Hermes controls
-        startHermesButton.Click += (_, _) => _hermesService.Start();
-        stopHermesButton.Click += async (_, _) => await _hermesService.StopAsync();
-        openDashboardButton.Click += (_, _) => OpenDashboard();
+        // CLI controls
+        startHermesButton.Click += (_, _) => _cliManager.Start(_selectedCliType);
+        stopHermesButton.Click += async (_, _) => await _cliManager.StopAsync(_selectedCliType);
+        openDashboardButton.Click += (_, _) => OpenCliWebview(_selectedCliType);
         viewLogsButton.Click += (_, _) => ToggleLogsDrawer();
 
         // LAN controls
@@ -337,17 +365,17 @@ public partial class MainForm : Form
         quitAppButton.Click += (_, _) => ConfirmAndExitApplication();
 
         // Service callbacks
-        _hermesService.LogMessage += (msg) => AppendLog("Engine", msg);
         _lanProxyService.LogMessage += (msg) => AppendLog("Proxy", msg);
-        _hermesService.StatusChanged += (status, message) =>
+        _cliManager.LogMessage += (cat, msg) => AppendLog(cat, msg);
+        _cliManager.StatusChanged += (type, state, message) =>
         {
             if (InvokeRequired)
             {
-                BeginInvoke(() => UpdateHermesStatusUi(status, message));
+                BeginInvoke(UpdateCliStatusUi);
             }
             else
             {
-                UpdateHermesStatusUi(status, message);
+                UpdateCliStatusUi();
             }
         };
 
@@ -497,66 +525,72 @@ public partial class MainForm : Form
         );
     }
 
-    private void UpdateHermesStatusUi(HermesStatus status, string message)
+    private void UpdateCliStatusUi()
     {
-        hermesStatusLabel.Text = message;
+        var info = _cliManager.GetInfo(_selectedCliType);
 
-        switch (status)
+        startHermesButton.Text = $"Start {info.ShortName}";
+        stopHermesButton.Text = $"Stop {info.ShortName}";
+        openDashboardButton.Text = "Open Webview";
+
+        hermesStatusLabel.Text = info.StatusText;
+
+        switch (info.State)
         {
-            case HermesStatus.Online:
-                statusDot.BackColor = Color.FromArgb(16, 185, 129);
+            case CliState.Running:
                 hermesStatusLabel.ForeColor = Color.FromArgb(16, 185, 129);
                 startHermesButton.Enabled = false;
                 startHermesButton.BackColor = Color.FromArgb(39, 39, 42);
                 startHermesButton.ForeColor = Color.FromArgb(113, 113, 122);
                 stopHermesButton.Enabled = true;
                 stopHermesButton.ForeColor = Color.FromArgb(239, 68, 68);
-                openDashboardButton.Enabled = true;
-                _trayStartItem.Enabled = false;
-                _trayStopItem.Enabled = true;
                 break;
 
-            case HermesStatus.Starting:
-                statusDot.BackColor = Color.FromArgb(245, 158, 11);
+            case CliState.Starting:
                 hermesStatusLabel.ForeColor = Color.FromArgb(245, 158, 11);
                 startHermesButton.Enabled = false;
                 startHermesButton.BackColor = Color.FromArgb(39, 39, 42);
                 startHermesButton.ForeColor = Color.FromArgb(113, 113, 122);
                 stopHermesButton.Enabled = true;
-                openDashboardButton.Enabled = false;
-                _trayStartItem.Enabled = false;
-                _trayStopItem.Enabled = true;
+                stopHermesButton.ForeColor = Color.FromArgb(161, 161, 170);
                 break;
 
-            case HermesStatus.Offline:
+            case CliState.Offline:
+            case CliState.Error:
             default:
-                statusDot.BackColor = Color.FromArgb(239, 68, 68);
                 hermesStatusLabel.ForeColor = Color.FromArgb(239, 68, 68);
                 startHermesButton.Enabled = true;
                 startHermesButton.BackColor = Color.FromArgb(16, 185, 129);
                 startHermesButton.ForeColor = Color.FromArgb(9, 9, 11);
                 stopHermesButton.Enabled = false;
                 stopHermesButton.ForeColor = Color.FromArgb(113, 113, 122);
-                openDashboardButton.Enabled = false;
-                _trayStartItem.Enabled = true;
-                _trayStopItem.Enabled = false;
                 break;
         }
 
-        _notifyIcon.Icon = status switch
-        {
-            HermesStatus.Online => _trayIconOnline,
-            HermesStatus.Starting => _trayIconStarting,
-            _ => _trayIconOffline
-        };
-        _notifyIcon.Text = status switch
-        {
-            HermesStatus.Online => "Hermes Hub - Online",
-            HermesStatus.Starting => "Hermes Hub - Starting",
-            _ => "Hermes Hub - Offline"
-        };
+        // Multi-CLI Overview summary
+        var activeCount = _cliManager.GetActiveCount();
+        cliSummaryLabel.Text = $"Active: {activeCount}/3";
+        cliSummaryLabel.ForeColor = activeCount > 0 ? Color.FromArgb(16, 185, 129) : Color.FromArgb(113, 113, 122);
 
+        var hInfo = _cliManager.GetInfo(CliType.Hermes);
+        var cInfo = _cliManager.GetInfo(CliType.ClaudeCode);
+        var gInfo = _cliManager.GetInfo(CliType.GeminiCli);
+
+        static string Dot(CliState s) => s == CliState.Running ? "●" : (s == CliState.Starting ? "◐" : "○");
+        cliDotsLabel.Text = $"Hermes: {Dot(hInfo.State)}   Claude: {Dot(cInfo.State)}   Gemini: {Dot(gInfo.State)}";
+
+        // Status dot in title bar
+        statusDot.BackColor = activeCount > 0 ? Color.FromArgb(16, 185, 129) : Color.FromArgb(239, 68, 68);
         statusDot.Invalidate();
+
+        // System tray
+        _notifyIcon.Icon = activeCount > 0 ? _trayIconOnline : _trayIconOffline;
+        _notifyIcon.Text = $"Hermes Hub - {activeCount} of 3 Active";
+
+        _trayStartItem.Text = $"Start {info.ShortName}";
+        _trayStartItem.Enabled = info.State == CliState.Offline;
+        _trayStopItem.Text = $"Stop {info.ShortName}";
+        _trayStopItem.Enabled = info.State == CliState.Running || info.State == CliState.Starting;
     }
 
     private void LanToggleCheckBox_CheckedChanged(object? sender, EventArgs e)
@@ -614,6 +648,7 @@ public partial class MainForm : Form
 
     private void UpdateFormLayout()
     {
+        lanCard.Top = hermesCard.Bottom + 12;
         var lanHeight = qrDrawerPanel.Visible ? 340 : 152;
         lanCard.Height = lanHeight;
 
@@ -797,16 +832,28 @@ public partial class MainForm : Form
         }
     }
 
+    private void OpenCliWebview(CliType? initialTab = null)
+    {
+        var tab = initialTab ?? _selectedCliType;
+        if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
+        {
+            _cliWebviewForm = new CliWebviewForm(_cliManager, tab);
+            _cliWebviewForm.FormClosed += (_, _) => _cliWebviewForm = null;
+        }
+        else
+        {
+            _cliWebviewForm.SwitchTab(tab);
+        }
+
+        _cliWebviewForm.Show();
+        _cliWebviewForm.WindowState = FormWindowState.Normal;
+        _cliWebviewForm.Activate();
+        _cliWebviewForm.BringToFront();
+    }
+
     private void OpenDashboard()
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo($"http://127.0.0.1:{_hermesService.Port}/") { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Unable to launch dashboard: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        OpenCliWebview(CliType.Hermes);
     }
 
     private void UpdateTelemetry()
@@ -862,8 +909,9 @@ public partial class MainForm : Form
     private void ExitApplication()
     {
         _isExiting = true;
+        _cliWebviewForm?.Dispose();
+        _cliManager.Dispose();
         _lanProxyService.Stop();
-        _hermesService.Dispose();
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
         _trayIconOffline.Dispose();
