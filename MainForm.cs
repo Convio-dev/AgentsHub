@@ -108,7 +108,7 @@ public partial class MainForm : Form
         cliSelectComboBox.Items.Clear();
         cliSelectComboBox.Items.Add("Hermes (Web Dashboard)");
         cliSelectComboBox.Items.Add("Claude Code (CLI)");
-        cliSelectComboBox.Items.Add("Gemini CLI");
+        cliSelectComboBox.Items.Add("Antigravity CLI");
 
         var savedCliIndex = StartupHelper.GetIntPreference("SelectedCli", 0);
         if (savedCliIndex < 0 || savedCliIndex >= cliSelectComboBox.Items.Count)
@@ -192,6 +192,7 @@ public partial class MainForm : Form
         }
 
         hermesCard.Paint += (s, e) => PaintBorder((Panel)s!, e);
+        quickAppsCard.Paint += (s, e) => PaintBorder((Panel)s!, e);
         lanCard.Paint += (s, e) => PaintBorder((Panel)s!, e);
         settingsCard.Paint += (s, e) => PaintBorder((Panel)s!, e);
         logsPanel.Paint += (s, e) => PaintBorder((Panel)s!, e);
@@ -221,6 +222,11 @@ public partial class MainForm : Form
         toolTip.SetToolTip(themeToggleButton, "Toggle between Light and Dark mode");
         toolTip.SetToolTip(topWebviewButton, "Open CLI Workspace in embedded Webview");
         toolTip.SetToolTip(topLogsButton, "Show or hide system logs");
+        toolTip.SetToolTip(launchFreeBuffButton, "Launch FreeBuff Desktop");
+        toolTip.SetToolTip(launchClineButton, "Launch Cline Desktop App");
+        toolTip.SetToolTip(launchDeepSeekButton, "Launch DeepSeek Harness");
+        toolTip.SetToolTip(launchOpenCodeButton, "Launch OpenCode Desktop");
+        toolTip.SetToolTip(resetOpenCodeQuotaButton, "Reset OpenCode Quota (run launch.vbs)");
     }
 
     protected override void OnShown(EventArgs e)
@@ -329,8 +335,8 @@ public partial class MainForm : Form
         int extraQr = qrDrawerPanel.Visible ? 180 : 0;
         int logsH = logsPanel.Visible ? 212 : 0;
 
-        // Base height like before (680px), expanding for drawers
-        int targetClientHeight = 680 + extraQr + logsH;
+        // Base height accommodating AI dev tools card (760px), expanding for drawers
+        int targetClientHeight = 760 + extraQr + logsH;
 
         var screen = Screen.FromControl(this) ?? Screen.PrimaryScreen;
         int maxAvailableHeight = (screen?.WorkingArea.Height ?? 1080) - 40;
@@ -359,7 +365,7 @@ public partial class MainForm : Form
 
         // Precompute total content height for scroll bounds
         int lanH = qrDrawerPanel.Visible ? 330 : 150;
-        int totalContentHeight = 10 + 162 + spacing + lanH + spacing + 176;
+        int totalContentHeight = 10 + 162 + spacing + 128 + spacing + lanH + spacing + 176;
         if (logsPanel.Visible)
         {
             totalContentHeight += spacing + 200;
@@ -395,7 +401,35 @@ public partial class MainForm : Form
 
         currentY += hermesCard.Height + spacing;
 
-        // 2. LAN Card
+        // 2. AI Dev Tools / Quick Apps Card
+        quickAppsCard.Location = new Point(margin, currentY);
+        quickAppsCard.Width = cardWidth;
+        quickAppsCard.Height = 128;
+
+        int innerW = cardWidth - 28;
+        int row1Gap = 8;
+        int row1BtnW = (innerW - (2 * row1Gap)) / 3;
+        int row1Remaining = innerW - (row1BtnW * 2 + (2 * row1Gap));
+
+        launchFreeBuffButton.Location = new Point(14, 38);
+        launchFreeBuffButton.Size = new Size(row1BtnW, 34);
+
+        launchClineButton.Location = new Point(14 + row1BtnW + row1Gap, 38);
+        launchClineButton.Size = new Size(row1BtnW, 34);
+
+        launchDeepSeekButton.Location = new Point(14 + (row1BtnW + row1Gap) * 2, 38);
+        launchDeepSeekButton.Size = new Size(row1Remaining, 34);
+
+        launchOpenCodeButton.Location = new Point(14, 80);
+        launchOpenCodeButton.Size = new Size(innerW, 34);
+        launchOpenCodeButton.Padding = new Padding(34, 0, 34, 0);
+
+        resetOpenCodeQuotaButton.Location = new Point(launchOpenCodeButton.Width - 34, 3);
+        resetOpenCodeQuotaButton.Size = new Size(30, 28);
+
+        currentY += quickAppsCard.Height + spacing;
+
+        // 3. LAN Card
         lanCard.Location = new Point(margin, currentY);
         lanCard.Width = cardWidth;
 
@@ -484,6 +518,7 @@ public partial class MainForm : Form
 
         // Cards backgrounds
         hermesCard.BackColor = c.CardBackground;
+        quickAppsCard.BackColor = c.CardBackground;
         lanCard.BackColor = c.CardBackground;
         settingsCard.BackColor = c.CardBackground;
         logsPanel.BackColor = c.CardBackground;
@@ -492,6 +527,8 @@ public partial class MainForm : Form
 
         // Headers and labels
         hermesCardTitle.ForeColor = c.TextMuted;
+        quickAppsCardTitle.ForeColor = c.TextMuted;
+        quickAppsSubtitleLabel.ForeColor = c.AccentGreen;
         lanCardTitle.ForeColor = c.TextMuted;
         settingsCardTitle.ForeColor = c.TextMuted;
         logsTitleLabel.ForeColor = c.TextMuted;
@@ -530,6 +567,22 @@ public partial class MainForm : Form
         quitAppButton.FlatAppearance.BorderColor = c.ButtonBorder;
 
         // Buttons styling
+        StyleStandardButton(launchFreeBuffButton);
+        StyleStandardButton(launchClineButton);
+        StyleStandardButton(launchDeepSeekButton);
+        StyleStandardButton(launchOpenCodeButton);
+
+        resetOpenCodeQuotaButton.FlatStyle = FlatStyle.Flat;
+        resetOpenCodeQuotaButton.FlatAppearance.BorderSize = 0;
+        resetOpenCodeQuotaButton.BackColor = Color.Transparent;
+        resetOpenCodeQuotaButton.ForeColor = c.TextMuted;
+        resetOpenCodeQuotaButton.Cursor = Cursors.Hand;
+        resetOpenCodeQuotaButton.Font = new Font("Segoe UI", 9.5F);
+        resetOpenCodeQuotaButton.MouseEnter -= OnResetButtonMouseEnter;
+        resetOpenCodeQuotaButton.MouseLeave -= OnResetButtonMouseLeave;
+        resetOpenCodeQuotaButton.MouseEnter += OnResetButtonMouseEnter;
+        resetOpenCodeQuotaButton.MouseLeave += OnResetButtonMouseLeave;
+
         StyleStandardButton(copyLanButton);
         StyleStandardButton(openLanButton);
         StyleStandardButton(toggleQrButton);
@@ -562,6 +615,7 @@ public partial class MainForm : Form
         _cliWebviewForm?.ApplyTheme();
 
         hermesCard.Invalidate();
+        quickAppsCard.Invalidate();
         lanCard.Invalidate();
         settingsCard.Invalidate();
         logsPanel.Invalidate();
@@ -602,6 +656,24 @@ public partial class MainForm : Form
         }
     }
 
+    private static void OnResetButtonMouseEnter(object? sender, EventArgs e)
+    {
+        if (sender is Button btn)
+        {
+            btn.BackColor = ThemeManager.Colors.ButtonHover;
+            btn.ForeColor = ThemeManager.Colors.AccentGreen;
+        }
+    }
+
+    private static void OnResetButtonMouseLeave(object? sender, EventArgs e)
+    {
+        if (sender is Button btn)
+        {
+            btn.BackColor = Color.Transparent;
+            btn.ForeColor = ThemeManager.Colors.TextMuted;
+        }
+    }
+
     private void InitializeTrayIcon()
     {
         if (_trayContextMenu == null || _notifyIcon == null) return;
@@ -639,7 +711,15 @@ public partial class MainForm : Form
         var trayShowDashboardItem = new ToolStripMenuItem("Dashboard Window", null, (_, _) => ShowAndActivate());
         var trayExitItem = new ToolStripMenuItem("Exit Completely", null, (_, _) => ConfirmAndExitApplication());
 
+        var trayToolsMenu = new ToolStripMenuItem("Launch AI Tools");
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("⚡ FreeBuff", null, (_, _) => LaunchApp("FreeBuff", @"C:\Users\Gaming\AppData\Local\Programs\@codebufffreebuff-desktop\Freebuff.exe")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("💻 OpenCode", null, (_, _) => LaunchApp("OpenCode", @"C:\Users\Gaming\AppData\Local\Programs\@opencodedesktop\OpenCode.exe")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🔄 OpenCode Quota Reset", null, (_, _) => LaunchApp("OpenCode Quota Reset", @"C:\Windows\System32\wscript.exe", "\"C:\\Users\\Gaming\\Desktop\\Folders-Z\\userscript\\TeleBot\\gui\\launch.vbs\"")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🤖 Cline", null, (_, _) => LaunchApp("Cline", @"C:\Users\Gaming\AppData\Local\Cline\cline-app.exe")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🧠 DeepSeek", null, (_, _) => LaunchApp("DeepSeek", @"E:\DeepSeek Harness\DeepSeek Harness.exe")));
+
         _trayContextMenu.Items.Add(_trayOpenWebUiItem);
+        _trayContextMenu.Items.Add(trayToolsMenu);
         _trayContextMenu.Items.Add(new ToolStripSeparator());
         _trayContextMenu.Items.Add(_trayStartItem);
         _trayContextMenu.Items.Add(_trayStopItem);
@@ -684,6 +764,13 @@ public partial class MainForm : Form
         };
         openDashboardButton.Click += (_, _) => OpenCliWebview(_selectedCliType);
         openBrowserMainButton.Click += (_, _) => OpenBrowserForSelectedCli();
+
+        // AI Dev Tools controls
+        launchFreeBuffButton.Click += (_, _) => LaunchApp("FreeBuff", @"C:\Users\Gaming\AppData\Local\Programs\@codebufffreebuff-desktop\Freebuff.exe");
+        launchClineButton.Click += (_, _) => LaunchApp("Cline", @"C:\Users\Gaming\AppData\Local\Cline\cline-app.exe");
+        launchDeepSeekButton.Click += (_, _) => LaunchApp("DeepSeek", @"E:\DeepSeek Harness\DeepSeek Harness.exe");
+        launchOpenCodeButton.Click += (_, _) => LaunchApp("OpenCode", @"C:\Users\Gaming\AppData\Local\Programs\@opencodedesktop\OpenCode.exe");
+        resetOpenCodeQuotaButton.Click += (_, _) => LaunchApp("OpenCode Quota Reset", @"C:\Windows\System32\wscript.exe", "\"C:\\Users\\Gaming\\Desktop\\Folders-Z\\userscript\\TeleBot\\gui\\launch.vbs\"");
 
         // LAN controls
         lanToggleCheckBox.CheckedChanged += LanToggleCheckBox_CheckedChanged;
@@ -951,10 +1038,10 @@ public partial class MainForm : Form
 
         var hInfo = _cliManager.GetInfo(CliType.Hermes);
         var cInfo = _cliManager.GetInfo(CliType.ClaudeCode);
-        var gInfo = _cliManager.GetInfo(CliType.GeminiCli);
+        var aInfo = _cliManager.GetInfo(CliType.AntigravityCli);
 
         static string Dot(CliState s) => s == CliState.Running ? "●" : (s == CliState.Starting ? "◐" : "○");
-        cliDotsLabel.Text = $"Hermes: {Dot(hInfo.State)}   Claude: {Dot(cInfo.State)}   Gemini: {Dot(gInfo.State)}";
+        cliDotsLabel.Text = $"Hermes: {Dot(hInfo.State)}   Claude: {Dot(cInfo.State)}   Antigravity: {Dot(aInfo.State)}";
         cliDotsLabel.ForeColor = c.TextSecondary;
 
         // Status dot in top bar
@@ -1240,7 +1327,7 @@ public partial class MainForm : Form
     {
         CliType.Hermes => _cliManager?.HermesService.Port ?? HermesProcessService.DefaultHermesPort,
         CliType.ClaudeCode => 9229,
-        CliType.GeminiCli => 9339,
+        CliType.AntigravityCli => 9339,
         _ => 9119
     };
 
@@ -1380,6 +1467,43 @@ public partial class MainForm : Form
         }
 
         return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    private void LaunchApp(string name, string targetPath, string? arguments = null)
+    {
+        try
+        {
+            var cleanPath = targetPath.Trim('"');
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = cleanPath,
+                UseShellExecute = true
+            };
+
+            if (!string.IsNullOrWhiteSpace(arguments))
+            {
+                startInfo.Arguments = arguments;
+            }
+
+            var dir = Path.GetDirectoryName(cleanPath);
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+            {
+                startInfo.WorkingDirectory = dir;
+            }
+
+            Process.Start(startInfo);
+            AppendLog("Launcher", $"Started {name}");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Launcher", $"Failed to start {name}: {ex.Message}");
+            MessageBox.Show(
+                $"Failed to launch {name}:\n\n{ex.Message}\n\nTarget: {targetPath}",
+                $"Launch Error - {name}",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning
+            );
+        }
     }
 
     private static Icon CreateAppIcon(Color accent)

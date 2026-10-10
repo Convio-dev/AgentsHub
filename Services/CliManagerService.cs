@@ -8,7 +8,8 @@ public enum CliType
 {
     Hermes = 0,
     ClaudeCode = 1,
-    GeminiCli = 2
+    AntigravityCli = 2,
+    GeminiCli = AntigravityCli
 }
 
 public enum CliState
@@ -72,18 +73,18 @@ public class CliManagerService : IDisposable
             StatusText = "CLI: Offline"
         };
 
-        _cliStates[CliType.GeminiCli] = new CliItemInfo
+        _cliStates[CliType.AntigravityCli] = new CliItemInfo
         {
-            Type = CliType.GeminiCli,
-            DisplayName = "Gemini CLI",
-            ShortName = "Gemini CLI",
-            CommandDescription = "gemini",
+            Type = CliType.AntigravityCli,
+            DisplayName = "Antigravity CLI",
+            ShortName = "Antigravity",
+            CommandDescription = "agy",
             State = CliState.Offline,
             StatusText = "CLI: Offline"
         };
 
         _terminalBuffers[CliType.ClaudeCode] = new StringBuilder();
-        _terminalBuffers[CliType.GeminiCli] = new StringBuilder();
+        _terminalBuffers[CliType.AntigravityCli] = new StringBuilder();
 
         // Bind Hermes service events
         _hermesService.StatusChanged += (hStatus, msg) =>
@@ -199,7 +200,7 @@ public class CliManagerService : IDisposable
             string command = type switch
             {
                 CliType.ClaudeCode => "cmd.exe /c claude",
-                CliType.GeminiCli => "cmd.exe /c gemini",
+                CliType.AntigravityCli => "cmd.exe /c agy",
                 _ => "cmd.exe"
             };
 

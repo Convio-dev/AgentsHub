@@ -27,6 +27,15 @@ partial class MainForm
     private Button openBrowserMainButton = null!;
     private Label cliDotsLabel = null!;
 
+    private Panel quickAppsCard = null!;
+    private Label quickAppsCardTitle = null!;
+    private Label quickAppsSubtitleLabel = null!;
+    private Button launchFreeBuffButton = null!;
+    private Button launchClineButton = null!;
+    private Button launchDeepSeekButton = null!;
+    private Button launchOpenCodeButton = null!;
+    private Button resetOpenCodeQuotaButton = null!;
+
     private Panel lanCard = null!;
     private Label lanCardTitle = null!;
     private CheckBox lanToggleCheckBox = null!;
@@ -108,6 +117,15 @@ partial class MainForm
         openDashboardButton = new Button();
         openBrowserMainButton = new Button();
         cliDotsLabel = new Label();
+
+        quickAppsCard = new Panel();
+        quickAppsCardTitle = new Label();
+        quickAppsSubtitleLabel = new Label();
+        launchFreeBuffButton = new Button();
+        launchClineButton = new Button();
+        launchDeepSeekButton = new Button();
+        launchOpenCodeButton = new Button();
+        resetOpenCodeQuotaButton = new Button();
 
         lanCard = new Panel();
         lanCardTitle = new Label();
@@ -254,6 +272,7 @@ partial class MainForm
         scrollContainer.Dock = DockStyle.Fill;
         scrollContainer.AutoScroll = false;
         scrollContainer.Controls.Add(hermesCard);
+        scrollContainer.Controls.Add(quickAppsCard);
         scrollContainer.Controls.Add(lanCard);
         scrollContainer.Controls.Add(settingsCard);
         scrollContainer.Controls.Add(logsPanel);
@@ -325,7 +344,58 @@ partial class MainForm
         cliDotsLabel.AutoSize = true;
         cliDotsLabel.Font = new Font("Segoe UI", 8.5F);
         cliDotsLabel.Location = new Point(14, 126);
-        cliDotsLabel.Text = "Hermes: ○ Offline   Claude: ○ Offline   Gemini: ○ Offline";
+        cliDotsLabel.Text = "Hermes: ○ Offline   Claude: ○ Offline   Antigravity: ○ Offline";
+
+        // 
+        // AI Dev Tools Card
+        // 
+        quickAppsCard.Controls.Add(quickAppsCardTitle);
+        quickAppsCard.Controls.Add(quickAppsSubtitleLabel);
+        quickAppsCard.Controls.Add(launchFreeBuffButton);
+        quickAppsCard.Controls.Add(launchClineButton);
+        quickAppsCard.Controls.Add(launchDeepSeekButton);
+        quickAppsCard.Controls.Add(launchOpenCodeButton);
+
+        quickAppsCardTitle.AutoSize = true;
+        quickAppsCardTitle.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
+        quickAppsCardTitle.Location = new Point(14, 12);
+        quickAppsCardTitle.Text = "AI DEV TOOLS";
+
+        quickAppsSubtitleLabel.AutoSize = true;
+        quickAppsSubtitleLabel.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
+        quickAppsSubtitleLabel.Location = new Point(104, 12);
+        quickAppsSubtitleLabel.Text = "Quick Launch";
+
+        launchFreeBuffButton.FlatStyle = FlatStyle.Flat;
+        launchFreeBuffButton.FlatAppearance.BorderSize = 1;
+        launchFreeBuffButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
+        launchFreeBuffButton.Text = "⚡ FreeBuff";
+        launchFreeBuffButton.Cursor = Cursors.Hand;
+
+        launchClineButton.FlatStyle = FlatStyle.Flat;
+        launchClineButton.FlatAppearance.BorderSize = 1;
+        launchClineButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
+        launchClineButton.Text = "🤖 Cline";
+        launchClineButton.Cursor = Cursors.Hand;
+
+        launchDeepSeekButton.FlatStyle = FlatStyle.Flat;
+        launchDeepSeekButton.FlatAppearance.BorderSize = 1;
+        launchDeepSeekButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
+        launchDeepSeekButton.Text = "🧠 DeepSeek";
+        launchDeepSeekButton.Cursor = Cursors.Hand;
+
+        launchOpenCodeButton.FlatStyle = FlatStyle.Flat;
+        launchOpenCodeButton.FlatAppearance.BorderSize = 1;
+        launchOpenCodeButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
+        launchOpenCodeButton.Text = "💻 OpenCode";
+        launchOpenCodeButton.Cursor = Cursors.Hand;
+        launchOpenCodeButton.Controls.Add(resetOpenCodeQuotaButton);
+
+        resetOpenCodeQuotaButton.FlatStyle = FlatStyle.Flat;
+        resetOpenCodeQuotaButton.FlatAppearance.BorderSize = 0;
+        resetOpenCodeQuotaButton.Font = new Font("Segoe UI", 9.5F);
+        resetOpenCodeQuotaButton.Text = "🔄";
+        resetOpenCodeQuotaButton.Cursor = Cursors.Hand;
 
         // 
         // LAN Card
@@ -578,7 +648,7 @@ partial class MainForm
         // 
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(510, 680);
+        ClientSize = new Size(510, 760);
         MinimumSize = new Size(460, 560);
         MaximumSize = new Size(680, 0);
         Controls.Add(scrollContainer);

@@ -56,7 +56,7 @@ public sealed class CliWebTerminalServer : IDisposable
         _endpoints =
         [
             new EndpointListener(CliType.ClaudeCode, 9229),
-            new EndpointListener(CliType.GeminiCli, 9339)
+            new EndpointListener(CliType.AntigravityCli, 9339)
         ];
 
         _cliManager.TerminalDataReceived += OnTerminalDataReceived;

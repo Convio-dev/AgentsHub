@@ -10,7 +10,7 @@ partial class CliWebviewForm
     private Panel tabsPanel = null!;
     private Button tabHermesButton = null!;
     private Button tabClaudeButton = null!;
-    private Button tabGeminiButton = null!;
+    private Button tabAntigravityButton = null!;
 
     private Panel toolsPanel = null!;
     private Label activeStatusLabel = null!;
@@ -36,7 +36,7 @@ partial class CliWebviewForm
         tabsPanel = new Panel();
         tabHermesButton = new Button();
         tabClaudeButton = new Button();
-        tabGeminiButton = new Button();
+        tabAntigravityButton = new Button();
 
         toolsPanel = new Panel();
         activeStatusLabel = new Label();
@@ -61,10 +61,10 @@ partial class CliWebviewForm
         // Tabs Panel (docked left)
         // 
         tabsPanel.Dock = DockStyle.Left;
-        tabsPanel.Width = 360;
+        tabsPanel.Width = 380;
         tabsPanel.Controls.Add(tabHermesButton);
         tabsPanel.Controls.Add(tabClaudeButton);
-        tabsPanel.Controls.Add(tabGeminiButton);
+        tabsPanel.Controls.Add(tabAntigravityButton);
 
         tabHermesButton.Location = new Point(8, 6);
         tabHermesButton.Size = new Size(110, 34);
@@ -82,13 +82,13 @@ partial class CliWebviewForm
         tabClaudeButton.Text = "🤖 Claude";
         tabClaudeButton.Cursor = Cursors.Hand;
 
-        tabGeminiButton.Location = new Point(240, 6);
-        tabGeminiButton.Size = new Size(114, 34);
-        tabGeminiButton.FlatStyle = FlatStyle.Flat;
-        tabGeminiButton.FlatAppearance.BorderSize = 1;
-        tabGeminiButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
-        tabGeminiButton.Text = "✨ Gemini";
-        tabGeminiButton.Cursor = Cursors.Hand;
+        tabAntigravityButton.Location = new Point(240, 6);
+        tabAntigravityButton.Size = new Size(126, 34);
+        tabAntigravityButton.FlatStyle = FlatStyle.Flat;
+        tabAntigravityButton.FlatAppearance.BorderSize = 1;
+        tabAntigravityButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
+        tabAntigravityButton.Text = "🚀 Antigravity";
+        tabAntigravityButton.Cursor = Cursors.Hand;
 
         // 
         // Tools Panel (docked right)

@@ -44,7 +44,7 @@ public partial class CliWebviewForm : Form
     // تم نقل تعريف عناصر WebView2 إلى هنا ليتم إنشاؤها وقت التشغيل بدلاً من الـ Designer
     private Microsoft.Web.WebView2.WinForms.WebView2 hermesWebView = null!;
     private Microsoft.Web.WebView2.WinForms.WebView2 claudeWebView = null!;
-    private Microsoft.Web.WebView2.WinForms.WebView2 geminiWebView = null!;
+    private Microsoft.Web.WebView2.WinForms.WebView2 antigravityWebView = null!;
 
     public CliWebviewForm()
     {
@@ -182,7 +182,7 @@ public partial class CliWebviewForm : Form
     {
         tabHermesButton.Click += (_, _) => SwitchTab(CliType.Hermes);
         tabClaudeButton.Click += (_, _) => SwitchTab(CliType.ClaudeCode);
-        tabGeminiButton.Click += (_, _) => SwitchTab(CliType.GeminiCli);
+        tabAntigravityButton.Click += (_, _) => SwitchTab(CliType.AntigravityCli);
 
         toggleRunButton.Click += async (_, _) => await HandleToggleRunClickAsync();
         restartCliButton.Click += async (_, _) =>
@@ -231,7 +231,7 @@ public partial class CliWebviewForm : Form
 
         if (hermesWebView != null) hermesWebView.Visible = type == CliType.Hermes;
         if (claudeWebView != null) claudeWebView.Visible = type == CliType.ClaudeCode;
-        if (geminiWebView != null) geminiWebView.Visible = type == CliType.GeminiCli;
+        if (antigravityWebView != null) antigravityWebView.Visible = type == CliType.AntigravityCli;
 
         if (type == CliType.Hermes && _hermesInitialized)
         {
@@ -246,11 +246,11 @@ public partial class CliWebviewForm : Form
             // بناء الـ WebViews برمجياً وإضافتها لـ contentPanel في الـ Runtime
             hermesWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
             claudeWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
-            geminiWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
+            antigravityWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
 
             contentPanel.Controls.Add(hermesWebView);
             contentPanel.Controls.Add(claudeWebView);
-            contentPanel.Controls.Add(geminiWebView);
+            contentPanel.Controls.Add(antigravityWebView);
 
             var userDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesHub", "WebView2Data");
             var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
@@ -271,13 +271,13 @@ public partial class CliWebviewForm : Form
                 claudeWebView.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
             }
 
-            // Gemini CLI WebView
-            await geminiWebView.EnsureCoreWebView2Async(env);
-            ConfigureWebViewSettings(geminiWebView.CoreWebView2);
-            geminiWebView.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived(CliType.GeminiCli, e);
+            // Antigravity CLI WebView
+            await antigravityWebView.EnsureCoreWebView2Async(env);
+            ConfigureWebViewSettings(antigravityWebView.CoreWebView2);
+            antigravityWebView.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived(CliType.AntigravityCli, e);
             if (File.Exists(_terminalHtmlPath))
             {
-                geminiWebView.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
+                antigravityWebView.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
             }
 
             SwitchTab(_activeTab);
@@ -400,7 +400,7 @@ public partial class CliWebviewForm : Form
     {
         if (_cliManager == null) return;
 
-        var targetWv = type == CliType.ClaudeCode ? claudeWebView : geminiWebView;
+        var targetWv = type == CliType.ClaudeCode ? claudeWebView : antigravityWebView;
         if (targetWv?.CoreWebView2 == null)
         {
             return;
@@ -415,7 +415,7 @@ public partial class CliWebviewForm : Form
 
     private void ForwardTerminalData(CliType type, string text)
     {
-        var targetWv = type == CliType.ClaudeCode ? claudeWebView : geminiWebView;
+        var targetWv = type == CliType.ClaudeCode ? claudeWebView : antigravityWebView;
         if (targetWv?.CoreWebView2 == null)
         {
             return;
@@ -440,7 +440,7 @@ public partial class CliWebviewForm : Form
         }
         else
         {
-            var targetWv = type == CliType.ClaudeCode ? claudeWebView : geminiWebView;
+            var targetWv = type == CliType.ClaudeCode ? claudeWebView : antigravityWebView;
             if (targetWv?.CoreWebView2 != null)
             {
                 var payload = new TerminalStatusPayload("status", state == CliState.Running, message);
@@ -485,7 +485,7 @@ public partial class CliWebviewForm : Form
 
         FormatTab(tabHermesButton, CliType.Hermes, "Hermes");
         FormatTab(tabClaudeButton, CliType.ClaudeCode, "Claude Code");
-        FormatTab(tabGeminiButton, CliType.GeminiCli, "Gemini CLI");
+        FormatTab(tabAntigravityButton, CliType.AntigravityCli, "Antigravity CLI");
     }
 
     private void UpdateToolbarUi()
@@ -537,7 +537,7 @@ public partial class CliWebviewForm : Form
         {
             CliType.Hermes => $"Browser :{_cliManager.HermesService.Port}",
             CliType.ClaudeCode => "Browser :9229",
-            CliType.GeminiCli => "Browser :9339",
+            CliType.AntigravityCli => "Browser :9339",
             _ => "Browser"
         };
 
@@ -567,7 +567,7 @@ public partial class CliWebviewForm : Form
         }
 
         _cliManager.ClearTerminalHistory(_activeTab);
-        var targetWv = _activeTab == CliType.ClaudeCode ? claudeWebView : geminiWebView;
+        var targetWv = _activeTab == CliType.ClaudeCode ? claudeWebView : antigravityWebView;
         if (targetWv?.CoreWebView2 != null)
         {
             var payload = new TerminalActionPayload("clear");
@@ -613,7 +613,7 @@ public partial class CliWebviewForm : Form
             {
                 CliType.Hermes => _cliManager.HermesService.Port,
                 CliType.ClaudeCode => 9229,
-                CliType.GeminiCli => 9339,
+                CliType.AntigravityCli => 9339,
                 _ => 9119
             };
 
