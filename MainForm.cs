@@ -2165,7 +2165,14 @@ public partial class MainForm : Form
             renameAntigravityProfileButton.Enabled = false;
             deleteAntigravityProfileButton.Enabled = false;
 
-            bool success = _cliManager.ProfileService.RenameProfile(currentProfile, newName);
+            if (string.Equals(currentProfile, _cliManager.ProfileService.ActiveProfile, StringComparison.OrdinalIgnoreCase) &&
+                _cliManager.GetInfo(CliType.AntigravityCli).State == CliState.Running)
+            {
+                await _cliManager.StopAsync(CliType.AntigravityCli);
+                await Task.Delay(250);
+            }
+
+            bool success = await Task.Run(() => _cliManager.ProfileService.RenameProfile(currentProfile, newName));
             if (!success)
             {
                 MessageBox.Show(this, $"Failed to rename profile '{currentProfile}' to '{newName}'. Ensure the name is valid and does not already exist.", "Rename Profile Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
