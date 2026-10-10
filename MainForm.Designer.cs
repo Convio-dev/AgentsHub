@@ -188,7 +188,6 @@ partial class MainForm
         subtitleLabel.Location = new Point(135, 14);
         subtitleLabel.Text = "Desktop Controller";
 
-        themeToggleButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         themeToggleButton.FlatStyle = FlatStyle.Flat;
         themeToggleButton.FlatAppearance.BorderSize = 1;
         themeToggleButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
@@ -197,7 +196,6 @@ partial class MainForm
         themeToggleButton.Text = "☀ Light";
         themeToggleButton.Cursor = Cursors.Hand;
 
-        topWebviewButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         topWebviewButton.FlatStyle = FlatStyle.Flat;
         topWebviewButton.FlatAppearance.BorderSize = 1;
         topWebviewButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
@@ -206,7 +204,6 @@ partial class MainForm
         topWebviewButton.Text = "🖥 Webview";
         topWebviewButton.Cursor = Cursors.Hand;
 
-        topLogsButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         topLogsButton.FlatStyle = FlatStyle.Flat;
         topLogsButton.FlatAppearance.BorderSize = 1;
         topLogsButton.Font = new Font("Segoe UI", 8.5F);
@@ -235,7 +232,6 @@ partial class MainForm
         versionLabel.Location = new Point(110, 11);
         versionLabel.Text = "v1.0.2";
 
-        footerLogsButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         footerLogsButton.FlatStyle = FlatStyle.Flat;
         footerLogsButton.FlatAppearance.BorderSize = 1;
         footerLogsButton.Font = new Font("Segoe UI", 8F);
@@ -244,7 +240,6 @@ partial class MainForm
         footerLogsButton.Text = "Console (0)";
         footerLogsButton.Cursor = Cursors.Hand;
 
-        quitAppButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         quitAppButton.FlatStyle = FlatStyle.Flat;
         quitAppButton.FlatAppearance.BorderSize = 1;
         quitAppButton.Font = new Font("Segoe UI", 8.5F);
@@ -583,13 +578,14 @@ partial class MainForm
         // 
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(510, 606);
-        MinimumSize = new Size(460, 520);
+        ClientSize = new Size(510, 680);
+        MinimumSize = new Size(460, 560);
+        MaximumSize = new Size(680, 0);
         Controls.Add(scrollContainer);
         Controls.Add(topBarPanel);
         Controls.Add(bottomBarPanel);
         FormBorderStyle = FormBorderStyle.Sizable;
-        MaximizeBox = true;
+        MaximizeBox = false;
         MinimizeBox = true;
         ShowIcon = true;
         Name = "MainForm";

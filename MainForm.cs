@@ -30,6 +30,8 @@ public partial class MainForm : Form
     private CliWebviewForm? _cliWebviewForm;
     private CliType _selectedCliType = CliType.Hermes;
     private bool _firewallAllowed = false;
+    private int _scrollOffsetY;
+    private int _maxScrollY;
 
     public MainForm()
     {
@@ -169,6 +171,7 @@ public partial class MainForm : Form
             ShowInTaskbar = false;
         }
 
+        HookMouseWheelRecursively(this);
         SetFormHeightToFitContent();
     }
 
@@ -204,11 +207,13 @@ public partial class MainForm : Form
         };
 
         topBarPanel.Resize += (_, _) => LayoutTopBar();
+        bottomBarPanel.Resize += (_, _) => LayoutBottomBar();
         scrollContainer.Resize += (_, _) => LayoutCards();
         Resize += (_, _) =>
         {
             LayoutTopBar();
             LayoutCards();
+            LayoutBottomBar();
         };
 
         // Tooltips
@@ -225,6 +230,27 @@ public partial class MainForm : Form
         {
             ThemeManager.ApplyDwmTitleBarTheme(Handle);
             SetFormHeightToFitContent();
+            LayoutCards();
+            LayoutTopBar();
+            LayoutBottomBar();
+            CenterOnCurrentScreen();
+        }
+    }
+
+    private void CenterOnCurrentScreen()
+    {
+        var screen = Screen.FromPoint(Cursor.Position) ?? Screen.FromControl(this) ?? Screen.PrimaryScreen;
+        if (screen != null)
+        {
+            var area = screen.WorkingArea;
+            Location = new Point(
+                area.X + Math.Max(0, (area.Width - Width) / 2),
+                area.Y + Math.Max(0, (area.Height - Height) / 2)
+            );
+        }
+        else
+        {
+            CenterToScreen();
         }
     }
 
@@ -232,8 +258,16 @@ public partial class MainForm : Form
     {
         if (topBarPanel == null) return;
 
-        int right = topBarPanel.ClientSize.Width - 12;
+        int clientWidth = topBarPanel.ClientSize.Width;
+        int cardWidth = Math.Clamp(clientWidth - 28, 380, 480);
+        int margin = Math.Max(14, (clientWidth - cardWidth) / 2);
+        int cardRight = margin + cardWidth;
 
+        statusDot.Location = new Point(margin, 16);
+        titleLabel.Location = new Point(margin + 18, 11);
+        subtitleLabel.Location = new Point(titleLabel.Right + 8, 14);
+
+        int right = cardRight;
         topLogsButton.Location = new Point(right - topLogsButton.Width, 7);
         right = topLogsButton.Left - 6;
 
@@ -246,62 +280,96 @@ public partial class MainForm : Form
         subtitleLabel.Visible = themeToggleButton.Left > (subtitleLabel.Location.X + subtitleLabel.PreferredWidth + 8);
     }
 
+    private void LayoutBottomBar()
+    {
+        if (bottomBarPanel == null) return;
+
+        int clientWidth = bottomBarPanel.ClientSize.Width;
+        int cardWidth = Math.Clamp(clientWidth - 28, 380, 480);
+        int margin = Math.Max(14, (clientWidth - cardWidth) / 2);
+        int cardRight = margin + cardWidth;
+
+        ramUsageLabel.Location = new Point(margin, 11);
+        versionLabel.Location = new Point(ramUsageLabel.Right + 12, 11);
+
+        quitAppButton.Location = new Point(cardRight - quitAppButton.Width, 6);
+        footerLogsButton.Location = new Point(quitAppButton.Left - 6 - footerLogsButton.Width, 6);
+    }
+
+    private void HookMouseWheelRecursively(Control control)
+    {
+        if (control is not NumericUpDown && control is not TextBox)
+        {
+            control.MouseWheel += OnScrollContainerMouseWheel;
+        }
+
+        foreach (Control child in control.Controls)
+        {
+            HookMouseWheelRecursively(child);
+        }
+    }
+
+    private void OnScrollContainerMouseWheel(object? sender, MouseEventArgs e)
+    {
+        if (_maxScrollY <= 0) return;
+
+        int scrollStep = 56;
+        int newOffset = _scrollOffsetY - (Math.Sign(e.Delta) * scrollStep);
+        newOffset = Math.Clamp(newOffset, 0, _maxScrollY);
+
+        if (newOffset != _scrollOffsetY)
+        {
+            _scrollOffsetY = newOffset;
+            LayoutCards();
+        }
+    }
+
     private void SetFormHeightToFitContent()
     {
-        if (WindowState == FormWindowState.Maximized)
-        {
-            LayoutCards();
-            LayoutTopBar();
-            return;
-        }
+        int extraQr = qrDrawerPanel.Visible ? 180 : 0;
+        int logsH = logsPanel.Visible ? 212 : 0;
 
-        int spacing = 12;
-        int lanH = qrDrawerPanel.Visible ? 330 : 150;
-        int targetContentHeight = 10 + hermesCard.Height + spacing + lanH + spacing + settingsCard.Height;
-        if (logsPanel.Visible)
-        {
-            targetContentHeight += spacing + logsPanel.Height;
-        }
-        targetContentHeight += 12; // Bottom breathing room
-
-        int targetClientHeight = topBarPanel.Height + targetContentHeight + bottomBarPanel.Height;
+        // Base height like before (680px), expanding for drawers
+        int targetClientHeight = 680 + extraQr + logsH;
 
         var screen = Screen.FromControl(this) ?? Screen.PrimaryScreen;
         int maxAvailableHeight = (screen?.WorkingArea.Height ?? 1080) - 40;
         int finalHeight = Math.Min(targetClientHeight, maxAvailableHeight);
 
-        MinimumSize = new Size(460, Math.Min(finalHeight, 520));
+        MinimumSize = new Size(460, 560);
         ClientSize = new Size(ClientSize.Width, finalHeight);
 
-        if (targetClientHeight > maxAvailableHeight)
-        {
-            scrollContainer.AutoScroll = true;
-        }
-        else
-        {
-            scrollContainer.AutoScroll = false;
-        }
+        scrollContainer.AutoScroll = false;
 
         LayoutCards();
         LayoutTopBar();
+        LayoutBottomBar();
     }
 
     private void LayoutCards()
     {
         if (scrollContainer == null) return;
 
-        if (scrollContainer.AutoScroll)
-        {
-            scrollContainer.AutoScrollPosition = new Point(0, 0);
-        }
-
         scrollContainer.SuspendLayout();
 
-        int margin = 14;
         int spacing = 12;
         int clientWidth = scrollContainer.ClientSize.Width;
-        int cardWidth = Math.Max(380, clientWidth - (margin * 2));
-        int currentY = 10;
+        int cardWidth = Math.Clamp(clientWidth - 28, 380, 480);
+        int margin = Math.Max(14, (clientWidth - cardWidth) / 2);
+
+        // Precompute total content height for scroll bounds
+        int lanH = qrDrawerPanel.Visible ? 330 : 150;
+        int totalContentHeight = 10 + 162 + spacing + lanH + spacing + 176;
+        if (logsPanel.Visible)
+        {
+            totalContentHeight += spacing + 200;
+        }
+        totalContentHeight += spacing + cardsSpacer.Height + 14;
+
+        _maxScrollY = Math.Max(0, totalContentHeight - scrollContainer.ClientSize.Height);
+        _scrollOffsetY = Math.Clamp(_scrollOffsetY, 0, _maxScrollY);
+
+        int currentY = 10 - _scrollOffsetY;
 
         // 1. CLI Services Card
         hermesCard.Location = new Point(margin, currentY);
@@ -311,7 +379,7 @@ public partial class MainForm : Form
         int btnCount = 4;
         int btnGap = 8;
         int availBtnWidth = cardWidth - 28 - ((btnCount - 1) * btnGap);
-        int singleBtnW = Math.Max(70, availBtnWidth / btnCount);
+        int singleBtnW = availBtnWidth / btnCount;
 
         startHermesButton.Location = new Point(14, 76);
         startHermesButton.Size = new Size(singleBtnW, 36);
@@ -331,12 +399,12 @@ public partial class MainForm : Form
         lanCard.Location = new Point(margin, currentY);
         lanCard.Width = cardWidth;
 
-        firewallStatusButton.Location = new Point(cardWidth - 152, 10);
+        firewallStatusButton.Location = new Point(cardWidth - 146, 10);
         int actionBtnsW = 66 * 3 + 12;
-        int urlWellW = Math.Max(150, cardWidth - 28 - actionBtnsW - 10);
+        int urlWellW = cardWidth - 28 - actionBtnsW - 8;
         lanUrlPanel.Location = new Point(14, 104);
         lanUrlPanel.Size = new Size(urlWellW, 36);
-        lanUrlTextBox.Width = urlWellW - 18;
+        lanUrlTextBox.Width = urlWellW - 16;
 
         copyLanButton.Location = new Point(lanUrlPanel.Right + 8, 104);
         openLanButton.Location = new Point(copyLanButton.Right + 6, 104);
@@ -993,8 +1061,15 @@ public partial class MainForm : Form
 
         if (shouldShow)
         {
+            _scrollOffsetY = _maxScrollY;
+            LayoutCards();
             logsTextBox.SelectionStart = logsTextBox.TextLength;
             logsTextBox.ScrollToCaret();
+        }
+        else
+        {
+            _scrollOffsetY = 0;
+            LayoutCards();
         }
     }
 
@@ -1283,6 +1358,25 @@ public partial class MainForm : Form
         {
             Hide();
             return true;
+        }
+
+        if (keyData == Keys.PageDown)
+        {
+            if (_maxScrollY > 0)
+            {
+                _scrollOffsetY = Math.Clamp(_scrollOffsetY + 120, 0, _maxScrollY);
+                LayoutCards();
+                return true;
+            }
+        }
+        else if (keyData == Keys.PageUp)
+        {
+            if (_maxScrollY > 0)
+            {
+                _scrollOffsetY = Math.Clamp(_scrollOffsetY - 120, 0, _maxScrollY);
+                LayoutCards();
+                return true;
+            }
         }
 
         return base.ProcessCmdKey(ref msg, keyData);
