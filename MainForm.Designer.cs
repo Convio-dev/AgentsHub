@@ -13,6 +13,8 @@ partial class MainForm
     private Button themeToggleButton = null!;
     private Button topWebviewButton = null!;
     private Button topLogsButton = null!;
+    private Button topPromptEnhancerButton = null!;
+    private Button topSettingsButton = null!;
 
     private Panel scrollContainer = null!;
 
@@ -116,6 +118,8 @@ partial class MainForm
         themeToggleButton = new Button();
         topWebviewButton = new Button();
         topLogsButton = new Button();
+        topPromptEnhancerButton = new Button();
+        topSettingsButton = new Button();
 
         scrollContainer = new Panel();
 
@@ -216,6 +220,8 @@ partial class MainForm
         topBarPanel.Controls.Add(topLogsButton);
         topBarPanel.Controls.Add(topWebviewButton);
         topBarPanel.Controls.Add(themeToggleButton);
+        topBarPanel.Controls.Add(topPromptEnhancerButton);
+        topBarPanel.Controls.Add(topSettingsButton);
 
         statusDot.Location = new Point(14, 16);
         statusDot.Size = new Size(11, 11);
@@ -253,6 +259,22 @@ partial class MainForm
         topLogsButton.Size = new Size(68, 30);
         topLogsButton.Text = "📜 Logs";
         topLogsButton.Cursor = Cursors.Hand;
+
+        topPromptEnhancerButton.FlatStyle = FlatStyle.Flat;
+        topPromptEnhancerButton.FlatAppearance.BorderSize = 1;
+        topPromptEnhancerButton.Font = new Font("Segoe UI", 9.5F);
+        topPromptEnhancerButton.Location = new Point(486, 7);
+        topPromptEnhancerButton.Size = new Size(32, 30);
+        topPromptEnhancerButton.Text = "✨";
+        topPromptEnhancerButton.Cursor = Cursors.Hand;
+
+        topSettingsButton.FlatStyle = FlatStyle.Flat;
+        topSettingsButton.FlatAppearance.BorderSize = 1;
+        topSettingsButton.Font = new Font("Segoe UI", 9.5F);
+        topSettingsButton.Location = new Point(522, 7);
+        topSettingsButton.Size = new Size(32, 30);
+        topSettingsButton.Text = "⚙️";
+        topSettingsButton.Cursor = Cursors.Hand;
 
         // 
         // Bottom Bar Panel

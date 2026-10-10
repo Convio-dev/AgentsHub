@@ -272,6 +272,8 @@ public partial class MainForm : Form
         toolTip.SetToolTip(themeToggleButton, "Toggle between Light and Dark mode");
         toolTip.SetToolTip(topWebviewButton, "Open CLI Workspace in embedded Webview");
         toolTip.SetToolTip(topLogsButton, "Show or hide system logs");
+        toolTip.SetToolTip(topPromptEnhancerButton, "Open Prompt Enhancer (AI prompt optimizer)");
+        toolTip.SetToolTip(topSettingsButton, "Settings (AI Dev Tools targets & OpenAI providers)");
         toolTip.SetToolTip(launchFreeBuffButton, "Launch FreeBuff Desktop");
         toolTip.SetToolTip(launchClineButton, "Launch Cline Desktop App");
         toolTip.SetToolTip(launchDeepSeekButton, "Launch DeepSeek Harness");
@@ -330,15 +332,21 @@ public partial class MainForm : Form
 
         int right = cardRight;
         topLogsButton.Location = new Point(right - topLogsButton.Width, 7);
-        right = topLogsButton.Left - 6;
-
-        topWebviewButton.Location = new Point(right - topWebviewButton.Width, 7);
-        right = topWebviewButton.Left - 6;
+        right = topLogsButton.Left - 5;
 
         themeToggleButton.Location = new Point(right - themeToggleButton.Width, 7);
+        right = themeToggleButton.Left - 5;
+
+        topWebviewButton.Location = new Point(right - topWebviewButton.Width, 7);
+        right = topWebviewButton.Left - 5;
+
+        topPromptEnhancerButton.Location = new Point(right - topPromptEnhancerButton.Width, 7);
+        right = topPromptEnhancerButton.Left - 5;
+
+        topSettingsButton.Location = new Point(right - topSettingsButton.Width, 7);
 
         // Hide subtitle on narrow window to prevent text collisions
-        subtitleLabel.Visible = themeToggleButton.Left > (subtitleLabel.Location.X + subtitleLabel.PreferredWidth + 8);
+        subtitleLabel.Visible = topSettingsButton.Left > (subtitleLabel.Location.X + subtitleLabel.PreferredWidth + 8);
     }
 
     private void LayoutBottomBar()
@@ -623,6 +631,14 @@ public partial class MainForm : Form
         topLogsButton.ForeColor = c.ButtonText;
         topLogsButton.FlatAppearance.BorderColor = c.ButtonBorder;
 
+        topPromptEnhancerButton.BackColor = c.ButtonBg;
+        topPromptEnhancerButton.ForeColor = c.AccentGreen;
+        topPromptEnhancerButton.FlatAppearance.BorderColor = c.ButtonBorder;
+
+        topSettingsButton.BackColor = c.ButtonBg;
+        topSettingsButton.ForeColor = c.ButtonText;
+        topSettingsButton.FlatAppearance.BorderColor = c.ButtonBorder;
+
         // Cards backgrounds
         hermesCard.BackColor = c.CardBackground;
         quickAppsCard.BackColor = c.CardBackground;
@@ -864,16 +880,17 @@ public partial class MainForm : Form
         var trayExitItem = new ToolStripMenuItem("Exit Completely", null, (_, _) => ConfirmAndExitApplication());
 
         var trayToolsMenu = new ToolStripMenuItem("Launch AI Tools");
-        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("⚡ FreeBuff", null, (_, _) => LaunchApp("FreeBuff", @"C:\Users\Gaming\AppData\Local\Programs\@codebufffreebuff-desktop\Freebuff.exe")));
-        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("💻 OpenCode", null, (_, _) => LaunchApp("OpenCode", @"C:\Users\Gaming\AppData\Local\Programs\@opencodedesktop\OpenCode.exe")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("⚡ FreeBuff", null, (_, _) => LaunchConfiguredApp("FreeBuff")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("💻 OpenCode", null, (_, _) => LaunchConfiguredApp("OpenCode")));
         trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🔄 OpenCode Quota Reset", null, async (_, _) => await ResetOpenCodeQuotaAsync()));
-        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🤖 Cline", null, (_, _) => LaunchApp("Cline", @"C:\Users\Gaming\AppData\Local\Cline\cline-app.exe")));
-        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🧠 DeepSeek", null, (_, _) => LaunchApp("DeepSeek", @"E:\DeepSeek Harness\DeepSeek Harness.exe")));
-        var antigravityIdeExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Antigravity IDE\Antigravity IDE.exe");
-        var finalAntigravityPath = File.Exists(antigravityIdeExe) ? antigravityIdeExe : @"C:\Users\Gaming\AppData\Local\Programs\Antigravity IDE\Antigravity IDE.exe";
-        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🪐 Antigravity-ide", null, (_, _) => LaunchApp("Antigravity-ide", finalAntigravityPath)));
-        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("✳️ Claude", null, (_, _) => LaunchApp("Claude", @"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude")));
-        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("💬 ChatGPT", null, (_, _) => LaunchApp("ChatGPT", @"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🤖 Cline", null, (_, _) => LaunchConfiguredApp("Cline")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🧠 DeepSeek", null, (_, _) => LaunchConfiguredApp("DeepSeek")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🪐 Antigravity-ide", null, (_, _) => LaunchConfiguredApp("Antigravity-ide")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("✳️ Claude", null, (_, _) => LaunchConfiguredApp("Claude")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("💬 ChatGPT", null, (_, _) => LaunchConfiguredApp("ChatGPT")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripSeparator());
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("✨ Prompt Enhancer", null, (_, _) => OpenPromptEnhancer()));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("⚙️ Settings & AI Providers", null, (_, _) => OpenSettings()));
 
         _trayContextMenu.Items.Add(_trayOpenWebUiItem);
         _trayContextMenu.Items.Add(trayToolsMenu);
@@ -909,6 +926,8 @@ public partial class MainForm : Form
 
         topWebviewButton.Click += (_, _) => OpenCliWebview();
         topLogsButton.Click += (_, _) => ToggleLogsDrawer();
+        topPromptEnhancerButton.Click += (_, _) => OpenPromptEnhancer();
+        topSettingsButton.Click += (_, _) => OpenSettings();
 
         // CLI controls
         startHermesButton.Click += (_, _) => _cliManager?.Start(_selectedCliType);
@@ -950,17 +969,13 @@ public partial class MainForm : Form
         };
 
         // AI Dev Tools controls
-        launchFreeBuffButton.Click += (_, _) => LaunchApp("FreeBuff", @"C:\Users\Gaming\AppData\Local\Programs\@codebufffreebuff-desktop\Freebuff.exe");
-        launchClineButton.Click += (_, _) => LaunchApp("Cline", @"C:\Users\Gaming\AppData\Local\Cline\cline-app.exe");
-        launchDeepSeekButton.Click += (_, _) => LaunchApp("DeepSeek", @"E:\DeepSeek Harness\DeepSeek Harness.exe");
-        launchOpenCodeButton.Click += (_, _) => LaunchApp("OpenCode", @"C:\Users\Gaming\AppData\Local\Programs\@opencodedesktop\OpenCode.exe");
-        launchAntigravityIdeButton.Click += (_, _) =>
-        {
-            var ideExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Antigravity IDE\Antigravity IDE.exe");
-            LaunchApp("Antigravity-ide", File.Exists(ideExe) ? ideExe : @"C:\Users\Gaming\AppData\Local\Programs\Antigravity IDE\Antigravity IDE.exe");
-        };
-        launchClaudeButton.Click += (_, _) => LaunchApp("Claude", @"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude");
-        launchChatGptButton.Click += (_, _) => LaunchApp("ChatGPT", @"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App");
+        launchFreeBuffButton.Click += (_, _) => LaunchConfiguredApp("FreeBuff");
+        launchClineButton.Click += (_, _) => LaunchConfiguredApp("Cline");
+        launchDeepSeekButton.Click += (_, _) => LaunchConfiguredApp("DeepSeek");
+        launchOpenCodeButton.Click += (_, _) => LaunchConfiguredApp("OpenCode");
+        launchAntigravityIdeButton.Click += (_, _) => LaunchConfiguredApp("Antigravity-ide");
+        launchClaudeButton.Click += (_, _) => LaunchConfiguredApp("Claude");
+        launchChatGptButton.Click += (_, _) => LaunchConfiguredApp("ChatGPT");
         resetOpenCodeQuotaButton.Click += async (_, _) => await ResetOpenCodeQuotaAsync();
         toggleIpMaskButton.Click += (_, _) =>
         {
@@ -1506,6 +1521,39 @@ public partial class MainForm : Form
         _cliWebviewForm.WindowState = FormWindowState.Normal;
         _cliWebviewForm.Activate();
         _cliWebviewForm.BringToFront();
+    }
+
+    private PromptEnhancerForm? _promptEnhancerForm;
+
+    private void OpenPromptEnhancer()
+    {
+        if (_promptEnhancerForm == null || _promptEnhancerForm.IsDisposed)
+        {
+            _promptEnhancerForm = new PromptEnhancerForm();
+            _promptEnhancerForm.FormClosed += (_, _) => _promptEnhancerForm = null;
+        }
+
+        _promptEnhancerForm.Show();
+        if (_promptEnhancerForm.WindowState == FormWindowState.Minimized)
+        {
+            _promptEnhancerForm.WindowState = FormWindowState.Normal;
+        }
+        _promptEnhancerForm.Activate();
+        _promptEnhancerForm.BringToFront();
+    }
+
+    private void OpenSettings()
+    {
+        using var settingsForm = new SettingsForm();
+        settingsForm.ShowDialog(this);
+    }
+
+    private void LaunchConfiguredApp(string toolName)
+    {
+        var defaults = AiConfigService.Instance.GetDefaultToolTargets();
+        var defaultTarget = defaults.TryGetValue(toolName, out var def) ? def : string.Empty;
+        var target = AiConfigService.Instance.GetToolTarget(toolName, defaultTarget);
+        LaunchApp(toolName, target);
     }
 
     private void OpenBrowserForSelectedCli()
