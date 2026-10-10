@@ -46,6 +46,10 @@ public partial class CliWebviewForm : Form
     private Microsoft.Web.WebView2.WinForms.WebView2 claudeWebView = null!;
     private Microsoft.Web.WebView2.WinForms.WebView2 antigravityWebView = null!;
 
+    private ComboBox? _profileComboBox;
+    private Button? _addProfileButton;
+    private bool _isUpdatingProfileCombo;
+
     public CliWebviewForm()
     {
         InitializeComponent();
@@ -71,6 +75,32 @@ public partial class CliWebviewForm : Form
 
     private void SetupStyles()
     {
+        _profileComboBox = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8.75F),
+            Size = new Size(160, 26),
+            Cursor = Cursors.Hand,
+            Visible = false
+        };
+
+        _addProfileButton = new Button
+        {
+            Text = "+ Add",
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            Size = new Size(52, 30),
+            Cursor = Cursors.Hand,
+            Visible = false
+        };
+        _addProfileButton.FlatAppearance.BorderSize = 1;
+
+        toolsPanel.Controls.Add(_profileComboBox);
+        toolsPanel.Controls.Add(_addProfileButton);
+
+        SetupButtonHover(_addProfileButton, ThemeManager.Colors.ButtonBg, ThemeManager.Colors.ButtonHover);
+
         ApplyTheme();
 
         toggleRunButton.MouseEnter += (_, _) =>
@@ -102,7 +132,7 @@ public partial class CliWebviewForm : Form
     {
         if (toolsPanel == null || topToolbar == null) return;
 
-        toolsPanel.Width = Math.Max(520, topToolbar.ClientSize.Width - tabsPanel.Width);
+        toolsPanel.Width = Math.Max(580, topToolbar.ClientSize.Width - tabsPanel.Width);
 
         int right = toolsPanel.ClientSize.Width - 10;
 
@@ -116,9 +146,26 @@ public partial class CliWebviewForm : Form
         right = restartCliButton.Left - 6;
 
         toggleRunButton.Location = new Point(right - toggleRunButton.Width, 7);
-        right = toggleRunButton.Left - 12;
+        right = toggleRunButton.Left - 10;
 
-        int maxStatusWidth = Math.Max(120, right - 10);
+        if (_activeTab == CliType.AntigravityCli && _profileComboBox != null && _addProfileButton != null)
+        {
+            _profileComboBox.Visible = true;
+            _addProfileButton.Visible = true;
+
+            _addProfileButton.Location = new Point(right - _addProfileButton.Width, 8);
+            right = _addProfileButton.Left - 6;
+
+            _profileComboBox.Location = new Point(right - _profileComboBox.Width, 9);
+            right = _profileComboBox.Left - 10;
+        }
+        else
+        {
+            if (_profileComboBox != null) _profileComboBox.Visible = false;
+            if (_addProfileButton != null) _addProfileButton.Visible = false;
+        }
+
+        int maxStatusWidth = Math.Max(100, right - 10);
         activeStatusLabel.MaximumSize = new Size(maxStatusWidth, 24);
         activeStatusLabel.AutoEllipsis = true;
         activeStatusLabel.Location = new Point(Math.Max(10, right - activeStatusLabel.PreferredWidth), 14);
@@ -153,6 +200,18 @@ public partial class CliWebviewForm : Form
         openBrowserButton.BackColor = c.ButtonBg;
         openBrowserButton.ForeColor = c.ButtonText;
         openBrowserButton.FlatAppearance.BorderColor = c.ButtonBorder;
+
+        if (_profileComboBox != null)
+        {
+            _profileComboBox.BackColor = c.WellBackground;
+            _profileComboBox.ForeColor = c.TextPrimary;
+        }
+        if (_addProfileButton != null)
+        {
+            _addProfileButton.BackColor = c.ButtonBg;
+            _addProfileButton.ForeColor = c.AccentGreen;
+            _addProfileButton.FlatAppearance.BorderColor = c.AccentGreen;
+        }
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
@@ -195,8 +254,67 @@ public partial class CliWebviewForm : Form
         clearTerminalButton.Click += (_, _) => HandleClearTerminalClick();
         openBrowserButton.Click += (_, _) => HandleOpenBrowserClick();
 
+        if (_profileComboBox != null)
+        {
+            _profileComboBox.SelectedIndexChanged += async (_, _) =>
+            {
+                if (_isUpdatingProfileCombo || _cliManager == null) return;
+                if (_profileComboBox.SelectedItem is ProfileItem item)
+                {
+                    if (!string.Equals(item.ProfileName, _cliManager.ProfileService.ActiveProfile, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _profileComboBox.Enabled = false;
+                        if (_addProfileButton != null) _addProfileButton.Enabled = false;
+                        try
+                        {
+                            await _cliManager.SwitchAntigravityProfileAsync(item.ProfileName);
+                        }
+                        finally
+                        {
+                            _profileComboBox.Enabled = true;
+                            if (_addProfileButton != null) _addProfileButton.Enabled = true;
+                            RefreshProfileCombo();
+                        }
+                    }
+                }
+            };
+        }
+
+        if (_addProfileButton != null)
+        {
+            _addProfileButton.Click += async (_, _) =>
+            {
+                if (_cliManager == null) return;
+                var existing = _cliManager.ProfileService.GetProfiles();
+                string defaultName = $"Account_{existing.Count + 1}";
+                string? name = PromptForProfileName(defaultName);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    if (existing.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        MessageBox.Show(this, $"A profile named '{name}' already exists.", "Profile Exists", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    await _cliManager.CreateAndSwitchNewProfileAsync(name);
+                    RefreshProfileCombo();
+                }
+            };
+        }
+
         if (_cliManager != null)
         {
+            _cliManager.ProfileService.ActiveProfileChanged += (_) =>
+            {
+                if (InvokeRequired) BeginInvoke(RefreshProfileCombo);
+                else RefreshProfileCombo();
+            };
+
+            _cliManager.ProfileService.ProfileSaved += (_) =>
+            {
+                if (InvokeRequired) BeginInvoke(RefreshProfileCombo);
+                else RefreshProfileCombo();
+            };
+
             _cliManager.StatusChanged += (type, state, msg) =>
             {
                 if (InvokeRequired)
@@ -221,6 +339,8 @@ public partial class CliWebviewForm : Form
                 }
             };
         }
+
+        RefreshProfileCombo();
     }
 
     public void SwitchTab(CliType type)
@@ -228,6 +348,12 @@ public partial class CliWebviewForm : Form
         _activeTab = type;
         UpdateTabButtonsUi();
         UpdateToolbarUi();
+        LayoutToolbar();
+
+        if (type == CliType.AntigravityCli)
+        {
+            RefreshProfileCombo();
+        }
 
         if (hermesWebView != null) hermesWebView.Visible = type == CliType.Hermes;
         if (claudeWebView != null) claudeWebView.Visible = type == CliType.ClaudeCode;
@@ -252,7 +378,10 @@ public partial class CliWebviewForm : Form
             contentPanel.Controls.Add(claudeWebView);
             contentPanel.Controls.Add(antigravityWebView);
 
-            var userDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesHub", "WebView2Data");
+            var baseLocalApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var legacyUserFolder = Path.Combine(baseLocalApp, "HermesHub", "WebView2Data");
+            var newUserFolder = Path.Combine(baseLocalApp, "AgentsHub", "WebView2Data");
+            var userDataFolder = Directory.Exists(legacyUserFolder) && !Directory.Exists(newUserFolder) ? legacyUserFolder : newUserFolder;
             var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
 
             // Hermes WebView
@@ -660,5 +789,119 @@ public partial class CliWebviewForm : Form
         }
 
         return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    private void RefreshProfileCombo()
+    {
+        if (IsInDesignMode || _cliManager == null || _profileComboBox == null) return;
+
+        try
+        {
+            _isUpdatingProfileCombo = true;
+            _profileComboBox.Items.Clear();
+
+            var profiles = _cliManager.ProfileService.GetProfiles();
+            var active = _cliManager.ProfileService.ActiveProfile;
+            ProfileItem? selectedItem = null;
+
+            foreach (var p in profiles)
+            {
+                string? email = _cliManager.ProfileService.GetAccountEmail(p);
+                string display = !string.IsNullOrWhiteSpace(email) ? $"{p} ({email})" : p;
+                var item = new ProfileItem { ProfileName = p, DisplayText = display };
+                _profileComboBox.Items.Add(item);
+
+                if (string.Equals(p, active, StringComparison.OrdinalIgnoreCase))
+                {
+                    selectedItem = item;
+                }
+            }
+
+            if (selectedItem != null)
+            {
+                _profileComboBox.SelectedItem = selectedItem;
+            }
+            else if (_profileComboBox.Items.Count > 0)
+            {
+                _profileComboBox.SelectedIndex = 0;
+            }
+        }
+        finally
+        {
+            _isUpdatingProfileCombo = false;
+        }
+    }
+
+    private string? PromptForProfileName(string defaultName)
+    {
+        using var form = new Form
+        {
+            Text = "New Antigravity Profile",
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            ClientSize = new Size(330, 135),
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false,
+            BackColor = ThemeManager.Colors.WindowBackground,
+            ForeColor = ThemeManager.Colors.TextPrimary
+        };
+
+        var lbl = new Label
+        {
+            Text = "Enter new profile / account name:",
+            Location = new Point(16, 16),
+            AutoSize = true,
+            ForeColor = ThemeManager.Colors.TextSecondary
+        };
+
+        var txt = new TextBox
+        {
+            Text = defaultName,
+            Location = new Point(16, 42),
+            Width = 296,
+            BackColor = ThemeManager.Colors.WellBackground,
+            ForeColor = ThemeManager.Colors.TextPrimary
+        };
+
+        var btnOk = new Button
+        {
+            Text = "Create & Login",
+            DialogResult = DialogResult.OK,
+            Location = new Point(148, 82),
+            Size = new Size(104, 34),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemeManager.Colors.AccentGreen,
+            ForeColor = ThemeManager.Colors.AccentGreenText,
+            Cursor = Cursors.Hand
+        };
+        btnOk.FlatAppearance.BorderSize = 0;
+
+        var btnCancel = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            Location = new Point(258, 82),
+            Size = new Size(54, 34),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemeManager.Colors.ButtonBg,
+            ForeColor = ThemeManager.Colors.TextSecondary,
+            Cursor = Cursors.Hand
+        };
+        btnCancel.FlatAppearance.BorderColor = ThemeManager.Colors.ButtonBorder;
+
+        form.Controls.AddRange([lbl, txt, btnOk, btnCancel]);
+        form.AcceptButton = btnOk;
+        form.CancelButton = btnCancel;
+
+        txt.SelectAll();
+        return form.ShowDialog(this) == DialogResult.OK ? txt.Text.Trim() : null;
+    }
+
+    private sealed class ProfileItem
+    {
+        public string ProfileName { get; set; } = "";
+        public string DisplayText { get; set; } = "";
+        public override string ToString() => DisplayText;
     }
 }

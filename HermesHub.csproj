@@ -17,8 +17,9 @@
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
 
     <!-- Metadata -->
-    <AssemblyTitle>Hermes Desktop Hub</AssemblyTitle>
-    <AssemblyDescription>Ultra-Lightweight Standalone Hermes Desktop Hub and LAN Proxy</AssemblyDescription>
+    <AssemblyTitle>Agents Hub</AssemblyTitle>
+    <AssemblyDescription>Agents Hub - Multi-Agent Desktop Hub and CLI Workspace</AssemblyDescription>
+    <Product>Agents Hub</Product>
     <AssemblyVersion>1.0.2.0</AssemblyVersion>
     <FileVersion>1.0.2.0</FileVersion>
     <Version>1.0.2</Version>

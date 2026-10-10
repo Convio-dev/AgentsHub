@@ -37,6 +37,7 @@ public class CliManagerService : IDisposable
 {
     private readonly HermesProcessService _hermesService;
     private readonly CliWebTerminalServer _webTerminalServer;
+    private readonly AntigravityProfileService _profileService;
     private readonly ConcurrentDictionary<CliType, ConPtySession> _terminalSessions = new();
     private readonly ConcurrentDictionary<CliType, StringBuilder> _terminalBuffers = new();
     private readonly ConcurrentDictionary<CliType, CliItemInfo> _cliStates = new();
@@ -44,6 +45,7 @@ public class CliManagerService : IDisposable
 
     public HermesProcessService HermesService => _hermesService;
     public CliWebTerminalServer WebTerminalServer => _webTerminalServer;
+    public AntigravityProfileService ProfileService => _profileService;
 
     public event Action<CliType, CliState, string>? StatusChanged;
     public event Action<CliType, string>? TerminalDataReceived;
@@ -52,6 +54,17 @@ public class CliManagerService : IDisposable
     public CliManagerService(HermesProcessService hermesService)
     {
         _hermesService = hermesService;
+        _profileService = new AntigravityProfileService();
+
+        _profileService.LogMessage += (msg) =>
+        {
+            LogMessage?.Invoke("Antigravity Profile", msg);
+        };
+
+        _profileService.ProfileSaved += (name) =>
+        {
+            LogMessage?.Invoke("Antigravity Profile", $"Saved credentials for profile '{name}'.");
+        };
 
         _cliStates[CliType.Hermes] = new CliItemInfo
         {
@@ -189,6 +202,18 @@ public class CliManagerService : IDisposable
 
             session.Exited += (exitCode) =>
             {
+                if (type == CliType.AntigravityCli)
+                {
+                    try
+                    {
+                        _profileService.ExportCurrentSession(_profileService.ActiveProfile);
+                    }
+                    catch
+                    {
+                        // Ignore exit export failures
+                    }
+                }
+
                 info.State = CliState.Offline;
                 info.StatusText = exitCode == 0 ? "Exited cleanly" : $"Exited with code {exitCode}";
                 info.ProcessId = 0;
@@ -203,6 +228,11 @@ public class CliManagerService : IDisposable
                 CliType.AntigravityCli => "cmd.exe /c agy",
                 _ => "cmd.exe"
             };
+
+            if (type == CliType.AntigravityCli)
+            {
+                _profileService.EnsureActiveProfileApplied();
+            }
 
             bool started = session.Start(command, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), 120, 32);
             if (started)
@@ -238,6 +268,18 @@ public class CliManagerService : IDisposable
         {
             await _hermesService.StopAsync();
             return;
+        }
+
+        if (type == CliType.AntigravityCli)
+        {
+            try
+            {
+                _profileService.ExportCurrentSession(_profileService.ActiveProfile);
+            }
+            catch (Exception ex)
+            {
+                LogMessage?.Invoke("Antigravity Profile", $"Pre-stop export error: {ex.Message}");
+            }
         }
 
         var info = _cliStates[type];
@@ -308,6 +350,72 @@ public class CliManagerService : IDisposable
         }
     }
 
+    public async Task<bool> SwitchAntigravityProfileAsync(string profileName)
+    {
+        LogMessage?.Invoke("Antigravity", $"Switching profile to '{profileName}'...");
+
+        try
+        {
+            _profileService.ExportCurrentSession(_profileService.ActiveProfile);
+        }
+        catch (Exception ex)
+        {
+            LogMessage?.Invoke("Antigravity Profile", $"Pre-switch export notice: {ex.Message}");
+        }
+
+        var wasRunning = _cliStates.TryGetValue(CliType.AntigravityCli, out var info) &&
+                         (info.State == CliState.Running || info.State == CliState.Starting);
+
+        if (wasRunning)
+        {
+            await StopAsync(CliType.AntigravityCli);
+            await Task.Delay(350);
+        }
+
+        bool applied = _profileService.ApplyProfile(profileName);
+
+        if (wasRunning && applied)
+        {
+            await Task.Delay(200);
+            Start(CliType.AntigravityCli);
+        }
+
+        return applied;
+    }
+
+    public async Task<bool> CreateAndSwitchNewProfileAsync(string newProfileName)
+    {
+        LogMessage?.Invoke("Antigravity", $"Preparing new onboarding profile '{newProfileName}'...");
+
+        try
+        {
+            _profileService.ExportCurrentSession(_profileService.ActiveProfile);
+        }
+        catch (Exception ex)
+        {
+            LogMessage?.Invoke("Antigravity Profile", $"Pre-create export notice: {ex.Message}");
+        }
+
+        var wasRunning = _cliStates.TryGetValue(CliType.AntigravityCli, out var info) &&
+                         (info.State == CliState.Running || info.State == CliState.Starting);
+
+        if (wasRunning)
+        {
+            await StopAsync(CliType.AntigravityCli);
+            await Task.Delay(350);
+        }
+
+        bool prepared = _profileService.PrepareNewProfile(newProfileName);
+
+        if (prepared)
+        {
+            await Task.Delay(200);
+            Start(CliType.AntigravityCli);
+        }
+
+        return prepared;
+    }
+
     public void Dispose()
     {
         foreach (var session in _terminalSessions.Values)
@@ -324,6 +432,7 @@ public class CliManagerService : IDisposable
         _terminalSessions.Clear();
         _webTerminalServer.Dispose();
         _hermesService.Dispose();
+        _profileService.Dispose();
         GC.SuppressFinalize(this);
     }
 }

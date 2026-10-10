@@ -36,6 +36,15 @@ public partial class MainForm : Form
     private bool _isIpMasked = false;
     private static readonly HttpClient _publicIpHttpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
 
+    private Panel? _toastPanel;
+    private Label? _toastTitleLabel;
+    private Label? _toastBodyLabel;
+    private Button? _toastCloseButton;
+    private System.Windows.Forms.Timer? _toastDismissTimer;
+    private System.Windows.Forms.Timer? _toastAnimTimer;
+    private int _toastTargetY = 54;
+    private bool _toastHiding = false;
+
     public MainForm()
     {
         InitializeComponent();
@@ -125,12 +134,42 @@ public partial class MainForm : Form
         {
             _selectedCliType = (CliType)cliSelectComboBox.SelectedIndex;
             StartupHelper.SetIntPreference("SelectedCli", (int)_selectedCliType);
+            LayoutCards();
             UpdateCliStatusUi();
         };
 
+        if (_cliManager != null)
+        {
+            _cliManager.ProfileService.ActiveProfileChanged += (_) =>
+            {
+                if (InvokeRequired) BeginInvoke(RefreshAntigravityProfilesUi);
+                else RefreshAntigravityProfilesUi();
+            };
+
+            _cliManager.ProfileService.ProfileSaved += (_) =>
+            {
+                if (InvokeRequired) BeginInvoke(RefreshAntigravityProfilesUi);
+                else RefreshAntigravityProfilesUi();
+            };
+
+            _cliManager.ProfileService.ProfileRenamed += (_, _) =>
+            {
+                if (InvokeRequired) BeginInvoke(RefreshAntigravityProfilesUi);
+                else RefreshAntigravityProfilesUi();
+            };
+
+            _cliManager.ProfileService.ProfileSessionCaptured += (profileName, email) =>
+            {
+                if (InvokeRequired) BeginInvoke(() => OnProfileSessionCaptured(profileName, email));
+                else OnProfileSessionCaptured(profileName, email);
+            };
+        }
+
         InitializeTrayIcon();
         InitializeCustomStyles();
+        InitializeToastNotification();
         HookEvents();
+        RefreshAntigravityProfilesUi();
 
         // Populate initial log lines from engine buffer
         foreach (var log in _hermesService.GetLogHistory())
@@ -161,7 +200,7 @@ public partial class MainForm : Form
         // Apply automation if enabled
         if (autoStartHermesCheckBox.Checked)
         {
-            _cliManager.Start(CliType.Hermes);
+            _cliManager?.Start(CliType.Hermes);
         }
 
         if (autoEnableLanCheckBox.Checked)
@@ -221,6 +260,11 @@ public partial class MainForm : Form
             LayoutTopBar();
             LayoutCards();
             LayoutBottomBar();
+            if (_toastPanel != null && _toastPanel.Visible)
+            {
+                _toastPanel.Left = Math.Max(10, ClientSize.Width - _toastPanel.Width - 16);
+                _toastPanel.BringToFront();
+            }
         };
 
         // Tooltips
@@ -232,6 +276,9 @@ public partial class MainForm : Form
         toolTip.SetToolTip(launchClineButton, "Launch Cline Desktop App");
         toolTip.SetToolTip(launchDeepSeekButton, "Launch DeepSeek Harness");
         toolTip.SetToolTip(launchOpenCodeButton, "Launch OpenCode Desktop");
+        toolTip.SetToolTip(launchAntigravityIdeButton, "Launch Antigravity IDE Desktop");
+        toolTip.SetToolTip(launchClaudeButton, "Launch Claude Desktop App");
+        toolTip.SetToolTip(launchChatGptButton, "Launch ChatGPT Desktop App");
         toolTip.SetToolTip(resetOpenCodeQuotaButton, "Reset OpenCode Quota (Rotate Cloudflare WARP IP)");
         toolTip.SetToolTip(toggleIpMaskButton, "Show / Hide IP Address");
         toolTip.SetToolTip(refreshIpButton, "Refresh Public IP");
@@ -343,8 +390,8 @@ public partial class MainForm : Form
         int extraQr = qrDrawerPanel.Visible ? 180 : 0;
         int logsH = logsPanel.Visible ? 212 : 0;
 
-        // Base height accommodating AI dev tools card (780px), expanding for drawers
-        int targetClientHeight = 780 + extraQr + logsH;
+        // Base height accommodating AI dev tools card (816px), expanding for drawers
+        int targetClientHeight = 816 + extraQr + logsH;
 
         var screen = Screen.FromControl(this) ?? Screen.PrimaryScreen;
         int maxAvailableHeight = (screen?.WorkingArea.Height ?? 1080) - 40;
@@ -373,7 +420,8 @@ public partial class MainForm : Form
 
         // Precompute total content height for scroll bounds
         int lanH = qrDrawerPanel.Visible ? 330 : 150;
-        int totalContentHeight = 10 + 162 + spacing + 152 + spacing + lanH + spacing + 176;
+        int hermesH = (_selectedCliType == CliType.AntigravityCli) ? 190 : 162;
+        int totalContentHeight = 10 + hermesH + spacing + 188 + spacing + lanH + spacing + 176;
         if (logsPanel.Visible)
         {
             totalContentHeight += spacing + 200;
@@ -388,23 +436,51 @@ public partial class MainForm : Form
         // 1. CLI Services Card
         hermesCard.Location = new Point(margin, currentY);
         hermesCard.Width = cardWidth;
-        hermesCard.Height = 162;
+        hermesCard.Height = hermesH;
 
         int btnCount = 4;
         int btnGap = 8;
         int availBtnWidth = cardWidth - 28 - ((btnCount - 1) * btnGap);
         int singleBtnW = availBtnWidth / btnCount;
 
-        startHermesButton.Location = new Point(14, 76);
+        if (_selectedCliType == CliType.AntigravityCli)
+        {
+            antigravityProfilePanel.Visible = true;
+            antigravityProfilePanel.Location = new Point(14, 72);
+            antigravityProfilePanel.Width = cardWidth - 28;
+
+            deleteAntigravityProfileButton.Location = new Point(antigravityProfilePanel.Width - 38, 1);
+            deleteAntigravityProfileButton.Size = new Size(38, 28);
+            renameAntigravityProfileButton.Location = new Point(antigravityProfilePanel.Width - 98, 1);
+            renameAntigravityProfileButton.Size = new Size(56, 28);
+            addAntigravityProfileButton.Location = new Point(antigravityProfilePanel.Width - 152, 1);
+            addAntigravityProfileButton.Size = new Size(50, 28);
+
+            antigravityProfileComboBox.Location = new Point(66, 2);
+            antigravityProfileComboBox.Width = Math.Max(100, antigravityProfilePanel.Width - 66 - 158);
+
+            startHermesButton.Location = new Point(14, 108);
+            stopHermesButton.Location = new Point(14 + singleBtnW + btnGap, 108);
+            openDashboardButton.Location = new Point(14 + (singleBtnW + btnGap) * 2, 108);
+            openBrowserMainButton.Location = new Point(14 + (singleBtnW + btnGap) * 3, 108);
+
+            cliDotsLabel.Location = new Point(14, 156);
+        }
+        else
+        {
+            antigravityProfilePanel.Visible = false;
+
+            startHermesButton.Location = new Point(14, 76);
+            stopHermesButton.Location = new Point(14 + singleBtnW + btnGap, 76);
+            openDashboardButton.Location = new Point(14 + (singleBtnW + btnGap) * 2, 76);
+            openBrowserMainButton.Location = new Point(14 + (singleBtnW + btnGap) * 3, 76);
+
+            cliDotsLabel.Location = new Point(14, 126);
+        }
+
         startHermesButton.Size = new Size(singleBtnW, 36);
-
-        stopHermesButton.Location = new Point(14 + singleBtnW + btnGap, 76);
         stopHermesButton.Size = new Size(singleBtnW, 36);
-
-        openDashboardButton.Location = new Point(14 + (singleBtnW + btnGap) * 2, 76);
         openDashboardButton.Size = new Size(singleBtnW, 36);
-
-        openBrowserMainButton.Location = new Point(14 + (singleBtnW + btnGap) * 3, 76);
         openBrowserMainButton.Size = new Size(singleBtnW, 36);
 
         currentY += hermesCard.Height + spacing;
@@ -412,7 +488,7 @@ public partial class MainForm : Form
         // 2. AI Dev Tools / Quick Apps Card
         quickAppsCard.Location = new Point(margin, currentY);
         quickAppsCard.Width = cardWidth;
-        quickAppsCard.Height = 152;
+        quickAppsCard.Height = 188;
 
         int innerW = cardWidth - 28;
         int row1Gap = 8;
@@ -428,18 +504,34 @@ public partial class MainForm : Form
         launchDeepSeekButton.Location = new Point(14 + (row1BtnW + row1Gap) * 2, 38);
         launchDeepSeekButton.Size = new Size(row1Remaining, 34);
 
-        launchOpenCodeButton.Location = new Point(14, 80);
+        launchOpenCodeButton.Location = new Point(14, 78);
         launchOpenCodeButton.Size = new Size(innerW, 34);
         launchOpenCodeButton.Padding = new Padding(34, 0, 34, 0);
 
         resetOpenCodeQuotaButton.Location = new Point(launchOpenCodeButton.Width - 34, 3);
         resetOpenCodeQuotaButton.Size = new Size(30, 28);
 
-        publicIpLabel.Location = new Point(14, 124);
-        refreshIpButton.Location = new Point(cardWidth - 14 - 26, 121);
+        int row3Gap = 8;
+        int row3BtnW = (innerW - (2 * row3Gap)) / 3;
+        int row3Remaining = innerW - (row3BtnW * 2 + (2 * row3Gap));
+        int row3Y = 118;
+        int row3Height = 28;
+
+        launchAntigravityIdeButton.Location = new Point(14, row3Y);
+        launchAntigravityIdeButton.Size = new Size(row3BtnW, row3Height);
+
+        launchClaudeButton.Location = new Point(14 + row3BtnW + row3Gap, row3Y);
+        launchClaudeButton.Size = new Size(row3BtnW, row3Height);
+
+        launchChatGptButton.Location = new Point(14 + (row3BtnW + row3Gap) * 2, row3Y);
+        launchChatGptButton.Size = new Size(row3Remaining, row3Height);
+
+        int ipY = 154;
+        publicIpLabel.Location = new Point(14, ipY + 3);
+        refreshIpButton.Location = new Point(cardWidth - 14 - 26, ipY);
         refreshIpButton.Size = new Size(26, 22);
 
-        toggleIpMaskButton.Location = new Point(refreshIpButton.Left - 4 - 26, 121);
+        toggleIpMaskButton.Location = new Point(refreshIpButton.Left - 4 - 26, ipY);
         toggleIpMaskButton.Size = new Size(26, 22);
 
         currentY += quickAppsCard.Height + spacing;
@@ -552,6 +644,28 @@ public partial class MainForm : Form
         cliSelectComboBox.BackColor = c.WellBackground;
         cliSelectComboBox.ForeColor = c.TextPrimary;
 
+        antigravityProfileLabel.ForeColor = c.TextSecondary;
+        antigravityProfileComboBox.BackColor = c.WellBackground;
+        antigravityProfileComboBox.ForeColor = c.TextPrimary;
+        addAntigravityProfileButton.BackColor = c.ButtonBg;
+        addAntigravityProfileButton.ForeColor = c.AccentGreen;
+        addAntigravityProfileButton.FlatAppearance.BorderColor = c.AccentGreen;
+        renameAntigravityProfileButton.BackColor = c.ButtonBg;
+        renameAntigravityProfileButton.ForeColor = c.TextPrimary;
+        renameAntigravityProfileButton.FlatAppearance.BorderColor = c.ButtonBorder;
+        deleteAntigravityProfileButton.BackColor = c.ButtonBg;
+        deleteAntigravityProfileButton.ForeColor = c.DangerRed;
+        deleteAntigravityProfileButton.FlatAppearance.BorderColor = c.ButtonBorder;
+
+        if (_toastPanel != null)
+        {
+            _toastPanel.BackColor = c.CardBackground;
+            _toastPanel.Invalidate();
+        }
+        if (_toastTitleLabel != null) _toastTitleLabel.ForeColor = c.AccentGreen;
+        if (_toastBodyLabel != null) _toastBodyLabel.ForeColor = c.TextSecondary;
+        if (_toastCloseButton != null) _toastCloseButton.ForeColor = c.TextMuted;
+
         lanToggleCheckBox.ForeColor = c.TextPrimary;
         lanStatusLabel.ForeColor = c.TextSecondary;
         lanClientsLabel.ForeColor = c.TextSecondary;
@@ -586,6 +700,9 @@ public partial class MainForm : Form
         StyleStandardButton(launchClineButton);
         StyleStandardButton(launchDeepSeekButton);
         StyleStandardButton(launchOpenCodeButton);
+        StyleStandardButton(launchAntigravityIdeButton);
+        StyleStandardButton(launchClaudeButton);
+        StyleStandardButton(launchChatGptButton);
 
         resetOpenCodeQuotaButton.FlatStyle = FlatStyle.Flat;
         resetOpenCodeQuotaButton.FlatAppearance.BorderSize = 0;
@@ -752,6 +869,11 @@ public partial class MainForm : Form
         trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🔄 OpenCode Quota Reset", null, async (_, _) => await ResetOpenCodeQuotaAsync()));
         trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🤖 Cline", null, (_, _) => LaunchApp("Cline", @"C:\Users\Gaming\AppData\Local\Cline\cline-app.exe")));
         trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🧠 DeepSeek", null, (_, _) => LaunchApp("DeepSeek", @"E:\DeepSeek Harness\DeepSeek Harness.exe")));
+        var antigravityIdeExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Antigravity IDE\Antigravity IDE.exe");
+        var finalAntigravityPath = File.Exists(antigravityIdeExe) ? antigravityIdeExe : @"C:\Users\Gaming\AppData\Local\Programs\Antigravity IDE\Antigravity IDE.exe";
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("🪐 Antigravity-ide", null, (_, _) => LaunchApp("Antigravity-ide", finalAntigravityPath)));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("✳️ Claude", null, (_, _) => LaunchApp("Claude", @"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude")));
+        trayToolsMenu.DropDownItems.Add(new ToolStripMenuItem("💬 ChatGPT", null, (_, _) => LaunchApp("ChatGPT", @"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App")));
 
         _trayContextMenu.Items.Add(_trayOpenWebUiItem);
         _trayContextMenu.Items.Add(trayToolsMenu);
@@ -764,7 +886,7 @@ public partial class MainForm : Form
         _trayContextMenu.Items.Add(trayExitItem);
 
         _notifyIcon.Icon = _trayIconOffline;
-        _notifyIcon.Text = "Hermes Hub - Offline";
+        _notifyIcon.Text = "Agents Hub - Offline";
         _notifyIcon.Visible = true;
         _notifyIcon.ContextMenuStrip = _trayContextMenu;
 
@@ -800,11 +922,45 @@ public partial class MainForm : Form
         openDashboardButton.Click += (_, _) => OpenCliWebview(_selectedCliType);
         openBrowserMainButton.Click += (_, _) => OpenBrowserForSelectedCli();
 
+        antigravityProfileComboBox.SelectedIndexChanged += async (_, _) =>
+        {
+            if (_isUpdatingProfileCombo || _cliManager == null) return;
+            if (antigravityProfileComboBox.SelectedItem is ProfileComboItem item)
+            {
+                if (!string.Equals(item.ProfileName, _cliManager.ProfileService.ActiveProfile, StringComparison.OrdinalIgnoreCase))
+                {
+                    await SwitchAntigravityProfileFromUiAsync(item.ProfileName);
+                }
+            }
+        };
+
+        addAntigravityProfileButton.Click += async (_, _) =>
+        {
+            await PromptAndAddNewProfileAsync();
+        };
+
+        renameAntigravityProfileButton.Click += async (_, _) =>
+        {
+            await PromptAndRenameProfileAsync();
+        };
+
+        deleteAntigravityProfileButton.Click += async (_, _) =>
+        {
+            await DeleteCurrentProfileFromUiAsync();
+        };
+
         // AI Dev Tools controls
         launchFreeBuffButton.Click += (_, _) => LaunchApp("FreeBuff", @"C:\Users\Gaming\AppData\Local\Programs\@codebufffreebuff-desktop\Freebuff.exe");
         launchClineButton.Click += (_, _) => LaunchApp("Cline", @"C:\Users\Gaming\AppData\Local\Cline\cline-app.exe");
         launchDeepSeekButton.Click += (_, _) => LaunchApp("DeepSeek", @"E:\DeepSeek Harness\DeepSeek Harness.exe");
         launchOpenCodeButton.Click += (_, _) => LaunchApp("OpenCode", @"C:\Users\Gaming\AppData\Local\Programs\@opencodedesktop\OpenCode.exe");
+        launchAntigravityIdeButton.Click += (_, _) =>
+        {
+            var ideExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Antigravity IDE\Antigravity IDE.exe");
+            LaunchApp("Antigravity-ide", File.Exists(ideExe) ? ideExe : @"C:\Users\Gaming\AppData\Local\Programs\Antigravity IDE\Antigravity IDE.exe");
+        };
+        launchClaudeButton.Click += (_, _) => LaunchApp("Claude", @"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude");
+        launchChatGptButton.Click += (_, _) => LaunchApp("ChatGPT", @"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App");
         resetOpenCodeQuotaButton.Click += async (_, _) => await ResetOpenCodeQuotaAsync();
         toggleIpMaskButton.Click += (_, _) =>
         {
@@ -1094,7 +1250,7 @@ public partial class MainForm : Form
         if (_notifyIcon != null)
         {
             _notifyIcon.Icon = activeCount > 0 ? _trayIconOnline : _trayIconOffline;
-            _notifyIcon.Text = $"Hermes Hub - {activeCount} of 3 Active";
+            _notifyIcon.Text = $"Agents Hub - {activeCount} of 3 Active";
         }
 
         if (_trayStartItem != null)
@@ -1421,8 +1577,8 @@ public partial class MainForm : Form
     private void ConfirmAndExitApplication()
     {
         var result = MessageBox.Show(
-            "Are you sure you want to stop Hermes and exit completely?",
-            "Exit Hermes Hub",
+            "Are you sure you want to stop agents and exit completely?",
+            "Exit Agents Hub",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question,
             MessageBoxDefaultButton.Button2
@@ -1446,6 +1602,10 @@ public partial class MainForm : Form
         _cliManager?.Dispose();
         telemetryTimer?.Stop();
         telemetryTimer?.Dispose();
+        _toastDismissTimer?.Stop();
+        _toastDismissTimer?.Dispose();
+        _toastAnimTimer?.Stop();
+        _toastAnimTimer?.Dispose();
         _clientsToolTip.Dispose();
         Application.Exit();
     }
@@ -1461,8 +1621,8 @@ public partial class MainForm : Form
         if (!_isExiting && e.CloseReason == CloseReason.UserClosing)
         {
             var result = MessageBox.Show(
-                "Are you sure you want to stop Hermes and exit completely?",
-                "Exit Hermes Hub",
+                "Are you sure you want to stop agents and exit completely?",
+                "Exit Agents Hub",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question,
                 MessageBoxDefaultButton.Button2
@@ -1516,21 +1676,57 @@ public partial class MainForm : Form
         try
         {
             var cleanPath = targetPath.Trim('"');
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = cleanPath,
-                UseShellExecute = true
-            };
+            ProcessStartInfo startInfo;
 
-            if (!string.IsNullOrWhiteSpace(arguments))
+            if (cleanPath.StartsWith("shell:", StringComparison.OrdinalIgnoreCase))
             {
-                startInfo.Arguments = arguments;
+                // Launch packaged / Store application via shell verb or Explorer
+                try
+                {
+                    startInfo = new ProcessStartInfo
+                    {
+                        FileName = cleanPath,
+                        UseShellExecute = true
+                    };
+                    Process.Start(startInfo);
+                    AppendLog("Launcher", $"Started {name}");
+                    return;
+                }
+                catch
+                {
+                    startInfo = new ProcessStartInfo
+                    {
+                        FileName = "explorer.exe",
+                        Arguments = cleanPath,
+                        UseShellExecute = true
+                    };
+                }
             }
-
-            var dir = Path.GetDirectoryName(cleanPath);
-            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+            else
             {
-                startInfo.WorkingDirectory = dir;
+                startInfo = new ProcessStartInfo
+                {
+                    FileName = cleanPath,
+                    UseShellExecute = true
+                };
+
+                if (!string.IsNullOrWhiteSpace(arguments))
+                {
+                    startInfo.Arguments = arguments;
+                }
+
+                try
+                {
+                    var dir = Path.GetDirectoryName(cleanPath);
+                    if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    {
+                        startInfo.WorkingDirectory = dir;
+                    }
+                }
+                catch
+                {
+                    // Ignore non-standard directory paths
+                }
             }
 
             Process.Start(startInfo);
@@ -1767,6 +1963,564 @@ public partial class MainForm : Form
 
         var hIcon = bitmap.GetHicon();
         return Icon.FromHandle(hIcon);
+    }
+
+    private bool _isUpdatingProfileCombo;
+
+    private void RefreshAntigravityProfilesUi()
+    {
+        if (System.ComponentModel.LicenseManager.UsageMode == System.ComponentModel.LicenseUsageMode.Designtime || _cliManager == null)
+        {
+            return;
+        }
+
+        try
+        {
+            _isUpdatingProfileCombo = true;
+            antigravityProfileComboBox.Items.Clear();
+
+            var profiles = _cliManager.ProfileService.GetProfiles();
+            var active = _cliManager.ProfileService.ActiveProfile;
+            ProfileComboItem? selectedItem = null;
+
+            foreach (var p in profiles)
+            {
+                string? email = _cliManager.ProfileService.GetAccountEmail(p);
+                string display = !string.IsNullOrWhiteSpace(email) ? $"{p} ({email})" : p;
+                var item = new ProfileComboItem { ProfileName = p, DisplayText = display };
+                antigravityProfileComboBox.Items.Add(item);
+
+                if (string.Equals(p, active, StringComparison.OrdinalIgnoreCase))
+                {
+                    selectedItem = item;
+                }
+            }
+
+            if (selectedItem != null)
+            {
+                antigravityProfileComboBox.SelectedItem = selectedItem;
+            }
+            else if (antigravityProfileComboBox.Items.Count > 0)
+            {
+                antigravityProfileComboBox.SelectedIndex = 0;
+            }
+            else
+            {
+                antigravityProfileComboBox.SelectedIndex = -1;
+            }
+
+            renameAntigravityProfileButton.Enabled = profiles.Count > 0;
+            deleteAntigravityProfileButton.Enabled = profiles.Count > 0;
+        }
+        finally
+        {
+            _isUpdatingProfileCombo = false;
+        }
+    }
+
+    private async Task SwitchAntigravityProfileFromUiAsync(string profileName)
+    {
+        if (_cliManager == null) return;
+
+        try
+        {
+            antigravityProfileComboBox.Enabled = false;
+            addAntigravityProfileButton.Enabled = false;
+            renameAntigravityProfileButton.Enabled = false;
+            deleteAntigravityProfileButton.Enabled = false;
+            hermesStatusLabel.Text = $"Switching to '{profileName}'...";
+
+            bool success = await _cliManager.SwitchAntigravityProfileAsync(profileName);
+            if (!success)
+            {
+                MessageBox.Show(this, $"Failed to switch to profile '{profileName}'.", "Profile Switch Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Error switching profile: {ex.Message}", "Profile Switch Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            antigravityProfileComboBox.Enabled = true;
+            addAntigravityProfileButton.Enabled = true;
+            renameAntigravityProfileButton.Enabled = true;
+            RefreshAntigravityProfilesUi();
+            UpdateCliStatusUi();
+        }
+    }
+
+    private async Task PromptAndAddNewProfileAsync()
+    {
+        if (_cliManager == null) return;
+
+        var existing = _cliManager.ProfileService.GetProfiles();
+        string defaultName = existing.Count == 0 ? "Account_1" : $"Account_{existing.Count + 1}";
+
+        string? name = PromptForProfileName(defaultName);
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        if (existing.Contains(name, StringComparer.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(this, $"A profile named '{name}' already exists.", "Profile Exists", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            antigravityProfileComboBox.Enabled = false;
+            addAntigravityProfileButton.Enabled = false;
+            renameAntigravityProfileButton.Enabled = false;
+            deleteAntigravityProfileButton.Enabled = false;
+            hermesStatusLabel.Text = $"Preparing '{name}'...";
+
+            bool success = await _cliManager.CreateAndSwitchNewProfileAsync(name);
+            if (success)
+            {
+                RefreshAntigravityProfilesUi();
+                OpenCliWebview(CliType.AntigravityCli);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Error creating profile: {ex.Message}", "Profile Creation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            antigravityProfileComboBox.Enabled = true;
+            addAntigravityProfileButton.Enabled = true;
+            renameAntigravityProfileButton.Enabled = true;
+            RefreshAntigravityProfilesUi();
+            UpdateCliStatusUi();
+        }
+    }
+
+    private async Task DeleteCurrentProfileFromUiAsync()
+    {
+        if (_cliManager == null) return;
+
+        var active = _cliManager.ProfileService.ActiveProfile;
+        if (string.IsNullOrWhiteSpace(active)) return;
+
+        var confirm = MessageBox.Show(this,
+            $"Are you sure you want to delete profile '{active}'?\nStored credentials for this account will be removed.",
+            "Confirm Profile Deletion",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (confirm != DialogResult.Yes) return;
+
+        try
+        {
+            antigravityProfileComboBox.Enabled = false;
+            addAntigravityProfileButton.Enabled = false;
+            renameAntigravityProfileButton.Enabled = false;
+            deleteAntigravityProfileButton.Enabled = false;
+
+            if (_cliManager.GetInfo(CliType.AntigravityCli).State == CliState.Running)
+            {
+                await _cliManager.StopAsync(CliType.AntigravityCli);
+                await Task.Delay(250);
+            }
+
+            _cliManager.ProfileService.DeleteProfile(active);
+            RefreshAntigravityProfilesUi();
+            UpdateCliStatusUi();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Error deleting profile: {ex.Message}", "Delete Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            antigravityProfileComboBox.Enabled = true;
+            addAntigravityProfileButton.Enabled = true;
+            renameAntigravityProfileButton.Enabled = true;
+            RefreshAntigravityProfilesUi();
+        }
+    }
+
+    private async Task PromptAndRenameProfileAsync()
+    {
+        if (_cliManager == null) return;
+
+        var currentProfile = _cliManager.ProfileService.ActiveProfile;
+        if (antigravityProfileComboBox.SelectedItem is ProfileComboItem item)
+        {
+            currentProfile = item.ProfileName;
+        }
+
+        if (string.IsNullOrWhiteSpace(currentProfile)) return;
+
+        string? newName = PromptForRenameProfile(currentProfile);
+        if (string.IsNullOrWhiteSpace(newName) || string.Equals(newName, currentProfile, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        try
+        {
+            antigravityProfileComboBox.Enabled = false;
+            addAntigravityProfileButton.Enabled = false;
+            renameAntigravityProfileButton.Enabled = false;
+            deleteAntigravityProfileButton.Enabled = false;
+
+            bool success = _cliManager.ProfileService.RenameProfile(currentProfile, newName);
+            if (!success)
+            {
+                MessageBox.Show(this, $"Failed to rename profile '{currentProfile}' to '{newName}'. Ensure the name is valid and does not already exist.", "Rename Profile Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            else
+            {
+                RefreshAntigravityProfilesUi();
+                for (int i = 0; i < antigravityProfileComboBox.Items.Count; i++)
+                {
+                    if (antigravityProfileComboBox.Items[i] is ProfileComboItem pItem &&
+                        string.Equals(pItem.ProfileName, newName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        antigravityProfileComboBox.SelectedIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Error renaming profile: {ex.Message}", "Rename Profile Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            antigravityProfileComboBox.Enabled = true;
+            addAntigravityProfileButton.Enabled = true;
+            renameAntigravityProfileButton.Enabled = true;
+            RefreshAntigravityProfilesUi();
+            UpdateCliStatusUi();
+        }
+    }
+
+    private string? PromptForRenameProfile(string currentName)
+    {
+        using var form = new Form
+        {
+            Text = "Rename Antigravity Profile",
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            ClientSize = new Size(330, 135),
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false,
+            BackColor = ThemeManager.Colors.WindowBackground,
+            ForeColor = ThemeManager.Colors.TextPrimary
+        };
+
+        var lbl = new Label
+        {
+            Text = "Enter new profile name:",
+            Location = new Point(16, 16),
+            AutoSize = true,
+            ForeColor = ThemeManager.Colors.TextSecondary
+        };
+
+        var txt = new TextBox
+        {
+            Text = currentName,
+            Location = new Point(16, 42),
+            Width = 296,
+            BackColor = ThemeManager.Colors.WellBackground,
+            ForeColor = ThemeManager.Colors.TextPrimary
+        };
+
+        var btnOk = new Button
+        {
+            Text = "Rename",
+            DialogResult = DialogResult.OK,
+            Location = new Point(176, 82),
+            Size = new Size(76, 34),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemeManager.Colors.AccentGreen,
+            ForeColor = ThemeManager.Colors.AccentGreenText,
+            Cursor = Cursors.Hand
+        };
+        btnOk.FlatAppearance.BorderSize = 0;
+
+        var btnCancel = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            Location = new Point(258, 82),
+            Size = new Size(54, 34),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemeManager.Colors.ButtonBg,
+            ForeColor = ThemeManager.Colors.TextSecondary,
+            Cursor = Cursors.Hand
+        };
+        btnCancel.FlatAppearance.BorderColor = ThemeManager.Colors.ButtonBorder;
+
+        form.Controls.AddRange([lbl, txt, btnOk, btnCancel]);
+        form.AcceptButton = btnOk;
+        form.CancelButton = btnCancel;
+
+        txt.SelectAll();
+        return form.ShowDialog(this) == DialogResult.OK ? txt.Text.Trim() : null;
+    }
+
+    private string? PromptForProfileName(string defaultName)
+    {
+        using var form = new Form
+        {
+            Text = "New Antigravity Profile",
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            ClientSize = new Size(330, 135),
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false,
+            BackColor = ThemeManager.Colors.WindowBackground,
+            ForeColor = ThemeManager.Colors.TextPrimary
+        };
+
+        var lbl = new Label
+        {
+            Text = "Enter new profile / account name:",
+            Location = new Point(16, 16),
+            AutoSize = true,
+            ForeColor = ThemeManager.Colors.TextSecondary
+        };
+
+        var txt = new TextBox
+        {
+            Text = defaultName,
+            Location = new Point(16, 42),
+            Width = 296,
+            BackColor = ThemeManager.Colors.WellBackground,
+            ForeColor = ThemeManager.Colors.TextPrimary
+        };
+
+        var btnOk = new Button
+        {
+            Text = "Create & Login",
+            DialogResult = DialogResult.OK,
+            Location = new Point(148, 82),
+            Size = new Size(104, 34),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemeManager.Colors.AccentGreen,
+            ForeColor = ThemeManager.Colors.AccentGreenText,
+            Cursor = Cursors.Hand
+        };
+        btnOk.FlatAppearance.BorderSize = 0;
+
+        var btnCancel = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            Location = new Point(258, 82),
+            Size = new Size(54, 34),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ThemeManager.Colors.ButtonBg,
+            ForeColor = ThemeManager.Colors.TextSecondary,
+            Cursor = Cursors.Hand
+        };
+        btnCancel.FlatAppearance.BorderColor = ThemeManager.Colors.ButtonBorder;
+
+        form.Controls.AddRange([lbl, txt, btnOk, btnCancel]);
+        form.AcceptButton = btnOk;
+        form.CancelButton = btnCancel;
+
+        txt.SelectAll();
+        return form.ShowDialog(this) == DialogResult.OK ? txt.Text.Trim() : null;
+    }
+
+    private void InitializeToastNotification()
+    {
+        _toastPanel = new Panel
+        {
+            Size = new Size(330, 64),
+            Visible = false,
+            BackColor = ThemeManager.Colors.CardBackground
+        };
+
+        _toastPanel.Paint += (_, e) =>
+        {
+            var g = e.Graphics;
+            var accent = ThemeManager.Colors.AccentGreen;
+            using var borderPen = new Pen(accent, 1);
+            g.DrawRectangle(borderPen, 0, 0, _toastPanel.Width - 1, _toastPanel.Height - 1);
+
+            using var accentBrush = new SolidBrush(accent);
+            g.FillRectangle(accentBrush, 0, 0, 4, _toastPanel.Height);
+        };
+
+        var iconLabel = new Label
+        {
+            Text = "✓",
+            Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+            ForeColor = ThemeManager.Colors.AccentGreen,
+            Location = new Point(12, 12),
+            Size = new Size(24, 24),
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+
+        _toastTitleLabel = new Label
+        {
+            Text = "Account Saved Successfully",
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+            ForeColor = ThemeManager.Colors.AccentGreen,
+            Location = new Point(40, 11),
+            Size = new Size(260, 18),
+            AutoEllipsis = true
+        };
+
+        _toastBodyLabel = new Label
+        {
+            Text = string.Empty,
+            Font = new Font("Segoe UI", 8.25F),
+            ForeColor = ThemeManager.Colors.TextSecondary,
+            Location = new Point(40, 31),
+            Size = new Size(260, 24),
+            AutoEllipsis = true
+        };
+
+        _toastCloseButton = new Button
+        {
+            Text = "✕",
+            Font = new Font("Segoe UI", 7.5F, FontStyle.Bold),
+            ForeColor = ThemeManager.Colors.TextMuted,
+            Location = new Point(304, 6),
+            Size = new Size(20, 20),
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        _toastCloseButton.FlatAppearance.BorderSize = 0;
+        _toastCloseButton.Click += (_, _) => DismissToast();
+
+        _toastPanel.Controls.Add(iconLabel);
+        _toastPanel.Controls.Add(_toastTitleLabel);
+        _toastPanel.Controls.Add(_toastBodyLabel);
+        _toastPanel.Controls.Add(_toastCloseButton);
+
+        Controls.Add(_toastPanel);
+        Controls.SetChildIndex(_toastPanel, 0);
+
+        _toastDismissTimer = new System.Windows.Forms.Timer { Interval = 3800 };
+        _toastDismissTimer.Tick += (_, _) =>
+        {
+            _toastDismissTimer.Stop();
+            StartToastHideAnimation();
+        };
+
+        _toastAnimTimer = new System.Windows.Forms.Timer { Interval = 15 };
+        _toastAnimTimer.Tick += (_, _) => OnToastAnimTick();
+    }
+
+    private void OnProfileSessionCaptured(string profileName, string email)
+    {
+        string bodyText = !string.IsNullOrWhiteSpace(email)
+            ? $"Profile \"{profileName}\" linked to {email}"
+            : $"Profile \"{profileName}\"";
+
+        RefreshAntigravityProfilesUi();
+
+        // 1. Fallback Windows balloon tip if minimized or in background
+        bool isBackground = WindowState == FormWindowState.Minimized || !Visible || Form.ActiveForm != this;
+        if (isBackground && _notifyIcon != null)
+        {
+            _notifyIcon.ShowBalloonTip(
+                4000,
+                "Account Saved Successfully",
+                bodyText,
+                ToolTipIcon.Info
+            );
+        }
+
+        // 2. In-app toast card when window is restored
+        if (WindowState != FormWindowState.Minimized && Visible)
+        {
+            ShowToastNotification("Account Saved Successfully", bodyText);
+        }
+    }
+
+    private void ShowToastNotification(string title, string body)
+    {
+        if (_toastPanel == null || _toastTitleLabel == null || _toastBodyLabel == null) return;
+
+        _toastTitleLabel.Text = title;
+        _toastBodyLabel.Text = body;
+
+        _toastTargetY = topBarPanel.Height + 10;
+        _toastPanel.Left = Math.Max(10, ClientSize.Width - _toastPanel.Width - 16);
+
+        _toastDismissTimer?.Stop();
+        _toastAnimTimer?.Stop();
+
+        _toastHiding = false;
+        _toastPanel.Top = topBarPanel.Height - _toastPanel.Height;
+        _toastPanel.Visible = true;
+        _toastPanel.BringToFront();
+        Controls.SetChildIndex(_toastPanel, 0);
+
+        _toastAnimTimer?.Start();
+    }
+
+    private void StartToastHideAnimation()
+    {
+        if (_toastPanel == null || !_toastPanel.Visible) return;
+        _toastDismissTimer?.Stop();
+        _toastHiding = true;
+        _toastAnimTimer?.Start();
+    }
+
+    private void DismissToast()
+    {
+        _toastDismissTimer?.Stop();
+        _toastAnimTimer?.Stop();
+        if (_toastPanel != null) _toastPanel.Visible = false;
+    }
+
+    private void OnToastAnimTick()
+    {
+        if (_toastPanel == null)
+        {
+            _toastAnimTimer?.Stop();
+            return;
+        }
+
+        if (!_toastHiding)
+        {
+            int diff = _toastTargetY - _toastPanel.Top;
+            if (diff <= 3)
+            {
+                _toastPanel.Top = _toastTargetY;
+                _toastAnimTimer?.Stop();
+                _toastDismissTimer?.Start();
+            }
+            else
+            {
+                int step = Math.Max(3, diff / 3);
+                _toastPanel.Top += step;
+            }
+        }
+        else
+        {
+            int hideY = topBarPanel.Height - _toastPanel.Height - 8;
+            int diff = _toastPanel.Top - hideY;
+            if (diff <= 4)
+            {
+                _toastAnimTimer?.Stop();
+                _toastPanel.Visible = false;
+            }
+            else
+            {
+                int step = Math.Max(4, diff / 3);
+                _toastPanel.Top -= step;
+            }
+        }
+    }
+
+    private sealed class ProfileComboItem
+    {
+        public string ProfileName { get; set; } = "";
+        public string DisplayText { get; set; } = "";
+        public override string ToString() => DisplayText;
     }
 }
 

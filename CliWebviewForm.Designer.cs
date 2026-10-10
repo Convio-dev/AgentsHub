@@ -157,7 +157,7 @@ partial class CliWebviewForm
         ShowIcon = true;
         MinimumSize = new Size(720, 480);
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "Hermes Hub - CLI Terminal Workspace";
+        Text = "Agents Hub - CLI Terminal Workspace";
 
         ResumeLayout(false);
     }

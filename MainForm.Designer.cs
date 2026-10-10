@@ -21,6 +21,12 @@ partial class MainForm
     private Label cliSummaryLabel = null!;
     private ComboBox cliSelectComboBox = null!;
     private Label hermesStatusLabel = null!;
+    private Panel antigravityProfilePanel = null!;
+    private Label antigravityProfileLabel = null!;
+    private ComboBox antigravityProfileComboBox = null!;
+    private Button addAntigravityProfileButton = null!;
+    private Button renameAntigravityProfileButton = null!;
+    private Button deleteAntigravityProfileButton = null!;
     private Button startHermesButton = null!;
     private Button stopHermesButton = null!;
     private Button openDashboardButton = null!;
@@ -34,6 +40,9 @@ partial class MainForm
     private Button launchClineButton = null!;
     private Button launchDeepSeekButton = null!;
     private Button launchOpenCodeButton = null!;
+    private Button launchAntigravityIdeButton = null!;
+    private Button launchClaudeButton = null!;
+    private Button launchChatGptButton = null!;
     private Button resetOpenCodeQuotaButton = null!;
     private Label publicIpLabel = null!;
     private Button toggleIpMaskButton = null!;
@@ -115,6 +124,12 @@ partial class MainForm
         cliSummaryLabel = new Label();
         cliSelectComboBox = new ComboBox();
         hermesStatusLabel = new Label();
+        antigravityProfilePanel = new Panel();
+        antigravityProfileLabel = new Label();
+        antigravityProfileComboBox = new ComboBox();
+        addAntigravityProfileButton = new Button();
+        renameAntigravityProfileButton = new Button();
+        deleteAntigravityProfileButton = new Button();
         startHermesButton = new Button();
         stopHermesButton = new Button();
         openDashboardButton = new Button();
@@ -128,6 +143,9 @@ partial class MainForm
         launchClineButton = new Button();
         launchDeepSeekButton = new Button();
         launchOpenCodeButton = new Button();
+        launchAntigravityIdeButton = new Button();
+        launchClaudeButton = new Button();
+        launchChatGptButton = new Button();
         resetOpenCodeQuotaButton = new Button();
         publicIpLabel = new Label();
         toggleIpMaskButton = new Button();
@@ -205,7 +223,7 @@ partial class MainForm
         titleLabel.AutoSize = true;
         titleLabel.Font = new Font("Segoe UI", 10.5F, FontStyle.Bold);
         titleLabel.Location = new Point(32, 11);
-        titleLabel.Text = "HERMES HUB";
+        titleLabel.Text = "AGENTS HUB";
 
         subtitleLabel.AutoSize = true;
         subtitleLabel.Font = new Font("Segoe UI", 8.5F);
@@ -291,11 +309,57 @@ partial class MainForm
         hermesCard.Controls.Add(cliSummaryLabel);
         hermesCard.Controls.Add(cliSelectComboBox);
         hermesCard.Controls.Add(hermesStatusLabel);
+        hermesCard.Controls.Add(antigravityProfilePanel);
         hermesCard.Controls.Add(startHermesButton);
         hermesCard.Controls.Add(stopHermesButton);
         hermesCard.Controls.Add(openDashboardButton);
         hermesCard.Controls.Add(openBrowserMainButton);
         hermesCard.Controls.Add(cliDotsLabel);
+
+        antigravityProfilePanel.Controls.Add(antigravityProfileLabel);
+        antigravityProfilePanel.Controls.Add(antigravityProfileComboBox);
+        antigravityProfilePanel.Controls.Add(addAntigravityProfileButton);
+        antigravityProfilePanel.Controls.Add(renameAntigravityProfileButton);
+        antigravityProfilePanel.Controls.Add(deleteAntigravityProfileButton);
+        antigravityProfilePanel.Location = new Point(14, 72);
+        antigravityProfilePanel.Size = new Size(350, 32);
+        antigravityProfilePanel.Visible = false;
+
+        antigravityProfileLabel.AutoSize = true;
+        antigravityProfileLabel.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+        antigravityProfileLabel.Location = new Point(0, 6);
+        antigravityProfileLabel.Text = "Account:";
+
+        antigravityProfileComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        antigravityProfileComboBox.FlatStyle = FlatStyle.Flat;
+        antigravityProfileComboBox.Font = new Font("Segoe UI", 9F);
+        antigravityProfileComboBox.Location = new Point(62, 2);
+        antigravityProfileComboBox.Size = new Size(180, 26);
+        antigravityProfileComboBox.Cursor = Cursors.Hand;
+
+        addAntigravityProfileButton.FlatStyle = FlatStyle.Flat;
+        addAntigravityProfileButton.FlatAppearance.BorderSize = 1;
+        addAntigravityProfileButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+        addAntigravityProfileButton.Location = new Point(246, 1);
+        addAntigravityProfileButton.Size = new Size(50, 28);
+        addAntigravityProfileButton.Text = "+ Add";
+        addAntigravityProfileButton.Cursor = Cursors.Hand;
+
+        renameAntigravityProfileButton.FlatStyle = FlatStyle.Flat;
+        renameAntigravityProfileButton.FlatAppearance.BorderSize = 1;
+        renameAntigravityProfileButton.Font = new Font("Segoe UI", 8.5F);
+        renameAntigravityProfileButton.Location = new Point(298, 1);
+        renameAntigravityProfileButton.Size = new Size(54, 28);
+        renameAntigravityProfileButton.Text = "Rename";
+        renameAntigravityProfileButton.Cursor = Cursors.Hand;
+
+        deleteAntigravityProfileButton.FlatStyle = FlatStyle.Flat;
+        deleteAntigravityProfileButton.FlatAppearance.BorderSize = 1;
+        deleteAntigravityProfileButton.Font = new Font("Segoe UI", 8.5F);
+        deleteAntigravityProfileButton.Location = new Point(354, 1);
+        deleteAntigravityProfileButton.Size = new Size(38, 28);
+        deleteAntigravityProfileButton.Text = "Del";
+        deleteAntigravityProfileButton.Cursor = Cursors.Hand;
 
         hermesCardTitle.AutoSize = true;
         hermesCardTitle.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
@@ -361,6 +425,9 @@ partial class MainForm
         quickAppsCard.Controls.Add(launchClineButton);
         quickAppsCard.Controls.Add(launchDeepSeekButton);
         quickAppsCard.Controls.Add(launchOpenCodeButton);
+        quickAppsCard.Controls.Add(launchAntigravityIdeButton);
+        quickAppsCard.Controls.Add(launchClaudeButton);
+        quickAppsCard.Controls.Add(launchChatGptButton);
         quickAppsCard.Controls.Add(publicIpLabel);
         quickAppsCard.Controls.Add(toggleIpMaskButton);
         quickAppsCard.Controls.Add(refreshIpButton);
@@ -399,6 +466,24 @@ partial class MainForm
         launchOpenCodeButton.Text = "💻 OpenCode";
         launchOpenCodeButton.Cursor = Cursors.Hand;
         launchOpenCodeButton.Controls.Add(resetOpenCodeQuotaButton);
+
+        launchAntigravityIdeButton.FlatStyle = FlatStyle.Flat;
+        launchAntigravityIdeButton.FlatAppearance.BorderSize = 1;
+        launchAntigravityIdeButton.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
+        launchAntigravityIdeButton.Text = "🪐 Antigravity-ide";
+        launchAntigravityIdeButton.Cursor = Cursors.Hand;
+
+        launchClaudeButton.FlatStyle = FlatStyle.Flat;
+        launchClaudeButton.FlatAppearance.BorderSize = 1;
+        launchClaudeButton.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
+        launchClaudeButton.Text = "✳️ Claude";
+        launchClaudeButton.Cursor = Cursors.Hand;
+
+        launchChatGptButton.FlatStyle = FlatStyle.Flat;
+        launchChatGptButton.FlatAppearance.BorderSize = 1;
+        launchChatGptButton.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
+        launchChatGptButton.Text = "💬 ChatGPT";
+        launchChatGptButton.Cursor = Cursors.Hand;
 
         resetOpenCodeQuotaButton.FlatStyle = FlatStyle.Flat;
         resetOpenCodeQuotaButton.FlatAppearance.BorderSize = 0;
@@ -686,7 +771,7 @@ partial class MainForm
         ShowIcon = true;
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "Hermes Hub";
+        Text = "Agents Hub";
 
         ((System.ComponentModel.ISupportInitialize)qrPictureBox).EndInit();
         ((System.ComponentModel.ISupportInitialize)enginePortNumeric).EndInit();

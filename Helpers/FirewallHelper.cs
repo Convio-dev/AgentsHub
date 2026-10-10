@@ -4,7 +4,7 @@ namespace HermesHub.Helpers;
 
 public static class FirewallHelper
 {
-    private const string RuleName = "HermesHub LAN";
+    private const string RuleName = "AgentsHub LAN";
 
     public static bool IsInboundRuleConfigured(int port)
     {

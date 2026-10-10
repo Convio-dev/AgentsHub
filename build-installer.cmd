@@ -1,7 +1,7 @@
 @echo off
 setlocal
 echo ========================================================
-echo  Building Hermes Desktop Hub and Installer Package
+echo  Building Agents Hub and Installer Package
 echo ========================================================
 
 echo [1/2] Publishing standalone single-file binary...

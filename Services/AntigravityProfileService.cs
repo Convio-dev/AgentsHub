@@ -1,0 +1,1311 @@
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using HermesHub.Helpers;
+
+namespace HermesHub.Services;
+
+/// <summary>
+/// Manages isolated multi-account profiles for Antigravity CLI without touching antigravity-ide.
+/// Profiles are saved in AppDomain.CurrentDomain.BaseDirectory\Profiles\Antigravity\{ProfileName}.
+/// </summary>
+public sealed class AntigravityProfileService : IDisposable
+{
+    private static readonly string UserProfileDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    private static readonly string GeminiDir = Path.Combine(UserProfileDir, ".gemini");
+    private static readonly string GeminiGoogleAccountsFile = Path.Combine(GeminiDir, "google_accounts.json");
+    private static readonly string GeminiOAuthCredsFile = Path.Combine(GeminiDir, "oauth_creds.json");
+    private static readonly string GeminiCliCacheDir = Path.Combine(GeminiDir, "antigravity-cli", "cache");
+
+    private const string CredentialName = "gemini:antigravity";
+    private const int CRED_TYPE_GENERIC = 1;
+    private const int CRED_PERSIST_LOCAL_MACHINE = 2;
+    private const string PrefActiveProfileKey = "AntigravityActiveProfile";
+
+    [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CredRead(string target, int type, int reservedFlag, out IntPtr credentialPtr);
+
+    [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CredWrite([In] ref CREDENTIAL credential, uint flags);
+
+    [DllImport("advapi32.dll", EntryPoint = "CredDeleteW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CredDelete(string target, int type, int reservedFlag);
+
+    [DllImport("advapi32.dll", EntryPoint = "CredFree", SetLastError = true)]
+    private static extern void CredFree(IntPtr credentialPtr);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct CREDENTIAL
+    {
+        public uint Flags;
+        public uint Type;
+        public string TargetName;
+        public string? Comment;
+        public long LastWritten;
+        public uint CredentialBlobSize;
+        public IntPtr CredentialBlob;
+        public uint Persist;
+        public uint AttributeCount;
+        public IntPtr Attributes;
+        public string? TargetAlias;
+        public string? UserName;
+    }
+
+    private readonly object _lock = new();
+    private FileSystemWatcher? _fileWatcher;
+    private System.Threading.Timer? _debounceSyncTimer;
+    private string _activeProfile = string.Empty;
+
+    public string ActiveProfile
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _activeProfile;
+            }
+        }
+        private set
+        {
+            lock (_lock)
+            {
+                _activeProfile = value;
+            }
+            StartupHelper.SetStringPreference(PrefActiveProfileKey, value);
+            ActiveProfileChanged?.Invoke(value);
+        }
+    }
+
+    public static string ProfilesBaseDir => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Profiles", "Antigravity");
+
+    public event Action<string>? ActiveProfileChanged;
+    public event Action<string>? ProfileSaved;
+    public event Action<string, string>? ProfileRenamed;
+    public event Action<string /*profileName*/, string /*email*/>? ProfileSessionCaptured;
+    public event Action<string>? LogMessage;
+
+    private readonly Dictionary<string, string> _lastCapturedSignatures = new(StringComparer.OrdinalIgnoreCase);
+    private bool _isInitialized = false;
+
+    public AntigravityProfileService()
+    {
+        EnsureProfilesDirectoryExists();
+
+        var saved = StartupHelper.GetStringPreference(PrefActiveProfileKey, string.Empty);
+        if (!string.IsNullOrWhiteSpace(saved))
+        {
+            _activeProfile = saved;
+        }
+
+        // Auto-detect existing session if no profiles exist yet
+        AutoDetectExistingSession();
+
+        SeedExistingProfileSignatures();
+        _isInitialized = true;
+
+        InitializeFileWatcher();
+    }
+
+    private void EnsureProfilesDirectoryExists()
+    {
+        try
+        {
+            if (!Directory.Exists(ProfilesBaseDir))
+            {
+                Directory.CreateDirectory(ProfilesBaseDir);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Failed to create profiles base directory: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// If user already has active login in %USERPROFILE%\.gemini and no profile exists,
+    /// captures it cleanly into a named profile to prevent data loss.
+    /// Does NOT create any 'Default' placeholder profile.
+    /// </summary>
+    private void AutoDetectExistingSession()
+    {
+        try
+        {
+            RemoveUnauthenticatedDefaultProfile();
+
+            var profiles = GetProfiles();
+            if (profiles.Count == 0 && HasValidActiveCredentials())
+            {
+                string? acctFile = ResolveGoogleAccountsPath(GeminiDir);
+                var detectedEmail = acctFile != null ? TryExtractAccountEmail(acctFile) : null;
+                string profileName = !string.IsNullOrWhiteSpace(detectedEmail) ? SanitizeProfileName(detectedEmail) : "Account_1";
+
+                Log($"Detected existing Antigravity CLI session. Automatically exporting to initial profile '{profileName}'...");
+                ExportCurrentSession(profileName);
+                ActiveProfile = profileName;
+            }
+            else if (profiles.Count > 0 && !profiles.Contains(_activeProfile, StringComparer.OrdinalIgnoreCase))
+            {
+                ActiveProfile = profiles[0];
+            }
+            else if (profiles.Count == 0)
+            {
+                ActiveProfile = string.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Auto-detect session error: {ex.Message}");
+        }
+    }
+
+    private void RemoveUnauthenticatedDefaultProfile()
+    {
+        try
+        {
+            string defaultDir = Path.Combine(ProfilesBaseDir, "Default");
+            if (Directory.Exists(defaultDir) && !HasValidSavedCredentials("Default"))
+            {
+                Directory.Delete(defaultDir, true);
+                Log("Removed unauthenticated Default profile directory.");
+            }
+        }
+        catch
+        {
+            // Non-fatal
+        }
+    }
+
+    public IReadOnlyList<string> GetProfiles()
+    {
+        lock (_lock)
+        {
+            try
+            {
+                if (!Directory.Exists(ProfilesBaseDir))
+                {
+                    return Array.Empty<string>();
+                }
+
+                var dirs = Directory.GetDirectories(ProfilesBaseDir)
+                    .Select(Path.GetFileName)
+                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                    .Select(n => n!)
+                    .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                return dirs;
+            }
+            catch (Exception ex)
+            {
+                Log($"Error listing profiles: {ex.Message}");
+                return Array.Empty<string>();
+            }
+        }
+    }
+
+    public static string? ResolveOAuthCredsPath(string parentDir)
+    {
+        if (string.IsNullOrWhiteSpace(parentDir) || !Directory.Exists(parentDir)) return null;
+        string p1 = Path.Combine(parentDir, "oauth_creds.json");
+        if (File.Exists(p1)) return p1;
+        string p2 = Path.Combine(parentDir, "oauth_creds");
+        if (File.Exists(p2)) return p2;
+        return null;
+    }
+
+    public static string? ResolveGoogleAccountsPath(string parentDir)
+    {
+        if (string.IsNullOrWhiteSpace(parentDir) || !Directory.Exists(parentDir)) return null;
+        string p1 = Path.Combine(parentDir, "google_accounts.json");
+        if (File.Exists(p1)) return p1;
+        string p2 = Path.Combine(parentDir, "google_accounts");
+        if (File.Exists(p2)) return p2;
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the 'gemini:antigravity' Generic Credential from Windows Credential Manager.
+    /// Antigravity CLI on Windows stores its authentication tokens here.
+    /// </summary>
+    public static string? ReadWindowsCredential(string target = CredentialName)
+    {
+        try
+        {
+            if (!CredRead(target, CRED_TYPE_GENERIC, 0, out IntPtr ptr))
+                return null;
+
+            try
+            {
+                var c = Marshal.PtrToStructure<CREDENTIAL>(ptr);
+                if (c.CredentialBlob == IntPtr.Zero || c.CredentialBlobSize == 0) return null;
+                byte[] bytes = new byte[c.CredentialBlobSize];
+                Marshal.Copy(c.CredentialBlob, bytes, 0, (int)c.CredentialBlobSize);
+                return System.Text.Encoding.UTF8.GetString(bytes);
+            }
+            finally
+            {
+                CredFree(ptr);
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Writes the 'gemini:antigravity' Generic Credential to Windows Credential Manager.
+    /// </summary>
+    public static bool WriteWindowsCredential(string secret, string target = CredentialName, string userName = "antigravity")
+    {
+        if (string.IsNullOrWhiteSpace(secret)) return false;
+
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(secret);
+        IntPtr blobPtr = Marshal.AllocHGlobal(bytes.Length);
+        try
+        {
+            Marshal.Copy(bytes, 0, blobPtr, bytes.Length);
+            var c = new CREDENTIAL
+            {
+                Type = CRED_TYPE_GENERIC,
+                TargetName = target,
+                UserName = userName,
+                Persist = CRED_PERSIST_LOCAL_MACHINE,
+                CredentialBlobSize = (uint)bytes.Length,
+                CredentialBlob = blobPtr
+            };
+            return CredWrite(ref c, 0);
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(blobPtr);
+        }
+    }
+
+    /// <summary>
+    /// Extracts account email from token JSON or JWT id_token payload.
+    /// </summary>
+    public static string? ExtractEmailFromTokenBlob(string secretJson)
+    {
+        if (string.IsNullOrWhiteSpace(secretJson)) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(secretJson);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("email", out var e) && e.ValueKind == JsonValueKind.String)
+            {
+                var s = e.GetString();
+                if (!string.IsNullOrWhiteSpace(s)) return s;
+            }
+
+            if (root.TryGetProperty("id_token", out var idTokenProp) && idTokenProp.ValueKind == JsonValueKind.String)
+            {
+                var jwt = idTokenProp.GetString();
+                if (!string.IsNullOrWhiteSpace(jwt))
+                {
+                    var parts = jwt.Split('.');
+                    if (parts.Length >= 2)
+                    {
+                        var payloadJson = DecodeBase64Url(parts[1]);
+                        if (!string.IsNullOrWhiteSpace(payloadJson))
+                        {
+                            using var payloadDoc = JsonDocument.Parse(payloadJson);
+                            if (payloadDoc.RootElement.TryGetProperty("email", out var jwtEmail) && jwtEmail.ValueKind == JsonValueKind.String)
+                            {
+                                var em = jwtEmail.GetString();
+                                if (!string.IsNullOrWhiteSpace(em)) return em;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
+    private static string? DecodeBase64Url(string base64Url)
+    {
+        try
+        {
+            string padded = base64Url.Replace('-', '+').Replace('_', '/');
+            switch (padded.Length % 4)
+            {
+                case 2: padded += "=="; break;
+                case 3: padded += "="; break;
+            }
+            byte[] bytes = Convert.FromBase64String(padded);
+            return System.Text.Encoding.UTF8.GetString(bytes);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Checks whether active credentials exist either in Windows Credential Manager or disk.
+    /// </summary>
+    public static bool HasValidActiveCredentials()
+    {
+        try
+        {
+            // Primary check: Windows Credential Manager 'gemini:antigravity'
+            string? cred = ReadWindowsCredential();
+            if (!string.IsNullOrWhiteSpace(cred) && cred.Length > 10)
+            {
+                return true;
+            }
+
+            // Fallback check: disk files
+            string? oauth = ResolveOAuthCredsPath(GeminiDir);
+            if (oauth != null && CheckFileHasContentSafe(oauth, 10))
+            {
+                return true;
+            }
+
+            string? accounts = ResolveGoogleAccountsPath(GeminiDir);
+            if (accounts != null && CheckFileHasContentSafe(accounts, 5))
+            {
+                return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Alias for HasValidActiveCredentials.
+    /// </summary>
+    public static bool HasValidLiveCredentials() => HasValidActiveCredentials();
+
+    /// <summary>
+    /// Checks whether a saved profile directory contains valid credentials.
+    /// </summary>
+    public static bool HasValidSavedCredentials(string profileName)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(profileName)) return false;
+
+            string dir = Path.Combine(ProfilesBaseDir, profileName);
+            if (!Directory.Exists(dir)) return false;
+
+            string credFile = Path.Combine(dir, "gemini_credential.json");
+            if (File.Exists(credFile) && CheckFileHasContentSafe(credFile, 10))
+            {
+                return true;
+            }
+
+            string? oauth = ResolveOAuthCredsPath(dir);
+            if (oauth != null && CheckFileHasContentSafe(oauth, 10))
+            {
+                return true;
+            }
+
+            string? accounts = ResolveGoogleAccountsPath(dir);
+            if (accounts != null && CheckFileHasContentSafe(accounts, 5))
+            {
+                return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool CheckFileHasContentSafe(string filePath, long minBytes)
+    {
+        try
+        {
+            if (!File.Exists(filePath)) return false;
+
+            try
+            {
+                var fi = new FileInfo(filePath);
+                fi.Refresh();
+                if (fi.Length > minBytes) return true;
+            }
+            catch { }
+
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            return stream.Length > minBytes;
+        }
+        catch
+        {
+            try
+            {
+                var fi = new FileInfo(filePath);
+                return fi.Length > minBytes;
+            }
+            catch
+            {
+                return File.Exists(filePath);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Captures credentials and cache into {profileName}.
+    /// Strictly aborts and refuses to overwrite if active credentials are empty or invalid.
+    /// </summary>
+    public bool ExportCurrentSession(string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return false;
+
+        lock (_lock)
+        {
+            try
+            {
+                if (!HasValidActiveCredentials())
+                {
+                    Log($"Skipping session export for '{profileName}': active .gemini does not contain valid credentials.");
+                    return false;
+                }
+
+                string targetDir = Path.Combine(ProfilesBaseDir, profileName);
+                Directory.CreateDirectory(targetDir);
+
+                string email = string.Empty;
+
+                // 1. Export Windows Credential 'gemini:antigravity'
+                string? credSecret = ReadWindowsCredential();
+                if (!string.IsNullOrWhiteSpace(credSecret))
+                {
+                    string credDest = Path.Combine(targetDir, "gemini_credential.json");
+                    File.WriteAllText(credDest, credSecret);
+
+                    var extracted = ExtractEmailFromTokenBlob(credSecret);
+                    if (!string.IsNullOrWhiteSpace(extracted))
+                    {
+                        email = extracted;
+                    }
+
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(credSecret);
+                        if (doc.RootElement.TryGetProperty("token", out var tokenProp))
+                        {
+                            File.WriteAllText(Path.Combine(targetDir, "oauth_creds.json"), tokenProp.GetRawText());
+                        }
+                    }
+                    catch { }
+                }
+
+                // 2. Export disk oauth_creds if present
+                string? liveOAuth = ResolveOAuthCredsPath(GeminiDir);
+                if (liveOAuth != null && File.Exists(liveOAuth))
+                {
+                    string destOAuth = Path.Combine(targetDir, "oauth_creds.json");
+                    RobustCopyFile(liveOAuth, destOAuth);
+                }
+
+                // 3. Export disk google_accounts if present
+                string? liveAccounts = ResolveGoogleAccountsPath(GeminiDir);
+                if (liveAccounts != null && File.Exists(liveAccounts))
+                {
+                    string destAccounts = Path.Combine(targetDir, "google_accounts.json");
+                    RobustCopyFile(liveAccounts, destAccounts);
+                    var diskEmail = TryExtractAccountEmail(destAccounts);
+                    if (!string.IsNullOrWhiteSpace(diskEmail))
+                    {
+                        email = diskEmail;
+                    }
+                }
+
+                // If email was found but no google_accounts.json exists, synthesize one
+                string destGoogleAccounts = Path.Combine(targetDir, "google_accounts.json");
+                if (!File.Exists(destGoogleAccounts) && !string.IsNullOrWhiteSpace(email))
+                {
+                    var acctsObj = new
+                    {
+                        active = email,
+                        accounts = new[] { new { email = email } }
+                    };
+                    File.WriteAllText(destGoogleAccounts, JsonSerializer.Serialize(acctsObj, new JsonSerializerOptions { WriteIndented = true }));
+                }
+
+                // 4. Export antigravity-cli\cache\ folder
+                if (Directory.Exists(GeminiCliCacheDir))
+                {
+                    string destCacheDir = Path.Combine(targetDir, "cache");
+                    CopyDirectoryRecursive(GeminiCliCacheDir, destCacheDir);
+                }
+
+                string cliSettings = Path.Combine(GeminiDir, "antigravity-cli", "settings.json");
+                if (File.Exists(cliSettings))
+                {
+                    RobustCopyFile(cliSettings, Path.Combine(targetDir, "cli_settings.json"));
+                }
+
+                // 5. Save metadata
+                var meta = new
+                {
+                    ProfileName = profileName,
+                    AccountEmail = email,
+                    LastExportUtc = DateTime.UtcNow
+                };
+                string metaJson = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(Path.Combine(targetDir, "profile_info.json"), metaJson);
+
+                Log($"Session successfully exported to profile '{profileName}' ({(!string.IsNullOrWhiteSpace(email) ? email : "tokens secured")}).");
+                ProfileSaved?.Invoke(profileName);
+
+                string? capturedProfile = null;
+                string? capturedEmail = null;
+
+                if (_isInitialized)
+                {
+                    string sig = ComputeSessionSignature(targetDir, email);
+                    if (!_lastCapturedSignatures.TryGetValue(profileName, out var prevSig) || prevSig != sig)
+                    {
+                        _lastCapturedSignatures[profileName] = sig;
+                        capturedProfile = profileName;
+                        capturedEmail = email;
+                    }
+                }
+
+                if (capturedProfile != null)
+                {
+                    ProfileSessionCaptured?.Invoke(capturedProfile, capturedEmail ?? string.Empty);
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to export session to '{profileName}': {ex.Message}");
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Safely applies targetProfile using an atomic switch.
+    /// Step 1: Flushes source profile if active and valid.
+    /// Step 2: If target has saved credentials (Case A), restores Windows Credential and CLI cache;
+    /// if empty (Case B), purges Windows Credential and clears live CLI state.
+    /// Step 3: Updates ActiveProfile.
+    /// NEVER touches antigravity-ide.
+    /// </summary>
+    public bool ApplyProfile(string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return false;
+
+        lock (_lock)
+        {
+            try
+            {
+                // Step 1: Backup current profile if valid
+                if (!string.IsNullOrWhiteSpace(_activeProfile) && HasValidActiveCredentials())
+                {
+                    ExportCurrentSession(_activeProfile);
+                }
+
+                string targetDir = Path.Combine(ProfilesBaseDir, profileName);
+                if (!Directory.Exists(targetDir))
+                {
+                    Directory.CreateDirectory(targetDir);
+                }
+
+                Directory.CreateDirectory(GeminiDir);
+                Directory.CreateDirectory(GeminiCliCacheDir);
+
+                // Step 2: Evaluate target profile
+                if (HasValidSavedCredentials(profileName))
+                {
+                    // Case A: Target has saved credentials
+                    string credFile = Path.Combine(targetDir, "gemini_credential.json");
+                    if (File.Exists(credFile))
+                    {
+                        string secret = File.ReadAllText(credFile);
+                        WriteWindowsCredential(secret);
+                        Log($"Restored Windows Credential for profile '{profileName}'.");
+                    }
+
+                    string? srcOAuth = ResolveOAuthCredsPath(targetDir);
+                    if (srcOAuth != null && File.Exists(srcOAuth))
+                    {
+                        RobustCopyFile(srcOAuth, GeminiOAuthCredsFile);
+                    }
+
+                    string? srcAccounts = ResolveGoogleAccountsPath(targetDir);
+                    if (srcAccounts != null && File.Exists(srcAccounts))
+                    {
+                        RobustCopyFile(srcAccounts, GeminiGoogleAccountsFile);
+                    }
+
+                    SafeClearDirectoryContents(GeminiCliCacheDir);
+                    string srcCache = Path.Combine(targetDir, "cache");
+                    if (Directory.Exists(srcCache))
+                    {
+                        CopyDirectoryRecursive(srcCache, GeminiCliCacheDir);
+                    }
+
+                    string savedSettings = Path.Combine(targetDir, "cli_settings.json");
+                    if (File.Exists(savedSettings))
+                    {
+                        string destSettings = Path.Combine(GeminiDir, "antigravity-cli", "settings.json");
+                        RobustCopyFile(savedSettings, destSettings);
+                    }
+
+                    Log($"Loaded saved credentials for profile '{profileName}'.");
+                }
+                else
+                {
+                    // Case B: Target is unauthenticated
+                    PurgeWindowsCredential();
+
+                    string pOAuth1 = Path.Combine(GeminiDir, "oauth_creds.json");
+                    string pOAuth2 = Path.Combine(GeminiDir, "oauth_creds");
+                    string pAcct1 = Path.Combine(GeminiDir, "google_accounts.json");
+                    string pAcct2 = Path.Combine(GeminiDir, "google_accounts");
+
+                    if (File.Exists(pOAuth1)) try { File.Delete(pOAuth1); } catch { }
+                    if (File.Exists(pOAuth2)) try { File.Delete(pOAuth2); } catch { }
+                    if (File.Exists(pAcct1)) try { File.Delete(pAcct1); } catch { }
+                    if (File.Exists(pAcct2)) try { File.Delete(pAcct2); } catch { }
+
+                    SafeClearDirectoryContents(GeminiCliCacheDir);
+                    Log($"Target profile '{profileName}' is unauthenticated. Live CLI state reset for new login.");
+                }
+
+                // Step 3: Update ActiveProfile
+                ActiveProfile = profileName;
+                Log($"Profile '{profileName}' applied successfully.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to apply profile '{profileName}': {ex.Message}");
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Prepares a clean environment for onboarding a new account.
+    /// Clears existing CLI auth files and purges Windows Credential so agy displays OAuth login prompt.
+    /// </summary>
+    public bool PrepareNewProfile(string newProfileName)
+    {
+        if (string.IsNullOrWhiteSpace(newProfileName)) return false;
+        newProfileName = SanitizeProfileName(newProfileName);
+
+        lock (_lock)
+        {
+            try
+            {
+                // 1. Auto-save prior active profile first if it has valid credentials
+                if (!string.IsNullOrWhiteSpace(_activeProfile) && HasValidLiveCredentials())
+                {
+                    ExportCurrentSession(_activeProfile);
+                }
+
+                // 2. Ensure new profile folder is created
+                string newDir = Path.Combine(ProfilesBaseDir, newProfileName);
+                Directory.CreateDirectory(newDir);
+
+                var meta = new
+                {
+                    ProfileName = newProfileName,
+                    AccountEmail = string.Empty,
+                    LastExportUtc = DateTime.UtcNow
+                };
+                File.WriteAllText(Path.Combine(newDir, "profile_info.json"), JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }));
+
+                // 3. ActiveProfile = newProfileName updated immediately
+                ActiveProfile = newProfileName;
+                _lastCapturedSignatures.Remove(newProfileName);
+
+                // 4. Safely delete only CLI auth files from active session
+                string pOAuth1 = Path.Combine(GeminiDir, "oauth_creds.json");
+                string pOAuth2 = Path.Combine(GeminiDir, "oauth_creds");
+                string pAcct1 = Path.Combine(GeminiDir, "google_accounts.json");
+                string pAcct2 = Path.Combine(GeminiDir, "google_accounts");
+
+                if (File.Exists(pOAuth1)) try { File.Delete(pOAuth1); } catch { }
+                if (File.Exists(pOAuth2)) try { File.Delete(pOAuth2); } catch { }
+                if (File.Exists(pAcct1)) try { File.Delete(pAcct1); } catch { }
+                if (File.Exists(pAcct2)) try { File.Delete(pAcct2); } catch { }
+
+                // Clear CLI cache
+                if (Directory.Exists(GeminiCliCacheDir))
+                {
+                    SafeClearDirectoryContents(GeminiCliCacheDir);
+                }
+
+                // Purge Windows generic credential
+                PurgeWindowsCredential();
+
+                Log($"Clean profile '{newProfileName}' initialized. Ready for initial OAuth onboarding.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to prepare new profile '{newProfileName}': {ex.Message}");
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Renames an existing profile folder and updates active profile / metadata if needed.
+    /// </summary>
+    public bool RenameProfile(string oldName, string newName)
+    {
+        if (string.IsNullOrWhiteSpace(oldName) || string.IsNullOrWhiteSpace(newName)) return false;
+
+        oldName = oldName.Trim();
+        newName = SanitizeProfileName(newName);
+
+        if (string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase)) return true;
+
+        lock (_lock)
+        {
+            try
+            {
+                string oldDir = Path.Combine(ProfilesBaseDir, oldName);
+                string newDir = Path.Combine(ProfilesBaseDir, newName);
+
+                if (!Directory.Exists(oldDir))
+                {
+                    Log($"Cannot rename: profile '{oldName}' does not exist.");
+                    return false;
+                }
+
+                if (Directory.Exists(newDir))
+                {
+                    Log($"Cannot rename: profile '{newName}' already exists.");
+                    return false;
+                }
+
+                // If oldName is currently active, flush active session to disk first if valid
+                if (string.Equals(_activeProfile, oldName, StringComparison.OrdinalIgnoreCase) && HasValidLiveCredentials())
+                {
+                    ExportCurrentSession(oldName);
+                }
+
+                // Rename directory
+                Directory.Move(oldDir, newDir);
+
+                // Update profile_info.json metadata
+                string? acctFile = ResolveGoogleAccountsPath(newDir);
+                string email = (acctFile != null ? TryExtractAccountEmail(acctFile) : null) ?? string.Empty;
+                var meta = new
+                {
+                    ProfileName = newName,
+                    AccountEmail = email,
+                    LastExportUtc = DateTime.UtcNow
+                };
+                File.WriteAllText(Path.Combine(newDir, "profile_info.json"), JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }));
+
+                // If oldName was ActiveProfile, update to newName and persist
+                if (string.Equals(_activeProfile, oldName, StringComparison.OrdinalIgnoreCase))
+                {
+                    ActiveProfile = newName;
+                }
+
+                if (_lastCapturedSignatures.Remove(oldName, out var oldSig))
+                {
+                    _lastCapturedSignatures[newName] = oldSig;
+                }
+
+                Log($"Profile '{oldName}' renamed to '{newName}'.");
+                ProfileRenamed?.Invoke(oldName, newName);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to rename profile '{oldName}' to '{newName}': {ex.Message}");
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Deletes a saved profile. If the deleted profile was active, switches to another profile or Default.
+    /// </summary>
+    public bool DeleteProfile(string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return false;
+
+        lock (_lock)
+        {
+            try
+            {
+                string targetDir = Path.Combine(ProfilesBaseDir, profileName);
+                if (Directory.Exists(targetDir))
+                {
+                    Directory.Delete(targetDir, true);
+                    Log($"Deleted profile '{profileName}'.");
+                }
+                _lastCapturedSignatures.Remove(profileName);
+
+                var remaining = GetProfiles();
+                if (string.Equals(_activeProfile, profileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (remaining.Count > 0)
+                    {
+                        ApplyProfile(remaining[0]);
+                    }
+                    else
+                    {
+                        // All profiles deleted: clear live CLI auth state without creating any default profile
+                        if (File.Exists(GeminiOAuthCredsFile))
+                        {
+                            try { File.Delete(GeminiOAuthCredsFile); } catch { }
+                        }
+                        if (File.Exists(GeminiGoogleAccountsFile))
+                        {
+                            try { File.Delete(GeminiGoogleAccountsFile); } catch { }
+                        }
+
+                        SafeClearDirectoryContents(GeminiCliCacheDir);
+                        PurgeWindowsCredential();
+                        ActiveProfile = string.Empty;
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"Failed to delete profile '{profileName}': {ex.Message}");
+                return false;
+            }
+        }
+    }
+
+    public void EnsureActiveProfileApplied()
+    {
+        lock (_lock)
+        {
+            try
+            {
+                if (HasValidSavedCredentials(_activeProfile) && !HasValidLiveCredentials())
+                {
+                    ApplyProfile(_activeProfile);
+                }
+            }
+            catch
+            {
+                // Non-fatal
+            }
+        }
+    }
+
+    public string? GetAccountEmail(string profileName)
+    {
+        try
+        {
+            string profileDir = Path.Combine(ProfilesBaseDir, profileName);
+            if (!Directory.Exists(profileDir)) return null;
+
+            string metaPath = Path.Combine(profileDir, "profile_info.json");
+            if (File.Exists(metaPath))
+            {
+                try
+                {
+                    using var stream = new FileStream(metaPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    using var doc = JsonDocument.Parse(stream);
+                    if (doc.RootElement.TryGetProperty("AccountEmail", out var emailProp) && emailProp.ValueKind == JsonValueKind.String)
+                    {
+                        var em = emailProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(em)) return em;
+                    }
+                }
+                catch { }
+            }
+
+            string credPath = Path.Combine(profileDir, "gemini_credential.json");
+            if (File.Exists(credPath))
+            {
+                try
+                {
+                    string json = File.ReadAllText(credPath);
+                    var em = ExtractEmailFromTokenBlob(json);
+                    if (!string.IsNullOrWhiteSpace(em)) return em;
+                }
+                catch { }
+            }
+
+            string? acctPath = ResolveGoogleAccountsPath(profileDir);
+            return acctPath != null ? TryExtractAccountEmail(acctPath) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Purges the 'gemini:antigravity' Windows Generic Credential using advapi32 CredDeleteW,
+    /// with cmdkey.exe as an execution fallback.
+    /// </summary>
+    public void PurgeWindowsCredential()
+    {
+        try
+        {
+            bool nativeDeleted = CredDelete(CredentialName, CRED_TYPE_GENERIC, 0);
+            if (nativeDeleted)
+            {
+                Log($"Windows Credential '{CredentialName}' purged via CredDeleteW.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"Native CredDelete notice: {ex.Message}");
+        }
+
+        try
+        {
+            using var proc = Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmdkey.exe",
+                Arguments = $"/delete:{CredentialName}",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                WindowStyle = ProcessWindowStyle.Hidden
+            });
+            proc?.WaitForExit(1000);
+        }
+        catch
+        {
+            // Ignore fallback errors
+        }
+    }
+
+    private void InitializeFileWatcher()
+    {
+        try
+        {
+            if (!Directory.Exists(GeminiDir)) return;
+
+            _fileWatcher = new FileSystemWatcher(GeminiDir)
+            {
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                Filter = "*",
+                IncludeSubdirectories = true,
+                EnableRaisingEvents = true
+            };
+
+            _fileWatcher.Changed += OnGeminiFileChanged;
+            _fileWatcher.Created += OnGeminiFileChanged;
+        }
+        catch (Exception ex)
+        {
+            Log($"File watcher initialization notice: {ex.Message}");
+        }
+    }
+
+    private void OnGeminiFileChanged(object sender, FileSystemEventArgs e)
+    {
+        if (e.ChangeType == WatcherChangeTypes.Deleted) return;
+
+        // Strictly ignore anything inside antigravity-ide
+        if (e.FullPath.IndexOf("antigravity-ide", StringComparison.OrdinalIgnoreCase) >= 0) return;
+
+        // Check if active session now has valid credentials
+        if (!HasValidActiveCredentials()) return;
+
+        // Debounce sync 1.0 second to allow token/cache writes to settle
+        _debounceSyncTimer?.Dispose();
+        _debounceSyncTimer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                lock (_lock)
+                {
+                    if (!string.IsNullOrWhiteSpace(_activeProfile) && HasValidActiveCredentials())
+                    {
+                        ExportCurrentSession(_activeProfile);
+                    }
+                }
+            }
+            catch
+            {
+                // Non-fatal
+            }
+        }, null, 1000, System.Threading.Timeout.Infinite);
+    }
+
+    private static void SafeClearDirectoryContents(string dirPath)
+    {
+        ValidateSafePath(dirPath);
+
+        if (!Directory.Exists(dirPath)) return;
+
+        foreach (var file in Directory.GetFiles(dirPath))
+        {
+            ValidateSafePath(file);
+            try { File.Delete(file); } catch { }
+        }
+
+        foreach (var sub in Directory.GetDirectories(dirPath))
+        {
+            ValidateSafePath(sub);
+            try { Directory.Delete(sub, true); } catch { }
+        }
+    }
+
+    private static void CopyDirectoryRecursive(string sourceDir, string targetDir)
+    {
+        ValidateSafePath(sourceDir);
+        ValidateSafePath(targetDir);
+
+        Directory.CreateDirectory(targetDir);
+
+        foreach (var file in Directory.GetFiles(sourceDir))
+        {
+            string dest = Path.Combine(targetDir, Path.GetFileName(file));
+            RobustCopyFile(file, dest);
+        }
+
+        foreach (var sub in Directory.GetDirectories(sourceDir))
+        {
+            string destSub = Path.Combine(targetDir, Path.GetFileName(sub));
+            CopyDirectoryRecursive(sub, destSub);
+        }
+    }
+
+    private static void RobustCopyFile(string source, string destination)
+    {
+        ValidateSafePath(source);
+        ValidateSafePath(destination);
+
+        for (int i = 0; i < 5; i++)
+        {
+            try
+            {
+                using (var srcStream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var dstStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    srcStream.CopyTo(dstStream);
+                }
+                return;
+            }
+            catch (IOException) when (i < 4)
+            {
+                Thread.Sleep(100);
+            }
+            catch (UnauthorizedAccessException) when (i < 4)
+            {
+                Thread.Sleep(100);
+            }
+        }
+
+        File.Copy(source, destination, true);
+    }
+
+    /// <summary>
+    /// Safety guard: strictly ensures that root .gemini and antigravity-ide are NEVER touched.
+    /// </summary>
+    private static void ValidateSafePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            throw new InvalidOperationException("Path cannot be empty.");
+
+        string normalized = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string geminiNorm = Path.GetFullPath(GeminiDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        if (string.Equals(normalized, geminiNorm, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Operation blocked: root .gemini directory cannot be modified or cleared.");
+        }
+
+        if (normalized.IndexOf("antigravity-ide", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            throw new InvalidOperationException("Operation blocked: antigravity-ide directory is strictly protected.");
+        }
+    }
+
+    public static string? TryExtractAccountEmail(string googleAccountsJsonPath)
+    {
+        try
+        {
+            if (!File.Exists(googleAccountsJsonPath))
+            {
+                string alt = googleAccountsJsonPath.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+                    ? googleAccountsJsonPath.Substring(0, googleAccountsJsonPath.Length - 5)
+                    : googleAccountsJsonPath + ".json";
+                if (File.Exists(alt)) googleAccountsJsonPath = alt;
+                else return null;
+            }
+
+            using var stream = new FileStream(googleAccountsJsonPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var doc = JsonDocument.Parse(stream);
+            var root = doc.RootElement;
+
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                // الفحص الأساسي لحقل active المستخدم فعلياً في google_accounts.json
+                if (root.TryGetProperty("active", out var active) && active.ValueKind == JsonValueKind.String)
+                {
+                    var s = active.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) return s;
+                }
+                if (root.TryGetProperty("active_account", out var activeAcct) && activeAcct.ValueKind == JsonValueKind.String)
+                {
+                    var s = activeAcct.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) return s;
+                }
+                if (root.TryGetProperty("email", out var email) && email.ValueKind == JsonValueKind.String)
+                {
+                    var s = email.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) return s;
+                }
+                if (root.TryGetProperty("account", out var acct) && acct.ValueKind == JsonValueKind.String)
+                {
+                    var s = acct.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) return s;
+                }
+                if (root.TryGetProperty("accounts", out var accounts) && accounts.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in accounts.EnumerateArray())
+                    {
+                        if (el.TryGetProperty("email", out var e) && e.ValueKind == JsonValueKind.String)
+                        {
+                            var s = e.GetString();
+                            if (!string.IsNullOrWhiteSpace(s)) return s;
+                        }
+                    }
+                }
+            }
+            else if (root.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in root.EnumerateArray())
+                {
+                    if (el.TryGetProperty("active", out var aActive) && aActive.ValueKind == JsonValueKind.String)
+                    {
+                        var s = aActive.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) return s;
+                    }
+                    if (el.TryGetProperty("email", out var e) && e.ValueKind == JsonValueKind.String)
+                    {
+                        var s = e.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) return s;
+                    }
+                    if (el.TryGetProperty("active_account", out var a) && a.ValueKind == JsonValueKind.String)
+                    {
+                        var s = a.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) return s;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore parse errors
+        }
+
+        return null;
+    }
+
+    private static string SanitizeProfileName(string name)
+    {
+        var invalids = Path.GetInvalidFileNameChars();
+        var chars = name.Select(c => invalids.Contains(c) ? '_' : c).ToArray();
+        var clean = new string(chars).Trim();
+        return string.IsNullOrWhiteSpace(clean) ? "Profile" : clean;
+    }
+
+    private void Log(string msg)
+    {
+        LogMessage?.Invoke(msg);
+    }
+
+    private string ComputeSessionSignature(string targetDir, string email)
+    {
+        string credPath = Path.Combine(targetDir, "gemini_credential.json");
+        long cLen = 0;
+        if (File.Exists(credPath))
+        {
+            try { using var fs = new FileStream(credPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); cLen = fs.Length; } catch { }
+        }
+
+        string? oauthPath = ResolveOAuthCredsPath(targetDir);
+        string? accountsPath = ResolveGoogleAccountsPath(targetDir);
+        long oLen = 0;
+        long aLen = 0;
+
+        if (oauthPath != null && File.Exists(oauthPath))
+        {
+            try
+            {
+                using var fs = new FileStream(oauthPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                oLen = fs.Length;
+            }
+            catch { }
+        }
+
+        if (accountsPath != null && File.Exists(accountsPath))
+        {
+            try
+            {
+                using var fs = new FileStream(accountsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                aLen = fs.Length;
+            }
+            catch { }
+        }
+
+        string hash = string.Empty;
+        try
+        {
+            string hashTarget = File.Exists(credPath) ? credPath : (oauthPath ?? string.Empty);
+            if (!string.IsNullOrEmpty(hashTarget) && File.Exists(hashTarget))
+            {
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                using var fs = new FileStream(hashTarget, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                hash = Convert.ToHexString(sha.ComputeHash(fs));
+            }
+        }
+        catch
+        {
+            hash = File.Exists(credPath) ? File.GetLastWriteTimeUtc(credPath).Ticks.ToString() : string.Empty;
+        }
+
+        return $"{email.Trim()}|{cLen}|{oLen}|{aLen}|{hash}";
+    }
+
+    private void SeedExistingProfileSignatures()
+    {
+        try
+        {
+            foreach (var p in GetProfiles())
+            {
+                string pDir = Path.Combine(ProfilesBaseDir, p);
+                string email = GetAccountEmail(p) ?? string.Empty;
+                _lastCapturedSignatures[p] = ComputeSessionSignature(pDir, email);
+            }
+        }
+        catch
+        {
+            // Ignore initialization errors
+        }
+    }
+
+    public void Dispose()
+    {
+        _debounceSyncTimer?.Dispose();
+        _fileWatcher?.Dispose();
+    }
+}

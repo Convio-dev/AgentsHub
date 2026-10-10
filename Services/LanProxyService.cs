@@ -538,7 +538,7 @@ public class LanProxyService : IDisposable
             <head>
               <meta charset="utf-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Hermes Hub - Engine Offline</title>
+              <title>Agents Hub - Engine Offline</title>
               <style>
                 * { box-sizing: border-box; }
                 body { background: #09090b; color: #fafafa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }

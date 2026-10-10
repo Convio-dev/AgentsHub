@@ -2,8 +2,8 @@ namespace HermesHub;
 
 internal static class Program
 {
-    private const string MutexName = @"Global\HermesHub_SingleInstance_Mutex";
-    private const string ShowWindowEventName = @"Global\HermesHub_ShowWindow_Event";
+    private const string MutexName = @"Global\AgentsHub_SingleInstance_Mutex";
+    private const string ShowWindowEventName = @"Global\AgentsHub_ShowWindow_Event";
 
     [STAThread]
     private static void Main(string[] args)
@@ -13,7 +13,7 @@ internal static class Program
         if (!isOnlyInstance)
         {
             AttachConsole(-1);
-            Console.WriteLine("[HermesHub] Hermes Hub is already running. Brought the active window to the foreground.");
+            Console.WriteLine("[AgentsHub] Agents Hub is already running. Brought the active window to the foreground.");
             // Wake the running instance instead of exiting silently
             SignalRunningInstance();
             return;

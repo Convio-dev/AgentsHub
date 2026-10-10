@@ -1,7 +1,7 @@
 ; Script generated for Inno Setup 6
-; Hermes Desktop Hub Installer Configuration
+; Agents Hub Installer Configuration
 
-#define MyAppName "Hermes Desktop Hub"
+#define MyAppName "Agents Hub"
 #define MyAppVersion "1.0.2"
 #define MyAppPublisher "ZeroNuxs"
 #define MyAppURL "https://github.com/ZerroDevs/HermesOn"
@@ -22,7 +22,7 @@ DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile=LICENSE
 OutputDir=dist
-OutputBaseFilename=HermesHub-Setup-v{#MyAppVersion}
+OutputBaseFilename=AgentsHub-Setup-v{#MyAppVersion}
 SetupIconFile=assets\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
@@ -38,7 +38,7 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog commandline
 
 ; Detect running instances via mutex and close cleanly
-AppMutex=Global\HermesHub_SingleInstance_Mutex,HermesHub_SingleInstance_Mutex
+AppMutex=Global\AgentsHub_SingleInstance_Mutex,AgentsHub_SingleInstance_Mutex,Global\HermesHub_SingleInstance_Mutex,HermesHub_SingleInstance_Mutex
 CloseApplications=yes
 RestartApplications=no
 
@@ -47,7 +47,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "startupicon"; Description: "Launch Hermes Hub minimized to system tray on Windows startup"; GroupDescription: "Startup:"; Flags: unchecked
+Name: "startupicon"; Description: "Launch Agents Hub minimized to system tray on Windows startup"; GroupDescription: "Startup:"; Flags: unchecked
 
 [Files]
 Source: "bin\Release\net10.0-windows\win-x64\publish\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion

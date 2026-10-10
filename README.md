@@ -1,6 +1,6 @@
-# Hermes Desktop Hub
+# Agents Hub
 
-A lightweight, standalone Windows tray utility and LAN reverse proxy for the [Hermes](https://github.com/anthropics) agent engine. Hermes Desktop Hub packages process lifecycle management, LAN broadcasting, QR code generation, and firewall management into a portable, single-file Windows executable (~16 MB) with low memory usage (< 25 MB RAM).
+A lightweight, standalone Windows multi-agent desktop hub, CLI workspace, and LAN reverse proxy. Agents Hub packages process lifecycle management, multi-agent terminals (Hermes, Claude Code, Antigravity CLI), LAN broadcasting, QR code generation, and firewall management into a portable, single-file Windows executable (~16 MB) with low memory usage (< 25 MB RAM).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20x64-blue.svg)]()
@@ -34,7 +34,7 @@ A lightweight, standalone Windows tray utility and LAN reverse proxy for the [He
   - Tray context menu provides quick controls to start/stop the engine, toggle LAN broadcast, open WebUI, or quit.
 - **Configuration Persistence**:
   - Custom configurable ports for the engine and LAN broadcast.
-  - Preferences saved under `HKCU\Software\HermesHub`.
+  - Preferences saved under `HKCU\Software\AgentsHub` (with legacy `HermesHub` fallback).
   - Optional Windows startup on boot (`--tray` flag).
 
 ---
@@ -71,7 +71,7 @@ Launch `HermesHub.exe`. By default:
 All application settings are stored under the current user's registry hive:
 
 ```text
-HKEY_CURRENT_USER\Software\HermesHub
+HKEY_CURRENT_USER\Software\AgentsHub
   ├── EnginePort          (DWORD, default: 9119)
   ├── LanPort             (DWORD, default: 9191)
   ├── AutoStartHermes     (DWORD, 0 or 1)
@@ -82,7 +82,7 @@ HKEY_CURRENT_USER\Software\HermesHub
 Autostart is toggled via:
 ```text
 HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
-  └── HermesHub = "<Path>\HermesHub.exe --tray"
+  └── AgentsHub = "<Path>\HermesHub.exe --tray"
 ```
 
 ---
