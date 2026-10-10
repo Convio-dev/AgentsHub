@@ -35,12 +35,14 @@ public class CliItemInfo
 public class CliManagerService : IDisposable
 {
     private readonly HermesProcessService _hermesService;
+    private readonly CliWebTerminalServer _webTerminalServer;
     private readonly ConcurrentDictionary<CliType, ConPtySession> _terminalSessions = new();
     private readonly ConcurrentDictionary<CliType, StringBuilder> _terminalBuffers = new();
     private readonly ConcurrentDictionary<CliType, CliItemInfo> _cliStates = new();
     private const int MaxBufferSize = 150_000;
 
     public HermesProcessService HermesService => _hermesService;
+    public CliWebTerminalServer WebTerminalServer => _webTerminalServer;
 
     public event Action<CliType, CliState, string>? StatusChanged;
     public event Action<CliType, string>? TerminalDataReceived;
@@ -104,6 +106,9 @@ public class CliManagerService : IDisposable
         {
             LogMessage?.Invoke("Hermes", msg);
         };
+
+        _webTerminalServer = new CliWebTerminalServer(this);
+        _webTerminalServer.Start();
     }
 
     public CliItemInfo GetInfo(CliType type)
@@ -316,6 +321,7 @@ public class CliManagerService : IDisposable
             }
         }
         _terminalSessions.Clear();
+        _webTerminalServer.Dispose();
         _hermesService.Dispose();
         GC.SuppressFinalize(this);
     }

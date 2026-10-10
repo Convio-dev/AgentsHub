@@ -1,9 +1,8 @@
 using System.Diagnostics;
-using System.Drawing.Drawing2D;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HermesHub.Helpers;
 using HermesHub.Services;
 using Microsoft.Web.WebView2.Core;
 
@@ -11,178 +10,161 @@ namespace HermesHub;
 
 public partial class CliWebviewForm : Form
 {
-    private const int WM_NCLBUTTONDOWN = 0xA1;
-    private const int HT_CAPTION = 0x2;
+    private static bool IsInDesignMode
+    {
+        get
+        {
+            if (System.ComponentModel.LicenseManager.UsageMode == System.ComponentModel.LicenseUsageMode.Designtime)
+            {
+                return true;
+            }
 
-    [LibraryImport("user32.dll", EntryPoint = "SendMessageW")]
-    private static partial IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+            try
+            {
+                using var currentProc = Process.GetCurrentProcess();
+                var procName = currentProc.ProcessName;
+                return procName.IndexOf("devenv", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                       procName.IndexOf("DesignToolsServer", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
 
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool ReleaseCapture();
-
-    private readonly CliManagerService _cliManager;
+    private readonly CliManagerService? _cliManager;
     private CliType _activeTab = CliType.Hermes;
     private bool _hermesInitialized;
-    private readonly string _terminalHtmlPath;
-    private readonly string _hermesOfflineHtmlPath;
+    private readonly string _terminalHtmlPath = string.Empty;
+    private readonly string _hermesOfflineHtmlPath = string.Empty;
+    private Color _toggleRunNormalColor = ThemeManager.Colors.AccentGreen;
+    private Color _toggleRunHoverColor = ThemeManager.Colors.AccentGreenHover;
 
-    public CliWebviewForm(CliManagerService cliManager, CliType initialTab = CliType.Hermes)
+    // تم نقل تعريف عناصر WebView2 إلى هنا ليتم إنشاؤها وقت التشغيل بدلاً من الـ Designer
+    private Microsoft.Web.WebView2.WinForms.WebView2 hermesWebView = null!;
+    private Microsoft.Web.WebView2.WinForms.WebView2 claudeWebView = null!;
+    private Microsoft.Web.WebView2.WinForms.WebView2 geminiWebView = null!;
+
+    public CliWebviewForm()
     {
-        _cliManager = cliManager;
-        _activeTab = initialTab;
-
-        var baseDir = AppContext.BaseDirectory;
-        _terminalHtmlPath = Path.Combine(baseDir, "assets", "web", "terminal.html");
-        _hermesOfflineHtmlPath = Path.Combine(baseDir, "assets", "web", "hermes-offline.html");
-
         InitializeComponent();
-        SetupStyles();
-        HookEvents();
+    }
 
-        _ = InitializeWebViewsAsync();
+    public CliWebviewForm(CliManagerService? cliManager, CliType initialTab = CliType.Hermes) : this()
+    {
+        if (System.ComponentModel.LicenseManager.UsageMode != System.ComponentModel.LicenseUsageMode.Designtime && cliManager != null)
+        {
+            _cliManager = cliManager;
+            _activeTab = initialTab;
+
+            var baseDir = AppContext.BaseDirectory;
+            _terminalHtmlPath = Path.Combine(baseDir, "assets", "web", "terminal.html");
+            _hermesOfflineHtmlPath = Path.Combine(baseDir, "assets", "web", "hermes-offline.html");
+
+            SetupStyles();
+            HookEvents();
+
+            _ = InitializeWebViewsAsync();
+        }
     }
 
     private void SetupStyles()
     {
-        // Custom paint status dot in header
-        titleDot.Paint += (s, e) =>
+        ApplyTheme();
+
+        toggleRunButton.MouseEnter += (_, _) =>
         {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using var brush = new SolidBrush(titleDot.BackColor);
-            e.Graphics.FillEllipse(brush, 0, 0, titleDot.Width - 1, titleDot.Height - 1);
+            if (toggleRunButton.Enabled) toggleRunButton.BackColor = _toggleRunHoverColor;
+        };
+        toggleRunButton.MouseLeave += (_, _) =>
+        {
+            if (toggleRunButton.Enabled) toggleRunButton.BackColor = _toggleRunNormalColor;
         };
 
-        // Window drag handlers
-        headerPanel.MouseDown += TitleBar_MouseDown;
-        titleLabel.MouseDown += TitleBar_MouseDown;
-        tabsPanel.MouseDown += TitleBar_MouseDown;
-        toolsPanel.MouseDown += TitleBar_MouseDown;
+        SetupButtonHover(restartCliButton, ThemeManager.Colors.ButtonBg, ThemeManager.Colors.ButtonHover);
+        SetupButtonHover(clearTerminalButton, ThemeManager.Colors.ButtonBg, ThemeManager.Colors.ButtonHover);
+        SetupButtonHover(openBrowserButton, ThemeManager.Colors.ButtonBg, ThemeManager.Colors.ButtonHover);
 
-        // Custom window buttons rendering
-        SetupWindowButtons();
-
-        // Style toolbar buttons
-        SetupButtonHover(toggleRunButton, Color.FromArgb(16, 185, 129), Color.FromArgb(5, 150, 105));
-        SetupButtonHover(restartCliButton, Color.FromArgb(39, 39, 42), Color.FromArgb(63, 63, 70));
-        SetupButtonHover(clearTerminalButton, Color.FromArgb(39, 39, 42), Color.FromArgb(63, 63, 70));
-        SetupButtonHover(openBrowserButton, Color.FromArgb(39, 39, 42), Color.FromArgb(63, 63, 70));
-
-        restartCliButton.ForeColor = Color.FromArgb(244, 244, 245);
-        clearTerminalButton.ForeColor = Color.FromArgb(244, 244, 245);
-        openBrowserButton.ForeColor = Color.FromArgb(244, 244, 245);
-
-        headerPanel.Resize += (_, _) => PositionHeaderControls();
-        Resize += (_, _) => PositionHeaderControls();
-        headerPanel.DoubleClick += (_, _) => ToggleMaximize();
-        PositionHeaderControls();
+        topToolbar.Resize += (_, _) => LayoutToolbar();
+        toolsPanel.Resize += (_, _) => LayoutToolbar();
+        topToolbar.Paint += (s, e) =>
+        {
+            using var pen = new Pen(ThemeManager.Colors.CardBorder, 1);
+            e.Graphics.DrawLine(pen, 0, topToolbar.Height - 1, topToolbar.Width, topToolbar.Height - 1);
+        };
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
     }
 
-    private void PositionHeaderControls()
+    private void LayoutToolbar()
     {
-        if (headerPanel == null || closeButton == null || maximizeButton == null || minimizeButton == null || toolsPanel == null)
+        if (toolsPanel == null || topToolbar == null) return;
+
+        toolsPanel.Width = Math.Max(520, topToolbar.ClientSize.Width - tabsPanel.Width);
+
+        int right = toolsPanel.ClientSize.Width - 10;
+
+        openBrowserButton.Location = new Point(right - openBrowserButton.Width, 7);
+        right = openBrowserButton.Left - 6;
+
+        clearTerminalButton.Location = new Point(right - clearTerminalButton.Width, 7);
+        right = clearTerminalButton.Left - 6;
+
+        restartCliButton.Location = new Point(right - restartCliButton.Width, 7);
+        right = restartCliButton.Left - 6;
+
+        toggleRunButton.Location = new Point(right - toggleRunButton.Width, 7);
+        right = toggleRunButton.Left - 12;
+
+        int maxStatusWidth = Math.Max(120, right - 10);
+        activeStatusLabel.MaximumSize = new Size(maxStatusWidth, 24);
+        activeStatusLabel.AutoEllipsis = true;
+        activeStatusLabel.Location = new Point(Math.Max(10, right - activeStatusLabel.PreferredWidth), 14);
+    }
+
+    public void ApplyTheme()
+    {
+        if (IsInDesignMode) return;
+
+        var c = ThemeManager.Colors;
+        if (IsHandleCreated)
         {
-            return;
+            ThemeManager.ApplyDwmTitleBarTheme(Handle);
         }
 
-        int headerWidth = headerPanel.ClientSize.Width;
-        int topY = 8;
+        BackColor = c.WindowBackground;
+        topToolbar.BackColor = c.HeaderBackground;
+        tabsPanel.BackColor = c.HeaderBackground;
+        toolsPanel.BackColor = c.HeaderBackground;
+        contentPanel.BackColor = c.WindowBackground;
 
-        closeButton.Location = new Point(headerWidth - 42, topY);
-        maximizeButton.Location = new Point(headerWidth - 78, topY);
-        minimizeButton.Location = new Point(headerWidth - 114, topY);
+        activeStatusLabel.ForeColor = c.TextSecondary;
 
-        closeButton.BringToFront();
-        maximizeButton.BringToFront();
-        minimizeButton.BringToFront();
+        restartCliButton.BackColor = c.ButtonBg;
+        restartCliButton.ForeColor = c.ButtonText;
+        restartCliButton.FlatAppearance.BorderColor = c.ButtonBorder;
 
-        int toolsRight = headerWidth - 124;
-        int toolsLeft = Math.Max(tabsPanel.Right + 8, toolsRight - toolsPanel.Width);
-        toolsPanel.Location = new Point(toolsLeft, topY);
-    }
+        clearTerminalButton.BackColor = c.ButtonBg;
+        clearTerminalButton.ForeColor = c.ButtonText;
+        clearTerminalButton.FlatAppearance.BorderColor = c.ButtonBorder;
 
-    private void SetupWindowButtons()
-    {
-        minimizeButton.Paint += (s, e) =>
-        {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            bool isHovered = minimizeButton.ClientRectangle.Contains(minimizeButton.PointToClient(Cursor.Position));
-            Color strokeColor = isHovered ? Color.FromArgb(244, 244, 245) : Color.FromArgb(161, 161, 170);
-            using var pen = new Pen(strokeColor, 2f);
-            int midY = minimizeButton.Height / 2;
-            int midX = minimizeButton.Width / 2;
-            e.Graphics.DrawLine(pen, midX - 5, midY, midX + 5, midY);
-        };
+        openBrowserButton.BackColor = c.ButtonBg;
+        openBrowserButton.ForeColor = c.ButtonText;
+        openBrowserButton.FlatAppearance.BorderColor = c.ButtonBorder;
 
-        maximizeButton.Paint += (s, e) =>
-        {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            bool isHovered = maximizeButton.ClientRectangle.Contains(maximizeButton.PointToClient(Cursor.Position));
-            Color strokeColor = isHovered ? Color.FromArgb(244, 244, 245) : Color.FromArgb(161, 161, 170);
-            using var pen = new Pen(strokeColor, 1.5f);
-            int midX = maximizeButton.Width / 2;
-            int midY = maximizeButton.Height / 2;
-            if (WindowState == FormWindowState.Maximized)
-            {
-                e.Graphics.DrawRectangle(pen, midX - 3, midY - 6, 8, 8);
-                e.Graphics.DrawRectangle(pen, midX - 6, midY - 3, 8, 8);
-            }
-            else
-            {
-                e.Graphics.DrawRectangle(pen, midX - 5, midY - 5, 10, 10);
-            }
-        };
-
-        closeButton.Paint += (s, e) =>
-        {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            bool isHovered = closeButton.ClientRectangle.Contains(closeButton.PointToClient(Cursor.Position));
-            Color strokeColor = isHovered ? Color.White : Color.FromArgb(161, 161, 170);
-            using var pen = new Pen(strokeColor, 2f);
-            int midX = closeButton.Width / 2;
-            int midY = closeButton.Height / 2;
-            int arm = 5;
-            e.Graphics.DrawLine(pen, midX - arm, midY - arm, midX + arm, midY + arm);
-            e.Graphics.DrawLine(pen, midX + arm, midY - arm, midX - arm, midY + arm);
-        };
-
-        minimizeButton.MouseEnter += (_, _) => minimizeButton.Invalidate();
-        minimizeButton.MouseLeave += (_, _) => minimizeButton.Invalidate();
-        maximizeButton.MouseEnter += (_, _) => maximizeButton.Invalidate();
-        maximizeButton.MouseLeave += (_, _) => maximizeButton.Invalidate();
-        closeButton.MouseEnter += (_, _) => closeButton.Invalidate();
-        closeButton.MouseLeave += (_, _) => closeButton.Invalidate();
-
-        SetupButtonHover(minimizeButton, Color.FromArgb(16, 16, 20), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(maximizeButton, Color.FromArgb(16, 16, 20), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(closeButton, Color.FromArgb(16, 16, 20), Color.FromArgb(220, 38, 38));
-
-        minimizeButton.Click += (_, _) => WindowState = FormWindowState.Minimized;
-        maximizeButton.Click += (_, _) => ToggleMaximize();
-        closeButton.Click += (_, _) => Hide();
-    }
-
-    private void ToggleMaximize()
-    {
-        WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
-        maximizeButton.Invalidate();
-        PositionHeaderControls();
-    }
-
-    protected override void OnResize(EventArgs e)
-    {
-        base.OnResize(e);
-        PositionHeaderControls();
-        maximizeButton?.Invalidate();
+        UpdateTabButtonsUi();
+        UpdateToolbarUi();
     }
 
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        PositionHeaderControls();
+        if (!IsInDesignMode)
+        {
+            ThemeManager.ApplyDwmTitleBarTheme(Handle);
+        }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -203,33 +185,42 @@ public partial class CliWebviewForm : Form
         tabGeminiButton.Click += (_, _) => SwitchTab(CliType.GeminiCli);
 
         toggleRunButton.Click += async (_, _) => await HandleToggleRunClickAsync();
-        restartCliButton.Click += async (_, _) => await _cliManager.RestartAsync(_activeTab);
+        restartCliButton.Click += async (_, _) =>
+        {
+            if (_cliManager != null)
+            {
+                await _cliManager.RestartAsync(_activeTab);
+            }
+        };
         clearTerminalButton.Click += (_, _) => HandleClearTerminalClick();
         openBrowserButton.Click += (_, _) => HandleOpenBrowserClick();
 
-        _cliManager.StatusChanged += (type, state, msg) =>
+        if (_cliManager != null)
         {
-            if (InvokeRequired)
+            _cliManager.StatusChanged += (type, state, msg) =>
             {
-                BeginInvoke(() => OnCliStatusChanged(type, state, msg));
-            }
-            else
-            {
-                OnCliStatusChanged(type, state, msg);
-            }
-        };
+                if (InvokeRequired)
+                {
+                    BeginInvoke(() => OnCliStatusChanged(type, state, msg));
+                }
+                else
+                {
+                    OnCliStatusChanged(type, state, msg);
+                }
+            };
 
-        _cliManager.TerminalDataReceived += (type, text) =>
-        {
-            if (InvokeRequired)
+            _cliManager.TerminalDataReceived += (type, text) =>
             {
-                BeginInvoke(() => ForwardTerminalData(type, text));
-            }
-            else
-            {
-                ForwardTerminalData(type, text);
-            }
-        };
+                if (InvokeRequired)
+                {
+                    BeginInvoke(() => ForwardTerminalData(type, text));
+                }
+                else
+                {
+                    ForwardTerminalData(type, text);
+                }
+            };
+        }
     }
 
     public void SwitchTab(CliType type)
@@ -238,9 +229,9 @@ public partial class CliWebviewForm : Form
         UpdateTabButtonsUi();
         UpdateToolbarUi();
 
-        hermesWebView.Visible = type == CliType.Hermes;
-        claudeWebView.Visible = type == CliType.ClaudeCode;
-        geminiWebView.Visible = type == CliType.GeminiCli;
+        if (hermesWebView != null) hermesWebView.Visible = type == CliType.Hermes;
+        if (claudeWebView != null) claudeWebView.Visible = type == CliType.ClaudeCode;
+        if (geminiWebView != null) geminiWebView.Visible = type == CliType.GeminiCli;
 
         if (type == CliType.Hermes && _hermesInitialized)
         {
@@ -252,6 +243,15 @@ public partial class CliWebviewForm : Form
     {
         try
         {
+            // بناء الـ WebViews برمجياً وإضافتها لـ contentPanel في الـ Runtime
+            hermesWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
+            claudeWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
+            geminiWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
+
+            contentPanel.Controls.Add(hermesWebView);
+            contentPanel.Controls.Add(claudeWebView);
+            contentPanel.Controls.Add(geminiWebView);
+
             var userDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesHub", "WebView2Data");
             var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
 
@@ -298,7 +298,7 @@ public partial class CliWebviewForm : Form
 
     private void RefreshHermesNavigation()
     {
-        if (!_hermesInitialized)
+        if (!_hermesInitialized || _cliManager == null || hermesWebView?.CoreWebView2 == null)
         {
             return;
         }
@@ -336,7 +336,7 @@ public partial class CliWebviewForm : Form
                 var typeStr = typeEl.GetString();
                 if (typeStr == "start_hermes")
                 {
-                    _cliManager.Start(CliType.Hermes);
+                    _cliManager?.Start(CliType.Hermes);
                 }
             }
         }
@@ -348,6 +348,8 @@ public partial class CliWebviewForm : Form
 
     private void TerminalWebView_WebMessageReceived(CliType cliType, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        if (_cliManager == null) return;
+
         try
         {
             var json = e.WebMessageAsJson;
@@ -396,8 +398,10 @@ public partial class CliWebviewForm : Form
 
     private void SendTerminalInit(CliType type)
     {
+        if (_cliManager == null) return;
+
         var targetWv = type == CliType.ClaudeCode ? claudeWebView : geminiWebView;
-        if (targetWv.CoreWebView2 == null)
+        if (targetWv?.CoreWebView2 == null)
         {
             return;
         }
@@ -412,7 +416,7 @@ public partial class CliWebviewForm : Form
     private void ForwardTerminalData(CliType type, string text)
     {
         var targetWv = type == CliType.ClaudeCode ? claudeWebView : geminiWebView;
-        if (targetWv.CoreWebView2 == null)
+        if (targetWv?.CoreWebView2 == null)
         {
             return;
         }
@@ -437,7 +441,7 @@ public partial class CliWebviewForm : Form
         else
         {
             var targetWv = type == CliType.ClaudeCode ? claudeWebView : geminiWebView;
-            if (targetWv.CoreWebView2 != null)
+            if (targetWv?.CoreWebView2 != null)
             {
                 var payload = new TerminalStatusPayload("status", state == CliState.Running, message);
                 targetWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalStatusPayload));
@@ -447,6 +451,9 @@ public partial class CliWebviewForm : Form
 
     private void UpdateTabButtonsUi()
     {
+        if (_cliManager == null) return;
+        var c = ThemeManager.Colors;
+
         void FormatTab(Button btn, CliType type, string name)
         {
             var info = _cliManager.GetInfo(type);
@@ -464,13 +471,15 @@ public partial class CliWebviewForm : Form
 
             if (isSelected)
             {
-                btn.BackColor = Color.FromArgb(39, 39, 42);
-                btn.ForeColor = Color.FromArgb(250, 250, 250);
+                btn.BackColor = c.ButtonHover;
+                btn.ForeColor = c.TextPrimary;
+                btn.FlatAppearance.BorderColor = c.AccentGreen;
             }
             else
             {
-                btn.BackColor = Color.FromArgb(16, 16, 20);
-                btn.ForeColor = Color.FromArgb(161, 161, 170);
+                btn.BackColor = c.ButtonBg;
+                btn.ForeColor = c.TextSecondary;
+                btn.FlatAppearance.BorderColor = c.ButtonBorder;
             }
         }
 
@@ -481,39 +490,64 @@ public partial class CliWebviewForm : Form
 
     private void UpdateToolbarUi()
     {
+        if (_cliManager == null) return;
+        var c = ThemeManager.Colors;
         var info = _cliManager.GetInfo(_activeTab);
         activeStatusLabel.Text = $"{info.ShortName}: {info.StatusText}";
 
         if (info.State == CliState.Running)
         {
+            activeStatusLabel.ForeColor = c.AccentGreen;
             toggleRunButton.Text = "Stop";
-            toggleRunButton.BackColor = Color.FromArgb(239, 68, 68);
-            toggleRunButton.ForeColor = Color.FromArgb(250, 250, 250);
+            _toggleRunNormalColor = c.DangerRed;
+            _toggleRunHoverColor = Color.FromArgb(220, 38, 38);
+            toggleRunButton.BackColor = _toggleRunNormalColor;
+            toggleRunButton.ForeColor = Color.White;
+            toggleRunButton.FlatAppearance.BorderColor = c.DangerRed;
             restartCliButton.Enabled = true;
             clearTerminalButton.Enabled = true;
         }
         else if (info.State == CliState.Starting)
         {
+            activeStatusLabel.ForeColor = c.WarningAmber;
             toggleRunButton.Text = "Starting...";
-            toggleRunButton.BackColor = Color.FromArgb(245, 158, 11);
-            toggleRunButton.ForeColor = Color.FromArgb(9, 9, 11);
+            _toggleRunNormalColor = c.WarningAmber;
+            _toggleRunHoverColor = Color.FromArgb(217, 119, 6);
+            toggleRunButton.BackColor = _toggleRunNormalColor;
+            toggleRunButton.ForeColor = Color.Black;
+            toggleRunButton.FlatAppearance.BorderColor = c.WarningAmber;
             restartCliButton.Enabled = false;
             clearTerminalButton.Enabled = true;
         }
         else
         {
+            activeStatusLabel.ForeColor = c.TextMuted;
             toggleRunButton.Text = "Start";
-            toggleRunButton.BackColor = Color.FromArgb(16, 185, 129);
-            toggleRunButton.ForeColor = Color.FromArgb(9, 9, 11);
+            _toggleRunNormalColor = c.AccentGreen;
+            _toggleRunHoverColor = c.AccentGreenHover;
+            toggleRunButton.BackColor = _toggleRunNormalColor;
+            toggleRunButton.ForeColor = c.AccentGreenText;
+            toggleRunButton.FlatAppearance.BorderColor = c.AccentGreen;
             restartCliButton.Enabled = false;
             clearTerminalButton.Enabled = true;
         }
 
-        openBrowserButton.Visible = _activeTab == CliType.Hermes;
+        openBrowserButton.Visible = true;
+        openBrowserButton.Text = _activeTab switch
+        {
+            CliType.Hermes => $"Browser :{_cliManager.HermesService.Port}",
+            CliType.ClaudeCode => "Browser :9229",
+            CliType.GeminiCli => "Browser :9339",
+            _ => "Browser"
+        };
+
+        LayoutToolbar();
     }
 
     private async Task HandleToggleRunClickAsync()
     {
+        if (_cliManager == null) return;
+
         var info = _cliManager.GetInfo(_activeTab);
         if (info.State == CliState.Running || info.State == CliState.Starting)
         {
@@ -527,14 +561,14 @@ public partial class CliWebviewForm : Form
 
     private void HandleClearTerminalClick()
     {
-        if (_activeTab == CliType.Hermes)
+        if (_cliManager == null || _activeTab == CliType.Hermes)
         {
             return;
         }
 
         _cliManager.ClearTerminalHistory(_activeTab);
         var targetWv = _activeTab == CliType.ClaudeCode ? claudeWebView : geminiWebView;
-        if (targetWv.CoreWebView2 != null)
+        if (targetWv?.CoreWebView2 != null)
         {
             var payload = new TerminalActionPayload("clear");
             targetWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalActionPayload));
@@ -571,9 +605,19 @@ public partial class CliWebviewForm : Form
 
     private void HandleOpenBrowserClick()
     {
+        if (_cliManager == null) return;
+
         try
         {
-            Process.Start(new ProcessStartInfo($"http://127.0.0.1:{_cliManager.HermesService.Port}/") { UseShellExecute = true });
+            int port = _activeTab switch
+            {
+                CliType.Hermes => _cliManager.HermesService.Port,
+                CliType.ClaudeCode => 9229,
+                CliType.GeminiCli => 9339,
+                _ => 9119
+            };
+
+            Process.Start(new ProcessStartInfo($"http://127.0.0.1:{port}/") { UseShellExecute = true });
         }
         catch (Exception ex)
         {
@@ -581,20 +625,16 @@ public partial class CliWebviewForm : Form
         }
     }
 
-    private void TitleBar_MouseDown(object? sender, MouseEventArgs e)
-    {
-        if (e.Button == MouseButtons.Left)
-        {
-            _ = ReleaseCapture();
-            _ = SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
-        }
-    }
-
     private static void SetupButtonHover(Button button, Color normalColor, Color hoverColor)
     {
-        button.BackColor = normalColor;
-        button.MouseEnter += (_, _) => button.BackColor = hoverColor;
-        button.MouseLeave += (_, _) => button.BackColor = normalColor;
+        button.MouseEnter += (_, _) =>
+        {
+            if (button.Enabled) button.BackColor = hoverColor;
+        };
+        button.MouseLeave += (_, _) =>
+        {
+            if (button.Enabled) button.BackColor = normalColor;
+        };
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -607,7 +647,6 @@ public partial class CliWebviewForm : Form
 
         if (keyData == (Keys.Control | Keys.Tab))
         {
-            // Cycle forward through tabs
             int next = ((int)_activeTab + 1) % 3;
             SwitchTab((CliType)next);
             return true;
@@ -615,7 +654,6 @@ public partial class CliWebviewForm : Form
 
         if (keyData == (Keys.Control | Keys.Shift | Keys.Tab))
         {
-            // Cycle backward through tabs
             int prev = ((int)_activeTab + 2) % 3;
             SwitchTab((CliType)prev);
             return true;

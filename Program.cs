@@ -12,6 +12,8 @@ internal static class Program
 
         if (!isOnlyInstance)
         {
+            AttachConsole(-1);
+            Console.WriteLine("[HermesHub] Hermes Hub is already running. Brought the active window to the foreground.");
             // Wake the running instance instead of exiting silently
             SignalRunningInstance();
             return;
@@ -60,4 +62,7 @@ internal static class Program
             // Cross-session access denied; exiting is still correct
         }
     }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool AttachConsole(int dwProcessId);
 }

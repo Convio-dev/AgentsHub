@@ -1,6 +1,9 @@
 <!-- antislop:start -->
+
 ## antislop
+
 For UI, copy, people, mobile layout, or code comments work, read these installed skill files directly (use these paths even if a same-named global skill exists):
+
 - Core filter, always on: `antislop`: `.agents/skills/antislop/SKILL.md`
 - UI / visual: `antislop-ui`: `.agents/skills/antislop-ui/SKILL.md`
 - Copy & text: `antislop-copywriting`: `.agents/skills/antislop-copywriting/SKILL.md`
@@ -12,3 +15,23 @@ Only an explicit choice of antislop during or after selects a session mode. A re
 If the mode is unresolved, ask during/after and end the response; wait for the answer before any UI review, planning, or concept. For read-only tasks, put the active-mode notice only at the start of the final answer, never in progress messages. For editing tasks, announce before the first edit and omit it from the final answer.
 To update antislop later: `npx antislop-ai --update`, or run `npx antislop-ai` and pick Overwrite them.
 <!-- antislop:end -->
+
+<!-- caveman:start -->
+
+## caveman
+
+When requested or in caveman mode, read this installed skill file directly:
+
+- Terse Voice: `caveman`: `.agents/skills/caveman/SKILL.md`
+Answer first, fluff gone, every technical fact and constraint preserved.
+<!-- caveman:end -->
+
+<!-- defuddle:start -->
+
+## defuddle
+
+For web page extraction and clean markdown fetching, read this installed skill file directly:
+
+- Web Page Content Extractor: `defuddle`: `.agents/skills/defuddle/SKILL.md`
+Prefer Defuddle CLI (`defuddle parse <url> --md`) over raw web fetches for clean, token-efficient markdown.
+<!-- defuddle:end -->

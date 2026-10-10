@@ -6,22 +6,25 @@ partial class MainForm
 {
     private System.ComponentModel.IContainer? components = null;
 
-    private Panel headerPanel = null!;
+    private Panel topBarPanel = null!;
     private Panel statusDot = null!;
     private Label titleLabel = null!;
     private Label subtitleLabel = null!;
-    private Button minimizeButton = null!;
-    private Button closeButton = null!;
+    private Button themeToggleButton = null!;
+    private Button topWebviewButton = null!;
+    private Button topLogsButton = null!;
+
+    private Panel scrollContainer = null!;
 
     private Panel hermesCard = null!;
     private Label hermesCardTitle = null!;
     private Label cliSummaryLabel = null!;
     private ComboBox cliSelectComboBox = null!;
-    private Button viewLogsButton = null!;
     private Label hermesStatusLabel = null!;
     private Button startHermesButton = null!;
     private Button stopHermesButton = null!;
     private Button openDashboardButton = null!;
+    private Button openBrowserMainButton = null!;
     private Label cliDotsLabel = null!;
 
     private Panel lanCard = null!;
@@ -43,14 +46,6 @@ partial class MainForm
     private Label qrUrlLabel = null!;
     private Button closeQrButton = null!;
 
-    private Panel logsPanel = null!;
-    private Label logsTitleLabel = null!;
-    private Label logsCountLabel = null!;
-    private Button copyLogsButton = null!;
-    private Button clearLogsButton = null!;
-    private Button closeLogsButton = null!;
-    private TextBox logsTextBox = null!;
-
     private Panel settingsCard = null!;
     private Label settingsCardTitle = null!;
     private Label enginePortLabel = null!;
@@ -63,7 +58,17 @@ partial class MainForm
     private CheckBox autoEnableLanCheckBox = null!;
     private CheckBox notifyRemoteClientsCheckBox = null!;
 
-    private Panel footerPanel = null!;
+    private Panel logsPanel = null!;
+    private Label logsTitleLabel = null!;
+    private Label logsCountLabel = null!;
+    private Button copyLogsButton = null!;
+    private Button clearLogsButton = null!;
+    private Button closeLogsButton = null!;
+    private TextBox logsTextBox = null!;
+
+    private Panel cardsSpacer = null!;
+
+    private Panel bottomBarPanel = null!;
     private Label ramUsageLabel = null!;
     private Label versionLabel = null!;
     private Button footerLogsButton = null!;
@@ -82,22 +87,26 @@ partial class MainForm
 
     private void InitializeComponent()
     {
-        headerPanel = new Panel();
+        components = new System.ComponentModel.Container();
+        topBarPanel = new Panel();
         statusDot = new Panel();
         titleLabel = new Label();
         subtitleLabel = new Label();
-        minimizeButton = new Button();
-        closeButton = new Button();
+        themeToggleButton = new Button();
+        topWebviewButton = new Button();
+        topLogsButton = new Button();
+
+        scrollContainer = new Panel();
 
         hermesCard = new Panel();
         hermesCardTitle = new Label();
         cliSummaryLabel = new Label();
         cliSelectComboBox = new ComboBox();
-        viewLogsButton = new Button();
         hermesStatusLabel = new Label();
         startHermesButton = new Button();
         stopHermesButton = new Button();
         openDashboardButton = new Button();
+        openBrowserMainButton = new Button();
         cliDotsLabel = new Label();
 
         lanCard = new Panel();
@@ -119,14 +128,6 @@ partial class MainForm
         qrUrlLabel = new Label();
         closeQrButton = new Button();
 
-        logsPanel = new Panel();
-        logsTitleLabel = new Label();
-        logsCountLabel = new Label();
-        copyLogsButton = new Button();
-        clearLogsButton = new Button();
-        closeLogsButton = new Button();
-        logsTextBox = new TextBox();
-
         settingsCard = new Panel();
         settingsCardTitle = new Label();
         enginePortLabel = new Label();
@@ -139,13 +140,23 @@ partial class MainForm
         autoEnableLanCheckBox = new CheckBox();
         notifyRemoteClientsCheckBox = new CheckBox();
 
-        footerPanel = new Panel();
+        logsPanel = new Panel();
+        logsTitleLabel = new Label();
+        logsCountLabel = new Label();
+        copyLogsButton = new Button();
+        clearLogsButton = new Button();
+        closeLogsButton = new Button();
+        logsTextBox = new TextBox();
+
+        cardsSpacer = new Panel();
+
+        bottomBarPanel = new Panel();
         ramUsageLabel = new Label();
         versionLabel = new Label();
         footerLogsButton = new Button();
         quitAppButton = new Button();
 
-        telemetryTimer = new System.Windows.Forms.Timer();
+        telemetryTimer = new System.Windows.Forms.Timer(components);
 
         ((System.ComponentModel.ISupportInitialize)qrPictureBox).BeginInit();
         ((System.ComponentModel.ISupportInitialize)enginePortNumeric).BeginInit();
@@ -153,149 +164,177 @@ partial class MainForm
         SuspendLayout();
 
         // 
-        // Header Panel
+        // Top Bar Panel
         // 
-        headerPanel.BackColor = Color.FromArgb(16, 16, 20);
-        headerPanel.Dock = DockStyle.Top;
-        headerPanel.Height = 52;
-        headerPanel.Controls.Add(statusDot);
-        headerPanel.Controls.Add(titleLabel);
-        headerPanel.Controls.Add(subtitleLabel);
-        headerPanel.Controls.Add(minimizeButton);
-        headerPanel.Controls.Add(closeButton);
+        topBarPanel.Dock = DockStyle.Top;
+        topBarPanel.Height = 44;
+        topBarPanel.Controls.Add(statusDot);
+        topBarPanel.Controls.Add(titleLabel);
+        topBarPanel.Controls.Add(subtitleLabel);
+        topBarPanel.Controls.Add(topLogsButton);
+        topBarPanel.Controls.Add(topWebviewButton);
+        topBarPanel.Controls.Add(themeToggleButton);
 
-        statusDot.Location = new Point(16, 18);
-        statusDot.Size = new Size(10, 10);
-        statusDot.BackColor = Color.FromArgb(239, 68, 68);
+        statusDot.Location = new Point(14, 16);
+        statusDot.Size = new Size(11, 11);
 
         titleLabel.AutoSize = true;
-        titleLabel.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
-        titleLabel.ForeColor = Color.FromArgb(250, 250, 250);
-        titleLabel.Location = new Point(34, 13);
+        titleLabel.Font = new Font("Segoe UI", 10.5F, FontStyle.Bold);
+        titleLabel.Location = new Point(32, 11);
         titleLabel.Text = "HERMES HUB";
 
         subtitleLabel.AutoSize = true;
         subtitleLabel.Font = new Font("Segoe UI", 8.5F);
-        subtitleLabel.ForeColor = Color.FromArgb(113, 113, 122);
-        subtitleLabel.Location = new Point(148, 16);
+        subtitleLabel.Location = new Point(135, 14);
         subtitleLabel.Text = "Desktop Controller";
 
-        minimizeButton.FlatStyle = FlatStyle.Flat;
-        minimizeButton.FlatAppearance.BorderSize = 0;
-        minimizeButton.BackColor = Color.FromArgb(16, 16, 20);
-        minimizeButton.ForeColor = Color.FromArgb(161, 161, 170);
-        minimizeButton.Location = new Point(372, 9);
-        minimizeButton.Size = new Size(34, 34);
-        minimizeButton.Text = "";
-        minimizeButton.Cursor = Cursors.Hand;
-        minimizeButton.TabStop = false;
+        themeToggleButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        themeToggleButton.FlatStyle = FlatStyle.Flat;
+        themeToggleButton.FlatAppearance.BorderSize = 1;
+        themeToggleButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+        themeToggleButton.Location = new Point(240, 7);
+        themeToggleButton.Size = new Size(74, 30);
+        themeToggleButton.Text = "☀ Light";
+        themeToggleButton.Cursor = Cursors.Hand;
 
-        closeButton.FlatStyle = FlatStyle.Flat;
-        closeButton.FlatAppearance.BorderSize = 0;
-        closeButton.BackColor = Color.FromArgb(16, 16, 20);
-        closeButton.ForeColor = Color.FromArgb(161, 161, 170);
-        closeButton.Location = new Point(408, 9);
-        closeButton.Size = new Size(34, 34);
-        closeButton.Text = "";
-        closeButton.Cursor = Cursors.Hand;
-        closeButton.TabStop = false;
+        topWebviewButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        topWebviewButton.FlatStyle = FlatStyle.Flat;
+        topWebviewButton.FlatAppearance.BorderSize = 1;
+        topWebviewButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
+        topWebviewButton.Location = new Point(320, 7);
+        topWebviewButton.Size = new Size(88, 30);
+        topWebviewButton.Text = "🖥 Webview";
+        topWebviewButton.Cursor = Cursors.Hand;
+
+        topLogsButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        topLogsButton.FlatStyle = FlatStyle.Flat;
+        topLogsButton.FlatAppearance.BorderSize = 1;
+        topLogsButton.Font = new Font("Segoe UI", 8.5F);
+        topLogsButton.Location = new Point(414, 7);
+        topLogsButton.Size = new Size(68, 30);
+        topLogsButton.Text = "📜 Logs";
+        topLogsButton.Cursor = Cursors.Hand;
+
+        // 
+        // Bottom Bar Panel
+        // 
+        bottomBarPanel.Dock = DockStyle.Bottom;
+        bottomBarPanel.Height = 38;
+        bottomBarPanel.Controls.Add(ramUsageLabel);
+        bottomBarPanel.Controls.Add(versionLabel);
+        bottomBarPanel.Controls.Add(footerLogsButton);
+        bottomBarPanel.Controls.Add(quitAppButton);
+
+        ramUsageLabel.AutoSize = true;
+        ramUsageLabel.Font = new Font("Segoe UI", 8.5F);
+        ramUsageLabel.Location = new Point(14, 11);
+        ramUsageLabel.Text = "RAM: -- MB";
+
+        versionLabel.AutoSize = true;
+        versionLabel.Font = new Font("Segoe UI", 8.5F);
+        versionLabel.Location = new Point(110, 11);
+        versionLabel.Text = "v1.0.2";
+
+        footerLogsButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        footerLogsButton.FlatStyle = FlatStyle.Flat;
+        footerLogsButton.FlatAppearance.BorderSize = 1;
+        footerLogsButton.Font = new Font("Segoe UI", 8F);
+        footerLogsButton.Location = new Point(292, 6);
+        footerLogsButton.Size = new Size(96, 26);
+        footerLogsButton.Text = "Console (0)";
+        footerLogsButton.Cursor = Cursors.Hand;
+
+        quitAppButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        quitAppButton.FlatStyle = FlatStyle.Flat;
+        quitAppButton.FlatAppearance.BorderSize = 1;
+        quitAppButton.Font = new Font("Segoe UI", 8.5F);
+        quitAppButton.Location = new Point(396, 6);
+        quitAppButton.Size = new Size(86, 26);
+        quitAppButton.Text = "Quit App";
+        quitAppButton.Cursor = Cursors.Hand;
+
+        // 
+        // Scroll Container (dock fill)
+        // 
+        scrollContainer.Dock = DockStyle.Fill;
+        scrollContainer.AutoScroll = false;
+        scrollContainer.Controls.Add(hermesCard);
+        scrollContainer.Controls.Add(lanCard);
+        scrollContainer.Controls.Add(settingsCard);
+        scrollContainer.Controls.Add(logsPanel);
+        scrollContainer.Controls.Add(cardsSpacer);
 
         // 
         // Hermes / CLI Services Card
         // 
-        hermesCard.BackColor = Color.FromArgb(24, 24, 27);
-        hermesCard.Location = new Point(16, 68);
-        hermesCard.Size = new Size(418, 150);
         hermesCard.Controls.Add(hermesCardTitle);
         hermesCard.Controls.Add(cliSummaryLabel);
-        hermesCard.Controls.Add(viewLogsButton);
         hermesCard.Controls.Add(cliSelectComboBox);
         hermesCard.Controls.Add(hermesStatusLabel);
         hermesCard.Controls.Add(startHermesButton);
         hermesCard.Controls.Add(stopHermesButton);
         hermesCard.Controls.Add(openDashboardButton);
+        hermesCard.Controls.Add(openBrowserMainButton);
         hermesCard.Controls.Add(cliDotsLabel);
 
         hermesCardTitle.AutoSize = true;
         hermesCardTitle.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
-        hermesCardTitle.ForeColor = Color.FromArgb(113, 113, 122);
         hermesCardTitle.Location = new Point(14, 12);
         hermesCardTitle.Text = "CLI SERVICES";
 
         cliSummaryLabel.AutoSize = true;
         cliSummaryLabel.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
-        cliSummaryLabel.ForeColor = Color.FromArgb(16, 185, 129);
         cliSummaryLabel.Location = new Point(96, 12);
         cliSummaryLabel.Text = "Active: 0/3";
 
-        viewLogsButton.FlatStyle = FlatStyle.Flat;
-        viewLogsButton.FlatAppearance.BorderSize = 1;
-        viewLogsButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
-        viewLogsButton.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
-        viewLogsButton.BackColor = Color.FromArgb(24, 24, 27);
-        viewLogsButton.ForeColor = Color.FromArgb(161, 161, 170);
-        viewLogsButton.Location = new Point(334, 8);
-        viewLogsButton.Size = new Size(70, 24);
-        viewLogsButton.Text = "Logs";
-        viewLogsButton.Cursor = Cursors.Hand;
-
         cliSelectComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
         cliSelectComboBox.FlatStyle = FlatStyle.Flat;
-        cliSelectComboBox.BackColor = Color.FromArgb(16, 16, 20);
-        cliSelectComboBox.ForeColor = Color.FromArgb(250, 250, 250);
-        cliSelectComboBox.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        cliSelectComboBox.Font = new Font("Segoe UI", 9.5F);
         cliSelectComboBox.Location = new Point(14, 38);
-        cliSelectComboBox.Size = new Size(188, 26);
+        cliSelectComboBox.Size = new Size(200, 28);
         cliSelectComboBox.Cursor = Cursors.Hand;
 
         hermesStatusLabel.AutoSize = true;
-        hermesStatusLabel.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
-        hermesStatusLabel.ForeColor = Color.FromArgb(239, 68, 68);
-        hermesStatusLabel.Location = new Point(208, 42);
+        hermesStatusLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        hermesStatusLabel.Location = new Point(224, 43);
         hermesStatusLabel.Text = "Engine: Offline";
 
         startHermesButton.FlatStyle = FlatStyle.Flat;
         startHermesButton.FlatAppearance.BorderSize = 0;
-        startHermesButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-        startHermesButton.BackColor = Color.FromArgb(16, 185, 129);
-        startHermesButton.ForeColor = Color.FromArgb(9, 9, 11);
-        startHermesButton.Location = new Point(14, 74);
-        startHermesButton.Size = new Size(122, 38);
+        startHermesButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
+        startHermesButton.Size = new Size(96, 36);
         startHermesButton.Text = "Start Hermes";
         startHermesButton.Cursor = Cursors.Hand;
 
         stopHermesButton.FlatStyle = FlatStyle.Flat;
-        stopHermesButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
-        stopHermesButton.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
-        stopHermesButton.BackColor = Color.FromArgb(24, 24, 27);
-        stopHermesButton.ForeColor = Color.FromArgb(161, 161, 170);
-        stopHermesButton.Location = new Point(144, 74);
-        stopHermesButton.Size = new Size(118, 38);
+        stopHermesButton.FlatAppearance.BorderSize = 1;
+        stopHermesButton.Font = new Font("Segoe UI", 8.75F);
+        stopHermesButton.Size = new Size(96, 36);
         stopHermesButton.Text = "Stop Hermes";
         stopHermesButton.Cursor = Cursors.Hand;
 
         openDashboardButton.FlatStyle = FlatStyle.Flat;
-        openDashboardButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
-        openDashboardButton.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
-        openDashboardButton.BackColor = Color.FromArgb(24, 24, 27);
-        openDashboardButton.ForeColor = Color.FromArgb(250, 250, 250);
-        openDashboardButton.Location = new Point(270, 74);
-        openDashboardButton.Size = new Size(134, 38);
-        openDashboardButton.Text = "Open Webview";
+        openDashboardButton.FlatAppearance.BorderSize = 1;
+        openDashboardButton.Font = new Font("Segoe UI", 8.75F);
+        openDashboardButton.Size = new Size(96, 36);
+        openDashboardButton.Text = "Webview";
         openDashboardButton.Cursor = Cursors.Hand;
 
+        openBrowserMainButton.FlatStyle = FlatStyle.Flat;
+        openBrowserMainButton.FlatAppearance.BorderSize = 1;
+        openBrowserMainButton.Font = new Font("Segoe UI", 8.75F);
+        openBrowserMainButton.Size = new Size(96, 36);
+        openBrowserMainButton.Text = "Browser";
+        openBrowserMainButton.Cursor = Cursors.Hand;
+
         cliDotsLabel.AutoSize = true;
-        cliDotsLabel.Font = new Font("Segoe UI", 8F, FontStyle.Regular);
-        cliDotsLabel.ForeColor = Color.FromArgb(113, 113, 122);
-        cliDotsLabel.Location = new Point(14, 124);
+        cliDotsLabel.Font = new Font("Segoe UI", 8.5F);
+        cliDotsLabel.Location = new Point(14, 126);
         cliDotsLabel.Text = "Hermes: ○ Offline   Claude: ○ Offline   Gemini: ○ Offline";
 
         // 
         // LAN Card
         // 
-        lanCard.BackColor = Color.FromArgb(24, 24, 27);
-        lanCard.Location = new Point(16, 230);
-        lanCard.Size = new Size(418, 152);
         lanCard.Controls.Add(lanCardTitle);
         lanCard.Controls.Add(lanToggleCheckBox);
         lanCard.Controls.Add(firewallStatusButton);
@@ -309,92 +348,71 @@ partial class MainForm
 
         lanCardTitle.AutoSize = true;
         lanCardTitle.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
-        lanCardTitle.ForeColor = Color.FromArgb(113, 113, 122);
         lanCardTitle.Location = new Point(14, 12);
         lanCardTitle.Text = "NETWORK & LAN BROADCAST";
 
         lanToggleCheckBox.AutoSize = true;
-        lanToggleCheckBox.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
-        lanToggleCheckBox.ForeColor = Color.FromArgb(250, 250, 250);
-        lanToggleCheckBox.Location = new Point(14, 34);
-        lanToggleCheckBox.Size = new Size(230, 21);
+        lanToggleCheckBox.Font = new Font("Segoe UI", 9.25F, FontStyle.Bold);
+        lanToggleCheckBox.Location = new Point(14, 36);
+        lanToggleCheckBox.Size = new Size(224, 21);
         lanToggleCheckBox.Text = "Broadcast to LAN (Port 9191)";
         lanToggleCheckBox.Cursor = Cursors.Hand;
 
         firewallStatusButton.FlatStyle = FlatStyle.Flat;
         firewallStatusButton.FlatAppearance.BorderSize = 1;
-        firewallStatusButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
         firewallStatusButton.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
-        firewallStatusButton.BackColor = Color.FromArgb(24, 24, 27);
-        firewallStatusButton.ForeColor = Color.FromArgb(161, 161, 170);
-        firewallStatusButton.Location = new Point(266, 8);
-        firewallStatusButton.Size = new Size(138, 25);
+        firewallStatusButton.Size = new Size(138, 26);
         firewallStatusButton.Text = "Checking Firewall...";
         firewallStatusButton.Cursor = Cursors.Hand;
 
         lanStatusLabel.AutoSize = true;
         lanStatusLabel.Font = new Font("Segoe UI", 8.5F);
-        lanStatusLabel.ForeColor = Color.FromArgb(113, 113, 122);
-        lanStatusLabel.Location = new Point(14, 58);
+        lanStatusLabel.Location = new Point(14, 60);
         lanStatusLabel.Text = "Status: Local Only (Isolated)";
 
         lanClientsLabel.AutoSize = false;
-        lanClientsLabel.Font = new Font("Segoe UI", 8.25F);
-        lanClientsLabel.ForeColor = Color.FromArgb(113, 113, 122);
-        lanClientsLabel.Location = new Point(14, 80);
+        lanClientsLabel.Font = new Font("Segoe UI", 8.5F);
+        lanClientsLabel.Location = new Point(14, 82);
         lanClientsLabel.Size = new Size(390, 18);
         lanClientsLabel.Text = "Active Clients: 0 (No remote devices)";
 
-        lanUrlPanel.BackColor = Color.FromArgb(9, 9, 11);
-        lanUrlPanel.Location = new Point(14, 102);
-        lanUrlPanel.Size = new Size(176, 36);
+        lanUrlPanel.Location = new Point(14, 104);
+        lanUrlPanel.Size = new Size(200, 36);
         lanUrlPanel.Controls.Add(lanUrlTextBox);
 
         lanUrlTextBox.BorderStyle = BorderStyle.None;
-        lanUrlTextBox.BackColor = Color.FromArgb(9, 9, 11);
-        lanUrlTextBox.ForeColor = Color.FromArgb(16, 185, 129);
         lanUrlTextBox.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
-        lanUrlTextBox.Location = new Point(10, 8);
-        lanUrlTextBox.Size = new Size(156, 20);
+        lanUrlTextBox.Location = new Point(8, 8);
+        lanUrlTextBox.Size = new Size(184, 20);
         lanUrlTextBox.ReadOnly = true;
         lanUrlTextBox.Text = "http://0.0.0.0:9191";
 
         copyLanButton.FlatStyle = FlatStyle.Flat;
-        copyLanButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
-        copyLanButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular);
-        copyLanButton.BackColor = Color.FromArgb(24, 24, 27);
-        copyLanButton.ForeColor = Color.FromArgb(250, 250, 250);
-        copyLanButton.Location = new Point(196, 102);
-        copyLanButton.Size = new Size(70, 36);
+        copyLanButton.FlatAppearance.BorderSize = 1;
+        copyLanButton.Font = new Font("Segoe UI", 8.5F);
+        copyLanButton.Size = new Size(64, 36);
         copyLanButton.Text = "Copy";
         copyLanButton.Cursor = Cursors.Hand;
 
         openLanButton.FlatStyle = FlatStyle.Flat;
-        openLanButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
-        openLanButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular);
-        openLanButton.BackColor = Color.FromArgb(24, 24, 27);
-        openLanButton.ForeColor = Color.FromArgb(250, 250, 250);
-        openLanButton.Location = new Point(270, 102);
-        openLanButton.Size = new Size(62, 36);
+        openLanButton.FlatAppearance.BorderSize = 1;
+        openLanButton.Font = new Font("Segoe UI", 8.5F);
+        openLanButton.Size = new Size(64, 36);
         openLanButton.Text = "Open";
         openLanButton.Cursor = Cursors.Hand;
 
         toggleQrButton.FlatStyle = FlatStyle.Flat;
-        toggleQrButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
+        toggleQrButton.FlatAppearance.BorderSize = 1;
         toggleQrButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
-        toggleQrButton.BackColor = Color.FromArgb(24, 24, 27);
-        toggleQrButton.ForeColor = Color.FromArgb(250, 250, 250);
-        toggleQrButton.Location = new Point(336, 102);
-        toggleQrButton.Size = new Size(68, 36);
+        toggleQrButton.Size = new Size(64, 36);
         toggleQrButton.Text = "QR";
         toggleQrButton.Cursor = Cursors.Hand;
 
         // 
         // QR Drawer Panel (collapsible)
         // 
-        qrDrawerPanel.BackColor = Color.FromArgb(16, 16, 20);
         qrDrawerPanel.Location = new Point(14, 148);
-        qrDrawerPanel.Size = new Size(390, 178);
+        qrDrawerPanel.Size = new Size(390, 168);
         qrDrawerPanel.Visible = false;
         qrDrawerPanel.Controls.Add(qrPictureBox);
         qrDrawerPanel.Controls.Add(qrTitleLabel);
@@ -402,45 +420,37 @@ partial class MainForm
         qrDrawerPanel.Controls.Add(qrUrlLabel);
         qrDrawerPanel.Controls.Add(closeQrButton);
 
-        qrPictureBox.Location = new Point(16, 19);
-        qrPictureBox.Size = new Size(140, 140);
+        qrPictureBox.Location = new Point(14, 14);
+        qrPictureBox.Size = new Size(136, 136);
         qrPictureBox.SizeMode = PictureBoxSizeMode.Zoom;
         qrPictureBox.BackColor = Color.White;
 
         qrTitleLabel.AutoSize = true;
         qrTitleLabel.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold);
-        qrTitleLabel.ForeColor = Color.FromArgb(16, 185, 129);
-        qrTitleLabel.Location = new Point(168, 22);
+        qrTitleLabel.Location = new Point(164, 16);
         qrTitleLabel.Text = "Scan to Open on Mobile";
 
         qrDescLabel.Font = new Font("Segoe UI", 8.5F);
-        qrDescLabel.ForeColor = Color.FromArgb(161, 161, 170);
-        qrDescLabel.Location = new Point(168, 48);
-        qrDescLabel.Size = new Size(205, 42);
+        qrDescLabel.Location = new Point(164, 40);
+        qrDescLabel.Size = new Size(210, 42);
         qrDescLabel.Text = "Scan with your phone camera to open Hermes directly on the LAN.";
 
         qrUrlLabel.Font = new Font("Segoe UI", 8F);
-        qrUrlLabel.ForeColor = Color.FromArgb(113, 113, 122);
-        qrUrlLabel.Location = new Point(168, 98);
-        qrUrlLabel.Size = new Size(205, 20);
+        qrUrlLabel.Location = new Point(164, 88);
+        qrUrlLabel.Size = new Size(210, 20);
         qrUrlLabel.Text = "http://127.0.0.1:9191";
 
         closeQrButton.FlatStyle = FlatStyle.Flat;
-        closeQrButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
-        closeQrButton.Font = new Font("Segoe UI", 8F, FontStyle.Regular);
-        closeQrButton.BackColor = Color.FromArgb(39, 39, 42);
-        closeQrButton.ForeColor = Color.FromArgb(250, 250, 250);
-        closeQrButton.Location = new Point(168, 128);
-        closeQrButton.Size = new Size(84, 26);
+        closeQrButton.FlatAppearance.BorderSize = 1;
+        closeQrButton.Font = new Font("Segoe UI", 8F);
+        closeQrButton.Location = new Point(164, 118);
+        closeQrButton.Size = new Size(80, 26);
         closeQrButton.Text = "Hide QR";
         closeQrButton.Cursor = Cursors.Hand;
 
         // 
         // Settings Card
         // 
-        settingsCard.BackColor = Color.FromArgb(24, 24, 27);
-        settingsCard.Location = new Point(16, 364);
-        settingsCard.Size = new Size(418, 178);
         settingsCard.Controls.Add(settingsCardTitle);
         settingsCard.Controls.Add(enginePortLabel);
         settingsCard.Controls.Add(enginePortNumeric);
@@ -454,87 +464,71 @@ partial class MainForm
 
         settingsCardTitle.AutoSize = true;
         settingsCardTitle.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
-        settingsCardTitle.ForeColor = Color.FromArgb(113, 113, 122);
-        settingsCardTitle.Location = new Point(14, 10);
+        settingsCardTitle.Location = new Point(14, 12);
         settingsCardTitle.Text = "SETTINGS & AUTOMATION";
 
         enginePortLabel.AutoSize = true;
-        enginePortLabel.Font = new Font("Segoe UI", 8.5F);
-        enginePortLabel.ForeColor = Color.FromArgb(161, 161, 170);
-        enginePortLabel.Location = new Point(14, 32);
+        enginePortLabel.Font = new Font("Segoe UI", 8.75F);
+        enginePortLabel.Location = new Point(14, 36);
         enginePortLabel.Text = "Engine:";
 
-        enginePortNumeric.BackColor = Color.FromArgb(16, 16, 20);
         enginePortNumeric.BorderStyle = BorderStyle.FixedSingle;
-        enginePortNumeric.Font = new Font("Segoe UI", 8.5F);
-        enginePortNumeric.ForeColor = Color.FromArgb(250, 250, 250);
-        enginePortNumeric.Location = new Point(62, 30);
+        enginePortNumeric.Font = new Font("Segoe UI", 8.75F);
+        enginePortNumeric.Location = new Point(64, 34);
         enginePortNumeric.Maximum = 65535;
         enginePortNumeric.Minimum = 1024;
-        enginePortNumeric.Size = new Size(70, 23);
+        enginePortNumeric.Size = new Size(72, 23);
         enginePortNumeric.Value = 9119;
 
         lanPortLabel.AutoSize = true;
-        lanPortLabel.Font = new Font("Segoe UI", 8.5F);
-        lanPortLabel.ForeColor = Color.FromArgb(161, 161, 170);
-        lanPortLabel.Location = new Point(152, 32);
+        lanPortLabel.Font = new Font("Segoe UI", 8.75F);
+        lanPortLabel.Location = new Point(148, 36);
         lanPortLabel.Text = "LAN:";
 
-        lanPortNumeric.BackColor = Color.FromArgb(16, 16, 20);
         lanPortNumeric.BorderStyle = BorderStyle.FixedSingle;
-        lanPortNumeric.Font = new Font("Segoe UI", 8.5F);
-        lanPortNumeric.ForeColor = Color.FromArgb(250, 250, 250);
-        lanPortNumeric.Location = new Point(184, 30);
+        lanPortNumeric.Font = new Font("Segoe UI", 8.75F);
+        lanPortNumeric.Location = new Point(182, 34);
         lanPortNumeric.Maximum = 65535;
         lanPortNumeric.Minimum = 1024;
-        lanPortNumeric.Size = new Size(70, 23);
+        lanPortNumeric.Size = new Size(72, 23);
         lanPortNumeric.Value = 9191;
 
         savePortsButton.FlatStyle = FlatStyle.Flat;
-        savePortsButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
-        savePortsButton.Font = new Font("Segoe UI", 8F, FontStyle.Regular);
-        savePortsButton.BackColor = Color.FromArgb(39, 39, 42);
-        savePortsButton.ForeColor = Color.FromArgb(250, 250, 250);
-        savePortsButton.Location = new Point(272, 29);
-        savePortsButton.Size = new Size(84, 25);
+        savePortsButton.FlatAppearance.BorderSize = 1;
+        savePortsButton.Font = new Font("Segoe UI", 8.25F);
+        savePortsButton.Location = new Point(268, 32);
+        savePortsButton.Size = new Size(92, 26);
         savePortsButton.Text = "Apply Ports";
         savePortsButton.Cursor = Cursors.Hand;
 
         startWithWindowsCheckBox.AutoSize = true;
         startWithWindowsCheckBox.Font = new Font("Segoe UI", 8.5F);
-        startWithWindowsCheckBox.ForeColor = Color.FromArgb(212, 212, 216);
-        startWithWindowsCheckBox.Location = new Point(14, 62);
+        startWithWindowsCheckBox.Location = new Point(14, 66);
         startWithWindowsCheckBox.Text = "Start with Windows";
         startWithWindowsCheckBox.Cursor = Cursors.Hand;
 
         autoStartHermesCheckBox.AutoSize = true;
         autoStartHermesCheckBox.Font = new Font("Segoe UI", 8.5F);
-        autoStartHermesCheckBox.ForeColor = Color.FromArgb(212, 212, 216);
-        autoStartHermesCheckBox.Location = new Point(14, 86);
+        autoStartHermesCheckBox.Location = new Point(14, 91);
         autoStartHermesCheckBox.Text = "Auto-start Hermes on launch";
         autoStartHermesCheckBox.Cursor = Cursors.Hand;
 
         autoEnableLanCheckBox.AutoSize = true;
         autoEnableLanCheckBox.Font = new Font("Segoe UI", 8.5F);
-        autoEnableLanCheckBox.ForeColor = Color.FromArgb(212, 212, 216);
-        autoEnableLanCheckBox.Location = new Point(14, 110);
+        autoEnableLanCheckBox.Location = new Point(14, 116);
         autoEnableLanCheckBox.Text = "Auto-enable LAN Broadcast on launch";
         autoEnableLanCheckBox.Cursor = Cursors.Hand;
 
         notifyRemoteClientsCheckBox.AutoSize = true;
         notifyRemoteClientsCheckBox.Font = new Font("Segoe UI", 8.5F);
-        notifyRemoteClientsCheckBox.ForeColor = Color.FromArgb(212, 212, 216);
-        notifyRemoteClientsCheckBox.Location = new Point(14, 134);
+        notifyRemoteClientsCheckBox.Location = new Point(14, 141);
         notifyRemoteClientsCheckBox.Text = "Notify on remote device connection";
         notifyRemoteClientsCheckBox.Checked = true;
         notifyRemoteClientsCheckBox.Cursor = Cursors.Hand;
 
         // 
-        // Logs Drawer Panel (collapsible console)
+        // Logs Drawer Panel
         // 
-        logsPanel.BackColor = Color.FromArgb(16, 16, 20);
-        logsPanel.Location = new Point(16, 554);
-        logsPanel.Size = new Size(418, 180);
         logsPanel.Visible = false;
         logsPanel.Controls.Add(logsTitleLabel);
         logsPanel.Controls.Add(logsCountLabel);
@@ -545,115 +539,59 @@ partial class MainForm
 
         logsTitleLabel.AutoSize = true;
         logsTitleLabel.Font = new Font("Segoe UI", 8F, FontStyle.Bold);
-        logsTitleLabel.ForeColor = Color.FromArgb(113, 113, 122);
-        logsTitleLabel.Location = new Point(12, 10);
-        logsTitleLabel.Text = "ENGINE & PROXY LOGS";
+        logsTitleLabel.Location = new Point(14, 10);
+        logsTitleLabel.Text = "SYSTEM LOGS";
 
         logsCountLabel.AutoSize = true;
         logsCountLabel.Font = new Font("Segoe UI", 8F);
-        logsCountLabel.ForeColor = Color.FromArgb(16, 185, 129);
-        logsCountLabel.Location = new Point(146, 10);
+        logsCountLabel.Location = new Point(110, 10);
         logsCountLabel.Text = "0 entries";
 
         copyLogsButton.FlatStyle = FlatStyle.Flat;
-        copyLogsButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
+        copyLogsButton.FlatAppearance.BorderSize = 1;
         copyLogsButton.Font = new Font("Segoe UI", 8F);
-        copyLogsButton.BackColor = Color.FromArgb(24, 24, 27);
-        copyLogsButton.ForeColor = Color.FromArgb(250, 250, 250);
-        copyLogsButton.Location = new Point(246, 6);
         copyLogsButton.Size = new Size(50, 24);
         copyLogsButton.Text = "Copy";
         copyLogsButton.Cursor = Cursors.Hand;
 
         clearLogsButton.FlatStyle = FlatStyle.Flat;
-        clearLogsButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
+        clearLogsButton.FlatAppearance.BorderSize = 1;
         clearLogsButton.Font = new Font("Segoe UI", 8F);
-        clearLogsButton.BackColor = Color.FromArgb(24, 24, 27);
-        clearLogsButton.ForeColor = Color.FromArgb(250, 250, 250);
-        clearLogsButton.Location = new Point(302, 6);
         clearLogsButton.Size = new Size(50, 24);
         clearLogsButton.Text = "Clear";
         clearLogsButton.Cursor = Cursors.Hand;
 
         closeLogsButton.FlatStyle = FlatStyle.Flat;
-        closeLogsButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
+        closeLogsButton.FlatAppearance.BorderSize = 1;
         closeLogsButton.Font = new Font("Segoe UI", 8F);
-        closeLogsButton.BackColor = Color.FromArgb(24, 24, 27);
-        closeLogsButton.ForeColor = Color.FromArgb(250, 250, 250);
-        closeLogsButton.Location = new Point(358, 6);
         closeLogsButton.Size = new Size(48, 24);
         closeLogsButton.Text = "Hide";
         closeLogsButton.Cursor = Cursors.Hand;
 
-        logsTextBox.BackColor = Color.FromArgb(9, 9, 11);
-        logsTextBox.ForeColor = Color.FromArgb(212, 212, 216);
-        logsTextBox.Font = new Font("Consolas", 8.5F, FontStyle.Regular);
-        logsTextBox.Location = new Point(10, 36);
-        logsTextBox.Size = new Size(398, 134);
+        logsTextBox.Font = new Font("Consolas", 8.5F);
+        logsTextBox.Location = new Point(12, 38);
         logsTextBox.Multiline = true;
         logsTextBox.ReadOnly = true;
         logsTextBox.ScrollBars = ScrollBars.Vertical;
         logsTextBox.BorderStyle = BorderStyle.None;
         logsTextBox.WordWrap = false;
 
-        // 
-        // Footer Panel
-        // 
-        footerPanel.BackColor = Color.FromArgb(16, 16, 20);
-        footerPanel.Dock = DockStyle.Bottom;
-        footerPanel.Height = 44;
-        footerPanel.Controls.Add(ramUsageLabel);
-        footerPanel.Controls.Add(versionLabel);
-        footerPanel.Controls.Add(footerLogsButton);
-        footerPanel.Controls.Add(quitAppButton);
-
-        ramUsageLabel.AutoSize = true;
-        ramUsageLabel.Font = new Font("Segoe UI", 8.5F);
-        ramUsageLabel.ForeColor = Color.FromArgb(113, 113, 122);
-        ramUsageLabel.Location = new Point(16, 14);
-        ramUsageLabel.Text = "RAM: -- MB";
-
-        versionLabel.AutoSize = true;
-        versionLabel.Font = new Font("Segoe UI", 8.5F);
-        versionLabel.ForeColor = Color.FromArgb(113, 113, 122);
-        versionLabel.Location = new Point(108, 14);
-        versionLabel.Text = "v1.0.2";
-
-        footerLogsButton.FlatStyle = FlatStyle.Flat;
-        footerLogsButton.FlatAppearance.BorderColor = Color.FromArgb(39, 39, 42);
-        footerLogsButton.Font = new Font("Segoe UI", 8F);
-        footerLogsButton.BackColor = Color.FromArgb(24, 24, 27);
-        footerLogsButton.ForeColor = Color.FromArgb(212, 212, 216);
-        footerLogsButton.Location = new Point(216, 8);
-        footerLogsButton.Size = new Size(100, 28);
-        footerLogsButton.Text = "Console (0)";
-        footerLogsButton.Cursor = Cursors.Hand;
-
-        quitAppButton.FlatStyle = FlatStyle.Flat;
-        quitAppButton.FlatAppearance.BorderSize = 0;
-        quitAppButton.Font = new Font("Segoe UI", 8.5F);
-        quitAppButton.ForeColor = Color.FromArgb(161, 161, 170);
-        quitAppButton.Location = new Point(328, 8);
-        quitAppButton.Size = new Size(106, 28);
-        quitAppButton.Text = "Quit App";
-        quitAppButton.Cursor = Cursors.Hand;
+        cardsSpacer.Height = 12;
 
         // 
         // Main Form Config
         // 
         AutoScaleDimensions = new SizeF(7F, 15F);
         AutoScaleMode = AutoScaleMode.Font;
-        BackColor = Color.FromArgb(9, 9, 11);
-        ClientSize = new Size(450, 606);
-        Controls.Add(headerPanel);
-        Controls.Add(hermesCard);
-        Controls.Add(lanCard);
-        Controls.Add(settingsCard);
-        Controls.Add(logsPanel);
-        Controls.Add(footerPanel);
-        FormBorderStyle = FormBorderStyle.None;
-        KeyPreview = true;
-        MaximizeBox = false;
+        ClientSize = new Size(510, 606);
+        MinimumSize = new Size(460, 520);
+        Controls.Add(scrollContainer);
+        Controls.Add(topBarPanel);
+        Controls.Add(bottomBarPanel);
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MaximizeBox = true;
+        MinimizeBox = true;
+        ShowIcon = true;
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
         Text = "Hermes Hub";

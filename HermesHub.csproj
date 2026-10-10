@@ -3,8 +3,8 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <StartupObject>HermesHub.Program</StartupObject>
@@ -12,13 +12,25 @@
     <AssemblyName>HermesHub</AssemblyName>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
 
-    <!-- Standalone Single-File & Trimming Configuration -->
+    <!-- إعدادات التوافق مع المصمم -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+
+    <!-- Metadata -->
+    <AssemblyTitle>Hermes Desktop Hub</AssemblyTitle>
+    <AssemblyDescription>Ultra-Lightweight Standalone Hermes Desktop Hub and LAN Proxy</AssemblyDescription>
+    <AssemblyVersion>1.0.2.0</AssemblyVersion>
+    <FileVersion>1.0.2.0</FileVersion>
+    <Version>1.0.2</Version>
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+
+  <!-- تفعيل خصائص الـ Trimming و SingleFile فقط أثناء الـ Publish ليبقى المصمم يعمل بسلاسة -->
+  <PropertyGroup Condition="'$(PublishProtocol)' != '' or '$(Configuration)' == 'Release'">
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishTrimmed>true</PublishTrimmed>
-    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
-    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <DebugType>none</DebugType>
@@ -30,17 +42,9 @@
     <OptimizationPreference>Size</OptimizationPreference>
     <IlcTrimReflection>true</IlcTrimReflection>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
-    <NoWarn>$(NoWarn);IL2104;NETSDK1175</NoWarn>
-
-    <!-- Assembly Metadata -->
-    <AssemblyTitle>Hermes Desktop Hub</AssemblyTitle>
-    <AssemblyDescription>Ultra-Lightweight Standalone Hermes Desktop Hub and LAN Proxy</AssemblyDescription>
-    <AssemblyVersion>1.0.2.0</AssemblyVersion>
-    <FileVersion>1.0.2.0</FileVersion>
-    <Version>1.0.2</Version>
+    <NoWarn>$(NoWarn);MSB3277;IL2104;NETSDK1175</NoWarn>
   </PropertyGroup>
 
-  <!-- Trimming roots for WinForms and application assembly -->
   <ItemGroup>
     <TrimmerRootAssembly Include="HermesHub" />
     <TrimmerRootAssembly Include="Microsoft.Web.WebView2.Core" />
@@ -48,10 +52,12 @@
     <RuntimeHostConfigurationOption Include="System.Runtime.InteropServices.BuiltInComInterop.IsSupported" Value="true" />
     <RuntimeHostConfigurationOption Include="System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault" Value="true" />
   </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
     <PackageReference Include="Net.Codecrete.QrCodeGenerator" Version="3.2.1" />
   </ItemGroup>
+
   <ItemGroup>
     <None Update="assets\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

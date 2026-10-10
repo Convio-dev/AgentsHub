@@ -188,16 +188,25 @@
     term.loadAddon(fitAddon);
     term.open(container);
 
+    const isWebView = Boolean(window.chrome && window.chrome.webview);
+    let socket = null;
+
+    function sendHostMessage(payload) {
+      if (isWebView) {
+        window.chrome.webview.postMessage(payload);
+      } else if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(payload));
+      }
+    }
+
     function reportResize() {
       try {
         fitAddon.fit();
-        if (window.chrome && window.chrome.webview) {
-          window.chrome.webview.postMessage({
-            type: 'resize',
-            cols: term.cols,
-            rows: term.rows
-          });
-        }
+        sendHostMessage({
+          type: 'resize',
+          cols: term.cols,
+          rows: term.rows
+        });
       } catch (e) {}
     }
 
@@ -206,20 +215,16 @@
     });
 
     term.onData(data => {
-      if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.postMessage({
-          type: 'input',
-          data: data
-        });
-      }
+      sendHostMessage({
+        type: 'input',
+        data: data
+      });
     });
 
     function handleStartClick() {
-      if (window.chrome && window.chrome.webview) {
-        window.chrome.webview.postMessage({
-          type: 'start'
-        });
-      }
+      sendHostMessage({
+        type: 'start'
+      });
       overlayStatus.textContent = 'Launching process...';
     }
 
@@ -237,57 +242,89 @@
       }
     }
 
-    if (window.chrome && window.chrome.webview) {
+    function handleHostMessage(msg) {
+      if (!msg) return;
+
+      if (typeof msg === 'string') {
+        term.write(msg);
+        return;
+      }
+
+      switch (msg.type) {
+        case 'output':
+          if (msg.data) {
+            term.write(msg.data);
+          }
+          break;
+
+        case 'init':
+          if (msg.name) {
+            cliName = msg.name;
+            overlayBadge.textContent = cliName;
+            overlayTitle.textContent = `${cliName} Offline`;
+            btnStartLabel.textContent = `Start ${cliName}`;
+            document.title = `${cliName} Terminal`;
+          }
+          if (msg.history) {
+            term.write(msg.history);
+          }
+          setRunningState(Boolean(msg.isRunning), msg.statusText);
+          setTimeout(reportResize, 100);
+          break;
+
+        case 'status':
+          setRunningState(Boolean(msg.isRunning), msg.statusText);
+          break;
+
+        case 'clear':
+          term.clear();
+          break;
+
+        case 'focus':
+          term.focus();
+          break;
+      }
+    }
+
+    if (isWebView) {
       window.chrome.webview.addEventListener('message', event => {
-        const msg = event.data;
-        if (!msg) return;
-
-        if (typeof msg === 'string') {
-          term.write(msg);
-          return;
-        }
-
-        switch (msg.type) {
-          case 'output':
-            if (msg.data) {
-              term.write(msg.data);
-            }
-            break;
-
-          case 'init':
-            if (msg.name) {
-              cliName = msg.name;
-              overlayBadge.textContent = cliName;
-              overlayTitle.textContent = `${cliName} Offline`;
-              btnStartLabel.textContent = `Start ${cliName}`;
-            }
-            if (msg.history) {
-              term.write(msg.history);
-            }
-            setRunningState(Boolean(msg.isRunning), msg.statusText);
-            setTimeout(reportResize, 100);
-            break;
-
-          case 'status':
-            setRunningState(Boolean(msg.isRunning), msg.statusText);
-            break;
-
-          case 'clear':
-            term.clear();
-            break;
-
-          case 'focus':
-            term.focus();
-            break;
-        }
+        handleHostMessage(event.data);
       });
 
-      // Signal ready state to C# host
-      window.chrome.webview.postMessage({
+      sendHostMessage({
         type: 'ready',
         cols: term.cols,
         rows: term.rows
       });
+    } else {
+      // Real Browser Mode via WebSocket
+      function connectWebSocket() {
+        const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        socket = new WebSocket(`${wsProto}//${location.host}/ws`);
+
+        socket.onopen = () => {
+          sendHostMessage({
+            type: 'ready',
+            cols: term.cols,
+            rows: term.rows
+          });
+        };
+
+        socket.onmessage = event => {
+          try {
+            const data = JSON.parse(event.data);
+            handleHostMessage(data);
+          } catch (e) {
+            term.write(event.data);
+          }
+        };
+
+        socket.onclose = () => {
+          setTimeout(connectWebSocket, 1500);
+        };
+      }
+
+      connectWebSocket();
     }
 
     setTimeout(reportResize, 80);

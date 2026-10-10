@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
-using System.Runtime.InteropServices;
 using System.Text;
 using HermesHub.Helpers;
 using HermesHub.Services;
@@ -9,26 +8,16 @@ namespace HermesHub;
 
 public partial class MainForm : Form
 {
-    private const int WM_NCLBUTTONDOWN = 0xA1;
-    private const int HT_CAPTION = 0x2;
+    private HermesProcessService? _hermesService;
+    private CliManagerService? _cliManager;
+    private LanProxyService? _lanProxyService;
+    private NotifyIcon? _notifyIcon;
+    private ContextMenuStrip? _trayContextMenu;
 
-    [LibraryImport("user32.dll", EntryPoint = "SendMessageW")]
-    private static partial IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool ReleaseCapture();
-
-    private readonly HermesProcessService _hermesService;
-    private readonly CliManagerService _cliManager;
-    private readonly LanProxyService _lanProxyService;
-    private readonly NotifyIcon _notifyIcon;
-    private readonly ContextMenuStrip _trayContextMenu;
-
-    private ToolStripMenuItem _trayOpenWebUiItem = null!;
-    private ToolStripMenuItem _trayStartItem = null!;
-    private ToolStripMenuItem _trayStopItem = null!;
-    private ToolStripMenuItem _trayBroadcastItem = null!;
+    private ToolStripMenuItem? _trayOpenWebUiItem;
+    private ToolStripMenuItem? _trayStartItem;
+    private ToolStripMenuItem? _trayStopItem;
+    private ToolStripMenuItem? _trayBroadcastItem;
 
     private bool _isExiting;
     private Icon? _appIcon;
@@ -40,9 +29,31 @@ public partial class MainForm : Form
     private readonly ToolTip _clientsToolTip = new();
     private CliWebviewForm? _cliWebviewForm;
     private CliType _selectedCliType = CliType.Hermes;
+    private bool _firewallAllowed = false;
 
-    public MainForm(bool startMinimized = false)
+    public MainForm()
     {
+        InitializeComponent();
+
+        if (System.ComponentModel.LicenseManager.UsageMode != System.ComponentModel.LicenseUsageMode.Designtime)
+        {
+            InitializeRuntime(false);
+        }
+    }
+
+    public MainForm(bool startMinimized) : this()
+    {
+        if (startMinimized && System.ComponentModel.LicenseManager.UsageMode != System.ComponentModel.LicenseUsageMode.Designtime)
+        {
+            WindowState = FormWindowState.Minimized;
+            ShowInTaskbar = false;
+        }
+    }
+
+    private void InitializeRuntime(bool startMinimized)
+    {
+        ThemeManager.Initialize();
+
         var savedEnginePort = StartupHelper.GetIntPreference("EnginePort", HermesProcessService.DefaultHermesPort);
         var savedLanPort = StartupHelper.GetIntPreference("LanPort", 9191);
 
@@ -60,18 +71,18 @@ public partial class MainForm : Form
         {
             if (InvokeRequired)
             {
-                BeginInvoke(() => _cliManager.Start(CliType.Hermes));
+                BeginInvoke(() => _cliManager?.Start(CliType.Hermes));
             }
             else
             {
-                _cliManager.Start(CliType.Hermes);
+                _cliManager?.Start(CliType.Hermes);
             }
             return Task.CompletedTask;
         };
 
         _lanProxyService.CheckHermesAliveAction = () =>
         {
-            return HermesProcessService.CheckPortAliveAsync(_hermesService.Port, 400);
+            return HermesProcessService.CheckPortAliveAsync(_hermesService?.Port ?? HermesProcessService.DefaultHermesPort, 400);
         };
 
         _lanProxyService.RemoteDeviceConnected += (client) =>
@@ -90,8 +101,6 @@ public partial class MainForm : Form
         };
 
         _lanProxyService.ActiveClientsChanged += (clients) => UpdateClientsUi(clients);
-
-        InitializeComponent();
 
         // Populate CLI selection dropdown
         cliSelectComboBox.Items.Clear();
@@ -114,8 +123,8 @@ public partial class MainForm : Form
             UpdateCliStatusUi();
         };
 
-        InitializeCustomStyles();
         InitializeTrayIcon();
+        InitializeCustomStyles();
         HookEvents();
 
         // Populate initial log lines from engine buffer
@@ -134,6 +143,9 @@ public partial class MainForm : Form
         notifyRemoteClientsCheckBox.Checked = StartupHelper.GetPreference("NotifyRemoteClients", true);
         enginePortNumeric.Value = savedEnginePort;
         lanPortNumeric.Value = savedLanPort;
+
+        // Apply theme initially
+        ApplyTheme();
 
         // Verify Windows Defender Firewall inbound rule status
         _ = RefreshFirewallStatusAsync();
@@ -156,6 +168,8 @@ public partial class MainForm : Form
             WindowState = FormWindowState.Minimized;
             ShowInTaskbar = false;
         }
+
+        SetFormHeightToFitContent();
     }
 
     private void InitializeCustomStyles()
@@ -167,15 +181,21 @@ public partial class MainForm : Form
         Icon = _appIcon;
 
         // Custom borders for cards
-        var cardBorderPen = new Pen(Color.FromArgb(39, 39, 42), 1);
-        hermesCard.Paint += (s, e) => e.Graphics.DrawRectangle(cardBorderPen, 0, 0, hermesCard.Width - 1, hermesCard.Height - 1);
-        lanCard.Paint += (s, e) => e.Graphics.DrawRectangle(cardBorderPen, 0, 0, lanCard.Width - 1, lanCard.Height - 1);
-        settingsCard.Paint += (s, e) => e.Graphics.DrawRectangle(cardBorderPen, 0, 0, settingsCard.Width - 1, settingsCard.Height - 1);
-        lanUrlPanel.Paint += (s, e) => e.Graphics.DrawRectangle(cardBorderPen, 0, 0, lanUrlPanel.Width - 1, lanUrlPanel.Height - 1);
-        qrDrawerPanel.Paint += (s, e) => e.Graphics.DrawRectangle(cardBorderPen, 0, 0, qrDrawerPanel.Width - 1, qrDrawerPanel.Height - 1);
-        logsPanel.Paint += (s, e) => e.Graphics.DrawRectangle(cardBorderPen, 0, 0, logsPanel.Width - 1, logsPanel.Height - 1);
+        static void PaintBorder(Panel p, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.None;
+            using var pen = new Pen(ThemeManager.Colors.CardBorder, 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, p.Width - 1, p.Height - 1);
+        }
 
-        // Custom paint status dot as clean circle
+        hermesCard.Paint += (s, e) => PaintBorder((Panel)s!, e);
+        lanCard.Paint += (s, e) => PaintBorder((Panel)s!, e);
+        settingsCard.Paint += (s, e) => PaintBorder((Panel)s!, e);
+        logsPanel.Paint += (s, e) => PaintBorder((Panel)s!, e);
+        qrDrawerPanel.Paint += (s, e) => PaintBorder((Panel)s!, e);
+        lanUrlPanel.Paint += (s, e) => PaintBorder((Panel)s!, e);
+
+        // Status dot antialiased circle
         statusDot.Paint += (s, e) =>
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -183,102 +203,364 @@ public partial class MainForm : Form
             e.Graphics.FillEllipse(brush, 0, 0, statusDot.Width - 1, statusDot.Height - 1);
         };
 
-        // Window drag handlers
-        headerPanel.MouseDown += TitleBar_MouseDown;
-        titleLabel.MouseDown += TitleBar_MouseDown;
-        subtitleLabel.MouseDown += TitleBar_MouseDown;
-
-        // Dynamic alignment for header buttons (anchoring to the top right)
-        void PositionHeaderButtons()
+        topBarPanel.Resize += (_, _) => LayoutTopBar();
+        scrollContainer.Resize += (_, _) => LayoutCards();
+        Resize += (_, _) =>
         {
-            closeButton.Location = new Point(headerPanel.ClientSize.Width - 42, 9);
-            minimizeButton.Location = new Point(headerPanel.ClientSize.Width - 78, 9);
-        }
-        headerPanel.Resize += (_, _) => PositionHeaderButtons();
-        PositionHeaderButtons();
-
-        // Dynamic alignment for footer buttons
-        void PositionFooterButtons()
-        {
-            quitAppButton.Location = new Point(footerPanel.ClientSize.Width - 118, 8);
-            footerLogsButton.Location = new Point(footerPanel.ClientSize.Width - 226, 8);
-        }
-        footerPanel.Resize += (_, _) => PositionFooterButtons();
-        PositionFooterButtons();
-
-        // High-DPI anti-aliased vector rendering for title bar buttons
-        minimizeButton.Paint += (s, e) =>
-        {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            bool isHovered = minimizeButton.ClientRectangle.Contains(minimizeButton.PointToClient(Cursor.Position));
-            Color strokeColor = isHovered ? Color.FromArgb(244, 244, 245) : Color.FromArgb(161, 161, 170);
-            using var pen = new Pen(strokeColor, 2f);
-            int midY = minimizeButton.Height / 2;
-            int midX = minimizeButton.Width / 2;
-            e.Graphics.DrawLine(pen, midX - 5, midY, midX + 5, midY);
+            LayoutTopBar();
+            LayoutCards();
         };
 
-        closeButton.Paint += (s, e) =>
+        // Tooltips
+        var toolTip = new ToolTip();
+        toolTip.SetToolTip(themeToggleButton, "Toggle between Light and Dark mode");
+        toolTip.SetToolTip(topWebviewButton, "Open CLI Workspace in embedded Webview");
+        toolTip.SetToolTip(topLogsButton, "Show or hide system logs");
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        if (System.ComponentModel.LicenseManager.UsageMode != System.ComponentModel.LicenseUsageMode.Designtime)
         {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            bool isHovered = closeButton.ClientRectangle.Contains(closeButton.PointToClient(Cursor.Position));
-            Color strokeColor = isHovered ? Color.White : Color.FromArgb(161, 161, 170);
-            using var pen = new Pen(strokeColor, 2f);
-            int midX = closeButton.Width / 2;
-            int midY = closeButton.Height / 2;
-            int arm = 5;
-            e.Graphics.DrawLine(pen, midX - arm, midY - arm, midX + arm, midY + arm);
-            e.Graphics.DrawLine(pen, midX + arm, midY - arm, midX - arm, midY + arm);
-        };
+            ThemeManager.ApplyDwmTitleBarTheme(Handle);
+            SetFormHeightToFitContent();
+        }
+    }
 
-        // Repaint vector icons on hover transitions
-        minimizeButton.MouseEnter += (_, _) => minimizeButton.Invalidate();
-        minimizeButton.MouseLeave += (_, _) => minimizeButton.Invalidate();
-        closeButton.MouseEnter += (_, _) => closeButton.Invalidate();
-        closeButton.MouseLeave += (_, _) => closeButton.Invalidate();
+    private void LayoutTopBar()
+    {
+        if (topBarPanel == null) return;
 
-        // Tooltips for title bar buttons
-        var titleBarToolTip = new ToolTip();
-        titleBarToolTip.SetToolTip(minimizeButton, "Minimize to system tray");
-        titleBarToolTip.SetToolTip(closeButton, "Exit completely");
+        int right = topBarPanel.ClientSize.Width - 12;
 
-        // Button hover states
-        SetupButtonHover(minimizeButton, Color.FromArgb(16, 16, 20), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(closeButton, Color.FromArgb(16, 16, 20), Color.FromArgb(220, 38, 38));
-        SetupButtonHover(startHermesButton, Color.FromArgb(16, 185, 129), Color.FromArgb(5, 150, 105));
-        SetupButtonHover(stopHermesButton, Color.FromArgb(24, 24, 27), Color.FromArgb(40, 24, 27));
-        SetupButtonHover(openDashboardButton, Color.FromArgb(24, 24, 27), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(viewLogsButton, Color.FromArgb(24, 24, 27), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(copyLanButton, Color.FromArgb(24, 24, 27), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(openLanButton, Color.FromArgb(24, 24, 27), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(toggleQrButton, Color.FromArgb(24, 24, 27), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(closeQrButton, Color.FromArgb(39, 39, 42), Color.FromArgb(63, 63, 70));
-        SetupButtonHover(footerLogsButton, Color.FromArgb(24, 24, 27), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(copyLogsButton, Color.FromArgb(24, 24, 27), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(clearLogsButton, Color.FromArgb(24, 24, 27), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(closeLogsButton, Color.FromArgb(24, 24, 27), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(quitAppButton, Color.FromArgb(16, 16, 20), Color.FromArgb(39, 39, 42));
-        SetupButtonHover(savePortsButton, Color.FromArgb(39, 39, 42), Color.FromArgb(63, 63, 70));
+        topLogsButton.Location = new Point(right - topLogsButton.Width, 7);
+        right = topLogsButton.Left - 6;
+
+        topWebviewButton.Location = new Point(right - topWebviewButton.Width, 7);
+        right = topWebviewButton.Left - 6;
+
+        themeToggleButton.Location = new Point(right - themeToggleButton.Width, 7);
+
+        // Hide subtitle on narrow window to prevent text collisions
+        subtitleLabel.Visible = themeToggleButton.Left > (subtitleLabel.Location.X + subtitleLabel.PreferredWidth + 8);
+    }
+
+    private void SetFormHeightToFitContent()
+    {
+        if (WindowState == FormWindowState.Maximized)
+        {
+            LayoutCards();
+            LayoutTopBar();
+            return;
+        }
+
+        int spacing = 12;
+        int lanH = qrDrawerPanel.Visible ? 330 : 150;
+        int targetContentHeight = 10 + hermesCard.Height + spacing + lanH + spacing + settingsCard.Height;
+        if (logsPanel.Visible)
+        {
+            targetContentHeight += spacing + logsPanel.Height;
+        }
+        targetContentHeight += 12; // Bottom breathing room
+
+        int targetClientHeight = topBarPanel.Height + targetContentHeight + bottomBarPanel.Height;
+
+        var screen = Screen.FromControl(this) ?? Screen.PrimaryScreen;
+        int maxAvailableHeight = (screen?.WorkingArea.Height ?? 1080) - 40;
+        int finalHeight = Math.Min(targetClientHeight, maxAvailableHeight);
+
+        MinimumSize = new Size(460, Math.Min(finalHeight, 520));
+        ClientSize = new Size(ClientSize.Width, finalHeight);
+
+        if (targetClientHeight > maxAvailableHeight)
+        {
+            scrollContainer.AutoScroll = true;
+        }
+        else
+        {
+            scrollContainer.AutoScroll = false;
+        }
+
+        LayoutCards();
+        LayoutTopBar();
+    }
+
+    private void LayoutCards()
+    {
+        if (scrollContainer == null) return;
+
+        if (scrollContainer.AutoScroll)
+        {
+            scrollContainer.AutoScrollPosition = new Point(0, 0);
+        }
+
+        scrollContainer.SuspendLayout();
+
+        int margin = 14;
+        int spacing = 12;
+        int clientWidth = scrollContainer.ClientSize.Width;
+        int cardWidth = Math.Max(380, clientWidth - (margin * 2));
+        int currentY = 10;
+
+        // 1. CLI Services Card
+        hermesCard.Location = new Point(margin, currentY);
+        hermesCard.Width = cardWidth;
+        hermesCard.Height = 162;
+
+        int btnCount = 4;
+        int btnGap = 8;
+        int availBtnWidth = cardWidth - 28 - ((btnCount - 1) * btnGap);
+        int singleBtnW = Math.Max(70, availBtnWidth / btnCount);
+
+        startHermesButton.Location = new Point(14, 76);
+        startHermesButton.Size = new Size(singleBtnW, 36);
+
+        stopHermesButton.Location = new Point(14 + singleBtnW + btnGap, 76);
+        stopHermesButton.Size = new Size(singleBtnW, 36);
+
+        openDashboardButton.Location = new Point(14 + (singleBtnW + btnGap) * 2, 76);
+        openDashboardButton.Size = new Size(singleBtnW, 36);
+
+        openBrowserMainButton.Location = new Point(14 + (singleBtnW + btnGap) * 3, 76);
+        openBrowserMainButton.Size = new Size(singleBtnW, 36);
+
+        currentY += hermesCard.Height + spacing;
+
+        // 2. LAN Card
+        lanCard.Location = new Point(margin, currentY);
+        lanCard.Width = cardWidth;
+
+        firewallStatusButton.Location = new Point(cardWidth - 152, 10);
+        int actionBtnsW = 66 * 3 + 12;
+        int urlWellW = Math.Max(150, cardWidth - 28 - actionBtnsW - 10);
+        lanUrlPanel.Location = new Point(14, 104);
+        lanUrlPanel.Size = new Size(urlWellW, 36);
+        lanUrlTextBox.Width = urlWellW - 18;
+
+        copyLanButton.Location = new Point(lanUrlPanel.Right + 8, 104);
+        openLanButton.Location = new Point(copyLanButton.Right + 6, 104);
+        toggleQrButton.Location = new Point(openLanButton.Right + 6, 104);
+
+        if (qrDrawerPanel.Visible)
+        {
+            qrDrawerPanel.Location = new Point(14, 148);
+            qrDrawerPanel.Width = cardWidth - 28;
+            lanCard.Height = 330;
+        }
+        else
+        {
+            lanCard.Height = 150;
+        }
+        currentY += lanCard.Height + spacing;
+
+        // 3. Settings Card
+        settingsCard.Location = new Point(margin, currentY);
+        settingsCard.Width = cardWidth;
+        settingsCard.Height = 176;
+        currentY += settingsCard.Height + spacing;
+
+        // 4. Logs Panel (if visible)
+        if (logsPanel.Visible)
+        {
+            logsPanel.Location = new Point(margin, currentY);
+            logsPanel.Width = cardWidth;
+            logsPanel.Height = 200;
+
+            closeLogsButton.Location = new Point(cardWidth - 56, 8);
+            clearLogsButton.Location = new Point(closeLogsButton.Left - 56, 8);
+            copyLogsButton.Location = new Point(clearLogsButton.Left - 56, 8);
+            logsTextBox.Location = new Point(12, 38);
+            logsTextBox.Size = new Size(cardWidth - 24, 150);
+
+            currentY += logsPanel.Height + spacing;
+        }
+
+        cardsSpacer.Location = new Point(margin, currentY);
+        cardsSpacer.Size = new Size(cardWidth, 8);
+
+        scrollContainer.ResumeLayout(true);
+    }
+
+    private void ApplyTheme()
+    {
+        if (System.ComponentModel.LicenseManager.UsageMode == System.ComponentModel.LicenseUsageMode.Designtime)
+        {
+            return;
+        }
+
+        var c = ThemeManager.Colors;
+        bool isLight = ThemeManager.CurrentTheme == AppTheme.Light;
+        ThemeManager.ApplyDwmTitleBarTheme(Handle);
+
+        BackColor = c.WindowBackground;
+        topBarPanel.BackColor = c.HeaderBackground;
+        bottomBarPanel.BackColor = c.FooterBackground;
+        scrollContainer.BackColor = c.WindowBackground;
+
+        titleLabel.ForeColor = c.TextPrimary;
+        subtitleLabel.ForeColor = c.TextMuted;
+
+        themeToggleButton.Text = isLight ? "☾ Dark" : "☀ Light";
+        themeToggleButton.BackColor = c.ButtonBg;
+        themeToggleButton.ForeColor = c.ButtonText;
+        themeToggleButton.FlatAppearance.BorderColor = c.ButtonBorder;
+
+        topWebviewButton.BackColor = c.ButtonBg;
+        topWebviewButton.ForeColor = c.ButtonText;
+        topWebviewButton.FlatAppearance.BorderColor = c.ButtonBorder;
+
+        topLogsButton.BackColor = c.ButtonBg;
+        topLogsButton.ForeColor = c.ButtonText;
+        topLogsButton.FlatAppearance.BorderColor = c.ButtonBorder;
+
+        // Cards backgrounds
+        hermesCard.BackColor = c.CardBackground;
+        lanCard.BackColor = c.CardBackground;
+        settingsCard.BackColor = c.CardBackground;
+        logsPanel.BackColor = c.CardBackground;
+        qrDrawerPanel.BackColor = c.WellBackground;
+        lanUrlPanel.BackColor = c.WellBackground;
+
+        // Headers and labels
+        hermesCardTitle.ForeColor = c.TextMuted;
+        lanCardTitle.ForeColor = c.TextMuted;
+        settingsCardTitle.ForeColor = c.TextMuted;
+        logsTitleLabel.ForeColor = c.TextMuted;
+        logsCountLabel.ForeColor = c.AccentGreen;
+
+        cliSelectComboBox.BackColor = c.WellBackground;
+        cliSelectComboBox.ForeColor = c.TextPrimary;
+
+        lanToggleCheckBox.ForeColor = c.TextPrimary;
+        lanStatusLabel.ForeColor = c.TextSecondary;
+        lanClientsLabel.ForeColor = c.TextSecondary;
+        lanUrlTextBox.BackColor = c.WellBackground;
+        lanUrlTextBox.ForeColor = c.AccentGreen;
+
+        enginePortLabel.ForeColor = c.TextSecondary;
+        lanPortLabel.ForeColor = c.TextSecondary;
+        enginePortNumeric.BackColor = c.WellBackground;
+        enginePortNumeric.ForeColor = c.TextPrimary;
+        lanPortNumeric.BackColor = c.WellBackground;
+        lanPortNumeric.ForeColor = c.TextPrimary;
+
+        startWithWindowsCheckBox.ForeColor = c.CheckBoxText;
+        autoStartHermesCheckBox.ForeColor = c.CheckBoxText;
+        autoEnableLanCheckBox.ForeColor = c.CheckBoxText;
+        notifyRemoteClientsCheckBox.ForeColor = c.CheckBoxText;
+
+        // Console
+        logsTextBox.BackColor = c.ConsoleBg;
+        logsTextBox.ForeColor = c.ConsoleText;
+
+        // Footer
+        ramUsageLabel.ForeColor = c.TextMuted;
+        versionLabel.ForeColor = c.TextMuted;
+        quitAppButton.ForeColor = c.TextSecondary;
+        quitAppButton.BackColor = c.ButtonBg;
+        quitAppButton.FlatAppearance.BorderColor = c.ButtonBorder;
+
+        // Buttons styling
+        StyleStandardButton(copyLanButton);
+        StyleStandardButton(openLanButton);
+        StyleStandardButton(toggleQrButton);
+        StyleStandardButton(closeQrButton);
+        StyleStandardButton(savePortsButton);
+        StyleStandardButton(copyLogsButton);
+        StyleStandardButton(clearLogsButton);
+        StyleStandardButton(closeLogsButton);
+        StyleStandardButton(footerLogsButton);
+        StyleStandardButton(openDashboardButton);
+        StyleStandardButton(openBrowserMainButton);
+
+        // QR labels
+        qrTitleLabel.ForeColor = c.AccentGreen;
+        qrDescLabel.ForeColor = c.TextSecondary;
+        qrUrlLabel.ForeColor = c.TextMuted;
+
+        // Tray Context Menu
+        if (_trayContextMenu != null)
+        {
+            _trayContextMenu.BackColor = c.CardBackground;
+            _trayContextMenu.ForeColor = c.TextPrimary;
+            _trayContextMenu.Renderer = new ToolStripProfessionalRenderer(new CustomThemeColorTable(c));
+        }
+
+        UpdateCliStatusUi();
+        UpdateFirewallUi(_firewallAllowed);
+
+        // Also update child webview if open
+        _cliWebviewForm?.ApplyTheme();
+
+        hermesCard.Invalidate();
+        lanCard.Invalidate();
+        settingsCard.Invalidate();
+        logsPanel.Invalidate();
+        qrDrawerPanel.Invalidate();
+        lanUrlPanel.Invalidate();
+        statusDot.Invalidate();
+    }
+
+    private static void StyleStandardButton(Button btn)
+    {
+        var c = ThemeManager.Colors;
+        btn.FlatStyle = FlatStyle.Flat;
+        btn.FlatAppearance.BorderSize = 1;
+        btn.FlatAppearance.BorderColor = c.ButtonBorder;
+        btn.BackColor = c.ButtonBg;
+        btn.ForeColor = c.ButtonText;
+        btn.Cursor = Cursors.Hand;
+
+        btn.MouseEnter -= OnButtonMouseEnter;
+        btn.MouseLeave -= OnButtonMouseLeave;
+        btn.MouseEnter += OnButtonMouseEnter;
+        btn.MouseLeave += OnButtonMouseLeave;
+    }
+
+    private static void OnButtonMouseEnter(object? sender, EventArgs e)
+    {
+        if (sender is Button btn)
+        {
+            btn.BackColor = ThemeManager.Colors.ButtonHover;
+        }
+    }
+
+    private static void OnButtonMouseLeave(object? sender, EventArgs e)
+    {
+        if (sender is Button btn)
+        {
+            btn.BackColor = ThemeManager.Colors.ButtonBg;
+        }
     }
 
     private void InitializeTrayIcon()
     {
-        _trayContextMenu.Renderer = new ToolStripProfessionalRenderer(new DarkColorTable());
-        _trayContextMenu.BackColor = Color.FromArgb(24, 24, 27);
-        _trayContextMenu.ForeColor = Color.FromArgb(250, 250, 250);
+        if (_trayContextMenu == null || _notifyIcon == null) return;
+
+        var c = ThemeManager.Colors;
+        _trayContextMenu.Renderer = new ToolStripProfessionalRenderer(new CustomThemeColorTable(c));
+        _trayContextMenu.BackColor = c.CardBackground;
+        _trayContextMenu.ForeColor = c.TextPrimary;
 
         _trayOpenWebUiItem = new ToolStripMenuItem("Open CLI Webview Hub", null, (_, _) => OpenCliWebview())
         {
             Font = new Font("Segoe UI", 9F, FontStyle.Bold)
         };
 
-        _trayStartItem = new ToolStripMenuItem("Start CLI", null, (_, _) => _cliManager.Start(_selectedCliType));
-        _trayStopItem = new ToolStripMenuItem("Stop CLI", null, async (_, _) => await _cliManager.StopAsync(_selectedCliType))
+        _trayStartItem = new ToolStripMenuItem("Start CLI", null, (_, _) => _cliManager?.Start(_selectedCliType));
+        _trayStopItem = new ToolStripMenuItem("Stop CLI", null, async (_, _) =>
+        {
+            if (_cliManager != null)
+            {
+                await _cliManager.StopAsync(_selectedCliType);
+            }
+        })
         {
             Enabled = false
         };
 
-        _trayBroadcastItem = new ToolStripMenuItem($"Broadcast on :{_lanProxyService.ListenPort}", null, (_, _) =>
+        _trayBroadcastItem = new ToolStripMenuItem($"Broadcast on :{_lanProxyService?.ListenPort ?? 9191}", null, (_, _) =>
         {
             lanToggleCheckBox.Checked = !lanToggleCheckBox.Checked;
         })
@@ -314,15 +596,26 @@ public partial class MainForm : Form
 
     private void HookEvents()
     {
-        // Window buttons
-        minimizeButton.Click += (_, _) => Hide();
-        closeButton.Click += (_, _) => ConfirmAndExitApplication();
+        themeToggleButton.Click += (_, _) =>
+        {
+            ThemeManager.ToggleTheme();
+            ApplyTheme();
+        };
+
+        topWebviewButton.Click += (_, _) => OpenCliWebview();
+        topLogsButton.Click += (_, _) => ToggleLogsDrawer();
 
         // CLI controls
-        startHermesButton.Click += (_, _) => _cliManager.Start(_selectedCliType);
-        stopHermesButton.Click += async (_, _) => await _cliManager.StopAsync(_selectedCliType);
+        startHermesButton.Click += (_, _) => _cliManager?.Start(_selectedCliType);
+        stopHermesButton.Click += async (_, _) =>
+        {
+            if (_cliManager != null)
+            {
+                await _cliManager.StopAsync(_selectedCliType);
+            }
+        };
         openDashboardButton.Click += (_, _) => OpenCliWebview(_selectedCliType);
-        viewLogsButton.Click += (_, _) => ToggleLogsDrawer();
+        openBrowserMainButton.Click += (_, _) => OpenBrowserForSelectedCli();
 
         // LAN controls
         lanToggleCheckBox.CheckedChanged += LanToggleCheckBox_CheckedChanged;
@@ -365,19 +658,26 @@ public partial class MainForm : Form
         quitAppButton.Click += (_, _) => ConfirmAndExitApplication();
 
         // Service callbacks
-        _lanProxyService.LogMessage += (msg) => AppendLog("Proxy", msg);
-        _cliManager.LogMessage += (cat, msg) => AppendLog(cat, msg);
-        _cliManager.StatusChanged += (type, state, message) =>
+        if (_lanProxyService != null)
         {
-            if (InvokeRequired)
+            _lanProxyService.LogMessage += (msg) => AppendLog("Proxy", msg);
+        }
+
+        if (_cliManager != null)
+        {
+            _cliManager.LogMessage += (cat, msg) => AppendLog(cat, msg);
+            _cliManager.StatusChanged += (type, state, message) =>
             {
-                BeginInvoke(UpdateCliStatusUi);
-            }
-            else
-            {
-                UpdateCliStatusUi();
-            }
-        };
+                if (InvokeRequired)
+                {
+                    BeginInvoke(UpdateCliStatusUi);
+                }
+                else
+                {
+                    UpdateCliStatusUi();
+                }
+            };
+        }
 
         // Telemetry update timer
         telemetryTimer.Interval = 2000;
@@ -388,8 +688,9 @@ public partial class MainForm : Form
 
     private async Task RefreshFirewallStatusAsync()
     {
-        var port = _lanProxyService.ListenPort;
+        var port = _lanProxyService?.ListenPort ?? 9191;
         var allowed = await Task.Run(() => FirewallHelper.IsInboundRuleConfigured(port));
+        _firewallAllowed = allowed;
 
         if (InvokeRequired)
         {
@@ -403,25 +704,28 @@ public partial class MainForm : Form
 
     private void UpdateFirewallUi(bool allowed)
     {
+        _firewallAllowed = allowed;
+        var c = ThemeManager.Colors;
+
         if (allowed)
         {
             firewallStatusButton.Text = "Firewall: Allowed";
-            firewallStatusButton.ForeColor = Color.FromArgb(16, 185, 129);
-            firewallStatusButton.FlatAppearance.BorderColor = Color.FromArgb(16, 185, 129);
-            firewallStatusButton.BackColor = Color.FromArgb(24, 24, 27);
+            firewallStatusButton.ForeColor = c.AccentGreen;
+            firewallStatusButton.FlatAppearance.BorderColor = c.AccentGreen;
+            firewallStatusButton.BackColor = c.ButtonBg;
         }
         else
         {
             firewallStatusButton.Text = "Allow in Firewall";
-            firewallStatusButton.ForeColor = Color.FromArgb(245, 158, 11);
-            firewallStatusButton.FlatAppearance.BorderColor = Color.FromArgb(245, 158, 11);
-            firewallStatusButton.BackColor = Color.FromArgb(39, 39, 42);
+            firewallStatusButton.ForeColor = c.WarningAmber;
+            firewallStatusButton.FlatAppearance.BorderColor = c.WarningAmber;
+            firewallStatusButton.BackColor = c.ButtonBg;
         }
     }
 
     private async Task HandleFirewallButtonClickAsync()
     {
-        var port = _lanProxyService.ListenPort;
+        var port = _lanProxyService?.ListenPort ?? 9191;
         var alreadyConfigured = FirewallHelper.IsInboundRuleConfigured(port);
         if (alreadyConfigured)
         {
@@ -471,21 +775,23 @@ public partial class MainForm : Form
         StartupHelper.SetIntPreference("EnginePort", newEnginePort);
         StartupHelper.SetIntPreference("LanPort", newLanPort);
 
-        _hermesService.Port = newEnginePort;
-        _lanProxyService.TargetPort = newEnginePort;
-
-        var lanPortChanged = _lanProxyService.ListenPort != newLanPort;
-        _lanProxyService.ListenPort = newLanPort;
-
-        if (lanPortChanged && _lanProxyService.IsRunning)
+        if (_hermesService != null) _hermesService.Port = newEnginePort;
+        if (_lanProxyService != null)
         {
-            _lanProxyService.Stop();
-            _lanProxyService.Start(newLanPort, newEnginePort);
-            lanUrlTextBox.Text = NetworkHelper.GetLanUrl(newLanPort);
-        }
-        else if (!_lanProxyService.IsRunning)
-        {
-            lanUrlTextBox.Text = $"http://0.0.0.0:{newLanPort}";
+            _lanProxyService.TargetPort = newEnginePort;
+            var lanPortChanged = _lanProxyService.ListenPort != newLanPort;
+            _lanProxyService.ListenPort = newLanPort;
+
+            if (lanPortChanged && _lanProxyService.IsRunning)
+            {
+                _lanProxyService.Stop();
+                _lanProxyService.Start(newLanPort, newEnginePort);
+                lanUrlTextBox.Text = NetworkHelper.GetLanUrl(newLanPort);
+            }
+            else if (!_lanProxyService.IsRunning)
+            {
+                lanUrlTextBox.Text = $"http://0.0.0.0:{newLanPort}";
+            }
         }
 
         if (qrDrawerPanel.Visible)
@@ -493,84 +799,87 @@ public partial class MainForm : Form
             RefreshQrCodeImage();
         }
 
-        _trayBroadcastItem.Text = $"Broadcast on :{newLanPort}";
+        if (_trayBroadcastItem != null)
+        {
+            _trayBroadcastItem.Text = $"Broadcast on :{newLanPort}";
+        }
         lanToggleCheckBox.Text = $"Broadcast to LAN (Port {newLanPort})";
 
         savePortsButton.Text = "Saved!";
-        savePortsButton.ForeColor = Color.FromArgb(16, 185, 129);
+        savePortsButton.ForeColor = ThemeManager.Colors.AccentGreen;
         await Task.Delay(1200);
         savePortsButton.Text = "Apply Ports";
-        savePortsButton.ForeColor = Color.FromArgb(250, 250, 250);
+        savePortsButton.ForeColor = ThemeManager.Colors.ButtonText;
 
         _ = RefreshFirewallStatusAsync();
     }
 
     private void ShowRemoteConnectionBalloon(ConnectedClientInfo client)
     {
-        _notifyIcon.ShowBalloonTip(
+        _notifyIcon?.ShowBalloonTip(
             3000,
             "Remote Device Connected",
-            $"Device {client.IpAddress} ({client.DeviceName}) connected to Hermes on port {_lanProxyService.ListenPort}.",
-            ToolTipIcon.Info
-        );
-    }
-
-    private void ShowRemoteConnectionBalloon(string clientIp)
-    {
-        _notifyIcon.ShowBalloonTip(
-            3000,
-            "Remote Device Connected",
-            $"Device {clientIp} connected to Hermes LAN broadcast on port {_lanProxyService.ListenPort}.",
+            $"Device {client.IpAddress} ({client.DeviceName}) connected to Hermes on port {_lanProxyService?.ListenPort ?? 9191}.",
             ToolTipIcon.Info
         );
     }
 
     private void UpdateCliStatusUi()
     {
+        if (System.ComponentModel.LicenseManager.UsageMode == System.ComponentModel.LicenseUsageMode.Designtime || _cliManager == null)
+        {
+            return;
+        }
+
+        var c = ThemeManager.Colors;
         var info = _cliManager.GetInfo(_selectedCliType);
 
         startHermesButton.Text = $"Start {info.ShortName}";
         stopHermesButton.Text = $"Stop {info.ShortName}";
-        openDashboardButton.Text = "Open Webview";
+        openDashboardButton.Text = "Webview";
+        openBrowserMainButton.Text = $"Browser (:{GetCliPort(_selectedCliType)})";
 
         hermesStatusLabel.Text = info.StatusText;
 
         switch (info.State)
         {
             case CliState.Running:
-                hermesStatusLabel.ForeColor = Color.FromArgb(16, 185, 129);
+                hermesStatusLabel.ForeColor = c.AccentGreen;
                 startHermesButton.Enabled = false;
-                startHermesButton.BackColor = Color.FromArgb(39, 39, 42);
-                startHermesButton.ForeColor = Color.FromArgb(113, 113, 122);
+                startHermesButton.BackColor = c.ButtonBg;
+                startHermesButton.ForeColor = c.TextMuted;
                 stopHermesButton.Enabled = true;
-                stopHermesButton.ForeColor = Color.FromArgb(239, 68, 68);
+                stopHermesButton.ForeColor = c.DangerRed;
+                stopHermesButton.FlatAppearance.BorderColor = c.DangerRed;
                 break;
 
             case CliState.Starting:
-                hermesStatusLabel.ForeColor = Color.FromArgb(245, 158, 11);
+                hermesStatusLabel.ForeColor = c.WarningAmber;
                 startHermesButton.Enabled = false;
-                startHermesButton.BackColor = Color.FromArgb(39, 39, 42);
-                startHermesButton.ForeColor = Color.FromArgb(113, 113, 122);
+                startHermesButton.BackColor = c.ButtonBg;
+                startHermesButton.ForeColor = c.TextMuted;
                 stopHermesButton.Enabled = true;
-                stopHermesButton.ForeColor = Color.FromArgb(161, 161, 170);
+                stopHermesButton.ForeColor = c.TextSecondary;
+                stopHermesButton.FlatAppearance.BorderColor = c.ButtonBorder;
                 break;
 
             case CliState.Offline:
             case CliState.Error:
             default:
-                hermesStatusLabel.ForeColor = Color.FromArgb(239, 68, 68);
+                hermesStatusLabel.ForeColor = c.DangerRed;
                 startHermesButton.Enabled = true;
-                startHermesButton.BackColor = Color.FromArgb(16, 185, 129);
-                startHermesButton.ForeColor = Color.FromArgb(9, 9, 11);
+                startHermesButton.BackColor = c.AccentGreen;
+                startHermesButton.ForeColor = c.AccentGreenText;
                 stopHermesButton.Enabled = false;
-                stopHermesButton.ForeColor = Color.FromArgb(113, 113, 122);
+                stopHermesButton.ForeColor = c.TextMuted;
+                stopHermesButton.FlatAppearance.BorderColor = c.ButtonBorder;
                 break;
         }
 
         // Multi-CLI Overview summary
         var activeCount = _cliManager.GetActiveCount();
         cliSummaryLabel.Text = $"Active: {activeCount}/3";
-        cliSummaryLabel.ForeColor = activeCount > 0 ? Color.FromArgb(16, 185, 129) : Color.FromArgb(113, 113, 122);
+        cliSummaryLabel.ForeColor = activeCount > 0 ? c.AccentGreen : c.TextMuted;
 
         var hInfo = _cliManager.GetInfo(CliType.Hermes);
         var cInfo = _cliManager.GetInfo(CliType.ClaudeCode);
@@ -578,40 +887,54 @@ public partial class MainForm : Form
 
         static string Dot(CliState s) => s == CliState.Running ? "●" : (s == CliState.Starting ? "◐" : "○");
         cliDotsLabel.Text = $"Hermes: {Dot(hInfo.State)}   Claude: {Dot(cInfo.State)}   Gemini: {Dot(gInfo.State)}";
+        cliDotsLabel.ForeColor = c.TextSecondary;
 
-        // Status dot in title bar
-        statusDot.BackColor = activeCount > 0 ? Color.FromArgb(16, 185, 129) : Color.FromArgb(239, 68, 68);
+        // Status dot in top bar
+        statusDot.BackColor = activeCount > 0 ? c.StatusDotOnline : c.StatusDotOffline;
         statusDot.Invalidate();
 
         // System tray
-        _notifyIcon.Icon = activeCount > 0 ? _trayIconOnline : _trayIconOffline;
-        _notifyIcon.Text = $"Hermes Hub - {activeCount} of 3 Active";
+        if (_notifyIcon != null)
+        {
+            _notifyIcon.Icon = activeCount > 0 ? _trayIconOnline : _trayIconOffline;
+            _notifyIcon.Text = $"Hermes Hub - {activeCount} of 3 Active";
+        }
 
-        _trayStartItem.Text = $"Start {info.ShortName}";
-        _trayStartItem.Enabled = info.State == CliState.Offline;
-        _trayStopItem.Text = $"Stop {info.ShortName}";
-        _trayStopItem.Enabled = info.State == CliState.Running || info.State == CliState.Starting;
+        if (_trayStartItem != null)
+        {
+            _trayStartItem.Text = $"Start {info.ShortName}";
+            _trayStartItem.Enabled = info.State == CliState.Offline;
+        }
+
+        if (_trayStopItem != null)
+        {
+            _trayStopItem.Text = $"Stop {info.ShortName}";
+            _trayStopItem.Enabled = info.State == CliState.Running || info.State == CliState.Starting;
+        }
     }
 
     private void LanToggleCheckBox_CheckedChanged(object? sender, EventArgs e)
     {
+        var c = ThemeManager.Colors;
         if (lanToggleCheckBox.Checked)
         {
+            if (_lanProxyService == null || _hermesService == null) return;
+
             var success = _lanProxyService.Start(_lanProxyService.ListenPort, _hermesService.Port);
             if (success)
             {
                 var url = NetworkHelper.GetLanUrl(_lanProxyService.ListenPort);
                 lanUrlTextBox.Text = url;
                 lanStatusLabel.Text = "Status: Active and Broadcasting";
-                lanStatusLabel.ForeColor = Color.FromArgb(16, 185, 129);
-                _trayBroadcastItem.Checked = true;
+                lanStatusLabel.ForeColor = c.AccentGreen;
+                if (_trayBroadcastItem != null) _trayBroadcastItem.Checked = true;
 
                 if (qrDrawerPanel.Visible)
                 {
                     RefreshQrCodeImage();
                 }
 
-                _notifyIcon.ShowBalloonTip(
+                _notifyIcon?.ShowBalloonTip(
                     2500,
                     "LAN Broadcast Active",
                     $"Hermes is accessible across your network at {url}",
@@ -631,13 +954,13 @@ public partial class MainForm : Form
         }
         else
         {
-            _lanProxyService.Stop();
+            _lanProxyService?.Stop();
             lanStatusLabel.Text = "Status: Local Only (Isolated)";
-            lanStatusLabel.ForeColor = Color.FromArgb(113, 113, 122);
+            lanStatusLabel.ForeColor = c.TextMuted;
             lanClientsLabel.Text = "Active Clients: 0 (No remote devices)";
-            lanClientsLabel.ForeColor = Color.FromArgb(113, 113, 122);
-            lanUrlTextBox.Text = $"http://0.0.0.0:{_lanProxyService.ListenPort}";
-            _trayBroadcastItem.Checked = false;
+            lanClientsLabel.ForeColor = c.TextMuted;
+            lanUrlTextBox.Text = $"http://0.0.0.0:{_lanProxyService?.ListenPort ?? 9191}";
+            if (_trayBroadcastItem != null) _trayBroadcastItem.Checked = false;
 
             if (qrDrawerPanel.Visible)
             {
@@ -646,38 +969,13 @@ public partial class MainForm : Form
         }
     }
 
-    private void UpdateFormLayout()
-    {
-        lanCard.Top = hermesCard.Bottom + 12;
-        var lanHeight = qrDrawerPanel.Visible ? 340 : 152;
-        lanCard.Height = lanHeight;
-
-        var currentTop = lanCard.Bottom + 12;
-        settingsCard.Top = currentTop;
-        currentTop = settingsCard.Bottom + 12;
-
-        if (logsPanel.Visible)
-        {
-            logsPanel.Top = currentTop;
-            logsPanel.Height = 180;
-            currentTop = logsPanel.Bottom + 14;
-        }
-        else
-        {
-            currentTop = settingsCard.Bottom + 14;
-        }
-
-        ClientSize = new Size(450, currentTop + footerPanel.Height);
-    }
-
     private void ToggleQrDrawer(bool? forceShow = null)
     {
         var shouldShow = forceShow ?? !qrDrawerPanel.Visible;
         qrDrawerPanel.Visible = shouldShow;
         toggleQrButton.Text = shouldShow ? "Hide QR" : "QR";
-        toggleQrButton.BackColor = shouldShow ? Color.FromArgb(39, 39, 42) : Color.FromArgb(24, 24, 27);
 
-        UpdateFormLayout();
+        SetFormHeightToFitContent();
 
         if (shouldShow)
         {
@@ -689,11 +987,9 @@ public partial class MainForm : Form
     {
         var shouldShow = forceShow ?? !logsPanel.Visible;
         logsPanel.Visible = shouldShow;
-        viewLogsButton.Text = shouldShow ? "Hide Logs" : "Logs";
-        viewLogsButton.BackColor = shouldShow ? Color.FromArgb(39, 39, 42) : Color.FromArgb(24, 24, 27);
-        footerLogsButton.BackColor = shouldShow ? Color.FromArgb(39, 39, 42) : Color.FromArgb(24, 24, 27);
+        topLogsButton.Text = shouldShow ? "📜 Hide" : "📜 Logs";
 
-        UpdateFormLayout();
+        SetFormHeightToFitContent();
 
         if (shouldShow)
         {
@@ -730,10 +1026,10 @@ public partial class MainForm : Form
         {
             Clipboard.SetText(logsTextBox.Text);
             copyLogsButton.Text = "Copied!";
-            copyLogsButton.ForeColor = Color.FromArgb(16, 185, 129);
+            copyLogsButton.ForeColor = ThemeManager.Colors.AccentGreen;
             await Task.Delay(1200);
             copyLogsButton.Text = "Copy";
-            copyLogsButton.ForeColor = Color.FromArgb(250, 250, 250);
+            copyLogsButton.ForeColor = ThemeManager.Colors.ButtonText;
         }
         catch
         {
@@ -744,7 +1040,7 @@ public partial class MainForm : Form
     private void ClearLogsButton_Click(object? sender, EventArgs e)
     {
         logsTextBox.Clear();
-        _hermesService.ClearLogs();
+        _hermesService?.ClearLogs();
         _totalLogLines = 0;
         logsCountLabel.Text = "0 entries";
         footerLogsButton.Text = "Console (0)";
@@ -758,16 +1054,17 @@ public partial class MainForm : Form
             return;
         }
 
+        var c = ThemeManager.Colors;
         if (clients.Count == 0)
         {
             lanClientsLabel.Text = "Active Clients: 0 (No remote devices)";
-            lanClientsLabel.ForeColor = Color.FromArgb(113, 113, 122);
+            lanClientsLabel.ForeColor = c.TextMuted;
             _clientsToolTip.SetToolTip(lanClientsLabel, "No remote devices are currently connected.");
         }
         else
         {
-            lanClientsLabel.ForeColor = Color.FromArgb(16, 185, 129);
-            lanClientsLabel.Text = _lanProxyService.GetConnectedClientsSummary();
+            lanClientsLabel.ForeColor = c.AccentGreen;
+            lanClientsLabel.Text = _lanProxyService?.GetConnectedClientsSummary() ?? "0 Clients";
 
             var tooltipText = new StringBuilder();
             tooltipText.AppendLine("Connected Remote Devices:");
@@ -784,7 +1081,7 @@ public partial class MainForm : Form
         var url = lanUrlTextBox.Text;
         if (string.IsNullOrWhiteSpace(url) || url.Contains("0.0.0.0"))
         {
-            url = NetworkHelper.GetLanUrl(_lanProxyService.ListenPort);
+            url = NetworkHelper.GetLanUrl(_lanProxyService?.ListenPort ?? 9191);
         }
 
         qrUrlLabel.Text = url;
@@ -809,10 +1106,10 @@ public partial class MainForm : Form
         {
             Clipboard.SetText(lanUrlTextBox.Text);
             copyLanButton.Text = "Copied!";
-            copyLanButton.ForeColor = Color.FromArgb(16, 185, 129);
+            copyLanButton.ForeColor = ThemeManager.Colors.AccentGreen;
             await Task.Delay(1500);
-            copyLanButton.Text = "Copy Link";
-            copyLanButton.ForeColor = Color.FromArgb(250, 250, 250);
+            copyLanButton.Text = "Copy";
+            copyLanButton.ForeColor = ThemeManager.Colors.ButtonText;
         }
         catch
         {
@@ -851,10 +1148,26 @@ public partial class MainForm : Form
         _cliWebviewForm.BringToFront();
     }
 
-    private void OpenDashboard()
+    private void OpenBrowserForSelectedCli()
     {
-        OpenCliWebview(CliType.Hermes);
+        try
+        {
+            int port = GetCliPort(_selectedCliType);
+            Process.Start(new ProcessStartInfo($"http://127.0.0.1:{port}/") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Unable to open browser: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
+
+    private int GetCliPort(CliType type) => type switch
+    {
+        CliType.Hermes => _cliManager?.HermesService.Port ?? HermesProcessService.DefaultHermesPort,
+        CliType.ClaudeCode => 9229,
+        CliType.GeminiCli => 9339,
+        _ => 9119
+    };
 
     private void UpdateTelemetry()
     {
@@ -884,10 +1197,21 @@ public partial class MainForm : Form
 
     internal void ShowAndActivate()
     {
-        Show();
+        ShowInTaskbar = true;
+        if (!Visible)
+        {
+            Show();
+        }
+        if (WindowState == FormWindowState.Minimized)
+        {
+            WindowState = FormWindowState.Normal;
+        }
         WindowState = FormWindowState.Normal;
-        Activate();
         BringToFront();
+        Activate();
+        TopMost = true;
+        TopMost = false;
+        Focus();
     }
 
     private void ConfirmAndExitApplication()
@@ -909,21 +1233,27 @@ public partial class MainForm : Form
     private void ExitApplication()
     {
         _isExiting = true;
-        _cliWebviewForm?.Dispose();
-        _cliManager.Dispose();
-        _lanProxyService.Stop();
-        _notifyIcon.Visible = false;
-        _notifyIcon.Dispose();
-        _trayIconOffline.Dispose();
-        _trayIconStarting.Dispose();
-        _trayIconOnline.Dispose();
-        _currentQrBitmap?.Dispose();
+        if (_notifyIcon != null)
+        {
+            _notifyIcon.Visible = false;
+            _notifyIcon.Dispose();
+        }
+        _lanProxyService?.Dispose();
+        _cliManager?.Dispose();
+        telemetryTimer?.Stop();
+        telemetryTimer?.Dispose();
         _clientsToolTip.Dispose();
         Application.Exit();
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (System.ComponentModel.LicenseManager.UsageMode == System.ComponentModel.LicenseUsageMode.Designtime)
+        {
+            base.OnFormClosing(e);
+            return;
+        }
+
         if (!_isExiting && e.CloseReason == CloseReason.UserClosing)
         {
             var result = MessageBox.Show(
@@ -958,21 +1288,6 @@ public partial class MainForm : Form
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
-    private void TitleBar_MouseDown(object? sender, MouseEventArgs e)
-    {
-        if (e.Button == MouseButtons.Left)
-        {
-            _ = ReleaseCapture();
-            _ = SendMessage(Handle, WM_NCLBUTTONDOWN, HT_CAPTION, 0);
-        }
-    }
-
-    private static void SetupButtonHover(Button button, Color normalColor, Color hoverColor)
-    {
-        button.MouseEnter += (_, _) => button.BackColor = hoverColor;
-        button.MouseLeave += (_, _) => button.BackColor = normalColor;
-    }
-
     private static Icon CreateAppIcon(Color accent)
     {
         using var bitmap = new Bitmap(32, 32);
@@ -981,17 +1296,14 @@ public partial class MainForm : Form
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Color.Transparent);
 
-        // Dark rounded background
-        using var bgBrush = new SolidBrush(Color.FromArgb(9, 9, 11));
-        g.FillEllipse(bgBrush, 1, 1, 30, 30);
+            using var bgBrush = new SolidBrush(Color.FromArgb(16, 18, 24));
+            g.FillEllipse(bgBrush, 1, 1, 30, 30);
 
-        // Status-colored border ring
-        using var borderPen = new Pen(accent, 2);
-        g.DrawEllipse(borderPen, 2, 2, 28, 28);
+            using var borderPen = new Pen(accent, 2);
+            g.DrawEllipse(borderPen, 2, 2, 28, 28);
 
-        // Status-colored "H" glyph
-        using var font = new Font("Segoe UI", 14, FontStyle.Bold, GraphicsUnit.Pixel);
-        using var textBrush = new SolidBrush(accent);
+            using var font = new Font("Segoe UI", 14, FontStyle.Bold, GraphicsUnit.Pixel);
+            using var textBrush = new SolidBrush(accent);
             var stringFormat = new StringFormat
             {
                 Alignment = StringAlignment.Center,
@@ -1005,16 +1317,16 @@ public partial class MainForm : Form
     }
 }
 
-internal class DarkColorTable : ProfessionalColorTable
+internal class CustomThemeColorTable(ThemeColors colors) : ProfessionalColorTable
 {
-    public override Color MenuItemSelected => Color.FromArgb(39, 39, 42);
-    public override Color MenuItemSelectedGradientBegin => Color.FromArgb(39, 39, 42);
-    public override Color MenuItemSelectedGradientEnd => Color.FromArgb(39, 39, 42);
-    public override Color MenuBorder => Color.FromArgb(39, 39, 42);
-    public override Color ToolStripDropDownBackground => Color.FromArgb(24, 24, 27);
-    public override Color ImageMarginGradientBegin => Color.FromArgb(24, 24, 27);
-    public override Color ImageMarginGradientMiddle => Color.FromArgb(24, 24, 27);
-    public override Color ImageMarginGradientEnd => Color.FromArgb(24, 24, 27);
-    public override Color SeparatorDark => Color.FromArgb(39, 39, 42);
-    public override Color SeparatorLight => Color.FromArgb(39, 39, 42);
+    public override Color MenuItemSelected => colors.ButtonHover;
+    public override Color MenuItemSelectedGradientBegin => colors.ButtonHover;
+    public override Color MenuItemSelectedGradientEnd => colors.ButtonHover;
+    public override Color MenuBorder => colors.CardBorder;
+    public override Color ToolStripDropDownBackground => colors.CardBackground;
+    public override Color ImageMarginGradientBegin => colors.CardBackground;
+    public override Color ImageMarginGradientMiddle => colors.CardBackground;
+    public override Color ImageMarginGradientEnd => colors.CardBackground;
+    public override Color SeparatorDark => colors.CardBorder;
+    public override Color SeparatorLight => colors.CardBorder;
 }
