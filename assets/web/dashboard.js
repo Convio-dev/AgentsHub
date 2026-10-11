@@ -7,12 +7,25 @@
     version: 'v1.0.3',
     lanIp: '127.0.0.1',
     lanUrl: 'http://127.0.0.1:9095/',
-    publicIp: '',
+    lanProxyPort: 9191,
+    lanProxyEnabled: true,
+    dashUrlMode: 'local',
+    lanUrlMode: 'lan',
     isIpMasked: false,
     isShortcutsMasked: localStorage.getItem('agents_hub_mask_shortcuts') === 'true',
+    publicIp: '',
+    ipv4: '',
+    ipv6: '',
+    previousIpv4: '',
+    previousIpv6: '',
+    countryCode: '',
+    country: '',
+    countryEmoji: '',
+    city: '',
     qrBase64: '',
     clis: {},
     antigravity: { activeProfile: '', profiles: [] },
+    opencode: { isOnline: false, port: 0, activeSessions: [] },
     aiConfig: { providers: [], toolTargets: {}, shortcuts: [], selectedProviderId: null, selectedModel: null },
     settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
@@ -56,6 +69,14 @@
         return;
       }
 
+      // Handle OpenCode live push events
+      if (msg.type === 'OPENCODE_UPDATE' && msg.data) {
+        handleOpenCodeUpdate(msg.data);
+      }
+      if (msg.type === 'OPENCODE_INTERACTIVE_PROMPT') {
+        handleOpenCodePrompt(msg.payload || msg.prompt || msg.data);
+      }
+
       // Handle Push Events
       if (msg.event) {
         handleBackendEvent(msg.event, msg.payload);
@@ -64,17 +85,63 @@
   }
 
   function handleBackendEvent(eventType, payload) {
-    // FIX: Do NOT flood logs with hardware metrics or stream chunks!
-    if (eventType !== 'hardware_metrics' && eventType !== 'terminal_data') {
+    // FIX: Do NOT flood logs with hardware metrics, stream chunks, or internal updates!
+    const suppressedEvents = [
+      'hardware_metrics', 
+      'terminal_data', 
+      'live_log_entry', 
+      'opencode_status_changed', 
+      'opencode_sessions_updated',
+      'opencode_interactive_prompt'
+    ];
+    if (!suppressedEvents.includes(eventType)) {
       appendLog(`[${eventType}] ${JSON.stringify(payload)}`);
     }
 
     switch (eventType) {
+      case 'opencode_status_changed':
+      case 'opencode_sessions_updated':
+        if (payload) {
+          handleOpenCodeUpdate(payload);
+        }
+        break;
+
+      case 'opencode_interactive_prompt':
+        if (payload) {
+          handleOpenCodePrompt(payload);
+        }
+        break;
+
+      case 'live_log_entry':
+        if (payload) {
+          appendLog(payload.text || payload.message, payload.tag, payload.timestamp);
+        }
+        break;
+
+      case 'quota_reset_progress':
+        if (payload && payload.line) {
+          appendLog(payload.line, 'WARP');
+        }
+        break;
+
       case 'cli_status_changed':
         if (payload && payload.cli) {
           state.clis[payload.cli] = { state: payload.state, port: payload.port, pid: payload.pid };
           updateHeaderStatus();
           updateDashboardCliRows();
+          renderRunningPorts();
+        }
+        break;
+
+      case 'lan_proxy_state_changed':
+        if (payload) {
+          state.lanProxyEnabled = !!payload.lanProxyEnabled;
+          if (payload.runningPorts) state.runningPorts = payload.runningPorts;
+          if (!state.lanProxyEnabled) {
+            state.dashUrlMode = 'local';
+            state.lanUrlMode = 'local';
+          }
+          renderRunningPorts();
         }
         break;
 
@@ -405,6 +472,7 @@
       const minimizeToTray = document.getElementById('setting-tray-minimize-checkbox')?.checked !== false;
       const notifications = document.getElementById('setting-notifications-checkbox')?.checked !== false;
       const maskShortcutPaths = document.getElementById('setting-mask-paths-checkbox')?.checked === true;
+      const embedShells = document.getElementById('setting-embed-shells-checkbox')?.checked === true;
       const theme = document.documentElement.getAttribute('data-theme') || 'dark';
       const accentColor = localStorage.getItem('agents_hub_accent_color') || '#10b981';
       const feedback = document.getElementById('settings-save-feedback');
@@ -414,11 +482,17 @@
       renderDashboardShortcuts();
 
       await callBridge('save_general_settings', {
-        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, theme, accentColor }
+        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, theme, accentColor }
       });
 
       feedback.textContent = 'Preferences saved successfully!';
       setTimeout(() => feedback.textContent = '', 2500);
+    });
+
+    document.getElementById('setting-embed-shells-checkbox')?.addEventListener('change', async (e) => {
+      await callBridge('save_general_settings', {
+        settings: { embedShellsInTerminalWorkspace: e.target.checked }
+      });
     });
   }
 
@@ -485,7 +559,8 @@
 
     document.getElementById('btn-term-open-browser')?.addEventListener('click', () => {
       const port = state.activeTerminalCli === 'Hermes' ? 9095 : (state.activeTerminalCli === 'ClaudeCode' ? 9229 : 9339);
-      callBridge('open_url_external', { url: `http://127.0.0.1:${port}/` });
+      const themeParam = `?theme=${encodeURIComponent(state.theme || 'light')}&accent=${encodeURIComponent(state.accentColor || '#4049B9')}`;
+      callBridge('open_url_external', { url: `http://127.0.0.1:${port}/${themeParam}` });
     });
 
     // Standalone Terminals Window Buttons
@@ -493,6 +568,20 @@
     document.getElementById('btn-popout-terminals')?.addEventListener('click', openStandalone);
     document.getElementById('btn-popout-terminals-dash')?.addEventListener('click', openStandalone);
     document.getElementById('btn-open-standalone-hdr')?.addEventListener('click', openStandalone);
+
+    // System Shell Launchers (Standard & Administrator)
+    document.getElementById('btn-shell-cmd')?.addEventListener('click', () => {
+      callBridge('open_system_shell', { shell: 'cmd', asAdmin: false });
+    });
+    document.getElementById('btn-shell-cmd-admin')?.addEventListener('click', () => {
+      callBridge('open_system_shell', { shell: 'cmd', asAdmin: true });
+    });
+    document.getElementById('btn-shell-ps')?.addEventListener('click', () => {
+      callBridge('open_system_shell', { shell: 'powershell', asAdmin: false });
+    });
+    document.getElementById('btn-shell-ps-admin')?.addEventListener('click', () => {
+      callBridge('open_system_shell', { shell: 'powershell', asAdmin: true });
+    });
   }
 
   // Header & Status Updates
@@ -526,7 +615,7 @@
 
     const summaryEl = document.getElementById('dash-active-profile-summary');
     if (summaryEl) {
-      summaryEl.textContent = `Active Profile: ${state.antigravity.activeProfile || 'None'}`;
+      summaryEl.textContent = `Antigravity Profile: ${state.antigravity.activeProfile || 'None'}`;
     }
   }
 
@@ -687,10 +776,23 @@
     const active = state.antigravity.activeProfile || '';
 
     profiles.forEach(p => {
-      const isActive = p.toLowerCase() === active.toLowerCase();
+      const name = typeof p === 'object' ? (p.name || '') : p;
+      const email = typeof p === 'object' ? (p.email || '') : '';
+      const isActive = name.toLowerCase() === active.toLowerCase();
+      const cardId = 'prof-card-' + name.replace(/[^a-z0-9]/gi, '_');
       const card = document.createElement('div');
       card.className = 'dashboard-card';
+      card.id = cardId;
       card.style.borderColor = isActive ? 'var(--accent-green)' : 'var(--border-subtle)';
+
+      const emailHtml = email ? `
+        <div class="profile-email-row" data-visible="false">
+          <span class="profile-email-text">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span>
+          <button class="btn-eye-toggle" title="Show / hide email" aria-label="Toggle email visibility">
+            <svg viewBox="0 0 24 24" class="icon-eye icon-eye-off"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <svg viewBox="0 0 24 24" class="icon-eye icon-eye-on" style="display:none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>` : '';
 
       card.innerHTML = `
         <div class="card-header">
@@ -699,18 +801,52 @@
               <svg class="icon-svg" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
             <div>
-              <div class="card-title">${p}</div>
+              <div class="card-title">${name}</div>
               <div class="card-subtitle">${isActive ? 'Active Session' : 'Ready to switch'}</div>
+              ${emailHtml}
             </div>
           </div>
-          ${isActive ? '<span class="brand-badge">ACTIVE</span>' : ''}
+          <div class="profile-card-actions">
+            ${isActive ? '<span class="brand-badge">ACTIVE</span>' : ''}
+            <button class="btn-open-folder" data-name="${name}" title="Open profile folder" aria-label="Open profile folder in Explorer">
+              <svg viewBox="0 0 24 24" class="icon-folder"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            </button>
+          </div>
         </div>
         <div style="display: flex; gap: 8px; margin-top: 14px;">
-          ${!isActive ? `<button class="btn btn-success btn-switch-prof" data-name="${p}" style="flex: 1;">Switch</button>` : ''}
-          <button class="btn btn-outline btn-rename-prof" data-name="${p}">Rename</button>
-          ${!isActive ? `<button class="btn btn-danger btn-delete-prof" data-name="${p}">Delete</button>` : ''}
+          ${!isActive ? `<button class="btn btn-success btn-switch-prof" data-name="${name}" style="flex: 1;">Switch</button>` : ''}
+          <button class="btn btn-outline btn-rename-prof" data-name="${name}">Rename</button>
+          ${!isActive ? `<button class="btn btn-danger btn-delete-prof" data-name="${name}">Delete</button>` : ''}
         </div>
       `;
+
+      // Eye toggle handler
+      const emailRow = card.querySelector('.profile-email-row');
+      if (emailRow) {
+        const emailText = emailRow.querySelector('.profile-email-text');
+        const eyeOff = emailRow.querySelector('.icon-eye-off');
+        const eyeOn  = emailRow.querySelector('.icon-eye-on');
+        emailRow.querySelector('.btn-eye-toggle').addEventListener('click', () => {
+          const visible = emailRow.dataset.visible === 'true';
+          if (visible) {
+            emailText.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+            eyeOff.style.display = '';
+            eyeOn.style.display  = 'none';
+            emailRow.dataset.visible = 'false';
+          } else {
+            emailText.textContent = email;
+            eyeOff.style.display = 'none';
+            eyeOn.style.display  = '';
+            emailRow.dataset.visible = 'true';
+          }
+        });
+      }
+
+      // Folder open handler
+      card.querySelector('.btn-open-folder')?.addEventListener('click', async () => {
+        await callBridge('open_profile_folder', { profileName: name });
+      });
+
       container.appendChild(card);
     });
 
@@ -731,7 +867,18 @@
         const oldName = b.dataset.name;
         const newName = prompt(`Enter new name for profile '${oldName}':`, oldName);
         if (newName && newName.trim() && newName.trim() !== oldName) {
-          await callBridge('rename_antigravity_profile', { oldName, newName: newName.trim() });
+          try {
+            const res = await callBridge('rename_antigravity_profile', { oldName, newName: newName.trim() });
+            if (res) {
+              if (res.activeProfile !== undefined) state.antigravity.activeProfile = res.activeProfile;
+              if (res.profiles) state.antigravity.profiles = res.profiles;
+              renderProfiles();
+              renderQuickProfileSelect();
+              updateHeaderStatus();
+            }
+          } catch (e) {
+            console.error('Rename profile failed:', e);
+          }
         }
       });
     });
@@ -740,7 +887,18 @@
       b.addEventListener('click', async () => {
         const name = b.dataset.name;
         if (confirm(`Are you sure you want to delete profile '${name}'?`)) {
-          await callBridge('delete_antigravity_profile', { profileName: name });
+          try {
+            const res = await callBridge('delete_antigravity_profile', { profileName: name });
+            if (res) {
+              if (res.activeProfile !== undefined) state.antigravity.activeProfile = res.activeProfile;
+              if (res.profiles) state.antigravity.profiles = res.profiles;
+              renderProfiles();
+              renderQuickProfileSelect();
+              updateHeaderStatus();
+            }
+          } catch (e) {
+            console.error('Delete profile failed:', e);
+          }
         }
       });
     });
@@ -748,23 +906,295 @@
 
   function renderQuickProfileSelect() {
     const sel = document.getElementById('quick-profile-select');
-    if (!sel) return;
+    const cardSel = document.getElementById('dash-card-profile-select');
+    const summary = document.getElementById('dash-active-profile-summary');
+    const rawProfiles = (state.antigravity.profiles && state.antigravity.profiles.length > 0)
+      ? state.antigravity.profiles
+      : (state.antigravity.activeProfile ? [state.antigravity.activeProfile] : ['default']);
+    // Normalize to name strings for the dropdown
+    const profiles = rawProfiles.map(p => (typeof p === 'object' ? p.name : p));
+    const active = state.antigravity.activeProfile || (profiles[0] || 'default');
 
-    sel.innerHTML = '';
-    const profiles = state.antigravity.profiles || [];
-    const active = state.antigravity.activeProfile || '';
+    if (summary) {
+      summary.textContent = `Antigravity Profile: ${active}`;
+    }
 
-    profiles.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p;
-      opt.textContent = p;
-      if (p.toLowerCase() === active.toLowerCase()) opt.selected = true;
-      sel.appendChild(opt);
+    [sel, cardSel].forEach(dropdown => {
+      if (!dropdown) return;
+      dropdown.innerHTML = '';
+      profiles.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        if (p.toLowerCase() === active.toLowerCase()) opt.selected = true;
+        dropdown.appendChild(opt);
+      });
+
+      dropdown.onchange = async () => {
+        const chosen = dropdown.value;
+        await callBridge('switch_antigravity_profile', { profile: chosen });
+        state.antigravity.activeProfile = chosen;
+        if (summary) summary.textContent = `Antigravity Profile: ${chosen}`;
+        if (sel && sel !== dropdown) sel.value = chosen;
+        if (cardSel && cardSel !== dropdown) cardSel.value = chosen;
+      };
     });
+  }
 
-    sel.onchange = async () => {
-      await callBridge('switch_antigravity_profile', { profile: sel.value });
-    };
+  let selectedPortId = 'hermes';
+
+  function getWebPortsList() {
+    if (state.runningPorts && state.runningPorts.length > 0) {
+      return state.runningPorts.map(p => {
+        if (p.id === 'hermes') {
+          const h = state.clis['Hermes'] || {};
+          return { ...p, state: h.state || 'Offline', isRunning: h.state === 'Running' };
+        }
+        if (p.id === 'claude_code') {
+          const c = state.clis['ClaudeCode'] || {};
+          return { ...p, state: c.state || 'Running', isRunning: true };
+        }
+        if (p.id === 'antigravity_cli') {
+          const a = state.clis['AntigravityCli'] || {};
+          return { ...p, state: a.state || 'Running', isRunning: true };
+        }
+        if (p.id === 'lan_proxy') {
+          return { ...p, state: state.lanProxyEnabled ? 'Running' : 'Offline', isRunning: !!state.lanProxyEnabled };
+        }
+        return p;
+      });
+    }
+
+    const lanIp = state.lanIp || '127.0.0.1';
+    const hermesState = (state.clis['Hermes'] || {}).state || 'Offline';
+    const proxyPort = state.lanProxyPort || 9191;
+    const themeParam = `?theme=${encodeURIComponent(state.theme || 'light')}&accent=${encodeURIComponent(state.accentColor || '#4049B9')}`;
+
+    return [
+      {
+        id: 'hermes',
+        name: 'Hermes Dashboard',
+        port: 9119,
+        lanPort: proxyPort,
+        localUrl: `http://127.0.0.1:9119/${themeParam}`,
+        lanUrl: `http://${lanIp}:${proxyPort}/${themeParam}`,
+        state: hermesState,
+        isRunning: hermesState === 'Running'
+      },
+      {
+        id: 'claude_code',
+        name: 'Claude Code Web',
+        port: 9229,
+        lanPort: 9229,
+        localUrl: `http://127.0.0.1:9229/${themeParam}`,
+        lanUrl: `http://${lanIp}:9229/${themeParam}`,
+        state: 'Running',
+        isRunning: true
+      },
+      {
+        id: 'antigravity_cli',
+        name: 'Antigravity CLI Web',
+        port: 9339,
+        lanPort: 9339,
+        localUrl: `http://127.0.0.1:9339/${themeParam}`,
+        lanUrl: `http://${lanIp}:9339/${themeParam}`,
+        state: 'Running',
+        isRunning: true
+      },
+      {
+        id: 'lan_proxy',
+        name: 'LAN Remote Gateway',
+        port: proxyPort,
+        lanPort: proxyPort,
+        localUrl: `http://127.0.0.1:${proxyPort}/${themeParam}`,
+        lanUrl: `http://${lanIp}:${proxyPort}/${themeParam}`,
+        state: state.lanProxyEnabled ? 'Running' : 'Offline',
+        isRunning: !!state.lanProxyEnabled
+      }
+    ];
+  }
+
+  function renderRunningPorts() {
+    const ports = getWebPortsList();
+    if (!ports || ports.length === 0) return;
+
+    if (!ports.some(p => p.id === selectedPortId)) {
+      selectedPortId = ports[0].id;
+    }
+
+    const activePort = ports.find(p => p.id === selectedPortId) || ports[0];
+    const lanIsActive = !!state.lanProxyEnabled;
+
+    // When LAN is off, force local 127 in dashboard and everywhere
+    const effectiveDashMode = lanIsActive ? state.dashUrlMode : 'local';
+    const effectiveLanMode = lanIsActive ? state.lanUrlMode : 'local';
+
+    const dashUrlStr = effectiveDashMode === 'lan' ? activePort.lanUrl : activePort.localUrl;
+    const lanUrlStr = effectiveLanMode === 'lan' ? activePort.lanUrl : activePort.localUrl;
+
+    // 1. Dashboard Card: WEB APP HOSTS & RUNNING PORTS
+    const dashSelect = document.getElementById('dash-web-port-select');
+    if (dashSelect) {
+      dashSelect.innerHTML = '';
+      ports.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = effectiveDashMode === 'lan' ? `${p.name} (LAN :${p.lanPort})` : `${p.name} (Port ${p.port})`;
+        if (p.id === selectedPortId) opt.selected = true;
+        dashSelect.appendChild(opt);
+      });
+      dashSelect.onchange = () => {
+        selectedPortId = dashSelect.value;
+        renderRunningPorts();
+      };
+    }
+
+    const dashUrl = document.getElementById('dash-lan-url');
+    if (dashUrl) {
+      dashUrl.textContent = dashUrlStr;
+    }
+
+    // Toggle button for Dashboard URL mode
+    const btnToggleDashUrlMode = document.getElementById('btn-toggle-dash-url-mode');
+    if (btnToggleDashUrlMode) {
+      if (!lanIsActive) {
+        btnToggleDashUrlMode.title = 'LAN network connection is turned off. Showing Local (127.0.0.1).';
+        btnToggleDashUrlMode.classList.remove('active');
+        btnToggleDashUrlMode.style.color = '';
+      } else if (effectiveDashMode === 'lan') {
+        btnToggleDashUrlMode.title = 'Currently showing Network (LAN) URL. Click to switch to Local (127.0.0.1).';
+        btnToggleDashUrlMode.classList.add('active');
+        btnToggleDashUrlMode.style.color = 'var(--accent-green)';
+      } else {
+        btnToggleDashUrlMode.title = 'Currently showing Local (127.0.0.1) URL. Click to switch to Network (LAN).';
+        btnToggleDashUrlMode.classList.remove('active');
+        btnToggleDashUrlMode.style.color = '';
+      }
+    }
+
+    const dashChips = document.getElementById('dash-running-ports-chips');
+    if (dashChips) {
+      dashChips.innerHTML = '';
+      ports.forEach(p => {
+        const chip = document.createElement('button');
+        const isSel = p.id === selectedPortId;
+        chip.className = `btn btn-outline ${isSel ? 'active' : ''}`;
+        chip.style.cssText = `padding: 3px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border-radius: var(--radius-sm); ${isSel ? 'border-color: var(--accent-green); color: var(--accent-green); font-weight: 600;' : ''}`;
+        const portNum = effectiveDashMode === 'lan' ? p.lanPort : p.port;
+        chip.innerHTML = `<span class="dot ${p.isRunning ? 'online' : ''}" style="width: 7px; height: 7px;"></span><span>${p.name}: ${portNum}</span>`;
+        chip.onclick = () => {
+          selectedPortId = p.id;
+          renderRunningPorts();
+        };
+        dashChips.appendChild(chip);
+      });
+    }
+
+    // 2. LAN Remote View
+    // Header LAN toggle button
+    const btnToggleLanNetwork = document.getElementById('btn-toggle-lan-network');
+    const lanStatusDot = document.getElementById('lan-status-dot');
+    const lanStatusText = document.getElementById('lan-status-text');
+    if (btnToggleLanNetwork && lanStatusDot && lanStatusText) {
+      if (lanIsActive) {
+        lanStatusDot.className = 'dot online';
+        lanStatusDot.style.background = '';
+        lanStatusText.textContent = 'LAN: Active';
+        btnToggleLanNetwork.title = 'LAN connection is ON (192.168). Click to turn off LAN network connection.';
+        btnToggleLanNetwork.style.borderColor = 'var(--accent-green)';
+      } else {
+        lanStatusDot.className = 'dot offline';
+        lanStatusDot.style.background = 'var(--text-dim)';
+        lanStatusText.textContent = 'LAN: Offline';
+        btnToggleLanNetwork.title = 'LAN connection is OFF. Click to turn on LAN network connection.';
+        btnToggleLanNetwork.style.borderColor = 'var(--border-subtle)';
+      }
+    }
+
+    const lanSelect = document.getElementById('lan-port-select');
+    if (lanSelect) {
+      lanSelect.innerHTML = '';
+      ports.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = effectiveLanMode === 'lan' ? `${p.name} (LAN :${p.lanPort})` : `${p.name} (Port ${p.port})`;
+        if (p.id === selectedPortId) opt.selected = true;
+        lanSelect.appendChild(opt);
+      });
+      lanSelect.onchange = () => {
+        selectedPortId = lanSelect.value;
+        renderRunningPorts();
+      };
+    }
+
+    const lanUrl = document.getElementById('lan-full-url');
+    if (lanUrl) {
+      lanUrl.textContent = lanUrlStr;
+    }
+
+    // Toggle button for LAN Remote URL mode
+    const btnToggleLanUrlMode = document.getElementById('btn-toggle-lan-url-mode');
+    if (btnToggleLanUrlMode) {
+      if (!lanIsActive) {
+        btnToggleLanUrlMode.title = 'LAN network connection is turned off. Showing Local (127.0.0.1).';
+        btnToggleLanUrlMode.classList.remove('active');
+        btnToggleLanUrlMode.style.color = '';
+      } else if (effectiveLanMode === 'lan') {
+        btnToggleLanUrlMode.title = 'Currently showing Network (LAN) URL. Click to switch to Local (127.0.0.1).';
+        btnToggleLanUrlMode.classList.add('active');
+        btnToggleLanUrlMode.style.color = 'var(--accent-green)';
+      } else {
+        btnToggleLanUrlMode.title = 'Currently showing Local (127.0.0.1) URL. Click to switch to Network (LAN).';
+        btnToggleLanUrlMode.classList.remove('active');
+        btnToggleLanUrlMode.style.color = '';
+      }
+    }
+
+    const lanDesc = document.getElementById('lan-port-description');
+    if (lanDesc) {
+      if (!lanIsActive) {
+        lanDesc.textContent = `LAN network connection is turned off. Links and QR code switched to local host (127.0.0.1). Turn LAN on to share with Wi-Fi devices.`;
+      } else if (effectiveLanMode === 'local') {
+        lanDesc.textContent = `Showing local host link for ${activePort.name}. Scan QR code to open locally or click switch icon to view network Wi-Fi link.`;
+      } else {
+        lanDesc.textContent = `Scan QR code to connect directly to ${activePort.name} on local Wi-Fi network (192.168).`;
+      }
+    }
+
+    const lanChips = document.getElementById('lan-running-ports-chips');
+    if (lanChips) {
+      lanChips.innerHTML = '';
+      ports.forEach(p => {
+        const chip = document.createElement('button');
+        const isSel = p.id === selectedPortId;
+        chip.className = `btn btn-outline ${isSel ? 'active' : ''}`;
+        chip.style.cssText = `padding: 3px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border-radius: var(--radius-sm); ${isSel ? 'border-color: var(--accent-green); color: var(--accent-green); font-weight: 600;' : ''}`;
+        const portNum = effectiveLanMode === 'lan' ? p.lanPort : p.port;
+        chip.innerHTML = `<span class="dot ${p.isRunning ? 'online' : ''}" style="width: 7px; height: 7px;"></span><span>${p.name}: ${portNum}</span>`;
+        chip.onclick = () => {
+          selectedPortId = p.id;
+          renderRunningPorts();
+        };
+        lanChips.appendChild(chip);
+      });
+    }
+
+    // Update QR Code dynamically for lanUrlStr
+    updateQrCodeForUrl(lanUrlStr);
+  }
+
+  function updateQrCodeForUrl(url) {
+    const qrImg = document.getElementById('lan-qr-img');
+    const qrFallback = document.getElementById('lan-qr-fallback');
+    callBridge('generate_qr_code', { url }).then(res => {
+      if (res && res.qrBase64) {
+        if (qrImg) {
+          qrImg.src = res.qrBase64;
+          qrImg.style.display = 'block';
+        }
+        if (qrFallback) qrFallback.style.display = 'none';
+      }
+    }).catch(() => {});
   }
 
   // AI Dev Tools View (Browse file selector & edit targets)
@@ -1197,25 +1627,158 @@
   }
 
   // Public IP & OpenCode Quota Reset Engine
+  let quotaCooldownInterval = null;
+
+  function startQuotaResetCooldown(durationSeconds = 12) {
+    if (quotaCooldownInterval) {
+      clearInterval(quotaCooldownInterval);
+      quotaCooldownInterval = null;
+    }
+
+    const btn = document.getElementById('btn-reset-opencode-quota');
+    const lbl = document.getElementById('lbl-reset-quota-btn');
+    const icon = document.getElementById('icon-reset-quota');
+
+    if (!btn) return;
+
+    let remaining = durationSeconds;
+    btn.disabled = true;
+    btn.classList.add('btn-cooldown');
+    if (icon) icon.classList.remove('spinning');
+    if (lbl) lbl.textContent = `Cooldown (${remaining}s)...`;
+
+    quotaCooldownInterval = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) {
+        if (lbl) lbl.textContent = `Cooldown (${remaining}s)...`;
+      } else {
+        clearInterval(quotaCooldownInterval);
+        quotaCooldownInterval = null;
+        btn.disabled = false;
+        btn.classList.remove('btn-cooldown');
+        if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)';
+      }
+    }, 1000);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function renderPublicIpDisplay() {
-    const ipText = document.getElementById('dash-public-ip-text');
+    const v4Diff = document.getElementById('dash-ipv4-diff');
+    const v6Diff = document.getElementById('dash-ipv6-diff');
+    const legacyIpText = document.getElementById('dash-public-ip-text');
     const eyeIcon = document.getElementById('icon-ip-eye');
-    if (!ipText) return;
 
     if (state.isIpMasked) {
-      ipText.textContent = 'IP: ***';
+      if (v4Diff) {
+        v4Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">***.***.***</span>';
+      }
+      if (v6Diff) {
+        v6Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">****:****:****</span>';
+      }
+      if (legacyIpText) {
+        legacyIpText.textContent = 'IP: ***';
+      }
       if (eyeIcon) {
         eyeIcon.innerHTML = '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>';
       }
-    } else {
-      ipText.textContent = 'IP: ' + (state.publicIp || 'Fetching...');
-      if (eyeIcon) {
-        eyeIcon.innerHTML = '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>';
+      return;
+    }
+
+    if (eyeIcon) {
+      eyeIcon.innerHTML = '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>';
+    }
+
+    const currentV4 = state.ipv4 || (state.publicIp && !state.publicIp.includes(':') ? state.publicIp : 'Fetching...');
+    const currentV6 = state.ipv6 || (state.publicIp && state.publicIp.includes(':') ? state.publicIp : 'Not assigned');
+
+    const flag = state.countryEmoji ? `${state.countryEmoji} ` : '';
+    const locDetail = state.city ? ` (${state.city})` : (state.country ? ` (${state.country})` : '');
+    const geoHtml = (flag || locDetail) ? `<span class="ip-detail">${escapeHtml(flag + locDetail)}</span>` : '';
+
+    // IPv4 Row: Diff display if rotated
+    if (v4Diff) {
+      if (state.previousIpv4 && state.previousIpv4 !== 'unknown' && state.previousIpv4 !== currentV4 && currentV4 !== 'Fetching...') {
+        v4Diff.innerHTML = `<span class="ip-old text-xs text-red-400 line-through">${escapeHtml(state.previousIpv4)}</span> <span class="ip-arrow">➜</span> <span class="ip-new font-mono font-bold text-base text-cyan-400">${escapeHtml(currentV4)}</span>${geoHtml}`;
+      } else {
+        v4Diff.innerHTML = `<span class="ip-new font-mono font-bold text-base text-cyan-400">${escapeHtml(currentV4)}</span>${geoHtml}`;
       }
+    }
+
+    // IPv6 Row: Diff display if rotated
+    if (v6Diff) {
+      if (state.previousIpv6 && state.previousIpv6 !== 'Not assigned' && state.previousIpv6 !== currentV6 && currentV6 !== 'Not assigned') {
+        v6Diff.innerHTML = `<span class="ip-old text-xs text-red-400 line-through">${escapeHtml(state.previousIpv6)}</span> <span class="ip-arrow">➜</span> <span class="ip-new font-mono font-bold text-base text-cyan-400">${escapeHtml(currentV6)}</span>`;
+      } else {
+        v6Diff.innerHTML = `<span class="ip-new font-mono font-bold text-base text-cyan-400">${escapeHtml(currentV6)}</span>`;
+      }
+    }
+
+    if (legacyIpText) {
+      legacyIpText.textContent = `IP: ${flag}${currentV4}${locDetail}`;
     }
   }
 
+  function formatRelativeTime(isoString) {
+    if (!isoString) return 'Never';
+    const timestamp = new Date(isoString).getTime();
+    if (isNaN(timestamp)) return 'Never';
+    const diffSec = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (diffSec < 45) return 'Just now';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    return `${Math.floor(diffSec / 86400)}d ago`;
+  }
+
+  function updateQuotaStatsDisplay() {
+    const statsEl = document.getElementById('quota-reset-stats');
+    if (!statsEl) return;
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const savedDate = localStorage.getItem('agents_hub_rotations_date');
+    let count = parseInt(localStorage.getItem('agents_hub_rotations_today') || '0', 10);
+
+    if (savedDate !== todayStr) {
+      count = 0;
+      localStorage.setItem('agents_hub_rotations_today', '0');
+      localStorage.setItem('agents_hub_rotations_date', todayStr);
+    }
+
+    const lastRotated = localStorage.getItem('agents_hub_last_rotated') || '';
+    const relTime = formatRelativeTime(lastRotated);
+    statsEl.textContent = `Last rotated: ${relTime} • Rotations today: ${count}`;
+  }
+
+  function recordSuccessfulRotation() {
+    const nowIso = new Date().toISOString();
+    const todayStr = nowIso.slice(0, 10);
+    const savedDate = localStorage.getItem('agents_hub_rotations_date');
+    let count = parseInt(localStorage.getItem('agents_hub_rotations_today') || '0', 10);
+
+    if (savedDate !== todayStr) {
+      count = 1;
+    } else {
+      count += 1;
+    }
+
+    localStorage.setItem('agents_hub_last_rotated', nowIso);
+    localStorage.setItem('agents_hub_rotations_today', String(count));
+    localStorage.setItem('agents_hub_rotations_date', todayStr);
+    updateQuotaStatsDisplay();
+  }
+
   function setupQuotaAndIpWidget() {
+    updateQuotaStatsDisplay();
+    setInterval(updateQuotaStatsDisplay, 15000);
+
     document.getElementById('btn-toggle-mask-ip')?.addEventListener('click', async () => {
       state.isIpMasked = !state.isIpMasked;
       renderPublicIpDisplay();
@@ -1225,12 +1788,22 @@
     });
 
     document.getElementById('btn-refresh-public-ip')?.addEventListener('click', async () => {
-      const ipText = document.getElementById('dash-public-ip-text');
-      if (ipText && !state.isIpMasked) ipText.textContent = 'IP: Fetching...';
+      const v4Diff = document.getElementById('dash-ipv4-diff');
+      const v6Diff = document.getElementById('dash-ipv6-diff');
+      if (v4Diff && !state.isIpMasked) v4Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">Fetching...</span>';
+      if (v6Diff && !state.isIpMasked) v6Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">Fetching...</span>';
       try {
         const res = await callBridge('get_public_ip');
-        if (res && res.ip) {
-          state.publicIp = res.ip;
+        if (res) {
+          if (res.ipv4) state.ipv4 = res.ipv4;
+          if (res.ipv6) state.ipv6 = res.ipv6;
+          if (res.ip) state.publicIp = res.ip;
+          if (!state.ipv4 && res.ip && !res.ip.includes(':')) state.ipv4 = res.ip;
+          if (!state.ipv6 && res.ip && res.ip.includes(':')) state.ipv6 = res.ip;
+          state.countryCode = res.countryCode || '';
+          state.country = res.country || '';
+          state.countryEmoji = res.countryEmoji || '';
+          state.city = res.city || '';
           renderPublicIpDisplay();
         }
       } catch { }
@@ -1238,29 +1811,369 @@
 
     document.getElementById('btn-reset-opencode-quota')?.addEventListener('click', async () => {
       const btn = document.getElementById('btn-reset-opencode-quota');
+      const icon = document.getElementById('icon-reset-quota');
       const lbl = document.getElementById('lbl-reset-quota-btn');
-      const ipText = document.getElementById('dash-public-ip-text');
+      const v4Diff = document.getElementById('dash-ipv4-diff');
+      const v6Diff = document.getElementById('dash-ipv6-diff');
+      const ipContainer = document.getElementById('dash-ip-container');
+
       if (btn) btn.disabled = true;
-      if (lbl) lbl.textContent = 'Rotating Cloudflare WARP IP...';
-      if (ipText && !state.isIpMasked) ipText.textContent = 'IP: Rotating...';
+      if (icon) icon.classList.add('spinning');
+      if (lbl) lbl.textContent = 'Rotating Tunnel & Clearing Sockets...';
+      if (v4Diff && !state.isIpMasked) v4Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">Rotating...</span>';
+      if (v6Diff && !state.isIpMasked) v6Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">Rotating...</span>';
 
       try {
-        const res = await callBridge('rotate_warp_ip');
-        if (res) {
-          if (res.ip) state.publicIp = res.ip;
+        const res = await callBridge('reset_opencode_quota');
+        if (res && res.success) {
+          // Record old IPs for before vs after visual diff
+          if (res.old) {
+            if (res.old.ipv4 && res.old.ipv4 !== 'unknown') state.previousIpv4 = res.old.ipv4;
+            if (res.old.ipv6 && res.old.ipv6 !== 'Not assigned') state.previousIpv6 = res.old.ipv6;
+          } else if (res.oldIp && res.oldIp !== 'unknown') {
+            state.previousIpv4 = res.oldIp;
+          }
+
+          // Record new rotated IPs
+          if (res.new) {
+            if (res.new.ipv4) state.ipv4 = res.new.ipv4;
+            if (res.new.ipv6) state.ipv6 = res.new.ipv6;
+          }
+          if (res.ipv4) state.ipv4 = res.ipv4;
+          if (res.ipv6) state.ipv6 = res.ipv6;
+          const freshIp = res.newIp || res.ip;
+          if (freshIp && freshIp !== 'unknown') {
+            state.publicIp = freshIp;
+            if (!state.ipv4 && !freshIp.includes(':')) state.ipv4 = freshIp;
+            if (!state.ipv6 && freshIp.includes(':')) state.ipv6 = freshIp;
+          }
+
+          state.countryCode = res.countryCode || '';
+          state.country = res.country || '';
+          state.countryEmoji = res.countryEmoji || '';
+          state.city = res.city || '';
+
           renderPublicIpDisplay();
-          appendLog('[QuotaReset] ' + (res.message || 'WARP IP rotated successfully.'));
-          if (lbl) lbl.textContent = 'Reset Succeeded!';
-          setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3000);
+          recordSuccessfulRotation();
+
+          // Play subtle success animation on IP container
+          if (ipContainer) {
+            ipContainer.classList.remove('pulse-success');
+            void ipContainer.offsetWidth; // Force CSS reflow
+            ipContainer.classList.add('pulse-success');
+          }
+
+          const oldV4Str = (res.old && res.old.ipv4) || res.oldIp || 'Previous';
+          const newV4Str = (res.new && res.new.ipv4) || res.newIp || freshIp || 'Updated';
+          const flagStr = state.countryEmoji ? `${state.countryEmoji} ` : '';
+          const locStr = state.city ? ` (${state.city})` : (state.country ? ` (${state.country})` : '');
+          const toastMsg = res.sidecarSynced
+            ? `IP Rotated: ${oldV4Str} ➜ ${flagStr}${newV4Str}${locStr} | Sidecar Re-synced`
+            : `IP Rotated: ${oldV4Str} ➜ ${flagStr}${newV4Str}${locStr}`;
+
+          showToast(toastMsg, 'success', 5000);
+          appendLog('[QuotaReset] ' + (res.message || toastMsg));
+
+          // Initiate 12-second smart cooldown
+          startQuotaResetCooldown(12);
+        } else {
+          const errMsg = (res && res.message) ? res.message : 'Tunnel rotation timed out or failed';
+          const isCooldown = res && (res.cooldownRemaining || (res.message && res.message.includes('Cooldown active')));
+          if (isCooldown) {
+            const waitSec = res.cooldownRemaining || 10;
+            startQuotaResetCooldown(waitSec);
+            showToast(errMsg, 'info', 4000);
+          } else {
+            showToast(`Quota Reset Failed: ${errMsg}`, 'error', 6000);
+            appendLog(`[QuotaReset] Failed: ${errMsg}`);
+            if (lbl) lbl.textContent = 'Reset Failed';
+            setTimeout(() => {
+              if (!quotaCooldownInterval && lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)';
+            }, 3500);
+          }
         }
       } catch (err) {
+        showToast(`Quota Reset Error: ${err.message}`, 'error', 6000);
         appendLog('[QuotaReset] Error: ' + err.message);
         if (lbl) lbl.textContent = 'Reset Failed';
-        setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3000);
+        setTimeout(() => {
+          if (!quotaCooldownInterval && lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)';
+        }, 3500);
       } finally {
-        if (btn) btn.disabled = false;
+        if (!quotaCooldownInterval) {
+          if (icon) icon.classList.remove('spinning');
+          if (btn) btn.disabled = false;
+        }
       }
     });
+
+    document.getElementById('btn-refresh-opencode-sidecar')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-refresh-opencode-sidecar');
+      const svg = btn?.querySelector('svg');
+      if (svg) svg.classList.add('spinning');
+      try {
+        const fresh = await callBridge('refresh_opencode_sidecar');
+        if (fresh) {
+          handleOpenCodeUpdate(fresh);
+          showToast(`Sidecar ${fresh.isOnline ? 'Online (Port ' + fresh.port + ')' : 'Offline'}`, fresh.isOnline ? 'success' : 'info', 2500);
+        }
+      } catch (err) {
+        showToast('Sidecar refresh failed: ' + err.message, 'error', 3000);
+      } finally {
+        if (svg) svg.classList.remove('spinning');
+      }
+    });
+
+    document.getElementById('btn-purge-sessions')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-purge-sessions');
+      if (!state.opencode?.isOnline) {
+        showToast('OpenCode Sidecar is offline', 'info', 2500);
+        return;
+      }
+      if (btn) btn.disabled = true;
+      const origText = btn ? btn.innerHTML : '🗑️';
+      if (btn) btn.innerHTML = '<span class="spinning" style="display:inline-block">⏳</span>';
+
+      try {
+        const res = await callBridge('purge_idle_sessions');
+        const count = res?.deletedCount ?? 0;
+        if (count > 0) {
+          showToast(`Cleaned ${count} idle session${count === 1 ? '' : 's'}`, 'success', 3500);
+          appendLog(`[OpenCode] Cleaned ${count} idle sessions.`);
+        } else {
+          showToast('No idle sessions to clean', 'info', 2500);
+        }
+        const fresh = await callBridge('refresh_opencode_sidecar');
+        if (fresh) handleOpenCodeUpdate(fresh);
+      } catch (err) {
+        showToast(`Purge failed: ${err.message}`, 'error', 3000);
+      } finally {
+        if (btn) {
+          btn.innerHTML = origText;
+          btn.disabled = false;
+        }
+      }
+    });
+
+    // Feature 2: Service Management Controls (Start, Stop, Recheck)
+    document.getElementById('btn-opencode-start')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-opencode-start');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Starting...';
+      }
+      try {
+        const res = await callBridge('start_opencode_service');
+        if (res && res.success) {
+          showToast(res.message || 'OpenCode Desktop launched successfully', 'success', 3500);
+          if (res.state) handleOpenCodeUpdate(res.state);
+        } else {
+          showToast(res?.message || 'Could not start OpenCode service', 'error', 4000);
+        }
+      } catch (err) {
+        showToast('Start OpenCode failed: ' + err.message, 'error', 3500);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '▶ Start OpenCode';
+        }
+      }
+    });
+
+    document.getElementById('btn-opencode-stop')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-opencode-stop');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Stopping...';
+      }
+      try {
+        const res = await callBridge('stop_opencode_service');
+        if (res && res.success) {
+          showToast(res.message || 'OpenCode Desktop terminated', 'info', 3000);
+          if (res.state) handleOpenCodeUpdate(res.state);
+        } else {
+          showToast(res?.message || 'Could not stop OpenCode service', 'error', 3500);
+        }
+      } catch (err) {
+        showToast('Stop OpenCode failed: ' + err.message, 'error', 3500);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '⏹ Stop';
+        }
+      }
+    });
+
+    document.getElementById('btn-opencode-recheck')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-opencode-recheck');
+      const svg = btn?.querySelector('svg');
+      if (svg) svg.classList.add('spinning');
+      try {
+        const fresh = await callBridge('recheck_opencode_service');
+        if (fresh) {
+          handleOpenCodeUpdate(fresh);
+          showToast(`OpenCode status: ${fresh.isOnline ? 'Online (Port ' + fresh.port + ')' : 'Offline'}`, fresh.isOnline ? 'success' : 'info', 2500);
+        }
+      } catch (err) {
+        showToast('Recheck failed: ' + err.message, 'error', 3000);
+      } finally {
+        if (svg) svg.classList.remove('spinning');
+      }
+    });
+  }
+
+  function handleOpenCodeUpdate(data) {
+    if (!data) return;
+    state.opencode = {
+      isOnline: !!data.isOnline,
+      port: data.port || 0,
+      activeSessions: Array.isArray(data.activeSessions) ? data.activeSessions : []
+    };
+    renderOpenCodeCard();
+  }
+
+  function renderOpenCodeCard() {
+    const badge = document.getElementById('opencode-sidecar-badge');
+    const dot = document.getElementById('opencode-sidecar-dot');
+    const text = document.getElementById('opencode-sidecar-text');
+    const countEl = document.getElementById('opencode-sessions-count');
+    const badgeIcon = document.getElementById('opencode-sessions-badge-icon');
+    const listEl = document.getElementById('opencode-sessions-list');
+
+    const isOnline = !!state.opencode?.isOnline;
+    const port = state.opencode?.port || 0;
+    const sessions = state.opencode?.activeSessions || [];
+
+    // 1. Sidecar Status Header Pill & Service Controls
+    const startBtn = document.getElementById('btn-opencode-start');
+    const stopBtn = document.getElementById('btn-opencode-stop');
+    if (startBtn) startBtn.style.display = isOnline ? 'none' : 'inline-flex';
+    if (stopBtn) stopBtn.style.display = isOnline ? 'inline-flex' : 'none';
+
+    if (badge && dot && text) {
+      if (isOnline) {
+        badge.style.background = 'rgba(16, 185, 129, 0.15)';
+        badge.style.color = '#10b981';
+        badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        dot.style.background = '#10b981';
+        text.textContent = `Sidecar: Connected (Port ${port})`;
+      } else {
+        badge.style.background = 'rgba(100, 116, 139, 0.15)';
+        badge.style.color = 'var(--text-dim, #94a3b8)';
+        badge.style.borderColor = 'rgba(148, 163, 184, 0.2)';
+        dot.style.background = '#64748b';
+        text.textContent = 'Sidecar: Offline';
+      }
+    }
+
+    // 2. Active Sessions Tray
+    if (countEl) countEl.textContent = String(sessions.length);
+    if (badgeIcon) badgeIcon.textContent = (isOnline && sessions.length > 0) ? '🔥' : '📁';
+
+    if (listEl) {
+      listEl.innerHTML = '';
+
+      if (!isOnline) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'empty-state';
+        emptyDiv.style.cssText = 'font-size: 11px; color: var(--text-dim, #94a3b8); padding: 4px 0; font-style: italic;';
+        emptyDiv.textContent = 'Sidecar offline (Click Start OpenCode or launch Desktop build)';
+        listEl.appendChild(emptyDiv);
+      } else if (sessions.length === 0) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'empty-state';
+        emptyDiv.style.cssText = 'font-size: 11px; color: var(--text-dim, #94a3b8); padding: 4px 0; font-style: italic;';
+        emptyDiv.textContent = 'Idle (No active sessions)';
+        listEl.appendChild(emptyDiv);
+      } else {
+        sessions.forEach(s => {
+          const item = document.createElement('div');
+          item.className = 'opencode-session-item';
+
+          const title = escapeHtml(s.title || 'Untitled Session');
+          const dir = escapeHtml(s.directory || 'No directory');
+          const isBusy = !!(s.isBusy || (s.agentState && s.agentState.toLowerCase() === 'busy') || (s.status && (s.status.toLowerCase() === 'busy' || s.status.toLowerCase() === 'running' || s.status.toLowerCase() === 'generating' || s.status.toLowerCase() === 'thinking')));
+
+          const stateBadge = isBusy
+            ? `<span class="badge-agent-state badge-busy"><span class="pulse-dot-amber"></span> Running / Thinking...</span>`
+            : `<span class="badge-agent-state badge-idle"><span class="dot-green"></span> Idle</span>`;
+
+          item.innerHTML = `
+            <div class="opencode-session-info">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
+                <span class="opencode-session-title" title="${title}">${title}</span>
+                ${stateBadge}
+              </div>
+              <div class="opencode-session-path" title="${dir}">${dir}</div>
+            </div>
+            <button class="btn-session-focus" title="Bring OpenCode to foreground">Focus</button>
+          `;
+
+          const focusBtn = item.querySelector('.btn-session-focus');
+          if (focusBtn) {
+            focusBtn.addEventListener('click', async (ev) => {
+              ev.stopPropagation();
+              focusBtn.disabled = true;
+              focusBtn.textContent = 'Opening...';
+              try {
+                await callBridge('focus_opencode_session', {
+                  sessionId: s.id,
+                  directory: s.directory
+                });
+                showToast(`Focused session: ${s.title}`, 'info', 2500);
+              } catch (err) {
+                showToast(`Focus failed: ${err.message}`, 'error', 3000);
+              } finally {
+                setTimeout(() => {
+                  focusBtn.disabled = false;
+                  focusBtn.textContent = 'Focus';
+                }, 1000);
+              }
+            });
+          }
+
+          listEl.appendChild(item);
+        });
+      }
+    }
+  }
+
+  // Modern Dynamic Toast System
+  function showToast(message, type = 'info', durationMs = 4500) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast-item toast-${type}`;
+
+    let iconSvg = '';
+    if (type === 'success') {
+      iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#10b981" stroke-width="2.5" fill="none"><path d="M20 6L9 17l-5-5"/></svg>`;
+    } else if (type === 'error') {
+      iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#ef4444" stroke-width="2.5" fill="none"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+    } else {
+      iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#3b82f6" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+    }
+
+    toast.innerHTML = `
+      <span style="display: flex; align-items: center; flex-shrink: 0;">${iconSvg}</span>
+      <span style="flex: 1; word-break: break-word;">${escapeHtml(message)}</span>
+    `;
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      toast.classList.add('toast-out');
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      }, 250);
+    }, durationMs);
   }
 
   // AI Providers & Models Setup View
@@ -1427,15 +2340,224 @@
     });
   }
 
-  // Logging Helper
-  function appendLog(text) {
+  // Feature 8: Centralized Structured Logging System & Filter Tags
+  state.logs = [];
+  state.currentLogFilter = 'all';
+  state.currentPrompt = null;
+
+  function appendLog(text, tag = null, timestamp = null) {
+    if (!text) return;
+    const time = timestamp || new Date().toLocaleTimeString();
+
+    // Deduce tag if not explicitly provided
+    let inferredTag = tag;
+    if (!inferredTag) {
+      if (text.startsWith('[System]') || text.startsWith('[Config]') || text.startsWith('[Metrics]')) {
+        inferredTag = 'System';
+      } else if (text.startsWith('[OpenCode]') || text.startsWith('[Sidecar]')) {
+        inferredTag = 'OpenCode';
+      } else if (text.startsWith('[WARP]') || text.startsWith('[QuotaReset]')) {
+        inferredTag = 'WARP';
+      } else {
+        inferredTag = 'System';
+      }
+    }
+
+    let cleanText = text;
+    if (cleanText.startsWith(`[${inferredTag}]`)) {
+      cleanText = cleanText.substring(inferredTag.length + 2).trim();
+    }
+
+    const logEntry = {
+      timestamp: time,
+      tag: inferredTag,
+      text: cleanText
+    };
+
+    state.logs.push(logEntry);
+    if (state.logs.length > 1000) {
+      state.logs.shift();
+    }
+
+    if (shouldShowLogEntry(logEntry, state.currentLogFilter)) {
+      renderLogEntryDom(logEntry);
+    }
+  }
+
+  function shouldShowLogEntry(entry, filter) {
+    if (!filter || filter.toLowerCase() === 'all') return true;
+    const f = filter.toLowerCase();
+    const t = (entry.tag || '').toLowerCase();
+    if (f === 'system') return t === 'system';
+    if (f === 'opencode') return t === 'opencode';
+    if (f === 'warp') return t === 'warp' || t === 'quotareset';
+    return t === f;
+  }
+
+  function renderLogEntryDom(entry) {
     const logsEl = document.getElementById('logs-container');
     if (!logsEl) return;
-    const time = new Date().toLocaleTimeString();
+
+    const t = (entry.tag || '').toLowerCase();
+    let tagClass = 'log-tag-default';
+    let tagLabel = entry.tag || 'System';
+    if (t === 'system') {
+      tagClass = 'log-tag-system';
+      tagLabel = 'System';
+    } else if (t === 'opencode') {
+      tagClass = 'log-tag-opencode';
+      tagLabel = 'OpenCode';
+    } else if (t === 'warp' || t === 'quotareset') {
+      tagClass = 'log-tag-warp';
+      tagLabel = 'WARP';
+    }
+
     const line = document.createElement('div');
-    line.textContent = `[${time}] ${text}`;
+    line.className = 'log-line';
+    line.innerHTML = `
+      <span class="log-time">[${escapeHtml(entry.timestamp)}]</span>
+      <span class="log-tag ${tagClass}">${escapeHtml(tagLabel)}</span>
+      <span class="log-text">${escapeHtml(entry.text)}</span>
+    `;
+
     logsEl.appendChild(line);
     logsEl.scrollTop = logsEl.scrollHeight;
+  }
+
+  function refreshLogsDisplay() {
+    const logsEl = document.getElementById('logs-container');
+    if (!logsEl) return;
+    logsEl.innerHTML = '';
+    const visibleEntries = state.logs.filter(entry => shouldShowLogEntry(entry, state.currentLogFilter));
+    visibleEntries.forEach(entry => renderLogEntryDom(entry));
+    logsEl.scrollTop = logsEl.scrollHeight;
+  }
+
+  function setupLogFilterListeners() {
+    document.querySelectorAll('.log-filter-bar .log-filter-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('.log-filter-bar .log-filter-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        state.currentLogFilter = pill.getAttribute('data-filter') || 'all';
+        refreshLogsDisplay();
+      });
+    });
+
+    document.getElementById('btn-clear-logs')?.addEventListener('click', () => {
+      state.logs = [];
+      const logsEl = document.getElementById('logs-container');
+      if (logsEl) logsEl.innerHTML = '';
+      showToast('Logs cleared', 'info', 1500);
+    });
+  }
+
+  // Feature 1: Interactive Permissions & Questions
+  function handleOpenCodePrompt(prompt) {
+    if (!prompt) return;
+    state.currentPrompt = prompt;
+
+    const modal = document.getElementById('modal-opencode-prompt');
+    const titleEl = document.getElementById('opencode-prompt-title');
+    const typeEl = document.getElementById('opencode-prompt-type');
+    const timeEl = document.getElementById('opencode-prompt-time');
+    const bodyEl = document.getElementById('opencode-prompt-body');
+    const cmdBox = document.getElementById('opencode-prompt-command-box');
+    const cmdEl = document.getElementById('opencode-prompt-command');
+    const inputGroup = document.getElementById('opencode-prompt-input-group');
+    const inputEl = document.getElementById('opencode-prompt-input');
+    const approveBtn = document.getElementById('btn-approve-opencode-prompt');
+
+    if (!modal) return;
+
+    const isQuestion = (prompt.type || '').toLowerCase().includes('question');
+    if (titleEl) titleEl.textContent = prompt.title || (isQuestion ? 'OpenCode Question' : 'OpenCode Permission Requested');
+    if (typeEl) typeEl.textContent = isQuestion ? 'User Input' : 'Tool Execution';
+    if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
+    if (bodyEl) bodyEl.textContent = prompt.prompt || (isQuestion ? 'The agent is asking for your input:' : 'The agent requests permission to execute the following:');
+
+    if (prompt.command) {
+      if (cmdBox) cmdBox.style.display = 'block';
+      if (cmdEl) cmdEl.textContent = prompt.command;
+    } else {
+      if (cmdBox) cmdBox.style.display = 'none';
+    }
+
+    if (isQuestion) {
+      if (inputGroup) inputGroup.style.display = 'block';
+      if (inputEl) {
+        inputEl.value = '';
+        setTimeout(() => inputEl.focus(), 150);
+      }
+      if (approveBtn) approveBtn.textContent = 'Submit Answer';
+    } else {
+      if (inputGroup) inputGroup.style.display = 'none';
+      if (approveBtn) approveBtn.textContent = '✓ Approve / Yes';
+    }
+
+    modal.classList.add('open');
+    showToast(`OpenCode Prompt: ${prompt.title || 'Action Requested'}`, 'warn', 5000);
+  }
+
+  function setupPromptModalListeners() {
+    const modal = document.getElementById('modal-opencode-prompt');
+    const approveBtn = document.getElementById('btn-approve-opencode-prompt');
+    const rejectBtn = document.getElementById('btn-reject-opencode-prompt');
+    const inputEl = document.getElementById('opencode-prompt-input');
+
+    approveBtn?.addEventListener('click', async () => {
+      if (!state.currentPrompt) {
+        modal?.classList.remove('open');
+        return;
+      }
+      const p = state.currentPrompt;
+      const answer = (p.type || '').toLowerCase().includes('question') ? (inputEl?.value || '') : null;
+      approveBtn.disabled = true;
+      try {
+        await callBridge('reply_opencode_prompt', {
+          id: p.id,
+          type: p.type || 'permission',
+          approved: true,
+          answer: answer
+        });
+        showToast('Prompt approved / replied', 'success', 2500);
+      } catch (err) {
+        showToast('Reply failed: ' + err.message, 'error', 3000);
+      } finally {
+        approveBtn.disabled = false;
+        state.currentPrompt = null;
+        modal?.classList.remove('open');
+      }
+    });
+
+    rejectBtn?.addEventListener('click', async () => {
+      if (!state.currentPrompt) {
+        modal?.classList.remove('open');
+        return;
+      }
+      const p = state.currentPrompt;
+      rejectBtn.disabled = true;
+      try {
+        await callBridge('reply_opencode_prompt', {
+          id: p.id,
+          type: p.type || 'permission',
+          approved: false
+        });
+        showToast('Prompt rejected / denied', 'info', 2500);
+      } catch (err) {
+        showToast('Reject failed: ' + err.message, 'error', 3000);
+      } finally {
+        rejectBtn.disabled = false;
+        state.currentPrompt = null;
+        modal?.classList.remove('open');
+      }
+    });
+
+    // Close modal on Escape
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal?.classList.contains('open')) {
+        rejectBtn?.click();
+      }
+    });
   }
 
   // Global Actions (Buttons, Modals)
@@ -1460,14 +2582,63 @@
     document.getElementById('btn-refresh-state')?.addEventListener('click', loadInitialState);
 
     document.getElementById('btn-copy-lan-url')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(state.lanUrl);
-      appendLog('Copied LAN URL: ' + state.lanUrl);
+      const urlText = document.getElementById('dash-lan-url')?.textContent || '';
+      navigator.clipboard.writeText(urlText);
+      appendLog('Copied Web Host URL: ' + urlText);
     });
     document.getElementById('btn-open-lan-url')?.addEventListener('click', () => {
-      callBridge('open_url_external', { url: state.lanUrl });
+      const urlText = document.getElementById('dash-lan-url')?.textContent || '';
+      callBridge('open_url_external', { url: urlText });
     });
+    document.getElementById('btn-toggle-dash-url-mode')?.addEventListener('click', () => {
+      if (!state.lanProxyEnabled) {
+        appendLog('LAN connection is turned off. Turn on LAN from LAN Remote & QR to view network links.');
+        return;
+      }
+      state.dashUrlMode = state.dashUrlMode === 'local' ? 'lan' : 'local';
+      renderRunningPorts();
+      appendLog('Switched Dashboard Web Host view to: ' + (state.dashUrlMode === 'lan' ? 'Network (LAN)' : 'Local (127.0.0.1)'));
+    });
+
     document.getElementById('btn-copy-lan-tab-url')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(state.lanUrl);
+      const urlText = document.getElementById('lan-full-url')?.textContent || '';
+      navigator.clipboard.writeText(urlText);
+      appendLog('Copied LAN Remote URL: ' + urlText);
+    });
+    document.getElementById('btn-open-lan-tab-url')?.addEventListener('click', () => {
+      const urlText = document.getElementById('lan-full-url')?.textContent || '';
+      callBridge('open_url_external', { url: urlText });
+    });
+    document.getElementById('btn-toggle-lan-url-mode')?.addEventListener('click', () => {
+      if (!state.lanProxyEnabled) {
+        appendLog('LAN connection is turned off. Turn on LAN to view network links.');
+        return;
+      }
+      state.lanUrlMode = state.lanUrlMode === 'lan' ? 'local' : 'lan';
+      renderRunningPorts();
+      appendLog('Switched LAN Remote view to: ' + (state.lanUrlMode === 'lan' ? 'Network (LAN)' : 'Local (127.0.0.1)'));
+    });
+
+    document.getElementById('btn-toggle-lan-network')?.addEventListener('click', async () => {
+      const targetState = !state.lanProxyEnabled;
+      try {
+        const res = await callBridge('toggle_lan_proxy', { enabled: targetState });
+        if (res) {
+          state.lanProxyEnabled = !!res.lanProxyEnabled;
+          if (res.runningPorts) state.runningPorts = res.runningPorts;
+          if (!state.lanProxyEnabled) {
+            state.dashUrlMode = 'local';
+            state.lanUrlMode = 'local';
+            appendLog('LAN network connection turned OFF. All links switched to 127.0.0.1.');
+          } else {
+            state.lanUrlMode = 'lan';
+            appendLog('LAN network connection turned ON (192.168 active).');
+          }
+          renderRunningPorts();
+        }
+      } catch (err) {
+        appendLog('Failed to toggle LAN network: ' + (err.message || err));
+      }
     });
 
     // Modal: Add profile
@@ -1482,7 +2653,18 @@
     document.getElementById('btn-confirm-add-profile')?.addEventListener('click', async () => {
       const name = nameInp.value.trim();
       if (name) {
-        await callBridge('create_antigravity_profile', { profileName: name });
+        try {
+          const res = await callBridge('create_antigravity_profile', { profileName: name });
+          if (res) {
+            if (res.activeProfile !== undefined) state.antigravity.activeProfile = res.activeProfile;
+            if (res.profiles) state.antigravity.profiles = res.profiles;
+            renderProfiles();
+            renderQuickProfileSelect();
+            updateHeaderStatus();
+          }
+        } catch (e) {
+          console.error('Create profile failed:', e);
+        }
         modal.classList.remove('open');
       }
     });
@@ -1515,6 +2697,10 @@
         if (res.aiConfig) {
           state.aiConfig = res.aiConfig;
         }
+        if (res.opencode) {
+          state.opencode = res.opencode;
+          renderOpenCodeCard();
+        }
         if (res.settings) {
           state.settings = res.settings;
           const autoCheck = document.getElementById('setting-autostart-checkbox');
@@ -1531,6 +2717,8 @@
             : localStorage.getItem('agents_hub_mask_shortcuts') === 'true';
           const maskPathsCheck = document.getElementById('setting-mask-paths-checkbox');
           if (maskPathsCheck) maskPathsCheck.checked = state.isShortcutsMasked;
+          const embedShellsCheck = document.getElementById('setting-embed-shells-checkbox');
+          if (embedShellsCheck) embedShellsCheck.checked = !!res.settings.embedShellsInTerminalWorkspace;
 
           // Apply initial theme & accent color
           const activeTheme = localStorage.getItem('agents_hub_theme') || res.settings.theme || 'dark';
@@ -1538,10 +2726,18 @@
           applyAdaptiveTheme(activeTheme, activeColor);
         }
 
-        // Fetch public IP initially
+        // Fetch public IP initially (dual-stack IPv4 & IPv6)
         callBridge('get_public_ip').then(r => {
-          if (r && r.ip) {
-            state.publicIp = r.ip;
+          if (r) {
+            if (r.ipv4) state.ipv4 = r.ipv4;
+            if (r.ipv6) state.ipv6 = r.ipv6;
+            if (r.ip) state.publicIp = r.ip;
+            if (!state.ipv4 && r.ip && !r.ip.includes(':')) state.ipv4 = r.ip;
+            if (!state.ipv6 && r.ip && r.ip.includes(':')) state.ipv6 = r.ip;
+            state.countryCode = r.countryCode || '';
+            state.country = r.country || '';
+            state.countryEmoji = r.countryEmoji || '';
+            state.city = r.city || '';
             renderPublicIpDisplay();
           }
         }).catch(() => {});
@@ -1563,6 +2759,16 @@
           if (qrFallback) qrFallback.style.display = 'none';
         }
 
+        if (res.runningPorts) {
+          state.runningPorts = res.runningPorts;
+        }
+        state.lanProxyPort = res.lanProxyPort || 9191;
+        state.lanProxyEnabled = res.lanProxyEnabled !== undefined ? !!res.lanProxyEnabled : true;
+        if (!state.lanProxyEnabled) {
+          state.dashUrlMode = 'local';
+          state.lanUrlMode = 'local';
+        }
+
         updateHeaderStatus();
         updateDashboardCliRows();
         renderDashboardShortcuts();
@@ -1572,6 +2778,7 @@
         renderPromptModelsDropdown();
         renderProvidersList();
         renderDevToolsList();
+        renderRunningPorts();
       }
     } catch (err) {
       console.error('Failed to load initial state:', err);
@@ -1592,6 +2799,9 @@
     setupSettingsView();
     setupShortcutEditor();
     setupQuotaAndIpWidget();
+    renderOpenCodeCard();
+    setupPromptModalListeners();
+    setupLogFilterListeners();
     setupGlobalActions();
     loadInitialState();
   });

@@ -30,9 +30,20 @@
           <div class="card-subtitle">Rotate Cloudflare WARP IP for OpenCode free trials</div>
         </div>
       </div>
-      <div id="opencode-sidecar-badge" class="badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 3px 8px; border-radius: 9999px; background: rgba(100, 116, 139, 0.15); color: var(--text-dim, #94a3b8); border: 1px solid rgba(148, 163, 184, 0.2); white-space: nowrap;">
-        <span id="opencode-sidecar-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #64748b;"></span>
-        <span id="opencode-sidecar-text">Sidecar: Offline</span>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <button class="btn btn-primary" id="btn-opencode-start" title="Launch OpenCode Desktop / Sidecar" style="display: inline-flex; padding: 3px 10px; font-size: 11px; font-weight: 600; gap: 4px; background: var(--accent-indigo, #6366f1); border-radius: 6px;">
+          ▶ Start OpenCode
+        </button>
+        <button class="btn btn-outline" id="btn-opencode-stop" title="Stop OpenCode Desktop Process" style="display: none; padding: 3px 8px; font-size: 11px; color: #f87171; border-color: rgba(248, 113, 113, 0.4); border-radius: 6px; gap: 4px;">
+          ⏹ Stop
+        </button>
+        <button class="btn-icon" id="btn-opencode-recheck" title="Recheck / Refresh OpenCode Status (service.json & /api/info)" style="padding: 4px; border-radius: 6px;">
+          <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+        </button>
+        <div id="opencode-sidecar-badge" class="badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 3px 8px; border-radius: 9999px; background: rgba(100, 116, 139, 0.15); color: var(--text-dim, #94a3b8); border: 1px solid rgba(148, 163, 184, 0.2); white-space: nowrap;">
+          <span id="opencode-sidecar-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #64748b;"></span>
+          <span id="opencode-sidecar-text">Sidecar: Offline</span>
+        </div>
       </div>
     </div>
     <div class="card-url-box ip-dual-stack-container" id="dash-ip-container">

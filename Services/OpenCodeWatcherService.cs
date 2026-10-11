@@ -23,6 +23,39 @@ public sealed class OpenCodeSessionDto
 
     [JsonPropertyName("status")]
     public string Status { get; set; } = "active";
+
+    [JsonPropertyName("isBusy")]
+    public bool IsBusy { get; set; }
+
+    [JsonPropertyName("agentState")]
+    public string AgentState { get; set; } = "idle";
+}
+
+public sealed class OpenCodeInteractivePromptDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "permission"; // "permission" or "question"
+
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("prompt")]
+    public string Prompt { get; set; } = string.Empty;
+
+    [JsonPropertyName("command")]
+    public string Command { get; set; } = string.Empty;
+
+    [JsonPropertyName("options")]
+    public List<string> Options { get; set; } = new();
+
+    [JsonPropertyName("createdAt")]
+    public string CreatedAt { get; set; } = DateTime.UtcNow.ToString("o");
 }
 
 public sealed class OpenCodeStateDto
@@ -79,8 +112,13 @@ public sealed class OpenCodeWatcherService : IDisposable
     public string BaseUrl { get; private set; } = string.Empty;
     public string NormalizedBaseUrl { get; private set; } = string.Empty;
 
+    private readonly HashSet<string> _notifiedPromptIds = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _sseCts;
+    private Task? _sseListeningTask;
+
     public event Action<bool, int>? OnStatusChanged;
     public event Action<List<OpenCodeSessionDto>>? OnSessionsUpdated;
+    public event Action<OpenCodeInteractivePromptDto>? OnInteractivePrompt;
 
     public OpenCodeWatcherService()
     {
@@ -398,6 +436,7 @@ public sealed class OpenCodeWatcherService : IDisposable
         {
             SetOnlineStatus(true, port);
             await QuerySessionsAsync(normUrl, password);
+            await PollPendingInteractivePromptsAsync(normUrl, password);
         }
         else
         {
@@ -431,6 +470,7 @@ public sealed class OpenCodeWatcherService : IDisposable
                         {
                             var content = await resp.Content.ReadAsStringAsync();
                             ParseSessionsJson(content);
+                            await QuerySessionStatusesAsync(normUrl, authHeader);
                             return;
                         }
                     }
@@ -449,8 +489,12 @@ public sealed class OpenCodeWatcherService : IDisposable
     private void SetOnlineStatus(bool online, int port)
     {
         bool changed = false;
+        string normUrl;
+        string password;
         lock (_stateLock)
         {
+            normUrl = NormalizedBaseUrl;
+            password = Password;
             if (IsOnline != online)
             {
                 IsOnline = online;
@@ -465,8 +509,13 @@ public sealed class OpenCodeWatcherService : IDisposable
         if (changed)
         {
             OnStatusChanged?.Invoke(online, port);
-            if (!online)
+            if (online)
             {
+                StartSseListener(normUrl, password);
+            }
+            else
+            {
+                StopSseListener();
                 OnSessionsUpdated?.Invoke(new List<OpenCodeSessionDto>());
             }
         }
@@ -523,6 +572,15 @@ public sealed class OpenCodeWatcherService : IDisposable
                     }
 
                     if (el.TryGetProperty("status", out var stProp)) dto.Status = stProp.GetString() ?? "active";
+                    else if (el.TryGetProperty("state", out var stateProp)) dto.Status = stateProp.GetString() ?? "active";
+
+                    bool isBusy = dto.Status.Equals("busy", StringComparison.OrdinalIgnoreCase) ||
+                                  dto.Status.Equals("running", StringComparison.OrdinalIgnoreCase) ||
+                                  dto.Status.Equals("generating", StringComparison.OrdinalIgnoreCase) ||
+                                  dto.Status.Equals("thinking", StringComparison.OrdinalIgnoreCase);
+
+                    dto.IsBusy = isBusy;
+                    dto.AgentState = isBusy ? "busy" : "idle";
 
                     // Friendly title fallback from directory folder name
                     if ((string.IsNullOrWhiteSpace(dto.Title) || dto.Title.StartsWith("New session", StringComparison.OrdinalIgnoreCase))
@@ -566,6 +624,61 @@ public sealed class OpenCodeWatcherService : IDisposable
         }
     }
 
+    private async Task QuerySessionStatusesAsync(string normUrl, AuthenticationHeaderValue authHeader)
+    {
+        List<OpenCodeSessionDto> current;
+        lock (_stateLock)
+        {
+            current = [.. _sessions];
+        }
+
+        bool updatedAny = false;
+        foreach (var s in current)
+        {
+            if (string.IsNullOrWhiteSpace(s.Directory)) continue;
+            try
+            {
+                var queryUrl = $"{normUrl}/session/status?directory={Uri.EscapeDataString(s.Directory)}";
+                using var req = new HttpRequestMessage(HttpMethod.Get, queryUrl);
+                req.Headers.Authorization = authHeader;
+                req.Headers.ConnectionClose = true;
+
+                using var resp = await _httpClient.SendAsync(req);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var statusJson = await resp.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(statusJson);
+                    var root = doc.RootElement;
+                    string statusVal = "";
+                    if (root.TryGetProperty("status", out var stP)) statusVal = stP.GetString() ?? "";
+                    else if (root.TryGetProperty("state", out var spP)) statusVal = spP.GetString() ?? "";
+
+                    if (!string.IsNullOrEmpty(statusVal))
+                    {
+                        bool busy = statusVal.Equals("busy", StringComparison.OrdinalIgnoreCase) ||
+                                    statusVal.Equals("running", StringComparison.OrdinalIgnoreCase) ||
+                                    statusVal.Equals("generating", StringComparison.OrdinalIgnoreCase) ||
+                                    statusVal.Equals("thinking", StringComparison.OrdinalIgnoreCase);
+                        if (s.IsBusy != busy || s.Status != statusVal)
+                        {
+                            s.Status = statusVal;
+                            s.IsBusy = busy;
+                            s.AgentState = busy ? "busy" : "idle";
+                            updatedAny = true;
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        if (updatedAny)
+        {
+            OnSessionsUpdated?.Invoke(GetSessions());
+        }
+    }
+
+
     private void ExtractFallbackSessionsFromStorage()
     {
         try
@@ -601,7 +714,9 @@ public sealed class OpenCodeWatcherService : IDisposable
                     Id = dir,
                     Title = Path.GetFileName(dir.TrimEnd('\\', '/')),
                     Directory = dir,
-                    Status = "active"
+                    Status = "idle",
+                    IsBusy = false,
+                    AgentState = "idle"
                 }).ToList();
 
                 bool changed = false;
@@ -629,7 +744,12 @@ public sealed class OpenCodeWatcherService : IDisposable
         if (a.Count != b.Count) return false;
         for (int i = 0; i < a.Count; i++)
         {
-            if (a[i].Id != b[i].Id || a[i].Title != b[i].Title || a[i].Directory != b[i].Directory || a[i].Status != b[i].Status)
+            if (a[i].Id != b[i].Id ||
+                a[i].Title != b[i].Title ||
+                a[i].Directory != b[i].Directory ||
+                a[i].Status != b[i].Status ||
+                a[i].IsBusy != b[i].IsBusy ||
+                a[i].AgentState != b[i].AgentState)
             {
                 return false;
             }
@@ -646,7 +766,9 @@ public sealed class OpenCodeWatcherService : IDisposable
                 Id = s.Id,
                 Title = s.Title,
                 Directory = s.Directory,
-                Status = s.Status
+                Status = s.Status,
+                IsBusy = s.IsBusy,
+                AgentState = s.AgentState
             }).ToList();
         }
     }
@@ -848,11 +970,425 @@ public sealed class OpenCodeWatcherService : IDisposable
         return GetStateDto();
     }
 
+    public static string? FindOpenCodeExecutable()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        var candidatePaths = new[]
+        {
+            Path.Combine(localAppData, "Programs", "@opencodedesktop", "OpenCode.exe"),
+            Path.Combine(localAppData, "Programs", "OpenCode", "OpenCode.exe"),
+            Path.Combine(localAppData, "Programs", "OpenCode Desktop", "OpenCode.exe"),
+            Path.Combine(localAppData, "ai.opencode.desktop", "OpenCode.exe"),
+            Path.Combine(programFiles, "OpenCode", "OpenCode.exe"),
+            Path.Combine(programFilesX86, "OpenCode", "OpenCode.exe"),
+            Path.Combine(appData, "npm", "opencode.cmd"),
+            Path.Combine(userProfile, "AppData", "Roaming", "npm", "opencode.cmd")
+        };
+
+        foreach (var path in candidatePaths)
+        {
+            if (File.Exists(path)) return path;
+        }
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        var exesToCheck = new[] { "OpenCode.exe", "opencode.cmd", "opencode.exe" };
+        foreach (var folder in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            foreach (var exeName in exesToCheck)
+            {
+                try
+                {
+                    var full = Path.Combine(folder.Trim(), exeName);
+                    if (File.Exists(full)) return full;
+                }
+                catch { }
+            }
+        }
+
+        return null;
+    }
+
+    public async Task<(bool success, string message)> StartOpenCodeServiceAsync()
+    {
+        if (IsOnline)
+        {
+            return (true, "OpenCode service is already running and online.");
+        }
+
+        var exe = FindOpenCodeExecutable();
+        if (string.IsNullOrWhiteSpace(exe))
+        {
+            return (false, "OpenCode executable not found in common install paths.");
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo(exe)
+            {
+                UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Normal
+            };
+            Process.Start(psi);
+
+            for (int i = 0; i < 20; i++)
+            {
+                await Task.Delay(500);
+                await DiscoverAndReloadCredentialsAsync();
+                await CheckHealthAndRefreshAsync();
+                if (IsOnline)
+                {
+                    return (true, $"OpenCode started successfully (Port {Port}).");
+                }
+            }
+
+            return (false, "OpenCode was launched, but Sidecar API did not respond within 10 seconds.");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Failed to launch OpenCode: {ex.Message}");
+        }
+    }
+
+    public async Task<(bool success, string message)> StopOpenCodeServiceAsync()
+    {
+        int targetPid = Pid;
+        int killedCount = 0;
+
+        if (targetPid > 0)
+        {
+            try
+            {
+                var proc = Process.GetProcessById(targetPid);
+                if (!proc.HasExited)
+                {
+                    proc.Kill(entireProcessTree: true);
+                    killedCount++;
+                }
+            }
+            catch { }
+        }
+
+        try
+        {
+            var procs = Process.GetProcesses()
+                .Where(p => p.ProcessName.Contains("opencode", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var p in procs)
+            {
+                try
+                {
+                    if (!p.HasExited)
+                    {
+                        p.Kill(entireProcessTree: true);
+                        killedCount++;
+                    }
+                }
+                catch { }
+            }
+        }
+        catch { }
+
+        SetOnlineStatus(false, 0);
+
+        return killedCount > 0
+            ? (true, $"OpenCode stopped ({killedCount} process(es) terminated).")
+            : (true, "OpenCode was stopped.");
+    }
+
+    public async Task<bool> ReplyPromptAsync(string id, string type, bool approved, string? answer = null)
+    {
+        string normUrl;
+        string password;
+        lock (_stateLock)
+        {
+            normUrl = NormalizedBaseUrl;
+            password = Password;
+        }
+
+        if (string.IsNullOrWhiteSpace(normUrl) || !IsOnline) return false;
+
+        var authCandidates = new[] { $"opencode:{password}", $":{password}" };
+        bool isQuestion = type.Equals("question", StringComparison.OrdinalIgnoreCase);
+        string endpoint = isQuestion ? $"{normUrl}/question/{id}/reply" : $"{normUrl}/permission/{id}/reply";
+
+        object bodyObj = isQuestion
+            ? (object)new { answer = !string.IsNullOrWhiteSpace(answer) ? answer : (approved ? "yes" : "no") }
+            : (object)new { reply = approved ? "always" : "reject" };
+
+        var bodyJson = JsonSerializer.Serialize(bodyObj);
+
+        foreach (var authCandidate in authCandidates)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Post, endpoint);
+                var authBytes = Encoding.UTF8.GetBytes(authCandidate);
+                req.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
+                req.Headers.ConnectionClose = true;
+                req.Content = new StringContent(bodyJson, Encoding.UTF8, "application/json");
+
+                using var resp = await _httpClient.SendAsync(req);
+                if (resp.IsSuccessStatusCode)
+                {
+                    lock (_stateLock)
+                    {
+                        _notifiedPromptIds.Remove(id);
+                    }
+                    return true;
+                }
+            }
+            catch { }
+        }
+
+        return false;
+    }
+
+    private void StartSseListener(string normUrl, string password)
+    {
+        StopSseListener();
+        _sseCts = new CancellationTokenSource();
+        var token = _sseCts.Token;
+
+        _sseListeningTask = Task.Run(async () =>
+        {
+            var authCandidates = new[] { $"opencode:{password}", $":{password}" };
+            while (!token.IsCancellationRequested && IsOnline)
+            {
+                bool connected = false;
+                foreach (var authCandidate in authCandidates)
+                {
+                    if (token.IsCancellationRequested || !IsOnline) break;
+                    try
+                    {
+                        var req = new HttpRequestMessage(HttpMethod.Get, $"{normUrl}/event");
+                        var authBytes = Encoding.UTF8.GetBytes(authCandidate);
+                        req.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
+                        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+
+                        using var resp = await _httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token);
+                        if (resp.IsSuccessStatusCode)
+                        {
+                            connected = true;
+                            using var stream = await resp.Content.ReadAsStreamAsync(token);
+                            using var reader = new StreamReader(stream, Encoding.UTF8);
+
+                            while (!token.IsCancellationRequested)
+                            {
+                                var line = await reader.ReadLineAsync(token);
+                                if (line == null) break;
+                                if (string.IsNullOrWhiteSpace(line)) continue;
+                                if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    var dataJson = line.Substring(5).Trim();
+                                    HandleSseEventJson(dataJson);
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    catch (OperationCanceledException) { return; }
+                    catch { }
+                }
+
+                if (!connected && !token.IsCancellationRequested && IsOnline)
+                {
+                    try { await Task.Delay(3000, token); } catch { return; }
+                }
+            }
+        }, token);
+    }
+
+    private void StopSseListener()
+    {
+        try
+        {
+            _sseCts?.Cancel();
+            _sseCts?.Dispose();
+        }
+        catch { }
+        _sseCts = null;
+        _sseListeningTask = null;
+    }
+
+    private void HandleSseEventJson(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var type = root.TryGetProperty("type", out var tProp) ? tProp.GetString() : string.Empty;
+
+            if (string.Equals(type, "question.asked", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(type, "permission.asked", StringComparison.OrdinalIgnoreCase))
+            {
+                JsonElement data = root.TryGetProperty("data", out var dProp) ? dProp : root;
+                var prompt = ParseInteractivePromptElement(data, (type ?? string.Empty).StartsWith("question", StringComparison.OrdinalIgnoreCase) ? "question" : "permission");
+                if (prompt != null)
+                {
+                    DispatchPromptIfNew(prompt);
+                }
+            }
+            else if (string.Equals(type, "session.status", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(type, "session.updated", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = RefreshAsync();
+            }
+        }
+        catch { }
+    }
+
+    private async Task PollPendingInteractivePromptsAsync(string normUrl, string password)
+    {
+        try
+        {
+            var authCandidates = new[] { $"opencode:{password}", $":{password}" };
+            string workingAuth = authCandidates[0];
+
+            foreach (var auth in authCandidates)
+            {
+                try
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Get, $"{normUrl}/question");
+                    var authBytes = Encoding.UTF8.GetBytes(auth);
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
+                    req.Headers.ConnectionClose = true;
+                    using var resp = await _httpClient.SendAsync(req);
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        var json = await resp.Content.ReadAsStringAsync();
+                        ParseAndDispatchPromptList(json, "question");
+                        workingAuth = auth;
+                        break;
+                    }
+                }
+                catch { }
+            }
+
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{normUrl}/permission");
+                var authBytes = Encoding.UTF8.GetBytes(workingAuth);
+                req.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
+                req.Headers.ConnectionClose = true;
+                using var resp = await _httpClient.SendAsync(req);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var json = await resp.Content.ReadAsStringAsync();
+                    ParseAndDispatchPromptList(json, "permission");
+                }
+            }
+            catch { }
+        }
+        catch { }
+    }
+
+    private void DispatchPromptIfNew(OpenCodeInteractivePromptDto prompt)
+    {
+        if (string.IsNullOrWhiteSpace(prompt.Id)) return;
+        bool isNew;
+        lock (_stateLock)
+        {
+            isNew = _notifiedPromptIds.Add(prompt.Id);
+        }
+        if (isNew)
+        {
+            OnInteractivePrompt?.Invoke(prompt);
+        }
+    }
+
+    private void ParseAndDispatchPromptList(string json, string defaultType)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            JsonElement arrayEl = default;
+
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                arrayEl = root;
+            }
+            else if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (root.TryGetProperty("data", out var dEl) && dEl.ValueKind == JsonValueKind.Array) arrayEl = dEl;
+                else if (root.TryGetProperty("questions", out var qEl) && qEl.ValueKind == JsonValueKind.Array) arrayEl = qEl;
+                else if (root.TryGetProperty("permissions", out var pEl) && pEl.ValueKind == JsonValueKind.Array) arrayEl = pEl;
+            }
+
+            if (arrayEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in arrayEl.EnumerateArray())
+                {
+                    var prompt = ParseInteractivePromptElement(item, defaultType);
+                    if (prompt != null)
+                    {
+                        DispatchPromptIfNew(prompt);
+                    }
+                }
+            }
+        }
+        catch { }
+    }
+
+    private OpenCodeInteractivePromptDto? ParseInteractivePromptElement(JsonElement el, string defaultType)
+    {
+        try
+        {
+            var p = new OpenCodeInteractivePromptDto { Type = defaultType };
+            if (el.TryGetProperty("id", out var idProp)) p.Id = idProp.GetString() ?? string.Empty;
+            if (el.TryGetProperty("sessionID", out var sIdProp)) p.SessionId = sIdProp.GetString() ?? string.Empty;
+            else if (el.TryGetProperty("sessionId", out var sId2Prop)) p.SessionId = sId2Prop.GetString() ?? string.Empty;
+
+            if (el.TryGetProperty("type", out var typeProp))
+            {
+                var t = typeProp.GetString() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(t)) p.Type = t.StartsWith("question", StringComparison.OrdinalIgnoreCase) ? "question" : "permission";
+            }
+
+            if (el.TryGetProperty("title", out var titleProp)) p.Title = titleProp.GetString() ?? string.Empty;
+            if (el.TryGetProperty("prompt", out var promptProp)) p.Prompt = promptProp.GetString() ?? string.Empty;
+            else if (el.TryGetProperty("question", out var qProp)) p.Prompt = qProp.GetString() ?? string.Empty;
+            else if (el.TryGetProperty("message", out var msgProp)) p.Prompt = msgProp.GetString() ?? string.Empty;
+
+            if (el.TryGetProperty("command", out var cmdProp)) p.Command = cmdProp.GetString() ?? string.Empty;
+            else if (el.TryGetProperty("pattern", out var patProp)) p.Command = patProp.GetString() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(p.Title))
+            {
+                p.Title = p.Type.Equals("question", StringComparison.OrdinalIgnoreCase)
+                    ? "OpenCode Agent Question"
+                    : "Tool Execution Permission Request";
+            }
+
+            if (el.TryGetProperty("options", out var optsProp) && optsProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var opt in optsProp.EnumerateArray())
+                {
+                    var s = opt.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) p.Options.Add(s);
+                }
+            }
+
+            return !string.IsNullOrWhiteSpace(p.Id) ? p : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         if (_isDisposed) return;
         _isDisposed = true;
 
+        StopSseListener();
         _heartbeatTimer?.Dispose();
         _debounceCts?.Cancel();
         _debounceCts?.Dispose();

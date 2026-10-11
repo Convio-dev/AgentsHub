@@ -149,12 +149,20 @@ public sealed class DashboardWebBridge : IDisposable
             {
                 var stateDto = _openCodeWatcher.GetStateDto();
                 PostOpenCodeUpdate(stateDto);
+                EmitLog("OpenCode", isOnline ? "info" : "warn", isOnline ? $"Sidecar Online on port {port}" : "Sidecar Offline");
             };
 
             _openCodeWatcher.OnSessionsUpdated += (sessions) =>
             {
                 var stateDto = _openCodeWatcher.GetStateDto();
                 PostOpenCodeUpdate(stateDto);
+                EmitLog("OpenCode", "info", $"Active sessions updated ({sessions.Count} session(s))");
+            };
+
+            _openCodeWatcher.OnInteractivePrompt += (prompt) =>
+            {
+                PostEventToUi("opencode_interactive_prompt", prompt);
+                EmitLog("OpenCode", "warn", $"Interactive prompt: {prompt.Title} - {prompt.Prompt}");
             };
         }
     }
@@ -703,6 +711,67 @@ public sealed class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "start_opencode_service":
+            case "StartOpenCodeService":
+                if (_openCodeWatcher != null)
+                {
+                    var (ok, msg) = await _openCodeWatcher.StartOpenCodeServiceAsync();
+                    EmitLog("OpenCode", ok ? "info" : "error", msg);
+                    SendResponse(requestId, ok, new { success = ok, message = msg, state = _openCodeWatcher.GetStateDto() });
+                }
+                else
+                {
+                    SendResponse(requestId, false, "OpenCode watcher service not initialized");
+                }
+                break;
+
+            case "stop_opencode_service":
+            case "StopOpenCodeService":
+                if (_openCodeWatcher != null)
+                {
+                    var (ok, msg) = await _openCodeWatcher.StopOpenCodeServiceAsync();
+                    EmitLog("OpenCode", "info", msg);
+                    SendResponse(requestId, ok, new { success = ok, message = msg, state = _openCodeWatcher.GetStateDto() });
+                }
+                else
+                {
+                    SendResponse(requestId, false, "OpenCode watcher service not initialized");
+                }
+                break;
+
+            case "recheck_opencode_service":
+            case "RecheckOpenCodeService":
+                if (_openCodeWatcher != null)
+                {
+                    var freshState = await _openCodeWatcher.RefreshAsync();
+                    EmitLog("OpenCode", "info", $"Rechecked service status: {(freshState.IsOnline ? "Online (Port " + freshState.Port + ")" : "Offline")}");
+                    SendResponse(requestId, true, freshState);
+                }
+                else
+                {
+                    SendResponse(requestId, false, "OpenCode watcher service not initialized");
+                }
+                break;
+
+            case "reply_opencode_prompt":
+            case "ReplyOpenCodePrompt":
+                if (_openCodeWatcher != null)
+                {
+                    string pId = data.TryGetProperty("id", out var idProp) ? idProp.GetString() ?? string.Empty : string.Empty;
+                    string pType = data.TryGetProperty("type", out var tProp) ? tProp.GetString() ?? "permission" : "permission";
+                    bool pApprove = data.TryGetProperty("approved", out var appProp) && appProp.GetBoolean();
+                    string? pAnswer = data.TryGetProperty("answer", out var ansProp) ? ansProp.GetString() : null;
+
+                    var ok = await _openCodeWatcher.ReplyPromptAsync(pId, pType, pApprove, pAnswer);
+                    EmitLog("OpenCode", ok ? "info" : "error", $"Replied to prompt {pId}: {(pApprove ? "Approved" : "Rejected")} (success: {ok})");
+                    SendResponse(requestId, ok, new { success = ok });
+                }
+                else
+                {
+                    SendResponse(requestId, false, "OpenCode watcher service not initialized");
+                }
+                break;
+
             case "generate_qr_code":
                 if (data.TryGetProperty("url", out var qrUrlEl))
                 {
@@ -1088,12 +1157,24 @@ public sealed class DashboardWebBridge : IDisposable
         {
             var envelope = JsonSerializer.Serialize(new
             {
+                type = eventType == "opencode_interactive_prompt" ? "OPENCODE_INTERACTIVE_PROMPT" : eventType,
                 @event = eventType,
                 payload
             });
             _coreWebView.PostWebMessageAsJson(envelope);
         }
         catch { }
+    }
+
+    public void EmitLog(string source, string level, string message)
+    {
+        PostEventToUi("live_log_entry", new
+        {
+            timestamp = DateTime.Now.ToString("HH:mm:ss"),
+            tag = source,
+            level = level,
+            text = $"[{source}] {message}"
+        });
     }
 
     private void SendResponse(string? requestId, bool success, object? data)
@@ -1205,6 +1286,7 @@ public sealed class DashboardWebBridge : IDisposable
                         outputLines.Add(e.Data);
                         PostEventToUi("terminal_data", new { cli = "QuotaReset", data = e.Data + "\r\n" });
                         PostEventToUi("quota_reset_progress", new { line = e.Data });
+                        EmitLog("WARP", "info", e.Data);
                     }
                 };
                 proc.ErrorDataReceived += (_, e) =>
@@ -1213,6 +1295,7 @@ public sealed class DashboardWebBridge : IDisposable
                     {
                         outputLines.Add(e.Data);
                         PostEventToUi("terminal_data", new { cli = "QuotaReset", data = e.Data + "\r\n" });
+                        EmitLog("WARP", "warn", e.Data);
                     }
                 };
 
@@ -1319,6 +1402,7 @@ public sealed class DashboardWebBridge : IDisposable
                         city
                     };
 
+                    EmitLog("WARP", success ? "info" : "error", !string.IsNullOrWhiteSpace(message) ? message : (success ? "Dual-stack rotated successfully" : "Rotation failed"));
                     if (requestId != null) SendResponse(requestId, success, resultObj);
                     return resultObj;
                 }
@@ -1358,6 +1442,7 @@ public sealed class DashboardWebBridge : IDisposable
             city = freshIpDetails.City
         };
 
+        EmitLog("WARP", fallbackSuccess ? "info" : "error", rotateMsg);
         if (requestId != null) SendResponse(requestId, fallbackSuccess, fallbackResult);
         return fallbackResult;
     }

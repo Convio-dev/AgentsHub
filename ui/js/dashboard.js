@@ -73,6 +73,9 @@
       if (msg.type === 'OPENCODE_UPDATE' && msg.data) {
         handleOpenCodeUpdate(msg.data);
       }
+      if (msg.type === 'OPENCODE_INTERACTIVE_PROMPT') {
+        handleOpenCodePrompt(msg.payload || msg.prompt || msg.data);
+      }
 
       // Handle Push Events
       if (msg.event) {
@@ -82,8 +85,16 @@
   }
 
   function handleBackendEvent(eventType, payload) {
-    // FIX: Do NOT flood logs with hardware metrics or stream chunks!
-    if (eventType !== 'hardware_metrics' && eventType !== 'terminal_data') {
+    // FIX: Do NOT flood logs with hardware metrics, stream chunks, or internal updates!
+    const suppressedEvents = [
+      'hardware_metrics', 
+      'terminal_data', 
+      'live_log_entry', 
+      'opencode_status_changed', 
+      'opencode_sessions_updated',
+      'opencode_interactive_prompt'
+    ];
+    if (!suppressedEvents.includes(eventType)) {
       appendLog(`[${eventType}] ${JSON.stringify(payload)}`);
     }
 
@@ -95,9 +106,21 @@
         }
         break;
 
+      case 'opencode_interactive_prompt':
+        if (payload) {
+          handleOpenCodePrompt(payload);
+        }
+        break;
+
+      case 'live_log_entry':
+        if (payload) {
+          appendLog(payload.text || payload.message, payload.tag, payload.timestamp);
+        }
+        break;
+
       case 'quota_reset_progress':
         if (payload && payload.line) {
-          appendLog(`[QuotaReset] ${payload.line}`);
+          appendLog(payload.line, 'WARP');
         }
         break;
 
@@ -1931,6 +1954,72 @@
         }
       }
     });
+
+    // Feature 2: Service Management Controls (Start, Stop, Recheck)
+    document.getElementById('btn-opencode-start')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-opencode-start');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Starting...';
+      }
+      try {
+        const res = await callBridge('start_opencode_service');
+        if (res && res.success) {
+          showToast(res.message || 'OpenCode Desktop launched successfully', 'success', 3500);
+          if (res.state) handleOpenCodeUpdate(res.state);
+        } else {
+          showToast(res?.message || 'Could not start OpenCode service', 'error', 4000);
+        }
+      } catch (err) {
+        showToast('Start OpenCode failed: ' + err.message, 'error', 3500);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '▶ Start OpenCode';
+        }
+      }
+    });
+
+    document.getElementById('btn-opencode-stop')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-opencode-stop');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Stopping...';
+      }
+      try {
+        const res = await callBridge('stop_opencode_service');
+        if (res && res.success) {
+          showToast(res.message || 'OpenCode Desktop terminated', 'info', 3000);
+          if (res.state) handleOpenCodeUpdate(res.state);
+        } else {
+          showToast(res?.message || 'Could not stop OpenCode service', 'error', 3500);
+        }
+      } catch (err) {
+        showToast('Stop OpenCode failed: ' + err.message, 'error', 3500);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '⏹ Stop';
+        }
+      }
+    });
+
+    document.getElementById('btn-opencode-recheck')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-opencode-recheck');
+      const svg = btn?.querySelector('svg');
+      if (svg) svg.classList.add('spinning');
+      try {
+        const fresh = await callBridge('recheck_opencode_service');
+        if (fresh) {
+          handleOpenCodeUpdate(fresh);
+          showToast(`OpenCode status: ${fresh.isOnline ? 'Online (Port ' + fresh.port + ')' : 'Offline'}`, fresh.isOnline ? 'success' : 'info', 2500);
+        }
+      } catch (err) {
+        showToast('Recheck failed: ' + err.message, 'error', 3000);
+      } finally {
+        if (svg) svg.classList.remove('spinning');
+      }
+    });
   }
 
   function handleOpenCodeUpdate(data) {
@@ -1955,7 +2044,12 @@
     const port = state.opencode?.port || 0;
     const sessions = state.opencode?.activeSessions || [];
 
-    // 1. Sidecar Status Header Pill
+    // 1. Sidecar Status Header Pill & Service Controls
+    const startBtn = document.getElementById('btn-opencode-start');
+    const stopBtn = document.getElementById('btn-opencode-stop');
+    if (startBtn) startBtn.style.display = isOnline ? 'none' : 'inline-flex';
+    if (stopBtn) stopBtn.style.display = isOnline ? 'inline-flex' : 'none';
+
     if (badge && dot && text) {
       if (isOnline) {
         badge.style.background = 'rgba(16, 185, 129, 0.15)';
@@ -1983,7 +2077,7 @@
         const emptyDiv = document.createElement('div');
         emptyDiv.className = 'empty-state';
         emptyDiv.style.cssText = 'font-size: 11px; color: var(--text-dim, #94a3b8); padding: 4px 0; font-style: italic;';
-        emptyDiv.textContent = 'Sidecar offline (Open OpenCode Desktop to connect)';
+        emptyDiv.textContent = 'Sidecar offline (Click Start OpenCode or launch Desktop build)';
         listEl.appendChild(emptyDiv);
       } else if (sessions.length === 0) {
         const emptyDiv = document.createElement('div');
@@ -1998,10 +2092,18 @@
 
           const title = escapeHtml(s.title || 'Untitled Session');
           const dir = escapeHtml(s.directory || 'No directory');
+          const isBusy = !!(s.isBusy || (s.agentState && s.agentState.toLowerCase() === 'busy') || (s.status && (s.status.toLowerCase() === 'busy' || s.status.toLowerCase() === 'running' || s.status.toLowerCase() === 'generating' || s.status.toLowerCase() === 'thinking')));
+
+          const stateBadge = isBusy
+            ? `<span class="badge-agent-state badge-busy"><span class="pulse-dot-amber"></span> Running / Thinking...</span>`
+            : `<span class="badge-agent-state badge-idle"><span class="dot-green"></span> Idle</span>`;
 
           item.innerHTML = `
             <div class="opencode-session-info">
-              <div class="opencode-session-title" title="${title}">${title}</div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
+                <span class="opencode-session-title" title="${title}">${title}</span>
+                ${stateBadge}
+              </div>
               <div class="opencode-session-path" title="${dir}">${dir}</div>
             </div>
             <button class="btn-session-focus" title="Bring OpenCode to foreground">Focus</button>
@@ -2238,15 +2340,224 @@
     });
   }
 
-  // Logging Helper
-  function appendLog(text) {
+  // Feature 8: Centralized Structured Logging System & Filter Tags
+  state.logs = [];
+  state.currentLogFilter = 'all';
+  state.currentPrompt = null;
+
+  function appendLog(text, tag = null, timestamp = null) {
+    if (!text) return;
+    const time = timestamp || new Date().toLocaleTimeString();
+
+    // Deduce tag if not explicitly provided
+    let inferredTag = tag;
+    if (!inferredTag) {
+      if (text.startsWith('[System]') || text.startsWith('[Config]') || text.startsWith('[Metrics]')) {
+        inferredTag = 'System';
+      } else if (text.startsWith('[OpenCode]') || text.startsWith('[Sidecar]')) {
+        inferredTag = 'OpenCode';
+      } else if (text.startsWith('[WARP]') || text.startsWith('[QuotaReset]')) {
+        inferredTag = 'WARP';
+      } else {
+        inferredTag = 'System';
+      }
+    }
+
+    let cleanText = text;
+    if (cleanText.startsWith(`[${inferredTag}]`)) {
+      cleanText = cleanText.substring(inferredTag.length + 2).trim();
+    }
+
+    const logEntry = {
+      timestamp: time,
+      tag: inferredTag,
+      text: cleanText
+    };
+
+    state.logs.push(logEntry);
+    if (state.logs.length > 1000) {
+      state.logs.shift();
+    }
+
+    if (shouldShowLogEntry(logEntry, state.currentLogFilter)) {
+      renderLogEntryDom(logEntry);
+    }
+  }
+
+  function shouldShowLogEntry(entry, filter) {
+    if (!filter || filter.toLowerCase() === 'all') return true;
+    const f = filter.toLowerCase();
+    const t = (entry.tag || '').toLowerCase();
+    if (f === 'system') return t === 'system';
+    if (f === 'opencode') return t === 'opencode';
+    if (f === 'warp') return t === 'warp' || t === 'quotareset';
+    return t === f;
+  }
+
+  function renderLogEntryDom(entry) {
     const logsEl = document.getElementById('logs-container');
     if (!logsEl) return;
-    const time = new Date().toLocaleTimeString();
+
+    const t = (entry.tag || '').toLowerCase();
+    let tagClass = 'log-tag-default';
+    let tagLabel = entry.tag || 'System';
+    if (t === 'system') {
+      tagClass = 'log-tag-system';
+      tagLabel = 'System';
+    } else if (t === 'opencode') {
+      tagClass = 'log-tag-opencode';
+      tagLabel = 'OpenCode';
+    } else if (t === 'warp' || t === 'quotareset') {
+      tagClass = 'log-tag-warp';
+      tagLabel = 'WARP';
+    }
+
     const line = document.createElement('div');
-    line.textContent = `[${time}] ${text}`;
+    line.className = 'log-line';
+    line.innerHTML = `
+      <span class="log-time">[${escapeHtml(entry.timestamp)}]</span>
+      <span class="log-tag ${tagClass}">${escapeHtml(tagLabel)}</span>
+      <span class="log-text">${escapeHtml(entry.text)}</span>
+    `;
+
     logsEl.appendChild(line);
     logsEl.scrollTop = logsEl.scrollHeight;
+  }
+
+  function refreshLogsDisplay() {
+    const logsEl = document.getElementById('logs-container');
+    if (!logsEl) return;
+    logsEl.innerHTML = '';
+    const visibleEntries = state.logs.filter(entry => shouldShowLogEntry(entry, state.currentLogFilter));
+    visibleEntries.forEach(entry => renderLogEntryDom(entry));
+    logsEl.scrollTop = logsEl.scrollHeight;
+  }
+
+  function setupLogFilterListeners() {
+    document.querySelectorAll('.log-filter-bar .log-filter-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        document.querySelectorAll('.log-filter-bar .log-filter-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        state.currentLogFilter = pill.getAttribute('data-filter') || 'all';
+        refreshLogsDisplay();
+      });
+    });
+
+    document.getElementById('btn-clear-logs')?.addEventListener('click', () => {
+      state.logs = [];
+      const logsEl = document.getElementById('logs-container');
+      if (logsEl) logsEl.innerHTML = '';
+      showToast('Logs cleared', 'info', 1500);
+    });
+  }
+
+  // Feature 1: Interactive Permissions & Questions
+  function handleOpenCodePrompt(prompt) {
+    if (!prompt) return;
+    state.currentPrompt = prompt;
+
+    const modal = document.getElementById('modal-opencode-prompt');
+    const titleEl = document.getElementById('opencode-prompt-title');
+    const typeEl = document.getElementById('opencode-prompt-type');
+    const timeEl = document.getElementById('opencode-prompt-time');
+    const bodyEl = document.getElementById('opencode-prompt-body');
+    const cmdBox = document.getElementById('opencode-prompt-command-box');
+    const cmdEl = document.getElementById('opencode-prompt-command');
+    const inputGroup = document.getElementById('opencode-prompt-input-group');
+    const inputEl = document.getElementById('opencode-prompt-input');
+    const approveBtn = document.getElementById('btn-approve-opencode-prompt');
+
+    if (!modal) return;
+
+    const isQuestion = (prompt.type || '').toLowerCase().includes('question');
+    if (titleEl) titleEl.textContent = prompt.title || (isQuestion ? 'OpenCode Question' : 'OpenCode Permission Requested');
+    if (typeEl) typeEl.textContent = isQuestion ? 'User Input' : 'Tool Execution';
+    if (timeEl) timeEl.textContent = new Date().toLocaleTimeString();
+    if (bodyEl) bodyEl.textContent = prompt.prompt || (isQuestion ? 'The agent is asking for your input:' : 'The agent requests permission to execute the following:');
+
+    if (prompt.command) {
+      if (cmdBox) cmdBox.style.display = 'block';
+      if (cmdEl) cmdEl.textContent = prompt.command;
+    } else {
+      if (cmdBox) cmdBox.style.display = 'none';
+    }
+
+    if (isQuestion) {
+      if (inputGroup) inputGroup.style.display = 'block';
+      if (inputEl) {
+        inputEl.value = '';
+        setTimeout(() => inputEl.focus(), 150);
+      }
+      if (approveBtn) approveBtn.textContent = 'Submit Answer';
+    } else {
+      if (inputGroup) inputGroup.style.display = 'none';
+      if (approveBtn) approveBtn.textContent = '✓ Approve / Yes';
+    }
+
+    modal.classList.add('open');
+    showToast(`OpenCode Prompt: ${prompt.title || 'Action Requested'}`, 'warn', 5000);
+  }
+
+  function setupPromptModalListeners() {
+    const modal = document.getElementById('modal-opencode-prompt');
+    const approveBtn = document.getElementById('btn-approve-opencode-prompt');
+    const rejectBtn = document.getElementById('btn-reject-opencode-prompt');
+    const inputEl = document.getElementById('opencode-prompt-input');
+
+    approveBtn?.addEventListener('click', async () => {
+      if (!state.currentPrompt) {
+        modal?.classList.remove('open');
+        return;
+      }
+      const p = state.currentPrompt;
+      const answer = (p.type || '').toLowerCase().includes('question') ? (inputEl?.value || '') : null;
+      approveBtn.disabled = true;
+      try {
+        await callBridge('reply_opencode_prompt', {
+          id: p.id,
+          type: p.type || 'permission',
+          approved: true,
+          answer: answer
+        });
+        showToast('Prompt approved / replied', 'success', 2500);
+      } catch (err) {
+        showToast('Reply failed: ' + err.message, 'error', 3000);
+      } finally {
+        approveBtn.disabled = false;
+        state.currentPrompt = null;
+        modal?.classList.remove('open');
+      }
+    });
+
+    rejectBtn?.addEventListener('click', async () => {
+      if (!state.currentPrompt) {
+        modal?.classList.remove('open');
+        return;
+      }
+      const p = state.currentPrompt;
+      rejectBtn.disabled = true;
+      try {
+        await callBridge('reply_opencode_prompt', {
+          id: p.id,
+          type: p.type || 'permission',
+          approved: false
+        });
+        showToast('Prompt rejected / denied', 'info', 2500);
+      } catch (err) {
+        showToast('Reject failed: ' + err.message, 'error', 3000);
+      } finally {
+        rejectBtn.disabled = false;
+        state.currentPrompt = null;
+        modal?.classList.remove('open');
+      }
+    });
+
+    // Close modal on Escape
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal?.classList.contains('open')) {
+        rejectBtn?.click();
+      }
+    });
   }
 
   // Global Actions (Buttons, Modals)
@@ -2489,6 +2800,8 @@
     setupShortcutEditor();
     setupQuotaAndIpWidget();
     renderOpenCodeCard();
+    setupPromptModalListeners();
+    setupLogFilterListeners();
     setupGlobalActions();
     loadInitialState();
   });
