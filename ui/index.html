@@ -292,62 +292,156 @@
               </div>
             </div>
 
-            <div class="dashboard-card card-system-terminals" id="card-system-terminals">
-              <div class="card-header">
-                <div class="card-title-group">
-                  <div class="card-icon">
-                    <svg class="icon-svg" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <div class="dashboard-col-stack" id="dashboard-right-col">
+              <div class="dashboard-card card-system-terminals" id="card-system-terminals">
+                <div class="card-header">
+                  <div class="card-title-group">
+                    <div class="card-icon">
+                      <svg class="icon-svg" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                    </div>
+                    <div>
+                      <div class="card-title">SYSTEM TERMINALS & SHELLS</div>
+                      <div class="card-subtitle">Launch CMD or PowerShell (Standard / Administrator)</div>
+                    </div>
                   </div>
-                  <div>
-                    <div class="card-title">SYSTEM TERMINALS & SHELLS</div>
-                    <div class="card-subtitle">Launch CMD or PowerShell (Standard / Administrator)</div>
+                </div>
+                <div class="system-shells-list">
+                  <!-- Command Prompt -->
+                  <div class="system-shell-card">
+                    <div class="shell-meta">
+                      <div class="shell-icon-wrapper">
+                        <span class="shell-tag-badge">CMD</span>
+                      </div>
+                      <div class="shell-details">
+                        <span class="shell-title">Command Prompt</span>
+                        <span class="shell-sub">cmd.exe</span>
+                      </div>
+                    </div>
+                    <div class="shell-btn-group">
+                      <button class="btn btn-outline btn-shell-action" id="btn-shell-cmd" title="Open standard Command Prompt">
+                        <svg class="icon-svg" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <span>Launch</span>
+                      </button>
+                      <button class="btn btn-outline btn-shell-action btn-shell-admin" id="btn-shell-cmd-admin" title="Open Command Prompt as Administrator">
+                        <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        <span>Admin</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Windows PowerShell -->
+                  <div class="system-shell-card">
+                    <div class="shell-meta">
+                      <div class="shell-icon-wrapper shell-ps-badge">
+                        <span class="shell-tag-badge">PS</span>
+                      </div>
+                      <div class="shell-details">
+                        <span class="shell-title">PowerShell</span>
+                        <span class="shell-sub">powershell.exe</span>
+                      </div>
+                    </div>
+                    <div class="shell-btn-group">
+                      <button class="btn btn-outline btn-shell-action" id="btn-shell-ps" title="Open standard PowerShell">
+                        <svg class="icon-svg" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <span>Launch</span>
+                      </button>
+                      <button class="btn btn-outline btn-shell-action btn-shell-admin" id="btn-shell-ps-admin" title="Open PowerShell as Administrator">
+                        <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        <span>Admin</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div class="system-shells-list">
-                <!-- Command Prompt -->
-                <div class="system-shell-card">
-                  <div class="shell-meta">
-                    <div class="shell-icon-wrapper">
-                      <span class="shell-tag-badge">CMD</span>
+
+              <!-- SYSTEM & HARDWARE RESOURCE MONITOR CARD -->
+              <div class="dashboard-card card-hardware-monitor" id="hardware-monitor-card">
+                <div class="card-header" style="margin-bottom: 8px;">
+                  <div class="card-title-group">
+                    <div class="card-icon" style="color: var(--accent-green);">
+                      <svg class="icon-svg" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                     </div>
-                    <div class="shell-details">
-                      <span class="shell-title">Command Prompt</span>
-                      <span class="shell-sub">cmd.exe</span>
+                    <div>
+                      <div class="card-title">SYSTEM &amp; HARDWARE TELEMETRY</div>
+                      <div class="card-subtitle">Real-time resource utilization &amp; AI model workload</div>
                     </div>
                   </div>
-                  <div class="shell-btn-group">
-                    <button class="btn btn-outline btn-shell-action" id="btn-shell-cmd" title="Open standard Command Prompt">
-                      <svg class="icon-svg" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                      <span>Launch</span>
-                    </button>
-                    <button class="btn btn-outline btn-shell-action btn-shell-admin" id="btn-shell-cmd-admin" title="Open Command Prompt as Administrator">
-                      <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                      <span>Admin</span>
-                    </button>
+                  <div class="telemetry-live-badge" id="sys-telemetry-refresh-badge" title="Live telemetry refreshed every 2 seconds">
+                    <span class="telemetry-live-dot"></span>
+                    <span>Live: 2s</span>
                   </div>
                 </div>
 
-                <!-- Windows PowerShell -->
-                <div class="system-shell-card">
-                  <div class="shell-meta">
-                    <div class="shell-icon-wrapper shell-ps-badge">
-                      <span class="shell-tag-badge">PS</span>
+                <div class="telemetry-metrics-grid">
+                  <!-- CPU Utilization Tile -->
+                  <div class="telemetry-metric-tile" id="tile-cpu-metric">
+                    <div class="metric-tile-header">
+                      <div class="metric-tile-label-group">
+                        <svg class="icon-svg metric-tile-icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/></svg>
+                        <span class="metric-tile-title">CPU Load</span>
+                      </div>
+                      <span class="metric-tile-val" id="cpu-usage-val">--%</span>
                     </div>
-                    <div class="shell-details">
-                      <span class="shell-title">PowerShell</span>
-                      <span class="shell-sub">powershell.exe</span>
+
+                    <div class="sparkline-chart-container" id="cpu-chart-box">
+                      <svg class="sparkline-svg" id="cpu-sparkline-svg" viewBox="0 0 240 56" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id="cpu-grad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#10b981" stop-opacity="0.35" />
+                            <stop offset="100%" stop-color="#10b981" stop-opacity="0.0" />
+                          </linearGradient>
+                        </defs>
+                        <path class="sparkline-area" id="cpu-sparkline-area" fill="url(#cpu-grad)" d="" />
+                        <path class="sparkline-line" id="cpu-sparkline-line" stroke="#10b981" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="" />
+                        <circle class="sparkline-dot" id="cpu-sparkline-dot" r="3" fill="#10b981" cx="0" cy="0" style="display: none;" />
+                      </svg>
+                    </div>
+
+                    <div class="metric-tile-footer">
+                      <span id="cpu-stats-sub">Peak: --%</span>
+                      <span id="cpu-cores-sub">Active Load</span>
                     </div>
                   </div>
-                  <div class="shell-btn-group">
-                    <button class="btn btn-outline btn-shell-action" id="btn-shell-ps" title="Open standard PowerShell">
-                      <svg class="icon-svg" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                      <span>Launch</span>
-                    </button>
-                    <button class="btn btn-outline btn-shell-action btn-shell-admin" id="btn-shell-ps-admin" title="Open PowerShell as Administrator">
-                      <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                      <span>Admin</span>
-                    </button>
+
+                  <!-- RAM Utilization Tile -->
+                  <div class="telemetry-metric-tile" id="tile-ram-metric">
+                    <div class="metric-tile-header">
+                      <div class="metric-tile-label-group">
+                        <svg class="icon-svg metric-tile-icon is-cyan" viewBox="0 0 24 24"><path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/><path d="M6 5v3"/><path d="M10 5v3"/><path d="M14 5v3"/><path d="M18 5v3"/><rect x="2" y="8" width="20" height="8" rx="2"/></svg>
+                        <span class="metric-tile-title">Memory (RAM)</span>
+                      </div>
+                      <span class="metric-tile-val" id="ram-usage-val">-- GB</span>
+                    </div>
+
+                    <div class="sparkline-chart-container" id="ram-chart-box">
+                      <svg class="sparkline-svg" id="ram-sparkline-svg" viewBox="0 0 240 56" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id="ram-grad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.35" />
+                            <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.0" />
+                          </linearGradient>
+                        </defs>
+                        <path class="sparkline-area" id="ram-sparkline-area" fill="url(#ram-grad)" d="" />
+                        <path class="sparkline-line" id="ram-sparkline-line" stroke="#06b6d4" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="" />
+                        <circle class="sparkline-dot" id="ram-sparkline-dot" r="3" fill="#06b6d4" cx="0" cy="0" style="display: none;" />
+                      </svg>
+                    </div>
+
+                    <div class="metric-tile-footer">
+                      <span id="ram-stats-sub">Total: -- GB</span>
+                      <span id="ram-avail-sub">Avail: -- GB</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="telemetry-bottom-bar">
+                  <div class="telemetry-stat-chip" title="HermesHub host process memory footprint">
+                    <svg class="icon-svg" style="width: 12px; height: 12px; color: var(--accent-green);" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                    <span>Agents Hub: <strong id="hermes-mem-val" style="color: var(--text-main);">-- MB</strong></span>
+                  </div>
+                  <div class="telemetry-stat-chip" title="System host health status">
+                    <svg class="icon-svg" style="width: 12px; height: 12px; color: var(--accent-green);" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    <span>Status: <strong id="sys-status-val" style="color: var(--accent-green);">Active</strong></span>
                   </div>
                 </div>
               </div>

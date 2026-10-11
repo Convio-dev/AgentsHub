@@ -192,6 +192,23 @@ public sealed class DashboardWebBridge : IDisposable
         }
     }
 
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct MEMORYSTATUSEX
+    {
+        public uint dwLength;
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys;
+        public ulong ullAvailPhys;
+        public ulong ullTotalPageFile;
+        public ulong ullAvailPageFile;
+        public ulong ullTotalVirtual;
+        public ulong ullAvailVirtual;
+        public ulong ullAvailExtendedVirtual;
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
     private void OnMetricsTimerTick(object? sender, EventArgs e)
     {
         if (_coreWebView == null) return;
@@ -208,19 +225,74 @@ public sealed class DashboardWebBridge : IDisposable
 
         long totalRamMb = 16384;
         long usedRamMb = 4096;
+        long hermesMemMb = 0;
+        try
+        {
+            var mem = new MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(MEMORYSTATUSEX)) };
+            if (GlobalMemoryStatusEx(ref mem))
+            {
+                totalRamMb = (long)(mem.ullTotalPhys / (1024 * 1024));
+                long availMb = (long)(mem.ullAvailPhys / (1024 * 1024));
+                usedRamMb = totalRamMb - availMb;
+            }
+        }
+        catch { }
         try
         {
             using var proc = Process.GetCurrentProcess();
-            usedRamMb = proc.WorkingSet64 / (1024 * 1024);
+            hermesMemMb = proc.WorkingSet64 / (1024 * 1024);
         }
         catch { }
 
-        PostEventToUi("hardware_metrics", new
+        PostEventToUi("hardware_metrics", GetSystemTelemetryDto());
+    }
+
+    private object GetSystemTelemetryDto()
+    {
+        float cpuPercent = 0f;
+        try
+        {
+            if (_cpuCounter != null)
+            {
+                cpuPercent = _cpuCounter.NextValue();
+            }
+        }
+        catch { }
+
+        long totalRamMb = 16384;
+        long usedRamMb = 4096;
+        long hermesMemMb = 0;
+        try
+        {
+            var mem = new MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(MEMORYSTATUSEX)) };
+            if (GlobalMemoryStatusEx(ref mem))
+            {
+                totalRamMb = (long)(mem.ullTotalPhys / (1024 * 1024));
+                long availMb = (long)(mem.ullAvailPhys / (1024 * 1024));
+                usedRamMb = totalRamMb - availMb;
+            }
+        }
+        catch { }
+        try
+        {
+            using var proc = Process.GetCurrentProcess();
+            hermesMemMb = proc.WorkingSet64 / (1024 * 1024);
+        }
+        catch { }
+
+        double memUsedGb = Math.Round(usedRamMb / 1024.0, 1);
+        double memTotalGb = Math.Round(totalRamMb / 1024.0, 1);
+
+        return new
         {
             cpu = Math.Round(cpuPercent, 1),
+            cpuPercent = Math.Round(cpuPercent, 1),
             ramMb = usedRamMb,
-            totalRamMb = totalRamMb
-        });
+            totalRamMb = totalRamMb,
+            memoryUsedGb = memUsedGb,
+            memoryTotalGb = memTotalGb,
+            hermesMemMb = hermesMemMb
+        };
     }
 
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -248,6 +320,10 @@ public sealed class DashboardWebBridge : IDisposable
         {
             case "get_initial_state":
                 SendResponse(requestId, true, GetInitialStateDto());
+                break;
+
+            case "get_system_telemetry":
+                SendResponse(requestId, true, GetSystemTelemetryDto());
                 break;
 
             case "toggle_lan_proxy":

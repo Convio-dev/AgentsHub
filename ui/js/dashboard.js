@@ -179,10 +179,7 @@
 
       case 'hardware_metrics':
         if (payload) {
-          const cpuEl = document.getElementById('metric-cpu');
-          const ramEl = document.getElementById('metric-ram');
-          if (cpuEl) cpuEl.textContent = `CPU ${payload.cpu}%`;
-          if (ramEl) ramEl.textContent = `RAM ${payload.ramMb} MB`;
+          handleHardwareMetrics(payload);
         }
         break;
 
@@ -195,6 +192,193 @@
         }
         break;
     }
+  }
+
+  // ==========================================
+  // Real-Time Hardware & System Telemetry Engine
+  // ==========================================
+  const TELEMETRY_HISTORY_LENGTH = 20;
+  const telemetryState = {
+    cpuHistory: [],
+    ramHistory: [],
+    maxCpuSeen: 0,
+    pollTimer: null,
+    isPaused: false
+  };
+
+  function renderSmoothSparkline(lineEl, areaEl, dotEl, dataPoints, width = 240, height = 56, maxVal = 100) {
+    if (!lineEl || !areaEl || !dataPoints || dataPoints.length === 0) return;
+
+    const len = dataPoints.length;
+    const paddingY = 4;
+    const usableHeight = height - paddingY * 2;
+
+    if (len === 1) {
+      const val = Math.max(0, Math.min(maxVal, dataPoints[0]));
+      const y = (height - paddingY) - (val / maxVal) * usableHeight;
+      lineEl.setAttribute('d', `M 0,${y.toFixed(1)} L ${width},${y.toFixed(1)}`);
+      areaEl.setAttribute('d', `M 0,${y.toFixed(1)} L ${width},${y.toFixed(1)} L ${width},${height} L 0,${height} Z`);
+      if (dotEl) {
+        dotEl.setAttribute('cx', width);
+        dotEl.setAttribute('cy', y.toFixed(1));
+        dotEl.style.display = 'block';
+      }
+      return;
+    }
+
+    const stepX = width / (len - 1);
+    const pts = dataPoints.map((val, idx) => {
+      const clamped = Math.max(0, Math.min(maxVal, val));
+      const y = (height - paddingY) - (clamped / maxVal) * usableHeight;
+      return { x: idx * stepX, y };
+    });
+
+    let lineD = `M ${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+      lineD += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+    }
+
+    const lastPt = pts[pts.length - 1];
+    const areaD = `${lineD} L ${width},${height} L 0,${height} Z`;
+
+    lineEl.setAttribute('d', lineD);
+    areaEl.setAttribute('d', areaD);
+
+    if (dotEl) {
+      dotEl.setAttribute('cx', lastPt.x.toFixed(1));
+      dotEl.setAttribute('cy', lastPt.y.toFixed(1));
+      dotEl.style.display = 'block';
+    }
+  }
+
+  function handleHardwareMetrics(payload) {
+    if (!payload) return;
+
+    const cpuPercent = typeof payload.cpu === 'number' ? payload.cpu : (typeof payload.cpuPercent === 'number' ? payload.cpuPercent : 0);
+    const ramMb = typeof payload.ramMb === 'number' ? payload.ramMb : 0;
+    const totalRamMb = typeof payload.totalRamMb === 'number' ? payload.totalRamMb : 16384;
+    const hermesMemMb = typeof payload.hermesMemMb === 'number' ? payload.hermesMemMb : 0;
+
+    // Header bar badges
+    const cpuEl = document.getElementById('metric-cpu');
+    const ramEl = document.getElementById('metric-ram');
+    if (cpuEl) cpuEl.textContent = `CPU ${Math.round(cpuPercent)}%`;
+    if (ramEl) ramEl.textContent = `RAM ${ramMb} MB`;
+
+    // Ring buffers (last 20 points)
+    telemetryState.cpuHistory.push(cpuPercent);
+    if (telemetryState.cpuHistory.length > TELEMETRY_HISTORY_LENGTH) {
+      telemetryState.cpuHistory.shift();
+    }
+
+    const ramPercent = totalRamMb > 0 ? (ramMb / totalRamMb) * 100 : 0;
+    telemetryState.ramHistory.push(ramPercent);
+    if (telemetryState.ramHistory.length > TELEMETRY_HISTORY_LENGTH) {
+      telemetryState.ramHistory.shift();
+    }
+
+    if (cpuPercent > telemetryState.maxCpuSeen) {
+      telemetryState.maxCpuSeen = cpuPercent;
+    }
+
+    // Update telemetry card numeric displays
+    const cpuUsageVal = document.getElementById('cpu-usage-val');
+    if (cpuUsageVal) cpuUsageVal.textContent = `${cpuPercent.toFixed(1)}%`;
+
+    const cpuStatsSub = document.getElementById('cpu-stats-sub');
+    if (cpuStatsSub) cpuStatsSub.textContent = `Peak: ${telemetryState.maxCpuSeen.toFixed(1)}%`;
+
+    const ramUsageVal = document.getElementById('ram-usage-val');
+    const usedGb = (ramMb / 1024).toFixed(1);
+    const totalGb = (totalRamMb / 1024).toFixed(1);
+    if (ramUsageVal) ramUsageVal.textContent = `${usedGb} GB (${Math.round(ramPercent)}%)`;
+
+    const ramStatsSub = document.getElementById('ram-stats-sub');
+    if (ramStatsSub) ramStatsSub.textContent = `Total: ${totalGb} GB`;
+
+    const availMb = Math.max(0, totalRamMb - ramMb);
+    const availGb = (availMb / 1024).toFixed(1);
+    const ramAvailSub = document.getElementById('ram-avail-sub');
+    if (ramAvailSub) ramAvailSub.textContent = `Avail: ${availGb} GB`;
+
+    const hermesMemVal = document.getElementById('hermes-mem-val');
+    if (hermesMemVal) hermesMemVal.textContent = `${hermesMemMb} MB`;
+
+    const sysStatusVal = document.getElementById('sys-status-val');
+    if (sysStatusVal) {
+      if (cpuPercent > 90 || ramPercent > 90) {
+        sysStatusVal.textContent = 'High Load';
+        sysStatusVal.style.color = 'var(--accent-red)';
+      } else {
+        sysStatusVal.textContent = 'Active';
+        sysStatusVal.style.color = 'var(--accent-green)';
+      }
+    }
+
+    // Smooth Bézier sparklines
+    const cpuLine = document.getElementById('cpu-sparkline-line');
+    const cpuArea = document.getElementById('cpu-sparkline-area');
+    const cpuDot = document.getElementById('cpu-sparkline-dot');
+    renderSmoothSparkline(cpuLine, cpuArea, cpuDot, telemetryState.cpuHistory, 240, 56, 100);
+
+    const ramLine = document.getElementById('ram-sparkline-line');
+    const ramArea = document.getElementById('ram-sparkline-area');
+    const ramDot = document.getElementById('ram-sparkline-dot');
+    renderSmoothSparkline(ramLine, ramArea, ramDot, telemetryState.ramHistory, 240, 56, 100);
+  }
+
+  function pollHardwareTelemetry() {
+    if (telemetryState.isPaused || state.activeView !== 'dashboard') return;
+    callBridge('get_system_telemetry').then(data => {
+      if (data) handleHardwareMetrics(data);
+    }).catch(() => {});
+  }
+
+  function pauseHardwareTelemetry() {
+    telemetryState.isPaused = true;
+    const badge = document.getElementById('sys-telemetry-refresh-badge');
+    if (badge) badge.classList.add('is-paused');
+  }
+
+  function resumeHardwareTelemetry() {
+    telemetryState.isPaused = false;
+    const badge = document.getElementById('sys-telemetry-refresh-badge');
+    if (badge) badge.classList.remove('is-paused');
+    pollHardwareTelemetry();
+  }
+
+  function setupHardwareTelemetry() {
+    if (telemetryState.cpuHistory.length === 0) {
+      for (let i = 0; i < 6; i++) {
+        telemetryState.cpuHistory.push(0);
+        telemetryState.ramHistory.push(0);
+      }
+    }
+
+    callBridge('get_system_telemetry').then(data => {
+      if (data) handleHardwareMetrics(data);
+    }).catch(() => {});
+
+    if (telemetryState.pollTimer) clearInterval(telemetryState.pollTimer);
+    telemetryState.pollTimer = setInterval(pollHardwareTelemetry, 2000);
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        pauseHardwareTelemetry();
+      } else if (state.activeView === 'dashboard') {
+        resumeHardwareTelemetry();
+      }
+    });
   }
 
   // Navigation Logic & Collapsible Sidebar
@@ -232,6 +416,12 @@
     document.querySelectorAll('.view-pane').forEach(p => {
       p.classList.toggle('active', p.id === `view-${viewName}`);
     });
+
+    if (viewName === 'dashboard') {
+      resumeHardwareTelemetry();
+    } else {
+      pauseHardwareTelemetry();
+    }
 
     if (viewName === 'terminals') {
       setTimeout(() => {
@@ -3086,7 +3276,8 @@
       ['PromptModal', setupPromptModalListeners],
       ['LogFilters', setupLogFilterListeners],
       ['GlobalActions', setupGlobalActions],
-      ['InitialState', loadInitialState]
+      ['InitialState', loadInitialState],
+      ['HardwareTelemetry', setupHardwareTelemetry]
     ];
 
     initSteps.forEach(([name, fn]) => {
