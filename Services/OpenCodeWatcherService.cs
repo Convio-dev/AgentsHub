@@ -115,6 +115,7 @@ public sealed class OpenCodeWatcherService : IDisposable
     private readonly HashSet<string> _notifiedPromptIds = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _sseCts;
     private Task? _sseListeningTask;
+    private int _consecutiveFailures;
 
     public event Action<bool, int>? OnStatusChanged;
     public event Action<List<OpenCodeSessionDto>>? OnSessionsUpdated;
@@ -434,13 +435,42 @@ public sealed class OpenCodeWatcherService : IDisposable
 
         if (pingOk)
         {
+            _consecutiveFailures = 0;
             SetOnlineStatus(true, port);
             await QuerySessionsAsync(normUrl, password);
             await PollPendingInteractivePromptsAsync(normUrl, password);
         }
         else
         {
-            SetOnlineStatus(false, 0);
+            _consecutiveFailures++;
+
+            bool processAlive = false;
+            int currentPid = 0;
+            lock (_stateLock) { currentPid = Pid; }
+            if (currentPid > 0)
+            {
+                try
+                {
+                    var proc = Process.GetProcessById(currentPid);
+                    processAlive = !proc.HasExited;
+                }
+                catch { }
+            }
+            if (!processAlive)
+            {
+                try
+                {
+                    processAlive = Process.GetProcessesByName("opencode").Length > 0 ||
+                                   Process.GetProcessesByName("OpenCode").Length > 0;
+                }
+                catch { }
+            }
+
+            // If the local OpenCode process is alive, debounce momentary network drops (>= 3 consecutive failures)
+            if (!processAlive || _consecutiveFailures >= 3)
+            {
+                SetOnlineStatus(false, 0);
+            }
         }
     }
 
@@ -1056,49 +1086,52 @@ public sealed class OpenCodeWatcherService : IDisposable
 
     public async Task<(bool success, string message)> StopOpenCodeServiceAsync()
     {
-        int targetPid = Pid;
-        int killedCount = 0;
-
-        if (targetPid > 0)
+        return await Task.Run(() =>
         {
-            try
-            {
-                var proc = Process.GetProcessById(targetPid);
-                if (!proc.HasExited)
-                {
-                    proc.Kill(entireProcessTree: true);
-                    killedCount++;
-                }
-            }
-            catch { }
-        }
+            int targetPid = Pid;
+            int killedCount = 0;
 
-        try
-        {
-            var procs = Process.GetProcesses()
-                .Where(p => p.ProcessName.Contains("opencode", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            foreach (var p in procs)
+            if (targetPid > 0)
             {
                 try
                 {
-                    if (!p.HasExited)
+                    var proc = Process.GetProcessById(targetPid);
+                    if (!proc.HasExited)
                     {
-                        p.Kill(entireProcessTree: true);
+                        proc.Kill(entireProcessTree: true);
                         killedCount++;
                     }
                 }
                 catch { }
             }
-        }
-        catch { }
 
-        SetOnlineStatus(false, 0);
+            try
+            {
+                var procs = Process.GetProcesses()
+                    .Where(p => p.ProcessName.Contains("opencode", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
 
-        return killedCount > 0
-            ? (true, $"OpenCode stopped ({killedCount} process(es) terminated).")
-            : (true, "OpenCode was stopped.");
+                foreach (var p in procs)
+                {
+                    try
+                    {
+                        if (!p.HasExited)
+                        {
+                            p.Kill(entireProcessTree: true);
+                            killedCount++;
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            SetOnlineStatus(false, 0);
+
+            return killedCount > 0
+                ? (true, $"OpenCode stopped ({killedCount} process(es) terminated).")
+                : (true, "OpenCode was stopped.");
+        });
     }
 
     public async Task<bool> ReplyPromptAsync(string id, string type, bool approved, string? answer = null)

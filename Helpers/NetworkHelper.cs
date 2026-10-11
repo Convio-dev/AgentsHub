@@ -385,4 +385,31 @@ public static class NetworkHelper
             return false;
         }
     }
+
+    public static async Task<bool> DisconnectWarpAsync()
+    {
+        return await RunWarpCliCommandAsync("disconnect");
+    }
+
+    public static async Task<bool> FlushDnsAsync()
+    {
+        try
+        {
+            using var proc = new System.Diagnostics.Process();
+            proc.StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "ipconfig.exe",
+                Arguments = "/flushdns",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            proc.Start();
+            await proc.WaitForExitAsync();
+            return proc.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

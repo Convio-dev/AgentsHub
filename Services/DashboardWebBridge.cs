@@ -33,9 +33,10 @@ public sealed class DashboardWebBridge : IDisposable
     private readonly PerformanceCounter? _cpuCounter;
     private CancellationTokenSource? _promptEnhanceCts;
 
-    // Smart Cooldown rate limiter for WARP quota reset (10s backend guard)
+    // Smart Cooldown rate limiter for VPN quota reset (backend guard)
     private static DateTime _lastQuotaResetTime = DateTime.MinValue;
     private static readonly object _quotaResetLock = new();
+    private readonly ProtonVpnService _protonVpnService;
 
     public DashboardWebBridge(Form mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
     {
@@ -43,6 +44,7 @@ public sealed class DashboardWebBridge : IDisposable
         _cliManager = cliManager;
         _lanProxyService = lanProxyService;
         _openCodeWatcher = openCodeWatcher;
+        _protonVpnService = new ProtonVpnService(_openCodeWatcher);
 
         // Initialize debounced terminal stream timer (flushes every 20ms)
         _streamFlushTimer = new System.Windows.Forms.Timer { Interval = 20 };
@@ -684,8 +686,30 @@ public sealed class DashboardWebBridge : IDisposable
 
             case "reset_opencode_quota":
             case "rotate_warp_ip":
+            case "rotate_vpn_ip":
             case "ResetOpenCodeQuota":
-                await ResetOpenCodeQuotaAsync(requestId);
+                {
+                    string provider = data.TryGetProperty("provider", out var provProp) ? provProp.GetString() ?? "warp" : "warp";
+                    await ResetOpenCodeQuotaAsync(requestId, provider);
+                }
+                break;
+
+            case "disconnect_vpn":
+            case "DisconnectVpn":
+                await DisconnectVpnAsync(requestId);
+                break;
+
+            case "ensure_proton_vpn_running":
+            case "launch_proton_vpn":
+                {
+                    bool isRunning = _protonVpnService.IsClientRunning();
+                    bool launched = false;
+                    if (!isRunning)
+                    {
+                        launched = await _protonVpnService.LaunchClientAsync();
+                    }
+                    SendResponse(requestId, true, new { isRunning = true, launched });
+                }
                 break;
 
             case "get_opencode_state":
@@ -1229,20 +1253,27 @@ public sealed class DashboardWebBridge : IDisposable
         return new OpenCodeStateDto();
     }
 
-    public async Task<object> ResetOpenCodeQuotaAsync(string? requestId = null)
+    public async Task<object> ResetOpenCodeQuotaAsync(string? requestId = null, string provider = "warp")
     {
-        // 10-second backend guard against rapid execution
+        bool isProton = provider.Equals("proton", StringComparison.OrdinalIgnoreCase) || provider.Equals("protonvpn", StringComparison.OrdinalIgnoreCase);
+        double cooldownTarget = isProton ? 60.0 : 12.0;
+        string logTag = isProton ? "ProtonVPN" : "WARP";
+        string providerName = isProton ? "ProtonVPN" : "CloudflareWARP";
+
+        // Provider-specific backend cooldown guard
         lock (_quotaResetLock)
         {
             var elapsed = (DateTime.UtcNow - _lastQuotaResetTime).TotalSeconds;
-            if (elapsed < 10.0)
+            if (elapsed < cooldownTarget)
             {
-                int remaining = (int)Math.Ceiling(10.0 - elapsed);
+                int remaining = (int)Math.Ceiling(cooldownTarget - elapsed);
                 var cooldownResult = new
                 {
                     success = false,
-                    message = $"Cooldown active. Please wait {remaining}s before resetting again.",
-                    cooldownRemaining = remaining
+                    provider = providerName,
+                    message = $"{providerName} cooldown active. Please wait {remaining}s before switching servers.",
+                    cooldownRemaining = remaining,
+                    cooldownSeconds = remaining
                 };
                 if (requestId != null) SendResponse(requestId, false, cooldownResult);
                 return cooldownResult;
@@ -1270,7 +1301,7 @@ public sealed class DashboardWebBridge : IDisposable
                 proc.StartInfo = new ProcessStartInfo
                 {
                     FileName = "node.exe",
-                    Arguments = $"\"{scriptPath}\"",
+                    Arguments = $"\"{scriptPath}\" --provider={(isProton ? "proton" : "warp")}",
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
@@ -1286,7 +1317,7 @@ public sealed class DashboardWebBridge : IDisposable
                         outputLines.Add(e.Data);
                         PostEventToUi("terminal_data", new { cli = "QuotaReset", data = e.Data + "\r\n" });
                         PostEventToUi("quota_reset_progress", new { line = e.Data });
-                        EmitLog("WARP", "info", e.Data);
+                        EmitLog(logTag, "info", e.Data);
                     }
                 };
                 proc.ErrorDataReceived += (_, e) =>
@@ -1295,7 +1326,7 @@ public sealed class DashboardWebBridge : IDisposable
                     {
                         outputLines.Add(e.Data);
                         PostEventToUi("terminal_data", new { cli = "QuotaReset", data = e.Data + "\r\n" });
-                        EmitLog("WARP", "warn", e.Data);
+                        EmitLog(logTag, "warn", e.Data);
                     }
                 };
 
@@ -1303,9 +1334,18 @@ public sealed class DashboardWebBridge : IDisposable
                 proc.BeginOutputReadLine();
                 proc.BeginErrorReadLine();
 
-                await proc.WaitForExitAsync();
-                nodeExecuted = true;
-                outputJson = string.Join(Environment.NewLine, outputLines);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(22));
+                try
+                {
+                    await proc.WaitForExitAsync(cts.Token);
+                    nodeExecuted = true;
+                    outputJson = string.Join(Environment.NewLine, outputLines);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { proc.Kill(true); } catch { }
+                    nodeExecuted = false;
+                }
             }
             catch
             {
@@ -1368,13 +1408,14 @@ public sealed class DashboardWebBridge : IDisposable
                     string country = root.TryGetProperty("country", out var cProp) ? cProp.GetString() ?? string.Empty : string.Empty;
                     string countryEmoji = root.TryGetProperty("countryEmoji", out var ceProp) ? ceProp.GetString() ?? string.Empty : string.Empty;
                     string city = root.TryGetProperty("city", out var ctProp) ? ctProp.GetString() ?? string.Empty : string.Empty;
+                    int cooldownSeconds = root.TryGetProperty("cooldownSeconds", out var cdProp) ? cdProp.GetInt32() : (int)cooldownTarget;
 
                     if (string.IsNullOrWhiteSpace(countryEmoji) && !string.IsNullOrWhiteSpace(countryCode))
                     {
                         countryEmoji = NetworkHelper.CountryCodeToEmoji(countryCode);
                     }
 
-                    if (_openCodeWatcher != null)
+                    if (success && _openCodeWatcher != null)
                     {
                         _ = _openCodeWatcher.RefreshAsync();
                     }
@@ -1382,8 +1423,10 @@ public sealed class DashboardWebBridge : IDisposable
                     var resultObj = new
                     {
                         success,
-                        old = new { ipv4 = oldIpv4, ipv6 = oldIpv6 },
-                        @new = new { ipv4 = newIpv4, ipv6 = newIpv6 },
+                        provider = providerName,
+                        cooldownSeconds,
+                        old = new { ipv4 = oldIpv4, ipv6 = oldIpv6, country = country },
+                        @new = new { ipv4 = newIpv4, ipv6 = newIpv6, country = country, flag = countryCode },
                         oldIp = oldIpv4 != "unknown" ? oldIpv4 : oldIp,
                         newIp = newIpv4 != "unknown" ? newIpv4 : newIp,
                         oldIpv4,
@@ -1402,7 +1445,7 @@ public sealed class DashboardWebBridge : IDisposable
                         city
                     };
 
-                    EmitLog("WARP", success ? "info" : "error", !string.IsNullOrWhiteSpace(message) ? message : (success ? "Dual-stack rotated successfully" : "Rotation failed"));
+                    EmitLog(logTag, success ? "info" : "error", !string.IsNullOrWhiteSpace(message) ? message : $"{providerName} rotated successfully");
                     if (requestId != null) SendResponse(requestId, success, resultObj);
                     return resultObj;
                 }
@@ -1410,11 +1453,46 @@ public sealed class DashboardWebBridge : IDisposable
             catch { }
         }
 
-        // Fallback execution via NetworkHelper if node is missing or script threw
+        // Fallback execution if node script fails
+        if (isProton)
+        {
+            var pRes = await _protonVpnService.RotateServerAsync(msg => EmitLog("ProtonVPN", "info", msg));
+            var pFresh = await NetworkHelper.FetchPublicIpDetailsAsync();
+
+            var pObj = new
+            {
+                success = pRes.Success,
+                provider = "ProtonVPN",
+                cooldownSeconds = 60,
+                old = new { ipv4 = pRes.Old.Ipv4 ?? "unknown", ipv6 = pRes.Old.Ipv6 ?? "Not assigned" },
+                @new = new { ipv4 = pRes.New.Ipv4 ?? pFresh.Ip, ipv6 = pRes.New.Ipv6 ?? pFresh.Ipv6 ?? "Not assigned", country = pRes.Country, flag = pRes.CountryCode },
+                oldIp = pRes.OldIp,
+                newIp = pRes.NewIp,
+                oldIpv4 = pRes.Old.Ipv4 ?? "unknown",
+                oldIpv6 = pRes.Old.Ipv6 ?? "Not assigned",
+                newIpv4 = pRes.New.Ipv4 ?? pFresh.Ip,
+                newIpv6 = pRes.New.Ipv6 ?? pFresh.Ipv6 ?? "Not assigned",
+                dnsFlushed = true,
+                sidecarSynced = _openCodeWatcher?.IsOnline ?? false,
+                message = pRes.Message,
+                ip = pRes.NewIp,
+                ipv4 = pRes.New.Ipv4 ?? pFresh.Ip,
+                ipv6 = pRes.New.Ipv6 ?? pFresh.Ipv6 ?? "Not assigned",
+                countryCode = pRes.CountryCode,
+                country = pRes.Country,
+                countryEmoji = pRes.CountryEmoji,
+                city = pRes.City
+            };
+
+            EmitLog("ProtonVPN", pRes.Success ? "info" : "error", pRes.Message);
+            if (requestId != null) SendResponse(requestId, pRes.Success, pObj);
+            return pObj;
+        }
+
         var (fallbackSuccess, rotateMsg, oldIps, newIps) = await NetworkHelper.RotateWarpDualStackAsync();
         var freshIpDetails = await NetworkHelper.FetchPublicIpDetailsAsync();
 
-        if (_openCodeWatcher != null)
+        if (fallbackSuccess && _openCodeWatcher != null)
         {
             _ = _openCodeWatcher.RefreshAsync();
         }
@@ -1422,8 +1500,10 @@ public sealed class DashboardWebBridge : IDisposable
         var fallbackResult = new
         {
             success = fallbackSuccess,
+            provider = "CloudflareWARP",
+            cooldownSeconds = 12,
             old = new { ipv4 = oldIps.Ipv4 ?? "unknown", ipv6 = oldIps.Ipv6 ?? "Not assigned" },
-            @new = new { ipv4 = newIps.Ipv4 ?? freshIpDetails.Ip, ipv6 = newIps.Ipv6 ?? freshIpDetails.Ipv6 ?? "Not assigned" },
+            @new = new { ipv4 = newIps.Ipv4 ?? freshIpDetails.Ip, ipv6 = newIps.Ipv6 ?? freshIpDetails.Ipv6 ?? "Not assigned", country = freshIpDetails.Country, flag = freshIpDetails.CountryCode },
             oldIp = oldIps.Ipv4 ?? "unknown",
             newIp = newIps.Ipv4 ?? freshIpDetails.Ip,
             oldIpv4 = oldIps.Ipv4 ?? "unknown",
@@ -1445,6 +1525,111 @@ public sealed class DashboardWebBridge : IDisposable
         EmitLog("WARP", fallbackSuccess ? "info" : "error", rotateMsg);
         if (requestId != null) SendResponse(requestId, fallbackSuccess, fallbackResult);
         return fallbackResult;
+    }
+
+    public async Task<object> DisconnectVpnAsync(string? requestId = null)
+    {
+        EmitLog("System", "info", "Disconnecting active VPN tunnels (WARP / Proton)...");
+
+        string baseDir = AppContext.BaseDirectory;
+        string scriptPath = Path.Combine(baseDir, "dist", "fixquota-command.js");
+        if (!File.Exists(scriptPath))
+        {
+            var fallback = Path.Combine(Directory.GetCurrentDirectory(), "dist", "fixquota-command.js");
+            if (File.Exists(fallback)) scriptPath = fallback;
+        }
+
+        bool nodeExecuted = false;
+        string outputJson = string.Empty;
+
+        if (File.Exists(scriptPath))
+        {
+            try
+            {
+                using var proc = new Process();
+                proc.StartInfo = new ProcessStartInfo
+                {
+                    FileName = "node.exe",
+                    Arguments = $"\"{scriptPath}\" --disconnect",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8
+                };
+                proc.Start();
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var readTask = proc.StandardOutput.ReadToEndAsync();
+                await Task.WhenAll(readTask, proc.WaitForExitAsync(cts.Token));
+                outputJson = await readTask;
+                nodeExecuted = true;
+            }
+            catch { }
+        }
+
+        if (nodeExecuted && !string.IsNullOrWhiteSpace(outputJson))
+        {
+            try
+            {
+                int start = outputJson.IndexOf('{');
+                int end = outputJson.LastIndexOf('}');
+                if (start >= 0 && end > start)
+                {
+                    var jsonBlock = outputJson.Substring(start, end - start + 1);
+                    using var doc = JsonDocument.Parse(jsonBlock);
+                    var root = doc.RootElement;
+                    bool success = root.TryGetProperty("success", out var sProp) && sProp.GetBoolean();
+                    var directIp = root.TryGetProperty("newIp", out var niProp) ? niProp.GetString() : "unknown";
+                    var country = root.TryGetProperty("country", out var cProp) ? cProp.GetString() : "Direct ISP";
+
+                    var res = new
+                    {
+                        success,
+                        provider = "Direct",
+                        message = $"Disconnected from VPN. Network returned to direct ISP connection ({directIp}).",
+                        newIp = directIp,
+                        country,
+                        countryEmoji = root.TryGetProperty("countryEmoji", out var ceProp) ? ceProp.GetString() : "🌐",
+                        countryCode = root.TryGetProperty("countryCode", out var ccProp) ? ccProp.GetString() : "",
+                        ipv4 = root.TryGetProperty("newIpv4", out var n4) ? n4.GetString() : directIp,
+                        ipv6 = root.TryGetProperty("newIpv6", out var n6) ? n6.GetString() : "Not assigned"
+                    };
+
+                    EmitLog("System", "info", res.message);
+                    if (requestId != null) SendResponse(requestId, true, res);
+                    return res;
+                }
+            }
+            catch { }
+        }
+
+        // Native fallback disconnect
+        await _protonVpnService.DisconnectAsync();
+        await NetworkHelper.DisconnectWarpAsync();
+        await NetworkHelper.FlushDnsAsync();
+        var freshDetails = await NetworkHelper.FetchPublicIpDetailsAsync();
+
+        if (_openCodeWatcher != null)
+        {
+            _ = _openCodeWatcher.RefreshAsync();
+        }
+
+        var fallbackDisconnect = new
+        {
+            success = true,
+            provider = "Direct",
+            message = $"VPN disconnected. Direct network restored to {freshDetails.Ip} ({freshDetails.Country}).",
+            newIp = freshDetails.Ip,
+            country = freshDetails.Country,
+            countryEmoji = freshDetails.CountryEmoji,
+            countryCode = freshDetails.CountryCode,
+            ipv4 = freshDetails.Ipv4 ?? freshDetails.Ip,
+            ipv6 = freshDetails.Ipv6 ?? "Not assigned"
+        };
+
+        EmitLog("System", "info", fallbackDisconnect.message);
+        if (requestId != null) SendResponse(requestId, true, fallbackDisconnect);
+        return fallbackDisconnect;
     }
 
     private object[] GetProfilesWithEmail()

@@ -338,12 +338,272 @@ async function getIpGeoDetails(ip) {
 }
 
 /**
+ * Discovers Proton VPN executable across common install paths.
+ * @returns {string|null}
+ */
+function findProtonExecutable() {
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+  const localAppData = process.env.LOCALAPPDATA || '';
+
+  const candidates = [
+    path.join(programFiles, 'Proton', 'VPN', 'ProtonVPN.Launcher.exe'),
+    path.join(programFiles, 'Proton', 'VPN', 'ProtonVPN.exe'),
+    path.join(localAppData, 'Proton', 'VPN', 'ProtonVPN.Launcher.exe'),
+    path.join(localAppData, 'ProtonVPN', 'ProtonVPN.exe'),
+    path.join(programFilesX86, 'Proton', 'VPN', 'ProtonVPN.Launcher.exe')
+  ];
+
+  const protonBase = path.join(programFiles, 'Proton', 'VPN');
+  if (fs.existsSync(protonBase)) {
+    try {
+      const items = fs.readdirSync(protonBase).filter(d => d.startsWith('v')).sort().reverse();
+      for (const item of items) {
+        candidates.push(path.join(protonBase, item, 'ProtonVPN.Client.exe'));
+      }
+    } catch { }
+  }
+
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+
+  return null;
+}
+
+/**
+ * Checks if Proton VPN process is currently running.
+ * @returns {boolean}
+ */
+function isProtonRunning() {
+  try {
+    const out = child_process.execSync('tasklist /FI "IMAGENAME eq ProtonVPN.Client.exe" /NH', { encoding: 'utf8', timeout: 2000 });
+    if (out.includes('ProtonVPN.Client')) return true;
+    const out2 = child_process.execSync('tasklist /FI "IMAGENAME eq ProtonVPN.exe" /NH', { encoding: 'utf8', timeout: 2000 });
+    return out2.includes('ProtonVPN');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Spawns Proton VPN GUI without blocking Node execution.
+ * @returns {boolean}
+ */
+function launchProtonGui() {
+  const exe = findProtonExecutable();
+  if (!exe) return false;
+  const dir = path.dirname(exe);
+  try {
+    const child = child_process.spawn('explorer.exe', [exe], {
+      detached: true,
+      cwd: dir,
+      stdio: 'ignore'
+    });
+    child.unref();
+    return true;
+  } catch {
+    try {
+      const child = child_process.spawn('cmd.exe', ['/c', 'start', '""', exe], {
+        detached: true,
+        cwd: dir,
+        stdio: 'ignore'
+      });
+      child.unref();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * Cleanly disconnects any active VPN tunnel (WARP and Proton) and returns to direct connection.
+ */
+async function disconnectTunnel() {
+  const report = {
+    success: false,
+    provider: 'Direct',
+    old: { ipv4: 'unknown', ipv6: 'Not assigned' },
+    new: { ipv4: 'unknown', ipv6: 'Not assigned' },
+    oldIp: 'unknown',
+    newIp: 'unknown',
+    countryCode: '',
+    country: '',
+    countryEmoji: '🌐',
+    city: '',
+    dnsFlushed: false,
+    sidecarSynced: false,
+    message: ''
+  };
+
+  try {
+    const initialDual = await getDualStackIps(3000);
+    report.old = initialDual;
+    report.oldIp = initialDual.ipv4 !== 'unknown' ? initialDual.ipv4 : initialDual.ipv6;
+  } catch { }
+
+  // Disconnect WARP
+  try {
+    await execAsync('warp-cli disconnect');
+  } catch { }
+
+  // Trigger Proton URI disconnect gracefully if supported
+  try {
+    child_process.spawn('cmd', ['/c', 'start', 'protonvpn://disconnect'], { detached: true, stdio: 'ignore' }).unref();
+  } catch { }
+
+  // Flush DNS
+  try {
+    await execAsync('ipconfig /flushdns');
+    report.dnsFlushed = true;
+  } catch { }
+
+  await sleep(1500);
+
+  // Probe direct ISP IP
+  try {
+    const directDual = await getDualStackIps(3500);
+    report.new = directDual;
+    report.newIp = directDual.ipv4 !== 'unknown' ? directDual.ipv4 : directDual.ipv6;
+    report.newIpv4 = directDual.ipv4;
+    report.newIpv6 = directDual.ipv6;
+
+    const targetIp = (directDual.ipv4 !== 'unknown' ? directDual.ipv4 : directDual.ipv6);
+    const geo = await getIpGeoDetails(targetIp);
+    report.countryCode = geo.countryCode;
+    report.country = geo.country;
+    report.countryEmoji = geo.countryEmoji;
+    report.city = geo.city;
+
+    // Sidecar sync
+    const sidecarCreds = getOpenCodeSidecarCredentials();
+    if (sidecarCreds) {
+      report.sidecarSynced = await syncOpenCodeSidecar(sidecarCreds);
+    }
+
+    report.success = true;
+    report.message = `VPN disconnected. Restored direct connection to ${report.newIp} (${report.country || 'ISP'})`;
+  } catch (err) {
+    report.message = `Disconnected, but IP verification failed: ${err.message}`;
+  }
+
+  return report;
+}
+
+/**
+ * Supercharged Proton VPN Server Rotation Pipeline with 14s timeout and graceful fallback
+ */
+async function rotateProtonIp() {
+  const report = {
+    success: false,
+    provider: 'ProtonVPN',
+    cooldownSeconds: 60,
+    old: { ipv4: 'unknown', ipv6: 'Not assigned' },
+    new: { ipv4: 'unknown', ipv6: 'Not assigned' },
+    oldIp: 'unknown',
+    newIp: 'unknown',
+    oldIpv4: 'unknown',
+    oldIpv6: 'Not assigned',
+    newIpv4: 'unknown',
+    newIpv6: 'Not assigned',
+    countryCode: '',
+    country: '',
+    countryEmoji: '🌐',
+    city: '',
+    dnsFlushed: false,
+    sidecarSynced: false,
+    message: ''
+  };
+
+  try {
+    const initialDual = await getDualStackIps(3000);
+    report.old = initialDual;
+    report.oldIpv4 = initialDual.ipv4;
+    report.oldIpv6 = initialDual.ipv6;
+    report.oldIp = initialDual.ipv4 !== 'unknown' ? initialDual.ipv4 : initialDual.ipv6;
+  } catch { }
+
+  // 1. Check if Proton GUI is running; if not, launch it in background
+  if (!isProtonRunning()) {
+    launchProtonGui();
+    await sleep(2000);
+  }
+
+  // 2. Trigger connection attempt via URI scheme (non-blocking)
+  try {
+    child_process.spawn('cmd', ['/c', 'start', 'protonvpn://connect'], { detached: true, stdio: 'ignore' }).unref();
+  } catch { }
+
+  // 3. Flush DNS
+  try {
+    await execAsync('ipconfig /flushdns');
+    report.dnsFlushed = true;
+  } catch { }
+
+  // 4. Polling loop for new IP (max 14 seconds: 8 attempts x 1.5s)
+  let detectedNewDual = null;
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    await sleep(1500);
+    try {
+      const probe = await getDualStackIps(2500);
+      const hasV4 = probe.ipv4 && probe.ipv4 !== 'unknown';
+      const hasV6 = probe.ipv6 && probe.ipv6 !== 'Not assigned';
+
+      const v4Changed = hasV4 && (report.old.ipv4 === 'unknown' || probe.ipv4 !== report.old.ipv4);
+      const v6Changed = hasV6 && (report.old.ipv6 === 'Not assigned' || probe.ipv6 !== report.old.ipv6);
+
+      if (v4Changed || v6Changed) {
+        detectedNewDual = probe;
+        break;
+      }
+    } catch { }
+  }
+
+  if (detectedNewDual) {
+    report.success = true;
+    report.new = detectedNewDual;
+    report.newIpv4 = detectedNewDual.ipv4;
+    report.newIpv6 = detectedNewDual.ipv6;
+    report.newIp = detectedNewDual.ipv4 !== 'unknown' ? detectedNewDual.ipv4 : detectedNewDual.ipv6;
+    report.ip = report.newIp;
+
+    const targetIpForGeo = (detectedNewDual.ipv4 !== 'unknown' ? detectedNewDual.ipv4 : detectedNewDual.ipv6);
+    const geo = await getIpGeoDetails(targetIpForGeo);
+    report.countryCode = geo.countryCode;
+    report.country = geo.country;
+    report.countryEmoji = geo.countryEmoji;
+    report.city = geo.city;
+
+    const sidecarCreds = getOpenCodeSidecarCredentials();
+    if (sidecarCreds) {
+      report.sidecarSynced = await syncOpenCodeSidecar(sidecarCreds);
+    }
+
+    report.message = `Proton VPN tunnel active. New IP: ${report.newIp} (${report.country || 'Proton'})`;
+  } else {
+    // Timeout reached without new IP
+    report.success = false;
+    report.new = report.old;
+    report.newIpv4 = report.oldIpv4;
+    report.newIpv6 = report.oldIpv6;
+    report.newIp = report.oldIp;
+    report.ip = report.oldIp;
+    report.message = "Proton VPN did not establish a new tunnel within 14s. Please click 'Connect' in the Proton VPN window, then click Reset.";
+  }
+
+  return report;
+}
+
+/**
  * Supercharged Quota & IP Rotation Engine with Dual-Stack Resolution
- * @returns {Promise<{ success: boolean, old: { ipv4: string, ipv6: string }, new: { ipv4: string, ipv6: string }, oldIp: string, newIp: string, oldIpv4: string, oldIpv6: string, newIpv4: string, newIpv6: string, countryCode: string, country: string, countryEmoji: string, city: string, dnsFlushed: boolean, sidecarSynced: boolean, message: string }>}
+ * @returns {Promise<{ success: boolean, provider: string, cooldownSeconds: number, old: { ipv4: string, ipv6: string }, new: { ipv4: string, ipv6: string }, oldIp: string, newIp: string, oldIpv4: string, oldIpv6: string, newIpv4: string, newIpv6: string, countryCode: string, country: string, countryEmoji: string, city: string, dnsFlushed: boolean, sidecarSynced: boolean, message: string }>}
  */
 async function resetQuotaAndRotateIp() {
   const report = {
     success: false,
+    provider: 'CloudflareWARP',
+    cooldownSeconds: 12,
     old: { ipv4: 'unknown', ipv6: 'Not assigned' },
     new: { ipv4: 'unknown', ipv6: 'Not assigned' },
     oldIp: 'unknown',
@@ -384,12 +644,9 @@ async function resetQuotaAndRotateIp() {
   try {
     await execAsync('warp-cli tunnel rotate-keys');
   } catch {
-    // Try fallback rotate-keys command syntax if available
     try {
       await execAsync('warp-cli rotate-keys');
-    } catch {
-      // Some WARP versions handle rotation on reconnect
-    }
+    } catch { }
   }
 
   await sleep(800);
@@ -429,11 +686,8 @@ async function resetQuotaAndRotateIp() {
         detectedNewDual = probeDual;
         break;
       }
-    } catch {
-      // Socket still negotiating
-    }
+    } catch { }
 
-    // Midway fallback: force another key rotation if IP hasn't changed by attempt 5
     if (attempt === 5 && !detectedNewDual) {
       try {
         await execAsync('warp-cli tunnel rotate-keys');
@@ -452,7 +706,6 @@ async function resetQuotaAndRotateIp() {
   report.newIp = detectedNewDual.ipv4 !== 'unknown' ? detectedNewDual.ipv4 : detectedNewDual.ipv6;
   report.ip = report.newIp;
 
-  // Resolve IP geolocation using IPv4 if available, otherwise IPv6
   const targetIpForGeo = (detectedNewDual.ipv4 !== 'unknown' ? detectedNewDual.ipv4 : detectedNewDual.ipv6);
   const geo = await getIpGeoDetails(targetIpForGeo);
   report.countryCode = geo.countryCode;
@@ -460,7 +713,6 @@ async function resetQuotaAndRotateIp() {
   report.countryEmoji = geo.countryEmoji;
   report.city = geo.city;
 
-  // 5 & 6. Detect OpenCode Sidecar credentials & dispatch connection-close teardown
   const sidecarCreds = getOpenCodeSidecarCredentials();
   if (sidecarCreds) {
     report.sidecarSynced = await syncOpenCodeSidecar(sidecarCreds);
@@ -473,21 +725,35 @@ async function resetQuotaAndRotateIp() {
 }
 
 async function main() {
+  const args = process.argv.slice(2);
+  const isDisconnect = args.includes('--disconnect') || args.includes('-d');
+  const providerArg = args.find(a => a.startsWith('--provider='));
+  const provider = providerArg ? providerArg.split('=')[1].toLowerCase() : (args.includes('proton') ? 'proton' : 'warp');
+
   try {
-    const outcome = await resetQuotaAndRotateIp();
-    // Return clean JSON output
+    let outcome;
+    if (isDisconnect) {
+      outcome = await disconnectTunnel();
+    } else if (provider === 'proton') {
+      outcome = await rotateProtonIp();
+    } else {
+      outcome = await resetQuotaAndRotateIp();
+    }
+
     console.log(JSON.stringify(outcome, null, 2));
     process.exitCode = outcome.success ? 0 : 1;
   } catch (err) {
     const errorOutcome = {
       success: false,
+      provider: provider === 'proton' ? 'ProtonVPN' : 'CloudflareWARP',
+      cooldownSeconds: provider === 'proton' ? 60 : 12,
       old: { ipv4: 'unknown', ipv6: 'Not assigned' },
       new: { ipv4: 'unknown', ipv6: 'Not assigned' },
       oldIp: 'unknown',
       newIp: 'unknown',
       dnsFlushed: false,
       sidecarSynced: false,
-      message: `Fatal error during quota reset: ${err.message}`
+      message: `Fatal error during network operation: ${err.message}`
     };
     console.log(JSON.stringify(errorOutcome, null, 2));
     process.exitCode = 1;
@@ -501,10 +767,14 @@ if (require.main === module) {
 module.exports = {
   resetQuotaAndRotateIp,
   rotateWarpIp: resetQuotaAndRotateIp,
+  rotateProtonIp,
+  disconnectTunnel,
   getPublicIp,
   getIpv4,
   getIpv6,
   getDualStackIps,
   getOpenCodeSidecarCredentials,
-  syncOpenCodeSidecar
+  syncOpenCodeSidecar,
+  findProtonExecutable
 };
+
