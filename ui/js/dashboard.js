@@ -13,6 +13,15 @@
     lanUrlMode: 'lan',
     isIpMasked: false,
     isShortcutsMasked: localStorage.getItem('agents_hub_mask_shortcuts') === 'true',
+    publicIp: '',
+    ipv4: '',
+    ipv6: '',
+    previousIpv4: '',
+    previousIpv6: '',
+    countryCode: '',
+    country: '',
+    countryEmoji: '',
+    city: '',
     qrBase64: '',
     clis: {},
     antigravity: { activeProfile: '', profiles: [] },
@@ -1595,25 +1604,158 @@
   }
 
   // Public IP & OpenCode Quota Reset Engine
+  let quotaCooldownInterval = null;
+
+  function startQuotaResetCooldown(durationSeconds = 12) {
+    if (quotaCooldownInterval) {
+      clearInterval(quotaCooldownInterval);
+      quotaCooldownInterval = null;
+    }
+
+    const btn = document.getElementById('btn-reset-opencode-quota');
+    const lbl = document.getElementById('lbl-reset-quota-btn');
+    const icon = document.getElementById('icon-reset-quota');
+
+    if (!btn) return;
+
+    let remaining = durationSeconds;
+    btn.disabled = true;
+    btn.classList.add('btn-cooldown');
+    if (icon) icon.classList.remove('spinning');
+    if (lbl) lbl.textContent = `Cooldown (${remaining}s)...`;
+
+    quotaCooldownInterval = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) {
+        if (lbl) lbl.textContent = `Cooldown (${remaining}s)...`;
+      } else {
+        clearInterval(quotaCooldownInterval);
+        quotaCooldownInterval = null;
+        btn.disabled = false;
+        btn.classList.remove('btn-cooldown');
+        if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)';
+      }
+    }, 1000);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function renderPublicIpDisplay() {
-    const ipText = document.getElementById('dash-public-ip-text');
+    const v4Diff = document.getElementById('dash-ipv4-diff');
+    const v6Diff = document.getElementById('dash-ipv6-diff');
+    const legacyIpText = document.getElementById('dash-public-ip-text');
     const eyeIcon = document.getElementById('icon-ip-eye');
-    if (!ipText) return;
 
     if (state.isIpMasked) {
-      ipText.textContent = 'IP: ***';
+      if (v4Diff) {
+        v4Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">***.***.***</span>';
+      }
+      if (v6Diff) {
+        v6Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">****:****:****</span>';
+      }
+      if (legacyIpText) {
+        legacyIpText.textContent = 'IP: ***';
+      }
       if (eyeIcon) {
         eyeIcon.innerHTML = '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>';
       }
-    } else {
-      ipText.textContent = 'IP: ' + (state.publicIp || 'Fetching...');
-      if (eyeIcon) {
-        eyeIcon.innerHTML = '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>';
+      return;
+    }
+
+    if (eyeIcon) {
+      eyeIcon.innerHTML = '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>';
+    }
+
+    const currentV4 = state.ipv4 || (state.publicIp && !state.publicIp.includes(':') ? state.publicIp : 'Fetching...');
+    const currentV6 = state.ipv6 || (state.publicIp && state.publicIp.includes(':') ? state.publicIp : 'Not assigned');
+
+    const flag = state.countryEmoji ? `${state.countryEmoji} ` : '';
+    const locDetail = state.city ? ` (${state.city})` : (state.country ? ` (${state.country})` : '');
+    const geoHtml = (flag || locDetail) ? `<span class="ip-detail">${escapeHtml(flag + locDetail)}</span>` : '';
+
+    // IPv4 Row: Diff display if rotated
+    if (v4Diff) {
+      if (state.previousIpv4 && state.previousIpv4 !== 'unknown' && state.previousIpv4 !== currentV4 && currentV4 !== 'Fetching...') {
+        v4Diff.innerHTML = `<span class="ip-old text-xs text-red-400 line-through">${escapeHtml(state.previousIpv4)}</span> <span class="ip-arrow">➜</span> <span class="ip-new font-mono font-bold text-base text-cyan-400">${escapeHtml(currentV4)}</span>${geoHtml}`;
+      } else {
+        v4Diff.innerHTML = `<span class="ip-new font-mono font-bold text-base text-cyan-400">${escapeHtml(currentV4)}</span>${geoHtml}`;
       }
+    }
+
+    // IPv6 Row: Diff display if rotated
+    if (v6Diff) {
+      if (state.previousIpv6 && state.previousIpv6 !== 'Not assigned' && state.previousIpv6 !== currentV6 && currentV6 !== 'Not assigned') {
+        v6Diff.innerHTML = `<span class="ip-old text-xs text-red-400 line-through">${escapeHtml(state.previousIpv6)}</span> <span class="ip-arrow">➜</span> <span class="ip-new font-mono font-bold text-base text-cyan-400">${escapeHtml(currentV6)}</span>`;
+      } else {
+        v6Diff.innerHTML = `<span class="ip-new font-mono font-bold text-base text-cyan-400">${escapeHtml(currentV6)}</span>`;
+      }
+    }
+
+    if (legacyIpText) {
+      legacyIpText.textContent = `IP: ${flag}${currentV4}${locDetail}`;
     }
   }
 
+  function formatRelativeTime(isoString) {
+    if (!isoString) return 'Never';
+    const timestamp = new Date(isoString).getTime();
+    if (isNaN(timestamp)) return 'Never';
+    const diffSec = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (diffSec < 45) return 'Just now';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    return `${Math.floor(diffSec / 86400)}d ago`;
+  }
+
+  function updateQuotaStatsDisplay() {
+    const statsEl = document.getElementById('quota-reset-stats');
+    if (!statsEl) return;
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const savedDate = localStorage.getItem('agents_hub_rotations_date');
+    let count = parseInt(localStorage.getItem('agents_hub_rotations_today') || '0', 10);
+
+    if (savedDate !== todayStr) {
+      count = 0;
+      localStorage.setItem('agents_hub_rotations_today', '0');
+      localStorage.setItem('agents_hub_rotations_date', todayStr);
+    }
+
+    const lastRotated = localStorage.getItem('agents_hub_last_rotated') || '';
+    const relTime = formatRelativeTime(lastRotated);
+    statsEl.textContent = `Last rotated: ${relTime} • Rotations today: ${count}`;
+  }
+
+  function recordSuccessfulRotation() {
+    const nowIso = new Date().toISOString();
+    const todayStr = nowIso.slice(0, 10);
+    const savedDate = localStorage.getItem('agents_hub_rotations_date');
+    let count = parseInt(localStorage.getItem('agents_hub_rotations_today') || '0', 10);
+
+    if (savedDate !== todayStr) {
+      count = 1;
+    } else {
+      count += 1;
+    }
+
+    localStorage.setItem('agents_hub_last_rotated', nowIso);
+    localStorage.setItem('agents_hub_rotations_today', String(count));
+    localStorage.setItem('agents_hub_rotations_date', todayStr);
+    updateQuotaStatsDisplay();
+  }
+
   function setupQuotaAndIpWidget() {
+    updateQuotaStatsDisplay();
+    setInterval(updateQuotaStatsDisplay, 15000);
+
     document.getElementById('btn-toggle-mask-ip')?.addEventListener('click', async () => {
       state.isIpMasked = !state.isIpMasked;
       renderPublicIpDisplay();
@@ -1623,12 +1765,22 @@
     });
 
     document.getElementById('btn-refresh-public-ip')?.addEventListener('click', async () => {
-      const ipText = document.getElementById('dash-public-ip-text');
-      if (ipText && !state.isIpMasked) ipText.textContent = 'IP: Fetching...';
+      const v4Diff = document.getElementById('dash-ipv4-diff');
+      const v6Diff = document.getElementById('dash-ipv6-diff');
+      if (v4Diff && !state.isIpMasked) v4Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">Fetching...</span>';
+      if (v6Diff && !state.isIpMasked) v6Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">Fetching...</span>';
       try {
         const res = await callBridge('get_public_ip');
-        if (res && res.ip) {
-          state.publicIp = res.ip;
+        if (res) {
+          if (res.ipv4) state.ipv4 = res.ipv4;
+          if (res.ipv6) state.ipv6 = res.ipv6;
+          if (res.ip) state.publicIp = res.ip;
+          if (!state.ipv4 && res.ip && !res.ip.includes(':')) state.ipv4 = res.ip;
+          if (!state.ipv6 && res.ip && res.ip.includes(':')) state.ipv6 = res.ip;
+          state.countryCode = res.countryCode || '';
+          state.country = res.country || '';
+          state.countryEmoji = res.countryEmoji || '';
+          state.city = res.city || '';
           renderPublicIpDisplay();
         }
       } catch { }
@@ -1638,54 +1790,97 @@
       const btn = document.getElementById('btn-reset-opencode-quota');
       const icon = document.getElementById('icon-reset-quota');
       const lbl = document.getElementById('lbl-reset-quota-btn');
-      const ipText = document.getElementById('dash-public-ip-text');
+      const v4Diff = document.getElementById('dash-ipv4-diff');
+      const v6Diff = document.getElementById('dash-ipv6-diff');
+      const ipContainer = document.getElementById('dash-ip-container');
 
       if (btn) btn.disabled = true;
       if (icon) icon.classList.add('spinning');
       if (lbl) lbl.textContent = 'Rotating Tunnel & Clearing Sockets...';
-      if (ipText && !state.isIpMasked) ipText.textContent = 'IP: Rotating...';
+      if (v4Diff && !state.isIpMasked) v4Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">Rotating...</span>';
+      if (v6Diff && !state.isIpMasked) v6Diff.innerHTML = '<span class="ip-new font-mono font-bold text-base text-cyan-400">Rotating...</span>';
 
       try {
         const res = await callBridge('reset_opencode_quota');
         if (res && res.success) {
+          // Record old IPs for before vs after visual diff
+          if (res.old) {
+            if (res.old.ipv4 && res.old.ipv4 !== 'unknown') state.previousIpv4 = res.old.ipv4;
+            if (res.old.ipv6 && res.old.ipv6 !== 'Not assigned') state.previousIpv6 = res.old.ipv6;
+          } else if (res.oldIp && res.oldIp !== 'unknown') {
+            state.previousIpv4 = res.oldIp;
+          }
+
+          // Record new rotated IPs
+          if (res.new) {
+            if (res.new.ipv4) state.ipv4 = res.new.ipv4;
+            if (res.new.ipv6) state.ipv6 = res.new.ipv6;
+          }
+          if (res.ipv4) state.ipv4 = res.ipv4;
+          if (res.ipv6) state.ipv6 = res.ipv6;
           const freshIp = res.newIp || res.ip;
           if (freshIp && freshIp !== 'unknown') {
             state.publicIp = freshIp;
+            if (!state.ipv4 && !freshIp.includes(':')) state.ipv4 = freshIp;
+            if (!state.ipv6 && freshIp.includes(':')) state.ipv6 = freshIp;
           }
+
+          state.countryCode = res.countryCode || '';
+          state.country = res.country || '';
+          state.countryEmoji = res.countryEmoji || '';
+          state.city = res.city || '';
+
           renderPublicIpDisplay();
+          recordSuccessfulRotation();
 
-          // Play subtle success animation on IP badge/text
-          if (ipText) {
-            ipText.classList.remove('pulse-success');
-            void ipText.offsetWidth; // Force CSS reflow
-            ipText.classList.add('pulse-success');
+          // Play subtle success animation on IP container
+          if (ipContainer) {
+            ipContainer.classList.remove('pulse-success');
+            void ipContainer.offsetWidth; // Force CSS reflow
+            ipContainer.classList.add('pulse-success');
           }
 
-          const oldStr = res.oldIp || 'Previous';
-          const newStr = res.newIp || freshIp || 'Updated';
+          const oldV4Str = (res.old && res.old.ipv4) || res.oldIp || 'Previous';
+          const newV4Str = (res.new && res.new.ipv4) || res.newIp || freshIp || 'Updated';
+          const flagStr = state.countryEmoji ? `${state.countryEmoji} ` : '';
+          const locStr = state.city ? ` (${state.city})` : (state.country ? ` (${state.country})` : '');
           const toastMsg = res.sidecarSynced
-            ? `IP Rotated: ${oldStr} ➜ ${newStr} | Sidecar Re-synced`
-            : `IP Rotated: ${oldStr} ➜ ${newStr}`;
+            ? `IP Rotated: ${oldV4Str} ➜ ${flagStr}${newV4Str}${locStr} | Sidecar Re-synced`
+            : `IP Rotated: ${oldV4Str} ➜ ${flagStr}${newV4Str}${locStr}`;
 
           showToast(toastMsg, 'success', 5000);
           appendLog('[QuotaReset] ' + (res.message || toastMsg));
-          if (lbl) lbl.textContent = 'Reset Succeeded!';
-          setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3500);
+
+          // Initiate 12-second smart cooldown
+          startQuotaResetCooldown(12);
         } else {
           const errMsg = (res && res.message) ? res.message : 'Tunnel rotation timed out or failed';
-          showToast(`Quota Reset Failed: ${errMsg}`, 'error', 6000);
-          appendLog(`[QuotaReset] Failed: ${errMsg}`);
-          if (lbl) lbl.textContent = 'Reset Failed';
-          setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3500);
+          const isCooldown = res && (res.cooldownRemaining || (res.message && res.message.includes('Cooldown active')));
+          if (isCooldown) {
+            const waitSec = res.cooldownRemaining || 10;
+            startQuotaResetCooldown(waitSec);
+            showToast(errMsg, 'info', 4000);
+          } else {
+            showToast(`Quota Reset Failed: ${errMsg}`, 'error', 6000);
+            appendLog(`[QuotaReset] Failed: ${errMsg}`);
+            if (lbl) lbl.textContent = 'Reset Failed';
+            setTimeout(() => {
+              if (!quotaCooldownInterval && lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)';
+            }, 3500);
+          }
         }
       } catch (err) {
         showToast(`Quota Reset Error: ${err.message}`, 'error', 6000);
         appendLog('[QuotaReset] Error: ' + err.message);
         if (lbl) lbl.textContent = 'Reset Failed';
-        setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3500);
+        setTimeout(() => {
+          if (!quotaCooldownInterval && lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)';
+        }, 3500);
       } finally {
-        if (icon) icon.classList.remove('spinning');
-        if (btn) btn.disabled = false;
+        if (!quotaCooldownInterval) {
+          if (icon) icon.classList.remove('spinning');
+          if (btn) btn.disabled = false;
+        }
       }
     });
 
@@ -1703,6 +1898,37 @@
         showToast('Sidecar refresh failed: ' + err.message, 'error', 3000);
       } finally {
         if (svg) svg.classList.remove('spinning');
+      }
+    });
+
+    document.getElementById('btn-purge-sessions')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-purge-sessions');
+      if (!state.opencode?.isOnline) {
+        showToast('OpenCode Sidecar is offline', 'info', 2500);
+        return;
+      }
+      if (btn) btn.disabled = true;
+      const origText = btn ? btn.innerHTML : '🗑️';
+      if (btn) btn.innerHTML = '<span class="spinning" style="display:inline-block">⏳</span>';
+
+      try {
+        const res = await callBridge('purge_idle_sessions');
+        const count = res?.deletedCount ?? 0;
+        if (count > 0) {
+          showToast(`Cleaned ${count} idle session${count === 1 ? '' : 's'}`, 'success', 3500);
+          appendLog(`[OpenCode] Cleaned ${count} idle sessions.`);
+        } else {
+          showToast('No idle sessions to clean', 'info', 2500);
+        }
+        const fresh = await callBridge('refresh_opencode_sidecar');
+        if (fresh) handleOpenCodeUpdate(fresh);
+      } catch (err) {
+        showToast(`Purge failed: ${err.message}`, 'error', 3000);
+      } finally {
+        if (btn) {
+          btn.innerHTML = origText;
+          btn.disabled = false;
+        }
       }
     });
   }
@@ -2189,10 +2415,18 @@
           applyAdaptiveTheme(activeTheme, activeColor);
         }
 
-        // Fetch public IP initially
+        // Fetch public IP initially (dual-stack IPv4 & IPv6)
         callBridge('get_public_ip').then(r => {
-          if (r && r.ip) {
-            state.publicIp = r.ip;
+          if (r) {
+            if (r.ipv4) state.ipv4 = r.ipv4;
+            if (r.ipv6) state.ipv6 = r.ipv6;
+            if (r.ip) state.publicIp = r.ip;
+            if (!state.ipv4 && r.ip && !r.ip.includes(':')) state.ipv4 = r.ip;
+            if (!state.ipv6 && r.ip && r.ip.includes(':')) state.ipv6 = r.ip;
+            state.countryCode = r.countryCode || '';
+            state.country = r.country || '';
+            state.countryEmoji = r.countryEmoji || '';
+            state.city = r.city || '';
             renderPublicIpDisplay();
           }
         }).catch(() => {});

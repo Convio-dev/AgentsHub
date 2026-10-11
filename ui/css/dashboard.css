@@ -1078,3 +1078,120 @@ html[data-theme="light"] .dashboard-card {
     transform: translateY(0) scale(1);
   }
 }
+
+/* Quota Stats Metadata & Clean Session Button */
+.quota-stats {
+  font-size: 11px;
+  color: var(--text-dim, #94a3b8);
+  text-align: center;
+  margin-top: 6px;
+  letter-spacing: 0.2px;
+  user-select: none;
+}
+
+#btn-purge-sessions {
+  cursor: pointer;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+#btn-purge-sessions:hover {
+  transform: scale(1.15);
+}
+
+/* Dual-Stack IP Container & Visual Diff */
+.card-url-box.ip-dual-stack-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  min-height: 58px;
+}
+
+.ip-dual-stack-content {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.ip-proto-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 1.5px 5.5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-dim, #94a3b8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  user-select: none;
+  flex-shrink: 0;
+  min-width: 34px;
+}
+
+.ip-diff-wrapper {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ip-old {
+  font-size: 11px;
+  color: #f87171; /* text-red-400 */
+  text-decoration: line-through;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.ip-arrow {
+  color: var(--text-dim, #94a3b8);
+  font-size: 11px;
+  margin: 0 1px;
+  user-select: none;
+}
+
+.ip-new {
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--accent-cyan, #22d3ee);
+  white-space: nowrap;
+}
+
+.ip-detail {
+  font-size: 11px;
+  color: var(--text-dim, #94a3b8);
+  font-weight: 400;
+  margin-left: 2px;
+  white-space: nowrap;
+}
+
+/* Smart Cooldown State for Quota Button */
+#btn-reset-opencode-quota:disabled,
+#btn-reset-opencode-quota.btn-cooldown {
+  opacity: 0.55;
+  cursor: not-allowed !important;
+  pointer-events: none;
+  filter: grayscale(0.2);
+  transition: opacity 0.2s ease, filter 0.2s ease;
+}
+

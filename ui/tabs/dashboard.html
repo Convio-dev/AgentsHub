@@ -35,8 +35,21 @@
         <span id="opencode-sidecar-text">Sidecar: Offline</span>
       </div>
     </div>
-    <div class="card-url-box">
-      <span id="dash-public-ip-text">IP: Fetching...</span>
+    <div class="card-url-box ip-dual-stack-container" id="dash-ip-container">
+      <div class="ip-dual-stack-content" id="dash-dual-stack-content">
+        <div class="ip-row" id="row-ipv4">
+          <span class="ip-proto-badge">IPv4</span>
+          <span class="ip-diff-wrapper" id="dash-ipv4-diff">
+            <span class="ip-new font-mono font-bold text-base text-cyan-400" id="dash-ipv4-text">Fetching...</span>
+          </span>
+        </div>
+        <div class="ip-row" id="row-ipv6">
+          <span class="ip-proto-badge">IPv6</span>
+          <span class="ip-diff-wrapper" id="dash-ipv6-diff">
+            <span class="ip-new font-mono font-bold text-base text-cyan-400" id="dash-ipv6-text">Fetching...</span>
+          </span>
+        </div>
+      </div>
       <div class="url-actions">
         <button class="btn-icon" id="btn-toggle-mask-ip" title="Show / Mask Public IP (***)">
           <svg class="icon-svg" id="icon-ip-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -50,6 +63,9 @@
       <svg class="icon-svg" id="icon-reset-quota" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
       <span id="lbl-reset-quota-btn">Reset OpenCode Quota (WARP IP)</span>
     </button>
+    <div class="quota-stats" id="quota-reset-stats" style="font-size: 11px; color: var(--text-dim, #94a3b8); text-align: center; margin-top: 5px;">
+      Last rotated: Never • Rotations today: 0
+    </div>
 
     <!-- Active Sessions Tray -->
     <div id="opencode-sessions-container" style="margin-top: 12px; border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.08)); padding-top: 10px;">
@@ -59,9 +75,14 @@
           <span id="opencode-sessions-header">Active Sessions</span>
           <span id="opencode-sessions-count" style="background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 500;">0</span>
         </div>
-        <button class="btn-icon" id="btn-refresh-opencode-sidecar" title="Refresh OpenCode Sidecar" style="padding: 2px 4px;">
-          <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-        </button>
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <button class="btn-icon" id="btn-purge-sessions" title="Clean idle sessions" style="padding: 2px 4px; font-size: 11px;">
+            🗑️
+          </button>
+          <button class="btn-icon" id="btn-refresh-opencode-sidecar" title="Refresh OpenCode Sidecar" style="padding: 2px 4px;">
+            <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          </button>
+        </div>
       </div>
       <div id="opencode-sessions-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto;">
         <div class="empty-state" style="font-size: 11px; color: var(--text-dim, #94a3b8); padding: 4px 0; font-style: italic;">

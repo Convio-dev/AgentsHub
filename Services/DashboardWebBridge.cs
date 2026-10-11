@@ -33,6 +33,10 @@ public sealed class DashboardWebBridge : IDisposable
     private readonly PerformanceCounter? _cpuCounter;
     private CancellationTokenSource? _promptEnhanceCts;
 
+    // Smart Cooldown rate limiter for WARP quota reset (10s backend guard)
+    private static DateTime _lastQuotaResetTime = DateTime.MinValue;
+    private static readonly object _quotaResetLock = new();
+
     public DashboardWebBridge(Form mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
     {
         _mainForm = mainForm;
@@ -653,8 +657,21 @@ public sealed class DashboardWebBridge : IDisposable
                 break;
 
             case "get_public_ip":
-                var currentIp = await NetworkHelper.FetchPublicIpAsync();
-                SendResponse(requestId, true, new { ip = currentIp ?? "Unavailable" });
+                var ipDetails = await NetworkHelper.FetchPublicIpDetailsAsync();
+                SendResponse(requestId, true, ipDetails);
+                break;
+
+            case "purge_idle_sessions":
+            case "PurgeIdleSessions":
+                if (_openCodeWatcher != null)
+                {
+                    var deleted = await _openCodeWatcher.PurgeIdleSessionsAsync();
+                    SendResponse(requestId, true, new { deletedCount = deleted, success = true });
+                }
+                else
+                {
+                    SendResponse(requestId, false, "OpenCode watcher service not initialized");
+                }
                 break;
 
             case "reset_opencode_quota":
@@ -1133,6 +1150,25 @@ public sealed class DashboardWebBridge : IDisposable
 
     public async Task<object> ResetOpenCodeQuotaAsync(string? requestId = null)
     {
+        // 10-second backend guard against rapid execution
+        lock (_quotaResetLock)
+        {
+            var elapsed = (DateTime.UtcNow - _lastQuotaResetTime).TotalSeconds;
+            if (elapsed < 10.0)
+            {
+                int remaining = (int)Math.Ceiling(10.0 - elapsed);
+                var cooldownResult = new
+                {
+                    success = false,
+                    message = $"Cooldown active. Please wait {remaining}s before resetting again.",
+                    cooldownRemaining = remaining
+                };
+                if (requestId != null) SendResponse(requestId, false, cooldownResult);
+                return cooldownResult;
+            }
+            _lastQuotaResetTime = DateTime.UtcNow;
+        }
+
         string baseDir = AppContext.BaseDirectory;
         string scriptPath = Path.Combine(baseDir, "dist", "fixquota-command.js");
         if (!File.Exists(scriptPath))
@@ -1209,9 +1245,51 @@ public sealed class DashboardWebBridge : IDisposable
                     bool success = root.TryGetProperty("success", out var sProp) && sProp.GetBoolean();
                     string oldIp = root.TryGetProperty("oldIp", out var oiProp) ? oiProp.GetString() ?? "unknown" : "unknown";
                     string newIp = root.TryGetProperty("newIp", out var niProp) ? niProp.GetString() ?? "unknown" : "unknown";
+
+                    string oldIpv4 = "unknown";
+                    string oldIpv6 = "Not assigned";
+                    if (root.TryGetProperty("old", out var oldProp))
+                    {
+                        if (oldProp.TryGetProperty("ipv4", out var o4)) oldIpv4 = o4.GetString() ?? "unknown";
+                        if (oldProp.TryGetProperty("ipv6", out var o6)) oldIpv6 = o6.GetString() ?? "Not assigned";
+                    }
+                    else if (root.TryGetProperty("oldIpv4", out var o4p))
+                    {
+                        oldIpv4 = o4p.GetString() ?? "unknown";
+                    }
+                    else
+                    {
+                        oldIpv4 = oldIp;
+                    }
+
+                    string newIpv4 = "unknown";
+                    string newIpv6 = "Not assigned";
+                    if (root.TryGetProperty("new", out var newProp))
+                    {
+                        if (newProp.TryGetProperty("ipv4", out var n4)) newIpv4 = n4.GetString() ?? "unknown";
+                        if (newProp.TryGetProperty("ipv6", out var n6)) newIpv6 = n6.GetString() ?? "Not assigned";
+                    }
+                    else if (root.TryGetProperty("newIpv4", out var n4p))
+                    {
+                        newIpv4 = n4p.GetString() ?? "unknown";
+                    }
+                    else
+                    {
+                        newIpv4 = newIp;
+                    }
+
                     bool dnsFlushed = root.TryGetProperty("dnsFlushed", out var dfProp) && dfProp.GetBoolean();
                     bool sidecarSynced = root.TryGetProperty("sidecarSynced", out var ssProp) && ssProp.GetBoolean();
                     string message = root.TryGetProperty("message", out var mProp) ? mProp.GetString() ?? string.Empty : string.Empty;
+                    string countryCode = root.TryGetProperty("countryCode", out var ccProp) ? ccProp.GetString() ?? string.Empty : string.Empty;
+                    string country = root.TryGetProperty("country", out var cProp) ? cProp.GetString() ?? string.Empty : string.Empty;
+                    string countryEmoji = root.TryGetProperty("countryEmoji", out var ceProp) ? ceProp.GetString() ?? string.Empty : string.Empty;
+                    string city = root.TryGetProperty("city", out var ctProp) ? ctProp.GetString() ?? string.Empty : string.Empty;
+
+                    if (string.IsNullOrWhiteSpace(countryEmoji) && !string.IsNullOrWhiteSpace(countryCode))
+                    {
+                        countryEmoji = NetworkHelper.CountryCodeToEmoji(countryCode);
+                    }
 
                     if (_openCodeWatcher != null)
                     {
@@ -1221,12 +1299,24 @@ public sealed class DashboardWebBridge : IDisposable
                     var resultObj = new
                     {
                         success,
-                        oldIp,
-                        newIp,
+                        old = new { ipv4 = oldIpv4, ipv6 = oldIpv6 },
+                        @new = new { ipv4 = newIpv4, ipv6 = newIpv6 },
+                        oldIp = oldIpv4 != "unknown" ? oldIpv4 : oldIp,
+                        newIp = newIpv4 != "unknown" ? newIpv4 : newIp,
+                        oldIpv4,
+                        oldIpv6,
+                        newIpv4,
+                        newIpv6,
                         dnsFlushed,
                         sidecarSynced,
                         message,
-                        ip = newIp != "unknown" ? newIp : null
+                        ip = newIpv4 != "unknown" ? newIpv4 : (newIp != "unknown" ? newIp : null),
+                        ipv4 = newIpv4,
+                        ipv6 = newIpv6,
+                        countryCode,
+                        country,
+                        countryEmoji,
+                        city
                     };
 
                     if (requestId != null) SendResponse(requestId, success, resultObj);
@@ -1237,9 +1327,8 @@ public sealed class DashboardWebBridge : IDisposable
         }
 
         // Fallback execution via NetworkHelper if node is missing or script threw
-        var rotateMsg = await NetworkHelper.RotateCloudflareWarpIpAsync();
-        var freshIp = await NetworkHelper.FetchPublicIpAsync();
-        bool fallbackSuccess = !rotateMsg.StartsWith("Failed", StringComparison.OrdinalIgnoreCase);
+        var (fallbackSuccess, rotateMsg, oldIps, newIps) = await NetworkHelper.RotateWarpDualStackAsync();
+        var freshIpDetails = await NetworkHelper.FetchPublicIpDetailsAsync();
 
         if (_openCodeWatcher != null)
         {
@@ -1249,12 +1338,24 @@ public sealed class DashboardWebBridge : IDisposable
         var fallbackResult = new
         {
             success = fallbackSuccess,
-            oldIp = "unknown",
-            newIp = freshIp ?? "unknown",
+            old = new { ipv4 = oldIps.Ipv4 ?? "unknown", ipv6 = oldIps.Ipv6 ?? "Not assigned" },
+            @new = new { ipv4 = newIps.Ipv4 ?? freshIpDetails.Ip, ipv6 = newIps.Ipv6 ?? freshIpDetails.Ipv6 ?? "Not assigned" },
+            oldIp = oldIps.Ipv4 ?? "unknown",
+            newIp = newIps.Ipv4 ?? freshIpDetails.Ip,
+            oldIpv4 = oldIps.Ipv4 ?? "unknown",
+            oldIpv6 = oldIps.Ipv6 ?? "Not assigned",
+            newIpv4 = newIps.Ipv4 ?? freshIpDetails.Ip,
+            newIpv6 = newIps.Ipv6 ?? freshIpDetails.Ipv6 ?? "Not assigned",
             dnsFlushed = false,
             sidecarSynced = _openCodeWatcher?.IsOnline ?? false,
             message = rotateMsg,
-            ip = freshIp ?? rotateMsg
+            ip = freshIpDetails.Ip,
+            ipv4 = freshIpDetails.Ipv4 ?? freshIpDetails.Ip,
+            ipv6 = freshIpDetails.Ipv6 ?? "Not assigned",
+            countryCode = freshIpDetails.CountryCode,
+            country = freshIpDetails.Country,
+            countryEmoji = freshIpDetails.CountryEmoji,
+            city = freshIpDetails.City
         };
 
         if (requestId != null) SendResponse(requestId, fallbackSuccess, fallbackResult);

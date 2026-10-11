@@ -544,12 +544,6 @@ public sealed class OpenCodeWatcherService : IDisposable
                 }
             }
 
-            if (newSessions.Count == 0)
-            {
-                ExtractFallbackSessionsFromStorage();
-                return;
-            }
-
             bool sessionsChanged = false;
             lock (_stateLock)
             {
@@ -723,6 +717,128 @@ public sealed class OpenCodeWatcherService : IDisposable
         {
             return false;
         }
+    }
+
+    public async Task<int> PurgeIdleSessionsAsync()
+    {
+        string normUrl;
+        string password;
+        lock (_stateLock)
+        {
+            normUrl = NormalizedBaseUrl;
+            password = Password;
+        }
+
+        if (string.IsNullOrWhiteSpace(normUrl) || !IsOnline)
+        {
+            return 0;
+        }
+
+        var authCandidates = new[] { $"opencode:{password}", $":{password}" };
+        int deletedCount = 0;
+
+        try
+        {
+            // 1. Fetch current sessions JSON from /api/session
+            string? sessionsJson = null;
+            string workingAuth = authCandidates[0];
+
+            foreach (var authCandidate in authCandidates)
+            {
+                var authBytes = Encoding.UTF8.GetBytes(authCandidate);
+                var authHeader = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytes));
+
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{normUrl}/session");
+                req.Headers.Authorization = authHeader;
+                req.Headers.ConnectionClose = true;
+
+                try
+                {
+                    using var resp = await _httpClient.SendAsync(req);
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        sessionsJson = await resp.Content.ReadAsStringAsync();
+                        workingAuth = authCandidate;
+                        break;
+                    }
+                }
+                catch { }
+            }
+
+            if (string.IsNullOrWhiteSpace(sessionsJson))
+            {
+                return 0;
+            }
+
+            using var doc = JsonDocument.Parse(sessionsJson);
+            var root = doc.RootElement;
+            JsonElement itemsArray = default;
+
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                itemsArray = root;
+            }
+            else if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (root.TryGetProperty("data", out var dProp) && dProp.ValueKind == JsonValueKind.Array)
+                {
+                    itemsArray = dProp;
+                }
+                else if (root.TryGetProperty("sessions", out var sProp) && sProp.ValueKind == JsonValueKind.Array)
+                {
+                    itemsArray = sProp;
+                }
+            }
+
+            if (itemsArray.ValueKind != JsonValueKind.Array)
+            {
+                return 0;
+            }
+
+            var authBytesWorking = Encoding.UTF8.GetBytes(workingAuth);
+            var authHeaderWorking = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authBytesWorking));
+
+            foreach (var el in itemsArray.EnumerateArray())
+            {
+                if (!el.TryGetProperty("id", out var idProp)) continue;
+                var id = idProp.GetString();
+                if (string.IsNullOrWhiteSpace(id) || !id.StartsWith("ses", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Identify idle or completed sessions (exclude busy/generating sessions)
+                bool isBusy = false;
+                if (el.TryGetProperty("status", out var stProp))
+                {
+                    var st = stProp.GetString()?.ToLowerInvariant();
+                    if (st == "busy" || st == "running" || st == "generating")
+                    {
+                        isBusy = true;
+                    }
+                }
+
+                if (isBusy) continue;
+
+                // Send DELETE request to Sidecar endpoint: DELETE /api/session/{id}
+                try
+                {
+                    using var delReq = new HttpRequestMessage(HttpMethod.Delete, $"{normUrl}/session/{id}");
+                    delReq.Headers.Authorization = authHeaderWorking;
+                    delReq.Headers.ConnectionClose = true;
+
+                    using var delResp = await _httpClient.SendAsync(delReq);
+                    if (delResp.IsSuccessStatusCode || delResp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        deletedCount++;
+                    }
+                }
+                catch { }
+            }
+
+            // 2. Refresh active sessions list after purge
+            await QuerySessionsAsync(normUrl, password);
+        }
+        catch { }
+
+        return deletedCount;
     }
 
     public async Task<OpenCodeStateDto> RefreshAsync()

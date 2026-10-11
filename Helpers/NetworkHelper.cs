@@ -1,8 +1,43 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace HermesHub.Helpers;
+
+public sealed class DualStackIpDto
+{
+    [JsonPropertyName("ipv4")]
+    public string? Ipv4 { get; set; }
+
+    [JsonPropertyName("ipv6")]
+    public string? Ipv6 { get; set; }
+}
+
+public sealed class PublicIpDetailsDto
+{
+    [JsonPropertyName("ip")]
+    public string Ip { get; set; } = string.Empty;
+
+    [JsonPropertyName("ipv4")]
+    public string? Ipv4 { get; set; }
+
+    [JsonPropertyName("ipv6")]
+    public string? Ipv6 { get; set; }
+
+    [JsonPropertyName("countryCode")]
+    public string CountryCode { get; set; } = string.Empty;
+
+    [JsonPropertyName("country")]
+    public string Country { get; set; } = string.Empty;
+
+    [JsonPropertyName("countryEmoji")]
+    public string CountryEmoji { get; set; } = "🌐";
+
+    [JsonPropertyName("city")]
+    public string City { get; set; } = string.Empty;
+}
 
 public static class NetworkHelper
 {
@@ -62,7 +97,171 @@ public static class NetworkHelper
                desc.Contains("npcap");
     }
 
+    public static string CountryCodeToEmoji(string? countryCode)
+    {
+        if (string.IsNullOrWhiteSpace(countryCode) || countryCode.Length != 2) return "🌐";
+        countryCode = countryCode.ToUpperInvariant();
+        try
+        {
+            int first = 0x1F1E6 + (countryCode[0] - 'A');
+            int second = 0x1F1E6 + (countryCode[1] - 'A');
+            return char.ConvertFromUtf32(first) + char.ConvertFromUtf32(second);
+        }
+        catch
+        {
+            return "🌐";
+        }
+    }
+
     private static readonly HttpClient _publicIpHttpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+
+    public static async Task<DualStackIpDto> FetchDualStackIpsAsync(int timeoutMs = 4000)
+    {
+        var dto = new DualStackIpDto();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs));
+
+        var v4Task = FetchDedicatedIpv4Async(cts.Token);
+        var v6Task = FetchDedicatedIpv6Async(cts.Token);
+
+        await Task.WhenAll(v4Task, v6Task);
+
+        dto.Ipv4 = await v4Task;
+        dto.Ipv6 = await v6Task;
+        return dto;
+    }
+
+    public static async Task<string?> FetchDedicatedIpv4Async(CancellationToken cancellationToken = default)
+    {
+        var v4Endpoints = new[]
+        {
+            "https://api4.ipify.org",
+            "https://v4.ident.me",
+            "https://ipv4.icanhazip.com"
+        };
+
+        foreach (var url in v4Endpoints)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                using var resp = await _publicIpHttpClient.SendAsync(req, cancellationToken);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var text = (await resp.Content.ReadAsStringAsync(cancellationToken)).Trim();
+                    if (IPAddress.TryParse(text, out var parsed) && parsed.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        return text;
+                    }
+                }
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    public static async Task<string?> FetchDedicatedIpv6Async(CancellationToken cancellationToken = default)
+    {
+        var v6Endpoints = new[]
+        {
+            "https://api6.ipify.org",
+            "https://v6.ident.me",
+            "https://ipv6.icanhazip.com"
+        };
+
+        foreach (var url in v6Endpoints)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                using var resp = await _publicIpHttpClient.SendAsync(req, cancellationToken);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var text = (await resp.Content.ReadAsStringAsync(cancellationToken)).Trim();
+                    if (IPAddress.TryParse(text, out var parsed) && parsed.AddressFamily == AddressFamily.InterNetworkV6)
+                    {
+                        return text;
+                    }
+                }
+            }
+            catch { }
+        }
+        return null;
+    }
+
+    public static async Task<PublicIpDetailsDto> FetchPublicIpDetailsAsync()
+    {
+        var dto = new PublicIpDetailsDto();
+        var dualTask = FetchDualStackIpsAsync(4000);
+
+        // 1. Query ipwho.is for IP and rich Geolocation
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, "https://ipwho.is/");
+            using var resp = await _publicIpHttpClient.SendAsync(req);
+            if (resp.IsSuccessStatusCode)
+            {
+                var json = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("ip", out var ipEl)) dto.Ip = ipEl.GetString() ?? string.Empty;
+                if (root.TryGetProperty("country_code", out var ccEl)) dto.CountryCode = ccEl.GetString() ?? string.Empty;
+                if (root.TryGetProperty("country", out var cEl)) dto.Country = cEl.GetString() ?? string.Empty;
+                if (root.TryGetProperty("city", out var cityEl)) dto.City = cityEl.GetString() ?? string.Empty;
+
+                if (!string.IsNullOrWhiteSpace(dto.CountryCode))
+                {
+                    dto.CountryEmoji = CountryCodeToEmoji(dto.CountryCode);
+                }
+            }
+        }
+        catch { }
+
+        // 2. Query 1.1.1.1/cdn-cgi/trace if country code missing or IP missing
+        if (string.IsNullOrWhiteSpace(dto.CountryCode) || string.IsNullOrWhiteSpace(dto.Ip))
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, "https://1.1.1.1/cdn-cgi/trace");
+                using var resp = await _publicIpHttpClient.SendAsync(req);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var trace = await resp.Content.ReadAsStringAsync();
+                    var lines = trace.Split('\n');
+                    foreach (var line in lines)
+                    {
+                        var trimmed = line.Trim();
+                        if (string.IsNullOrWhiteSpace(dto.Ip) && trimmed.StartsWith("ip=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            dto.Ip = trimmed.Substring(3).Trim();
+                        }
+                        else if (string.IsNullOrWhiteSpace(dto.CountryCode) && trimmed.StartsWith("loc=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            dto.CountryCode = trimmed.Substring(4).Trim().ToUpperInvariant();
+                            dto.CountryEmoji = CountryCodeToEmoji(dto.CountryCode);
+                            dto.Country = dto.CountryCode;
+                        }
+                        else if (string.IsNullOrWhiteSpace(dto.City) && trimmed.StartsWith("colo=", StringComparison.OrdinalIgnoreCase))
+                        {
+                            dto.City = trimmed.Substring(5).Trim();
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        var dual = await dualTask;
+        dto.Ipv4 = dual.Ipv4 ?? (IPAddress.TryParse(dto.Ip, out var parsedIp) && parsedIp.AddressFamily == AddressFamily.InterNetwork ? dto.Ip : null);
+        dto.Ipv6 = dual.Ipv6;
+
+        if (string.IsNullOrWhiteSpace(dto.Ip))
+        {
+            dto.Ip = dto.Ipv4 ?? dto.Ipv6 ?? "Unavailable";
+        }
+
+        return dto;
+    }
 
     public static async Task<string?> FetchPublicIpAsync()
     {
@@ -121,6 +320,45 @@ public static class NetworkHelper
         catch (Exception ex)
         {
             return "Failed: " + ex.Message;
+        }
+    }
+
+    public static async Task<(bool success, string message, DualStackIpDto oldIps, DualStackIpDto newIps)> RotateWarpDualStackAsync()
+    {
+        var oldIps = await FetchDualStackIpsAsync(3000);
+        try
+        {
+            await RunWarpCliCommandAsync("disconnect");
+            await Task.Delay(1500);
+
+            try
+            {
+                await RunWarpCliCommandAsync("tunnel rotate-keys");
+            }
+            catch { }
+            await Task.Delay(800);
+
+            var connected = await RunWarpCliCommandAsync("connect");
+            if (!connected)
+            {
+                await Task.Delay(1000);
+                await RunWarpCliCommandAsync("connect");
+            }
+
+            DualStackIpDto? newIps = null;
+            for (int i = 0; i < 10; i++)
+            {
+                await Task.Delay(1000);
+                newIps = await FetchDualStackIpsAsync(3000);
+                if (!string.IsNullOrWhiteSpace(newIps.Ipv4) && newIps.Ipv4 != oldIps.Ipv4) break;
+            }
+
+            newIps ??= await FetchDualStackIpsAsync(3000);
+            return (true, "Dual-stack rotated successfully", oldIps, newIps);
+        }
+        catch (Exception ex)
+        {
+            return (false, "Failed: " + ex.Message, oldIps, new DualStackIpDto());
         }
     }
 

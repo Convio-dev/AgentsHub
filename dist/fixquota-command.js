@@ -9,7 +9,109 @@ const fs = require('fs');
 const path = require('path');
 const execAsync = util.promisify(exec);
 
+const IPV4_REGEX = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+const IPV6_REGEX = /^[a-fA-F0-9:]{3,39}$/;
 const IP_REGEX = /(?:[0-9]{1,3}\.){3}[0-9]{1,3}|(?:[a-fA-F0-9]{1,4}:){2,7}[a-fA-F0-9]{1,4}/;
+
+/**
+ * Fetch dedicated public IPv4 address.
+ * @param {number} timeoutMs
+ * @returns {Promise<string|null>}
+ */
+async function getIpv4(timeoutMs = 4000) {
+  const endpoints = [
+    { url: 'https://api4.ipify.org', isTrace: false },
+    { url: 'https://v4.ident.me', isTrace: false },
+    { url: 'https://1.1.1.1/cdn-cgi/trace', isTrace: true }
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep.url, {
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: {
+          'User-Agent': 'curl/8.4.0',
+          'Accept': 'text/plain'
+        }
+      });
+
+      if (!res.ok) continue;
+
+      const raw = (await res.text()).trim();
+      let ip = null;
+
+      if (ep.isTrace) {
+        const line = raw.split('\n').find((l) => l.trim().startsWith('ip='));
+        if (line) {
+          const cand = line.substring(3).trim();
+          if (IPV4_REGEX.test(cand)) ip = cand;
+        }
+      } else {
+        const cand = raw.split('\n')[0].trim();
+        if (IPV4_REGEX.test(cand)) ip = cand;
+      }
+
+      if (ip) return ip;
+    } catch {
+      // Continue to next endpoint
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fetch dedicated public IPv6 address. Gracefully returns null if IPv6 is unsupported/unassigned.
+ * @param {number} timeoutMs
+ * @returns {Promise<string|null>}
+ */
+async function getIpv6(timeoutMs = 4000) {
+  const endpoints = [
+    { url: 'https://api6.ipify.org', isTrace: false },
+    { url: 'https://v6.ident.me', isTrace: false }
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep.url, {
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: {
+          'User-Agent': 'curl/8.4.0',
+          'Accept': 'text/plain'
+        }
+      });
+
+      if (!res.ok) continue;
+
+      const raw = (await res.text()).trim();
+      const cand = raw.split('\n')[0].trim();
+      if (IPV6_REGEX.test(cand) && cand.includes(':')) {
+        return cand;
+      }
+    } catch {
+      // Non-blocking graceful catch if IPv6 is unreachable
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fetch both protocol families (IPv4 and IPv6) concurrently.
+ * @param {number} timeoutMs
+ * @returns {Promise<{ ipv4: string, ipv6: string }>}
+ */
+async function getDualStackIps(timeoutMs = 4000) {
+  const [v4Result, v6Result] = await Promise.allSettled([
+    getIpv4(timeoutMs),
+    getIpv6(timeoutMs)
+  ]);
+
+  const ipv4 = (v4Result.status === 'fulfilled' && v4Result.value) ? v4Result.value : 'unknown';
+  const ipv6 = (v6Result.status === 'fulfilled' && v6Result.value) ? v6Result.value : 'Not assigned';
+
+  return { ipv4, ipv6 };
+}
 
 /**
  * Fetch public IP across redundant high-availability endpoints.
@@ -17,6 +119,10 @@ const IP_REGEX = /(?:[0-9]{1,3}\.){3}[0-9]{1,3}|(?:[a-fA-F0-9]{1,4}:){2,7}[a-fA-
  * @returns {Promise<string>}
  */
 async function getPublicIp(timeoutMs = 5000) {
+  const dual = await getDualStackIps(timeoutMs);
+  if (dual.ipv4 !== 'unknown') return dual.ipv4;
+  if (dual.ipv6 !== 'Not assigned') return dual.ipv6;
+
   const endpoints = [
     { url: 'https://api.ipify.org', isTrace: false },
     { url: 'https://icanhazip.com', isTrace: false },
@@ -163,22 +269,105 @@ async function syncOpenCodeSidecar(credentials) {
 }
 
 /**
- * Supercharged Quota & IP Rotation Engine
- * @returns {Promise<{ success: boolean, oldIp: string, newIp: string, dnsFlushed: boolean, sidecarSynced: boolean, message: string }>}
+ * Converts 2-letter ISO country code into regional indicator flag emoji.
+ * @param {string} code
+ * @returns {string}
+ */
+function countryCodeToFlag(code) {
+  if (!code || code.length !== 2) return '🌐';
+  try {
+    return String.fromCodePoint(...code.toUpperCase().split('').map(c => 127397 + c.charCodeAt(0)));
+  } catch {
+    return '🌐';
+  }
+}
+
+/**
+ * Resolves Geolocation details (countryCode, country, countryEmoji, city).
+ * @param {string} ip
+ * @returns {Promise<{ countryCode: string, country: string, countryEmoji: string, city: string }>}
+ */
+async function getIpGeoDetails(ip) {
+  const geo = {
+    countryCode: '',
+    country: '',
+    countryEmoji: '🌐',
+    city: ''
+  };
+
+  // 1. Primary: ipwho.is
+  try {
+    const res = await fetch(`https://ipwho.is/${ip || ''}`, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success !== false) {
+        geo.countryCode = data.country_code || '';
+        geo.country = data.country || '';
+        geo.city = data.city || '';
+        geo.countryEmoji = countryCodeToFlag(geo.countryCode);
+        return geo;
+      }
+    }
+  } catch {}
+
+  // 2. Fallback: 1.1.1.1/cdn-cgi/trace
+  try {
+    const res = await fetch('https://1.1.1.1/cdn-cgi/trace', { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      const text = await res.text();
+      const locMatch = text.match(/loc=([A-Z]{2})/i);
+      const coloMatch = text.match(/colo=([A-Z]{3})/i);
+      if (locMatch) {
+        geo.countryCode = locMatch[1].toUpperCase();
+        geo.countryEmoji = countryCodeToFlag(geo.countryCode);
+        try {
+          const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+          geo.country = regionNames.of(geo.countryCode) || geo.countryCode;
+        } catch {
+          geo.country = geo.countryCode;
+        }
+      }
+      if (coloMatch) {
+        geo.city = coloMatch[1].toUpperCase();
+      }
+      return geo;
+    }
+  } catch {}
+
+  return geo;
+}
+
+/**
+ * Supercharged Quota & IP Rotation Engine with Dual-Stack Resolution
+ * @returns {Promise<{ success: boolean, old: { ipv4: string, ipv6: string }, new: { ipv4: string, ipv6: string }, oldIp: string, newIp: string, oldIpv4: string, oldIpv6: string, newIpv4: string, newIpv6: string, countryCode: string, country: string, countryEmoji: string, city: string, dnsFlushed: boolean, sidecarSynced: boolean, message: string }>}
  */
 async function resetQuotaAndRotateIp() {
   const report = {
     success: false,
+    old: { ipv4: 'unknown', ipv6: 'Not assigned' },
+    new: { ipv4: 'unknown', ipv6: 'Not assigned' },
     oldIp: 'unknown',
     newIp: 'unknown',
+    oldIpv4: 'unknown',
+    oldIpv6: 'Not assigned',
+    newIpv4: 'unknown',
+    newIpv6: 'Not assigned',
+    countryCode: '',
+    country: '',
+    countryEmoji: '🌐',
+    city: '',
     dnsFlushed: false,
     sidecarSynced: false,
     message: ''
   };
 
-  // 1. Fetch initial public IP
+  // 1. Fetch initial dual-stack public IPs before rotation
   try {
-    report.oldIp = await getPublicIp(4000);
+    const initialDual = await getDualStackIps(4000);
+    report.old = initialDual;
+    report.oldIpv4 = initialDual.ipv4;
+    report.oldIpv6 = initialDual.ipv6;
+    report.oldIp = initialDual.ipv4 !== 'unknown' ? initialDual.ipv4 : (initialDual.ipv6 !== 'Not assigned' ? initialDual.ipv6 : 'unknown');
   } catch {
     report.oldIp = 'unknown';
   }
@@ -223,37 +412,53 @@ async function resetQuotaAndRotateIp() {
   // 4. Aggressive retry loop (polling every 1.5s, up to 15s) strictly requiring a NEW, distinct public IP
   const maxAttempts = 10;
   const pollIntervalMs = 1500;
-  let detectedNewIp = null;
+  let detectedNewDual = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await sleep(pollIntervalMs);
 
     try {
-      const probeIp = await getPublicIp(3500);
-      if (probeIp) {
-        if (report.oldIp === 'unknown' || probeIp !== report.oldIp) {
-          detectedNewIp = probeIp;
-          break;
-        }
+      const probeDual = await getDualStackIps(3500);
+      const hasV4 = probeDual.ipv4 && probeDual.ipv4 !== 'unknown';
+      const hasV6 = probeDual.ipv6 && probeDual.ipv6 !== 'Not assigned';
+
+      const v4Changed = hasV4 && (report.old.ipv4 === 'unknown' || probeDual.ipv4 !== report.old.ipv4);
+      const v6Changed = hasV6 && (report.old.ipv6 === 'Not assigned' || probeDual.ipv6 !== report.old.ipv6);
+
+      if (v4Changed || v6Changed || (hasV4 && report.old.ipv4 === 'unknown')) {
+        detectedNewDual = probeDual;
+        break;
       }
     } catch {
       // Socket still negotiating
     }
 
     // Midway fallback: force another key rotation if IP hasn't changed by attempt 5
-    if (attempt === 5 && !detectedNewIp && report.oldIp !== 'unknown') {
+    if (attempt === 5 && !detectedNewDual) {
       try {
         await execAsync('warp-cli tunnel rotate-keys');
       } catch { }
     }
   }
 
-  if (!detectedNewIp) {
+  if (!detectedNewDual) {
     report.message = `IP rotation timed out: failed to obtain a new distinct public IP (old: ${report.oldIp}).`;
     return report;
   }
 
-  report.newIp = detectedNewIp;
+  report.new = detectedNewDual;
+  report.newIpv4 = detectedNewDual.ipv4;
+  report.newIpv6 = detectedNewDual.ipv6;
+  report.newIp = detectedNewDual.ipv4 !== 'unknown' ? detectedNewDual.ipv4 : detectedNewDual.ipv6;
+  report.ip = report.newIp;
+
+  // Resolve IP geolocation using IPv4 if available, otherwise IPv6
+  const targetIpForGeo = (detectedNewDual.ipv4 !== 'unknown' ? detectedNewDual.ipv4 : detectedNewDual.ipv6);
+  const geo = await getIpGeoDetails(targetIpForGeo);
+  report.countryCode = geo.countryCode;
+  report.country = geo.country;
+  report.countryEmoji = geo.countryEmoji;
+  report.city = geo.city;
 
   // 5 & 6. Detect OpenCode Sidecar credentials & dispatch connection-close teardown
   const sidecarCreds = getOpenCodeSidecarCredentials();
@@ -262,9 +467,7 @@ async function resetQuotaAndRotateIp() {
   }
 
   report.success = true;
-  report.message = report.sidecarSynced
-    ? `Public IP successfully rotated from ${report.oldIp} to ${report.newIp}. OpenCode Sidecar sockets re-synced.`
-    : `Public IP successfully rotated from ${report.oldIp} to ${report.newIp}. OS DNS cache purged.`;
+  report.message = 'Dual-stack rotated successfully';
 
   return report;
 }
@@ -278,6 +481,8 @@ async function main() {
   } catch (err) {
     const errorOutcome = {
       success: false,
+      old: { ipv4: 'unknown', ipv6: 'Not assigned' },
+      new: { ipv4: 'unknown', ipv6: 'Not assigned' },
       oldIp: 'unknown',
       newIp: 'unknown',
       dnsFlushed: false,
@@ -297,6 +502,9 @@ module.exports = {
   resetQuotaAndRotateIp,
   rotateWarpIp: resetQuotaAndRotateIp,
   getPublicIp,
+  getIpv4,
+  getIpv6,
+  getDualStackIps,
   getOpenCodeSidecarCredentials,
   syncOpenCodeSidecar
 };
