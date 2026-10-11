@@ -63,7 +63,11 @@ public partial class MainForm : Form
             StartHermesAction = () => { _cliManager.Start(CliType.Hermes); return Task.CompletedTask; },
             CheckHermesAliveAction = async () => _cliManager.GetInfo(CliType.Hermes).State == CliState.Running
         };
-        _lanProxyService.Start(savedLanPort, savedEnginePort);
+        var lanProxyEnabled = StartupHelper.GetPreference("LanProxyEnabled", true);
+        if (lanProxyEnabled)
+        {
+            _lanProxyService.Start(savedLanPort, savedEnginePort);
+        }
 
         // App Icon
         try

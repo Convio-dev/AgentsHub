@@ -7,7 +7,10 @@
     version: 'v1.0.3',
     lanIp: '127.0.0.1',
     lanUrl: 'http://127.0.0.1:9095/',
-    publicIp: '',
+    lanProxyPort: 9191,
+    lanProxyEnabled: true,
+    dashUrlMode: 'local',
+    lanUrlMode: 'lan',
     isIpMasked: false,
     isShortcutsMasked: localStorage.getItem('agents_hub_mask_shortcuts') === 'true',
     qrBase64: '',
@@ -75,6 +78,18 @@
           state.clis[payload.cli] = { state: payload.state, port: payload.port, pid: payload.pid };
           updateHeaderStatus();
           updateDashboardCliRows();
+          renderRunningPorts();
+        }
+        break;
+
+      case 'lan_proxy_state_changed':
+        if (payload) {
+          state.lanProxyEnabled = !!payload.lanProxyEnabled;
+          if (payload.runningPorts) state.runningPorts = payload.runningPorts;
+          if (!state.lanProxyEnabled) {
+            state.dashUrlMode = 'local';
+            state.lanUrlMode = 'local';
+          }
           renderRunningPorts();
         }
         break;
@@ -821,6 +836,9 @@
           const a = state.clis['AntigravityCli'] || {};
           return { ...p, state: a.state || 'Running', isRunning: true };
         }
+        if (p.id === 'lan_proxy') {
+          return { ...p, state: state.lanProxyEnabled ? 'Running' : 'Offline', isRunning: !!state.lanProxyEnabled };
+        }
         return p;
       });
     }
@@ -868,8 +886,8 @@
         lanPort: proxyPort,
         localUrl: `http://127.0.0.1:${proxyPort}/${themeParam}`,
         lanUrl: `http://${lanIp}:${proxyPort}/${themeParam}`,
-        state: 'Running',
-        isRunning: true
+        state: state.lanProxyEnabled ? 'Running' : 'Offline',
+        isRunning: !!state.lanProxyEnabled
       }
     ];
   }
@@ -883,6 +901,14 @@
     }
 
     const activePort = ports.find(p => p.id === selectedPortId) || ports[0];
+    const lanIsActive = !!state.lanProxyEnabled;
+
+    // When LAN is off, force local 127 in dashboard and everywhere
+    const effectiveDashMode = lanIsActive ? state.dashUrlMode : 'local';
+    const effectiveLanMode = lanIsActive ? state.lanUrlMode : 'local';
+
+    const dashUrlStr = effectiveDashMode === 'lan' ? activePort.lanUrl : activePort.localUrl;
+    const lanUrlStr = effectiveLanMode === 'lan' ? activePort.lanUrl : activePort.localUrl;
 
     // 1. Dashboard Card: WEB APP HOSTS & RUNNING PORTS
     const dashSelect = document.getElementById('dash-web-port-select');
@@ -891,7 +917,7 @@
       ports.forEach(p => {
         const opt = document.createElement('option');
         opt.value = p.id;
-        opt.textContent = `${p.name} (Port ${p.port})`;
+        opt.textContent = effectiveDashMode === 'lan' ? `${p.name} (LAN :${p.lanPort})` : `${p.name} (Port ${p.port})`;
         if (p.id === selectedPortId) opt.selected = true;
         dashSelect.appendChild(opt);
       });
@@ -903,7 +929,25 @@
 
     const dashUrl = document.getElementById('dash-lan-url');
     if (dashUrl) {
-      dashUrl.textContent = activePort.localUrl;
+      dashUrl.textContent = dashUrlStr;
+    }
+
+    // Toggle button for Dashboard URL mode
+    const btnToggleDashUrlMode = document.getElementById('btn-toggle-dash-url-mode');
+    if (btnToggleDashUrlMode) {
+      if (!lanIsActive) {
+        btnToggleDashUrlMode.title = 'LAN network connection is turned off. Showing Local (127.0.0.1).';
+        btnToggleDashUrlMode.classList.remove('active');
+        btnToggleDashUrlMode.style.color = '';
+      } else if (effectiveDashMode === 'lan') {
+        btnToggleDashUrlMode.title = 'Currently showing Network (LAN) URL. Click to switch to Local (127.0.0.1).';
+        btnToggleDashUrlMode.classList.add('active');
+        btnToggleDashUrlMode.style.color = 'var(--accent-green)';
+      } else {
+        btnToggleDashUrlMode.title = 'Currently showing Local (127.0.0.1) URL. Click to switch to Network (LAN).';
+        btnToggleDashUrlMode.classList.remove('active');
+        btnToggleDashUrlMode.style.color = '';
+      }
     }
 
     const dashChips = document.getElementById('dash-running-ports-chips');
@@ -914,7 +958,8 @@
         const isSel = p.id === selectedPortId;
         chip.className = `btn btn-outline ${isSel ? 'active' : ''}`;
         chip.style.cssText = `padding: 3px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border-radius: var(--radius-sm); ${isSel ? 'border-color: var(--accent-green); color: var(--accent-green); font-weight: 600;' : ''}`;
-        chip.innerHTML = `<span class="dot ${p.isRunning ? 'online' : ''}" style="width: 7px; height: 7px;"></span><span>${p.name}: ${p.port}</span>`;
+        const portNum = effectiveDashMode === 'lan' ? p.lanPort : p.port;
+        chip.innerHTML = `<span class="dot ${p.isRunning ? 'online' : ''}" style="width: 7px; height: 7px;"></span><span>${p.name}: ${portNum}</span>`;
         chip.onclick = () => {
           selectedPortId = p.id;
           renderRunningPorts();
@@ -924,13 +969,33 @@
     }
 
     // 2. LAN Remote View
+    // Header LAN toggle button
+    const btnToggleLanNetwork = document.getElementById('btn-toggle-lan-network');
+    const lanStatusDot = document.getElementById('lan-status-dot');
+    const lanStatusText = document.getElementById('lan-status-text');
+    if (btnToggleLanNetwork && lanStatusDot && lanStatusText) {
+      if (lanIsActive) {
+        lanStatusDot.className = 'dot online';
+        lanStatusDot.style.background = '';
+        lanStatusText.textContent = 'LAN: Active';
+        btnToggleLanNetwork.title = 'LAN connection is ON (192.168). Click to turn off LAN network connection.';
+        btnToggleLanNetwork.style.borderColor = 'var(--accent-green)';
+      } else {
+        lanStatusDot.className = 'dot offline';
+        lanStatusDot.style.background = 'var(--text-dim)';
+        lanStatusText.textContent = 'LAN: Offline';
+        btnToggleLanNetwork.title = 'LAN connection is OFF. Click to turn on LAN network connection.';
+        btnToggleLanNetwork.style.borderColor = 'var(--border-subtle)';
+      }
+    }
+
     const lanSelect = document.getElementById('lan-port-select');
     if (lanSelect) {
       lanSelect.innerHTML = '';
       ports.forEach(p => {
         const opt = document.createElement('option');
         opt.value = p.id;
-        opt.textContent = `${p.name} (LAN :${p.lanPort})`;
+        opt.textContent = effectiveLanMode === 'lan' ? `${p.name} (LAN :${p.lanPort})` : `${p.name} (Port ${p.port})`;
         if (p.id === selectedPortId) opt.selected = true;
         lanSelect.appendChild(opt);
       });
@@ -942,12 +1007,36 @@
 
     const lanUrl = document.getElementById('lan-full-url');
     if (lanUrl) {
-      lanUrl.textContent = activePort.lanUrl;
+      lanUrl.textContent = lanUrlStr;
+    }
+
+    // Toggle button for LAN Remote URL mode
+    const btnToggleLanUrlMode = document.getElementById('btn-toggle-lan-url-mode');
+    if (btnToggleLanUrlMode) {
+      if (!lanIsActive) {
+        btnToggleLanUrlMode.title = 'LAN network connection is turned off. Showing Local (127.0.0.1).';
+        btnToggleLanUrlMode.classList.remove('active');
+        btnToggleLanUrlMode.style.color = '';
+      } else if (effectiveLanMode === 'lan') {
+        btnToggleLanUrlMode.title = 'Currently showing Network (LAN) URL. Click to switch to Local (127.0.0.1).';
+        btnToggleLanUrlMode.classList.add('active');
+        btnToggleLanUrlMode.style.color = 'var(--accent-green)';
+      } else {
+        btnToggleLanUrlMode.title = 'Currently showing Local (127.0.0.1) URL. Click to switch to Network (LAN).';
+        btnToggleLanUrlMode.classList.remove('active');
+        btnToggleLanUrlMode.style.color = '';
+      }
     }
 
     const lanDesc = document.getElementById('lan-port-description');
     if (lanDesc) {
-      lanDesc.textContent = `Scan QR code to connect directly to ${activePort.name} on local Wi-Fi network.`;
+      if (!lanIsActive) {
+        lanDesc.textContent = `LAN network connection is turned off. Links and QR code switched to local host (127.0.0.1). Turn LAN on to share with Wi-Fi devices.`;
+      } else if (effectiveLanMode === 'local') {
+        lanDesc.textContent = `Showing local host link for ${activePort.name}. Scan QR code to open locally or click switch icon to view network Wi-Fi link.`;
+      } else {
+        lanDesc.textContent = `Scan QR code to connect directly to ${activePort.name} on local Wi-Fi network (192.168).`;
+      }
     }
 
     const lanChips = document.getElementById('lan-running-ports-chips');
@@ -958,7 +1047,8 @@
         const isSel = p.id === selectedPortId;
         chip.className = `btn btn-outline ${isSel ? 'active' : ''}`;
         chip.style.cssText = `padding: 3px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border-radius: var(--radius-sm); ${isSel ? 'border-color: var(--accent-green); color: var(--accent-green); font-weight: 600;' : ''}`;
-        chip.innerHTML = `<span class="dot ${p.isRunning ? 'online' : ''}" style="width: 7px; height: 7px;"></span><span>${p.name}: ${p.lanPort}</span>`;
+        const portNum = effectiveLanMode === 'lan' ? p.lanPort : p.port;
+        chip.innerHTML = `<span class="dot ${p.isRunning ? 'online' : ''}" style="width: 7px; height: 7px;"></span><span>${p.name}: ${portNum}</span>`;
         chip.onclick = () => {
           selectedPortId = p.id;
           renderRunningPorts();
@@ -967,8 +1057,8 @@
       });
     }
 
-    // Update QR Code dynamically for activePort.lanUrl
-    updateQrCodeForUrl(activePort.lanUrl);
+    // Update QR Code dynamically for lanUrlStr
+    updateQrCodeForUrl(lanUrlStr);
   }
 
   function updateQrCodeForUrl(url) {
@@ -1678,26 +1768,63 @@
     document.getElementById('btn-refresh-state')?.addEventListener('click', loadInitialState);
 
     document.getElementById('btn-copy-lan-url')?.addEventListener('click', () => {
-      const ports = getWebPortsList();
-      const p = ports.find(x => x.id === selectedPortId) || ports[0];
-      navigator.clipboard.writeText(p.localUrl);
-      appendLog('Copied Web Host URL: ' + p.localUrl);
+      const urlText = document.getElementById('dash-lan-url')?.textContent || '';
+      navigator.clipboard.writeText(urlText);
+      appendLog('Copied Web Host URL: ' + urlText);
     });
     document.getElementById('btn-open-lan-url')?.addEventListener('click', () => {
-      const ports = getWebPortsList();
-      const p = ports.find(x => x.id === selectedPortId) || ports[0];
-      callBridge('open_url_external', { url: p.localUrl });
+      const urlText = document.getElementById('dash-lan-url')?.textContent || '';
+      callBridge('open_url_external', { url: urlText });
     });
+    document.getElementById('btn-toggle-dash-url-mode')?.addEventListener('click', () => {
+      if (!state.lanProxyEnabled) {
+        appendLog('LAN connection is turned off. Turn on LAN from LAN Remote & QR to view network links.');
+        return;
+      }
+      state.dashUrlMode = state.dashUrlMode === 'local' ? 'lan' : 'local';
+      renderRunningPorts();
+      appendLog('Switched Dashboard Web Host view to: ' + (state.dashUrlMode === 'lan' ? 'Network (LAN)' : 'Local (127.0.0.1)'));
+    });
+
     document.getElementById('btn-copy-lan-tab-url')?.addEventListener('click', () => {
-      const ports = getWebPortsList();
-      const p = ports.find(x => x.id === selectedPortId) || ports[0];
-      navigator.clipboard.writeText(p.lanUrl);
-      appendLog('Copied LAN Remote URL: ' + p.lanUrl);
+      const urlText = document.getElementById('lan-full-url')?.textContent || '';
+      navigator.clipboard.writeText(urlText);
+      appendLog('Copied LAN Remote URL: ' + urlText);
     });
     document.getElementById('btn-open-lan-tab-url')?.addEventListener('click', () => {
-      const ports = getWebPortsList();
-      const p = ports.find(x => x.id === selectedPortId) || ports[0];
-      callBridge('open_url_external', { url: p.localUrl });
+      const urlText = document.getElementById('lan-full-url')?.textContent || '';
+      callBridge('open_url_external', { url: urlText });
+    });
+    document.getElementById('btn-toggle-lan-url-mode')?.addEventListener('click', () => {
+      if (!state.lanProxyEnabled) {
+        appendLog('LAN connection is turned off. Turn on LAN to view network links.');
+        return;
+      }
+      state.lanUrlMode = state.lanUrlMode === 'lan' ? 'local' : 'lan';
+      renderRunningPorts();
+      appendLog('Switched LAN Remote view to: ' + (state.lanUrlMode === 'lan' ? 'Network (LAN)' : 'Local (127.0.0.1)'));
+    });
+
+    document.getElementById('btn-toggle-lan-network')?.addEventListener('click', async () => {
+      const targetState = !state.lanProxyEnabled;
+      try {
+        const res = await callBridge('toggle_lan_proxy', { enabled: targetState });
+        if (res) {
+          state.lanProxyEnabled = !!res.lanProxyEnabled;
+          if (res.runningPorts) state.runningPorts = res.runningPorts;
+          if (!state.lanProxyEnabled) {
+            state.dashUrlMode = 'local';
+            state.lanUrlMode = 'local';
+            appendLog('LAN network connection turned OFF. All links switched to 127.0.0.1.');
+          } else {
+            state.lanUrlMode = 'lan';
+            appendLog('LAN network connection turned ON (192.168 active).');
+          }
+          renderRunningPorts();
+        }
+      } catch (err) {
+        appendLog('Failed to toggle LAN network: ' + (err.message || err));
+      }
     });
 
     // Modal: Add profile
@@ -1799,6 +1926,11 @@
           state.runningPorts = res.runningPorts;
         }
         state.lanProxyPort = res.lanProxyPort || 9191;
+        state.lanProxyEnabled = res.lanProxyEnabled !== undefined ? !!res.lanProxyEnabled : true;
+        if (!state.lanProxyEnabled) {
+          state.dashUrlMode = 'local';
+          state.lanUrlMode = 'local';
+        }
 
         updateHeaderStatus();
         updateDashboardCliRows();

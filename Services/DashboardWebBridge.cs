@@ -114,6 +114,21 @@ public sealed class DashboardWebBridge : IDisposable
         {
             PostEventToUi("ai_config_changed", GetAiConfigDto());
         };
+
+        if (_lanProxyService != null)
+        {
+            _lanProxyService.StateChanged += (isRunning) =>
+            {
+                var lanIp = NetworkHelper.GetLocalIPv4();
+                var rPorts = GetRunningWebPorts(lanIp, _cliManager.HermesService.Port, _lanProxyService.ListenPort);
+                PostEventToUi("lan_proxy_state_changed", new
+                {
+                    lanProxyEnabled = isRunning,
+                    lanProxyRunning = isRunning,
+                    runningPorts = rPorts
+                });
+            };
+        }
     }
 
     private void OnStreamFlushTimerTick(object? sender, EventArgs e)
@@ -195,6 +210,49 @@ public sealed class DashboardWebBridge : IDisposable
         {
             case "get_initial_state":
                 SendResponse(requestId, true, GetInitialStateDto());
+                break;
+
+            case "toggle_lan_proxy":
+                if (_lanProxyService != null)
+                {
+                    bool enable;
+                    if (data.TryGetProperty("enabled", out var enProp))
+                    {
+                        enable = enProp.GetBoolean();
+                    }
+                    else
+                    {
+                        enable = !_lanProxyService.IsRunning;
+                    }
+
+                    if (enable)
+                    {
+                        var savedEnginePort = StartupHelper.GetIntPreference("EnginePort", HermesProcessService.DefaultHermesPort);
+                        var savedLanPort = StartupHelper.GetIntPreference("LanPort", 9191);
+                        _lanProxyService.Start(savedLanPort, savedEnginePort);
+                        StartupHelper.SetPreference("LanProxyEnabled", true);
+                    }
+                    else
+                    {
+                        _lanProxyService.Stop();
+                        StartupHelper.SetPreference("LanProxyEnabled", false);
+                    }
+
+                    var lanIp = NetworkHelper.GetLocalIPv4();
+                    var isRunning = _lanProxyService.IsRunning;
+                    var rPorts = GetRunningWebPorts(lanIp, _cliManager.HermesService.Port, _lanProxyService.ListenPort);
+
+                    SendResponse(requestId, true, new
+                    {
+                        lanProxyEnabled = isRunning,
+                        lanProxyRunning = isRunning,
+                        runningPorts = rPorts
+                    });
+                }
+                else
+                {
+                    SendResponse(requestId, false, "LAN Proxy service not initialized");
+                }
                 break;
 
             case "toggle_cli":
@@ -791,6 +849,7 @@ public sealed class DashboardWebBridge : IDisposable
         var lanIp = NetworkHelper.GetLocalIPv4();
         int hermesPort = _cliManager.HermesService.Port;
         int lanProxyPort = _lanProxyService?.ListenPort ?? 9191;
+        bool lanProxyRunning = _lanProxyService?.IsRunning ?? false;
         string lanUrl = $"http://{lanIp}:{lanProxyPort}/";
         string qrBase64 = QrCodeHelper.GenerateQrCodeBase64(lanUrl);
         var runningPorts = GetRunningWebPorts(lanIp, hermesPort, lanProxyPort);
@@ -801,6 +860,8 @@ public sealed class DashboardWebBridge : IDisposable
             lanIp,
             lanUrl,
             lanProxyPort,
+            lanProxyRunning,
+            lanProxyEnabled = lanProxyRunning,
             qrBase64,
             runningPorts,
             settings = new
