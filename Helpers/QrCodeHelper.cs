@@ -39,4 +39,19 @@ public static class QrCodeHelper
 
         return bitmap;
     }
+
+    public static string GenerateQrCodeBase64(string url, int modulePixelSize = 5, int quietZone = 2)
+    {
+        try
+        {
+            using var bitmap = GenerateQrCode(url, modulePixelSize, quietZone);
+            using var ms = new MemoryStream();
+            bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            return "data:image/png;base64," + Convert.ToBase64String(ms.ToArray());
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
 }

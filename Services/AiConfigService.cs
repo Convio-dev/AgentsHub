@@ -16,12 +16,22 @@ public class AiProvider
     public override string ToString() => IsEnabled ? Name : $"{Name} (Disabled)";
 }
 
+public class DashboardShortcut
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = string.Empty;
+    public string Target { get; set; } = string.Empty;
+    public string Arguments { get; set; } = string.Empty;
+    public string Category { get; set; } = "AI Dev Tool";
+}
+
 public class AiConfig
 {
     public Dictionary<string, string> ToolTargets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public List<AiProvider> Providers { get; set; } = new();
     public string? SelectedProviderId { get; set; }
     public string? SelectedModel { get; set; }
+    public List<DashboardShortcut> Shortcuts { get; set; } = new();
 }
 
 public class AiConfigService
@@ -250,6 +260,19 @@ public class AiConfigService
                     "qwen2.5-coder"
                 }
             });
+        }
+
+        if (_config.Shortcuts == null || _config.Shortcuts.Count == 0)
+        {
+            _config.Shortcuts = new List<DashboardShortcut>
+            {
+                new() { Name = "Antigravity IDE", Target = defaults.GetValueOrDefault("Antigravity-ide", string.Empty), Category = "AI Dev Tool" },
+                new() { Name = "Claude Desktop", Target = defaults.GetValueOrDefault("Claude", string.Empty), Category = "AI Dev Tool" },
+                new() { Name = "ChatGPT Desktop", Target = defaults.GetValueOrDefault("ChatGPT", string.Empty), Category = "AI Dev Tool" },
+                new() { Name = "OpenCode Desktop", Target = defaults.GetValueOrDefault("OpenCode", string.Empty), Category = "AI Dev Tool" },
+                new() { Name = "Cline", Target = defaults.GetValueOrDefault("Cline", string.Empty), Category = "AI Dev Tool" },
+                new() { Name = "DeepSeek", Target = defaults.GetValueOrDefault("DeepSeek", string.Empty), Category = "AI Dev Tool" }
+            };
         }
     }
 }

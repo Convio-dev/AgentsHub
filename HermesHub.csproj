@@ -20,9 +20,9 @@
     <AssemblyTitle>Agents Hub</AssemblyTitle>
     <AssemblyDescription>Agents Hub - Multi-Agent Desktop Hub and CLI Workspace</AssemblyDescription>
     <Product>Agents Hub</Product>
-    <AssemblyVersion>1.0.2.0</AssemblyVersion>
-    <FileVersion>1.0.2.0</FileVersion>
-    <Version>1.0.2</Version>
+    <AssemblyVersion>1.0.3.0</AssemblyVersion>
+    <FileVersion>1.0.3.0</FileVersion>
+    <Version>1.0.3</Version>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
 
@@ -63,9 +63,20 @@
     <None Update="assets\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="assets\web\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="ui\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="dist\fixquota-command.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!-- Terminate any running instance before build to prevent MSB3021 file lock -->
+  <Target Name="CloseRunningInstance" BeforeTargets="BeforeBuild" Condition="'$(OS)' == 'Windows_NT'">
+    <Exec Command="powershell -Command &quot;Get-Process -Name 'HermesHub' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue&quot;" IgnoreExitCode="true" />
+  </Target>
 
 </Project>

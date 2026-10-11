@@ -1,0 +1,33 @@
+<!-- Tab: Settings & Preferences -->
+<div class="dashboard-card" style="margin-bottom: 16px;">
+  <div class="card-title">Theme & Appearance</div>
+  <div class="form-group">
+    <label class="form-label">Theme Mode:</label>
+    <div style="display: flex; gap: 10px;">
+      <button class="btn btn-theme-toggle" data-theme="dark">Dark Mode (Default)</button>
+      <button class="btn btn-theme-toggle" data-theme="light">Light Mode</button>
+    </div>
+  </div>
+</div>
+
+<div class="dashboard-card">
+  <div class="card-title">Startup & System Preferences</div>
+  <div style="display: flex; flex-direction: column; gap: 10px;">
+    <label class="checkbox-label">
+      <input type="checkbox" id="setting-autostart-checkbox">
+      <span>Launch Agents Hub on Windows Startup</span>
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" id="setting-minimized-checkbox">
+      <span>Start Minimized to System Tray on Launch</span>
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" id="setting-tray-minimize-checkbox" checked>
+      <span>Enable Minimize to System Tray (Keep running in background when closed or minimized)</span>
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" id="setting-notifications-checkbox" checked>
+      <span>Enable Windows Notifications (Balloon Tips & System Tray Alerts)</span>
+    </label>
+  </div>
+</div>

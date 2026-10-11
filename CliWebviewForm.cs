@@ -63,7 +63,8 @@ public partial class CliWebviewForm : Form
             _activeTab = initialTab;
 
             var baseDir = AppContext.BaseDirectory;
-            _terminalHtmlPath = Path.Combine(baseDir, "assets", "web", "terminal.html");
+            var uiTermPath = Path.Combine(baseDir, "ui", "terminal.html");
+            _terminalHtmlPath = File.Exists(uiTermPath) ? uiTermPath : Path.Combine(baseDir, "assets", "web", "terminal.html");
             _hermesOfflineHtmlPath = Path.Combine(baseDir, "assets", "web", "hermes-offline.html");
 
             SetupStyles();

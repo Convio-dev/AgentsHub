@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLI Terminal</title>
+  <link rel="stylesheet" href="./css/xterm.css">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background-color: #09090b;
+      color: #fafafa;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      overflow: hidden;
+    }
+    #terminal-container {
+      width: 100%;
+      height: 100%;
+      padding: 6px 10px 8px 10px;
+    }
+    .xterm {
+      width: 100%;
+      height: 100%;
+    }
+    .xterm-viewport::-webkit-scrollbar {
+      width: 8px;
+    }
+    .xterm-viewport::-webkit-scrollbar-track {
+      background: #101014;
+    }
+    .xterm-viewport::-webkit-scrollbar-thumb {
+      background: #27272a;
+      border-radius: 4px;
+    }
+    .xterm-viewport::-webkit-scrollbar-thumb:hover {
+      background: #3f3f46;
+    }
+
+    /* Offline / Ready Overlay */
+    #offline-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(9, 9, 11, 0.92);
+      backdrop-filter: blur(4px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+    }
+    #offline-overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .offline-card {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      padding: 28px 36px;
+      text-align: center;
+      max-width: 440px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+    .cli-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      background: #27272a;
+      color: #a1a1aa;
+      margin-bottom: 12px;
+    }
+    .cli-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fafafa;
+      margin-bottom: 6px;
+    }
+    .cli-desc {
+      font-size: 13px;
+      color: #a1a1aa;
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+    .btn-start {
+      background: #10b981;
+      color: #09090b;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 22px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+    .btn-start:hover {
+      background: #059669;
+      transform: translateY(-1px);
+    }
+    .btn-start:active {
+      transform: translateY(0);
+    }
+    .status-text {
+      font-size: 11px;
+      color: #71717a;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="terminal-container"></div>
+
+  <div id="offline-overlay">
+    <div class="offline-card">
+      <div class="cli-badge" id="overlay-badge">CLI Terminal</div>
+      <div class="cli-title" id="overlay-title">Terminal Offline</div>
+      <div class="cli-desc" id="overlay-desc">Click below to start an interactive session directly inside this workspace.</div>
+      <button class="btn-start" id="btn-start" onclick="handleStartClick()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <span id="btn-start-label">Start CLI</span>
+      </button>
+      <div class="status-text" id="overlay-status">Engine ready</div>
+    </div>
+  </div>
+
+  <script src="./js/xterm.js"></script>
+  <script src="./js/xterm-addon-fit.js"></script>
+  <script>
+    const container = document.getElementById('terminal-container');
+    const overlay = document.getElementById('offline-overlay');
+    const overlayBadge = document.getElementById('overlay-badge');
+    const overlayTitle = document.getElementById('overlay-title');
+    const overlayDesc = document.getElementById('overlay-desc');
+    const btnStartLabel = document.getElementById('btn-start-label');
+    const overlayStatus = document.getElementById('overlay-status');
+
+    let isRunning = false;
+    let cliName = 'CLI';
+
+    const term = new Terminal({
+      cursorBlink: true,
+      cursorStyle: 'block',
+      fontFamily: 'Cascadia Code, Fira Code, Consolas, monospace',
+      fontSize: 13,
+      lineHeight: 1.25,
+      theme: {
+        background: '#09090b',
+        foreground: '#f4f4f5',
+        cursor: '#10b981',
+        cursorAccent: '#09090b',
+        selectionBackground: 'rgba(16, 185, 129, 0.35)',
+        black: '#18181b',
+        red: '#ef4444',
+        green: '#10b981',
+        yellow: '#f59e0b',
+        blue: '#3b82f6',
+        magenta: '#d946ef',
+        cyan: '#06b6d4',
+        white: '#f4f4f5',
+        brightBlack: '#71717a',
+        brightRed: '#f87171',
+        brightGreen: '#34d399',
+        brightYellow: '#fbbf24',
+        brightBlue: '#60a5fa',
+        brightMagenta: '#e879f9',
+        brightCyan: '#22d3ee',
+        brightWhite: '#ffffff'
+      },
+      convertEol: true,
+      allowProposedApi: true
+    });
+
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(container);
+
+    const isWebView = Boolean(window.chrome && window.chrome.webview);
+    let socket = null;
+
+    function sendHostMessage(payload) {
+      if (isWebView) {
+        window.chrome.webview.postMessage(payload);
+      } else if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(payload));
+      }
+    }
+
+    function reportResize() {
+      try {
+        fitAddon.fit();
+        sendHostMessage({
+          type: 'resize',
+          cols: term.cols,
+          rows: term.rows
+        });
+      } catch (e) {}
+    }
+
+    window.addEventListener('resize', () => {
+      reportResize();
+    });
+
+    term.onData(data => {
+      sendHostMessage({
+        type: 'input',
+        data: data
+      });
+    });
+
+    function handleStartClick() {
+      sendHostMessage({
+        type: 'start'
+      });
+      overlayStatus.textContent = 'Launching process...';
+    }
+
+    function setRunningState(running, statusMsg) {
+      isRunning = running;
+      if (running) {
+        overlay.classList.add('hidden');
+        term.focus();
+        setTimeout(reportResize, 50);
+      } else {
+        overlay.classList.remove('hidden');
+        if (statusMsg) {
+          overlayStatus.textContent = statusMsg;
+        }
+      }
+    }
+
+    function handleHostMessage(msg) {
+      if (!msg) return;
+
+      if (typeof msg === 'string') {
+        term.write(msg);
+        return;
+      }
+
+      switch (msg.type) {
+        case 'output':
+          if (msg.data) {
+            term.write(msg.data);
+          }
+          break;
+
+        case 'init':
+          if (msg.name) {
+            cliName = msg.name;
+            overlayBadge.textContent = cliName;
+            overlayTitle.textContent = `${cliName} Offline`;
+            btnStartLabel.textContent = `Start ${cliName}`;
+            document.title = `${cliName} Terminal`;
+          }
+          if (msg.history) {
+            term.write(msg.history);
+          }
+          setRunningState(Boolean(msg.isRunning), msg.statusText);
+          setTimeout(reportResize, 100);
+          break;
+
+        case 'status':
+          setRunningState(Boolean(msg.isRunning), msg.statusText);
+          break;
+
+        case 'clear':
+          term.clear();
+          break;
+
+        case 'focus':
+          term.focus();
+          break;
+      }
+    }
+
+    if (isWebView) {
+      window.chrome.webview.addEventListener('message', event => {
+        handleHostMessage(event.data);
+      });
+
+      sendHostMessage({
+        type: 'ready',
+        cols: term.cols,
+        rows: term.rows
+      });
+    } else {
+      // Real Browser Mode via WebSocket
+      function connectWebSocket() {
+        const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        socket = new WebSocket(`${wsProto}//${location.host}/ws`);
+
+        socket.onopen = () => {
+          sendHostMessage({
+            type: 'ready',
+            cols: term.cols,
+            rows: term.rows
+          });
+        };
+
+        socket.onmessage = event => {
+          try {
+            const data = JSON.parse(event.data);
+            handleHostMessage(data);
+          } catch (e) {
+            term.write(event.data);
+          }
+        };
+
+        socket.onclose = () => {
+          setTimeout(connectWebSocket, 1500);
+        };
+      }
+
+      connectWebSocket();
+    }
+
+    setTimeout(reportResize, 80);
+  </script>
+</body>
+</html>

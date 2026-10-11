@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agents Hub</title>
+  <link rel="stylesheet" href="./css/xterm.css">
+  <link rel="stylesheet" href="./css/dashboard.css">
+</head>
+<body>
+  <div id="app-container">
+    <!-- Left Navigation Sidebar (Closeable / Collapsible) -->
+    <aside id="sidebar">
+      <div class="brand-section">
+        <div class="brand-title">
+          <svg class="icon-svg" style="width: 20px; height: 20px; color: var(--accent-green);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span style="font-weight: 800;">AGENTS HUB</span>
+          <span class="brand-badge">V1.0.3</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-item active" data-view="dashboard" title="Dashboard & Engine">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+          <span class="nav-text">Dashboard & Engine</span>
+        </div>
+        <div class="nav-item" data-view="terminals" title="Interactive Terminals">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span>
+          <span class="nav-text">Interactive Terminals</span>
+        </div>
+        <div class="nav-item" data-view="prompt-enhancer" title="Prompt Enhancer">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg></span>
+          <span class="nav-text">Prompt Enhancer</span>
+        </div>
+        <div class="nav-item" data-view="profiles" title="Antigravity Profiles">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+          <span class="nav-text">Antigravity Profiles</span>
+        </div>
+        <div class="nav-item" data-view="devtools" title="AI Dev Tools">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+          <span class="nav-text">AI Dev Tools</span>
+        </div>
+        <div class="nav-item" data-view="providers" title="AI Providers & Models">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h6"/></svg></span>
+          <span class="nav-text">AI Providers & Models</span>
+        </div>
+        <div class="nav-item" data-view="lan" title="LAN Remote & QR">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
+          <span class="nav-text">LAN Remote & QR</span>
+        </div>
+        <div class="nav-item" data-view="logs" title="Live Logs">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+          <span class="nav-text">Live Logs</span>
+        </div>
+        <div class="nav-item" data-view="settings" title="Settings & About">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+          <span class="nav-text">Settings & About</span>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button id="btn-toggle-all-clis" class="btn-sidebar-primary" title="Toggle all background CLIs">
+          <svg class="icon-svg" style="width: 15px; height: 15px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span id="lbl-toggle-all">Start All CLIs</span>
+        </button>
+        <button id="btn-minimize-tray" class="btn-sidebar-secondary" title="Minimize to system tray">
+          <svg class="icon-svg" style="width: 15px; height: 15px;" viewBox="0 0 24 24"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          <span>Minimize to Tray</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Workspace Area -->
+    <main id="main-area">
+      <!-- Top Live Header -->
+      <header id="top-header">
+        <div class="header-left-group">
+          <button id="btn-toggle-sidebar" class="btn-icon" title="Toggle Sidebar">
+            <svg class="icon-svg" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+          </button>
+          <div class="header-status-group">
+            <div class="status-pill" id="pill-hermes">
+              <span class="dot" id="dot-hermes"></span>
+              <span>Hermes: <b id="status-hermes">Offline</b></span>
+            </div>
+            <div class="status-pill" id="pill-claude">
+              <span class="dot" id="dot-claude"></span>
+              <span>Claude Code: <b id="status-claude">Offline</b></span>
+            </div>
+            <div class="status-pill" id="pill-antigravity">
+              <span class="dot" id="dot-antigravity"></span>
+              <span>Antigravity: <b id="status-antigravity">Offline</b></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="header-metrics-group">
+          <div class="metric-badge" id="metric-cpu">CPU 0%</div>
+          <div class="metric-badge" id="metric-ram">RAM 0 MB</div>
+          <button class="btn-icon" id="btn-open-standalone-hdr" title="Open Standalone Terminals Window">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </button>
+          <button class="btn-icon" id="btn-refresh-state" title="Refresh state">
+            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Views Container -->
+      <section id="content-container">
+
+        <!-- VIEW 1: Dashboard & Engine -->
+        <div id="view-dashboard" class="view-pane active">
+          <div class="card-grid">
+            <div class="dashboard-card">
+              <div class="card-header">
+                <div class="card-title-group">
+                  <div class="card-icon">
+                    <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                  </div>
+                  <div>
+                    <div class="card-title">WEB APP HOST (PORT 9095)</div>
+                    <div class="card-subtitle">Full Web UI accessible on host & local LAN network</div>
+                  </div>
+                </div>
+              </div>
+              <div class="card-url-box">
+                <span id="dash-lan-url">http://127.0.0.1:9095/</span>
+                <div class="url-actions">
+                  <button class="btn-icon" id="btn-copy-lan-url" title="Copy URL">
+                    <svg class="icon-svg" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                  </button>
+                  <button class="btn-icon" id="btn-open-lan-url" title="Open in Browser">
+                    <svg class="icon-svg" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="dashboard-card">
+              <div class="card-header">
+                <div class="card-title-group">
+                  <div class="card-icon">
+                    <svg class="icon-svg" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h6"/></svg>
+                  </div>
+                  <div>
+                    <div class="card-title">STANDALONE TERMINALS</div>
+                    <div class="card-subtitle">Open in a separate dedicated full-screen window</div>
+                  </div>
+                </div>
+              </div>
+              <div class="card-url-box">
+                <span id="dash-active-profile-summary">Active Profile: None</span>
+                <div class="url-actions">
+                  <button class="btn btn-outline" id="btn-popout-terminals-dash" style="padding: 3px 8px; font-size: 11px;">
+                    <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    <span>Pop Out</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="dashboard-card">
+              <div class="card-header">
+                <div class="card-title-group">
+                  <div class="card-icon">
+                    <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                  </div>
+                  <div>
+                    <div class="card-title">OPENCODE QUOTA & PUBLIC IP</div>
+                    <div class="card-subtitle">Rotate Cloudflare WARP IP for OpenCode free trials</div>
+                  </div>
+                </div>
+              </div>
+              <div class="card-url-box">
+                <span id="dash-public-ip-text">IP: Fetching...</span>
+                <div class="url-actions">
+                  <button class="btn-icon" id="btn-toggle-mask-ip" title="Show / Mask Public IP (***)">
+                    <svg class="icon-svg" id="icon-ip-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                  <button class="btn-icon" id="btn-refresh-public-ip" title="Refresh Public IP">
+                    <svg class="icon-svg" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                  </button>
+                </div>
+              </div>
+              <button class="btn btn-outline" id="btn-reset-opencode-quota" style="width: 100%; margin-top: 10px; padding: 7px 12px; font-size: 12px; gap: 6px;">
+                <svg class="icon-svg" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span id="lbl-reset-quota-btn">Reset OpenCode Quota (WARP IP)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Programs & Quick Shortcuts Section -->
+          <div class="dashboard-card" style="margin-bottom: 20px;">
+            <div class="card-header" style="justify-content: space-between;">
+              <div class="card-title-group">
+                <div class="card-icon">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                </div>
+                <div>
+                  <div class="card-title">PROGRAMS & QUICK SHORTCUTS</div>
+                  <div class="card-subtitle">Launch and manage custom shortcuts for AI tools, CLIs, and apps</div>
+                </div>
+              </div>
+              <button class="btn btn-success" id="btn-add-dashboard-shortcut" style="padding: 5px 12px; font-size: 12px; gap: 6px;">
+                <svg class="icon-svg" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Add Shortcut</span>
+              </button>
+            </div>
+
+            <!-- Dynamic Shortcuts Grid -->
+            <div id="dashboard-shortcuts-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 14px;">
+              <!-- Populated dynamically via JS -->
+            </div>
+          </div>
+
+          <!-- Core Engine Controllers -->
+          <div class="dashboard-card" style="margin-bottom: 20px;">
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-icon">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                </div>
+                <div>
+                  <div class="card-title">CORE ENGINE & CLI CONTROLLERS</div>
+                  <div class="card-subtitle">Manage background processes, ports, and execution state</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Hermes CLI Row -->
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--bg-input); border-radius: var(--radius-md); border: 1px solid var(--border-subtle); margin-bottom: 10px;">
+              <div>
+                <b style="font-size: 13.5px; color: var(--text-main);">Hermes CLI</b>
+                <span style="font-size: 11.5px; color: var(--text-dim); margin-left: 8px;">Port 9095</span>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;" id="desc-hermes-state">State: Offline</div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-success" id="btn-ctrl-hermes">Start</button>
+                <button class="btn btn-outline" id="btn-restart-hermes">Restart</button>
+              </div>
+            </div>
+
+            <!-- Claude Code CLI Row -->
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--bg-input); border-radius: var(--radius-md); border: 1px solid var(--border-subtle); margin-bottom: 10px;">
+              <div>
+                <b style="font-size: 13.5px; color: var(--text-main);">Claude Code CLI</b>
+                <span style="font-size: 11.5px; color: var(--text-dim); margin-left: 8px;">Port 9229</span>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;" id="desc-claude-state">State: Offline</div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-success" id="btn-ctrl-claude">Start</button>
+                <button class="btn btn-outline" id="btn-restart-claude">Restart</button>
+              </div>
+            </div>
+
+            <!-- Antigravity CLI Row -->
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--bg-input); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+              <div>
+                <b style="font-size: 13.5px; color: var(--text-main);">Antigravity CLI (agy)</b>
+                <span style="font-size: 11.5px; color: var(--text-dim); margin-left: 8px;">Port 9339</span>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;" id="desc-antigravity-state">State: Offline</div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <select id="quick-profile-select" class="select-box" style="width: 140px; padding: 6px 10px; font-size: 12px;"></select>
+                <button class="btn btn-success" id="btn-ctrl-antigravity">Start</button>
+                <button class="btn btn-outline" id="btn-restart-antigravity">Restart</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 2: Interactive Terminals -->
+        <div id="view-terminals" class="view-pane" style="height: 100%;">
+          <div id="terminals-view">
+            <div class="terminal-tabs-bar">
+              <div class="terminal-tabs">
+                <button class="term-tab active" data-term="Hermes">
+                  <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  <span>Hermes Web</span>
+                </button>
+                <button class="term-tab" data-term="ClaudeCode">
+                  <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  <span>Claude Code</span>
+                </button>
+                <button class="term-tab" data-term="AntigravityCli">
+                  <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  <span>Antigravity CLI</span>
+                </button>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11.5px;" id="btn-popout-terminals">
+                  <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  <span>Standalone Window</span>
+                </button>
+                <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11.5px;" id="btn-clear-terminal">Clear</button>
+                <button class="btn btn-outline" style="padding: 4px 10px; font-size: 11.5px;" id="btn-term-open-browser">External Browser</button>
+              </div>
+            </div>
+            <div id="terminal-host">
+              <div id="xterm-container" style="width: 100%; height: 100%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 3: Prompt Enhancer -->
+        <div id="view-prompt-enhancer" class="view-pane">
+          <div style="display: flex; gap: 12px; margin-bottom: 14px; align-items: center;">
+            <div style="flex: 1;">
+              <label class="form-label">Active AI Model:</label>
+              <select id="enhance-model-select" class="select-box"></select>
+            </div>
+            <div style="width: 240px;">
+              <label class="form-label">Enhancement Preset:</label>
+              <select id="enhance-style-select" class="select-box">
+                <option value="General & Balanced">General & Balanced</option>
+                <option value="Code & Architecture">Code & Architecture</option>
+                <option value="Direct & Concise">Direct & Concise</option>
+                <option value="Comprehensive & Structured">Comprehensive & Structured</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="prompt-grid">
+            <div class="prompt-pane">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <b style="font-size: 12.5px; color: var(--text-main);">ORIGINAL RAW PROMPT (Ctrl+Enter to Enhance)</b>
+                <button class="btn btn-outline" id="btn-paste-prompt" style="padding: 3px 8px; font-size: 11px;">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/></svg>
+                  <span>Paste</span>
+                </button>
+              </div>
+              <textarea id="prompt-input" class="prompt-textarea" placeholder="Type or paste your raw prompt here... (e.g. 'Build a fast c# websocket server')"></textarea>
+              <div class="prompt-status-bar">
+                <span id="prompt-input-count">0 chars | 0 words</span>
+                <button class="btn btn-success" id="btn-enhance-exec">
+                  <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg>
+                  <span>Enhance Prompt</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="prompt-pane">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <b style="font-size: 12.5px; color: var(--accent-green);">OPTIMIZED ENHANCED PROMPT</b>
+                <button class="btn btn-outline" id="btn-copy-enhanced" style="padding: 3px 8px; font-size: 11px;">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                  <span>Copy</span>
+                </button>
+              </div>
+              <textarea id="prompt-output" class="prompt-textarea" readonly placeholder="Enhanced prompt will appear here..."></textarea>
+              <div class="prompt-status-bar">
+                <span id="prompt-output-count">0 chars | 0 words</span>
+                <span id="prompt-enhance-status" style="color: var(--accent-green);">Ready</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 4: Antigravity Profiles -->
+        <div id="view-profiles" class="view-pane">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+              <h2 style="font-size: 16px; font-weight: 700; color: var(--text-main);">Antigravity Multi-Account Profiles</h2>
+              <div style="font-size: 12px; color: var(--text-dim); margin-top: 2px;">Switch Google AI Pro accounts instantly without touching credentials</div>
+            </div>
+            <button class="btn btn-success" id="btn-show-add-profile-modal">
+              <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>New Profile</span>
+            </button>
+          </div>
+          <div id="profiles-list-container" class="card-grid"></div>
+        </div>
+
+        <!-- VIEW 5: AI Dev Tools (With Browse File Selector) -->
+        <div id="view-devtools" class="view-pane">
+          <div style="margin-bottom: 16px;">
+            <h2 style="font-size: 16px; font-weight: 700; color: var(--text-main);">AI Dev Tools Targets</h2>
+            <div style="font-size: 12px; color: var(--text-dim); margin-top: 2px;">Select and configure executables with the Browse file picker</div>
+          </div>
+          <div id="tools-list-container" style="display: flex; flex-direction: column; gap: 12px;"></div>
+        </div>
+
+        <!-- VIEW 6: AI Providers & Models -->
+        <div id="view-providers" class="view-pane">
+          <div style="display: grid; grid-template-columns: 240px 1fr; gap: 16px;">
+            <!-- Left: Providers List -->
+            <div class="dashboard-card" style="padding: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <b style="font-size: 13px; color: var(--text-main);">Providers</b>
+                <button class="btn btn-success" id="btn-add-provider" style="padding: 4px 8px; font-size: 11px;">+ Add</button>
+              </div>
+              <div id="providers-sidebar-list" style="display: flex; flex-direction: column; gap: 4px;"></div>
+            </div>
+
+            <!-- Right: Details Card -->
+            <div class="dashboard-card" id="provider-details-card">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <div class="form-group" style="margin-bottom: 0; flex: 1; margin-right: 14px;">
+                  <label class="form-label">Provider Name:</label>
+                  <input type="text" id="prov-name-input" class="input-text">
+                </div>
+                <div style="margin-top: 20px;">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="prov-enabled-checkbox">
+                    <span>Enabled (Show in Prompt Enhancer)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Base URL (OpenAI-compatible link):</label>
+                <input type="text" id="prov-url-input" class="input-text">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Quick Presets:</label>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button class="btn btn-outline prov-preset-btn" data-preset="OpenRouter" style="padding: 3px 8px; font-size: 11px;">OpenRouter</button>
+                  <button class="btn btn-outline prov-preset-btn" data-preset="OpenAI" style="padding: 3px 8px; font-size: 11px;">OpenAI</button>
+                  <button class="btn btn-outline prov-preset-btn" data-preset="Groq" style="padding: 3px 8px; font-size: 11px;">Groq</button>
+                  <button class="btn btn-outline prov-preset-btn" data-preset="DeepSeek" style="padding: 3px 8px; font-size: 11px;">DeepSeek</button>
+                  <button class="btn btn-outline prov-preset-btn" data-preset="Ollama" style="padding: 3px 8px; font-size: 11px;">Ollama</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">API Key (optional for local Ollama):</label>
+                <div style="display: flex; gap: 8px;">
+                  <input type="password" id="prov-key-input" class="input-text" style="flex: 1;">
+                  <button class="btn btn-outline" id="btn-toggle-key-view">
+                    <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Configured Models:</label>
+                <div id="prov-models-list" style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 8px; height: 100px; overflow-y: auto; margin-bottom: 8px;"></div>
+                <div style="display: flex; gap: 6px;">
+                  <input type="text" id="prov-new-model-input" class="input-text" placeholder="e.g. gpt-4o or claude-3-5-sonnet" style="flex: 1;">
+                  <button class="btn btn-success" id="btn-add-model">+ Add Model</button>
+                </div>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+                <button class="btn btn-outline" id="btn-fetch-models">
+                  <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  <span>Fetch Models from API</span>
+                </button>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <span id="prov-save-feedback" style="font-size: 12px; color: var(--accent-green); font-weight: 600;"></span>
+                  <button class="btn btn-success" id="btn-save-current-provider">
+                    <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    <span>Save Provider</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 7: LAN Remote & QR (Fixed Image Rendering) -->
+        <div id="view-lan" class="view-pane">
+          <div class="card-grid">
+            <div class="dashboard-card">
+              <div class="card-header">
+                <div class="card-title-group">
+                  <div class="card-icon">
+                    <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                  </div>
+                  <div>
+                    <div class="card-title">LAN REMOTE LINK</div>
+                    <div class="card-subtitle">Access your agents from mobile or laptop on same Wi-Fi</div>
+                  </div>
+                </div>
+              </div>
+              <div class="card-url-box">
+                <span id="lan-full-url">http://192.168.1.1:9095/</span>
+                <button class="btn-icon" id="btn-copy-lan-tab-url">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                </button>
+              </div>
+              <div style="margin-top: 14px; font-size: 12px; color: var(--text-muted);">
+                Scan the QR code on your phone camera to instantly connect without typing IP addresses.
+              </div>
+            </div>
+
+            <div class="dashboard-card" style="text-align: center;">
+              <div class="card-title" style="margin-bottom: 12px;">Scan with Phone Camera</div>
+              <div id="lan-qr-box" style="display: flex; justify-content: center; align-items: center; min-height: 180px;">
+                <img id="lan-qr-img" style="width: 180px; height: 180px; border-radius: var(--radius-md); background: #ffffff; padding: 10px; display: none;" alt="QR Code" />
+                <div id="lan-qr-fallback" style="color: var(--text-dim); font-size: 12px;">Generating QR Code...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 8: Live Logs (Hardware Metrics Filtered Out) -->
+        <div id="view-logs" class="view-pane">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <b style="font-size: 13.5px; color: var(--text-main);">Aggregated System & CLI Execution Logs</b>
+            <button class="btn btn-outline" id="btn-clear-logs" style="padding: 4px 10px; font-size: 11.5px;">Clear Logs</button>
+          </div>
+          <div id="logs-container" style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); height: calc(100vh - 170px); padding: 12px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); overflow-y: auto; line-height: 1.6;">
+            <div>[System] Agents Hub v1.0.3 active.</div>
+          </div>
+        </div>
+
+        <!-- VIEW 9: Settings & Preferences (Added as Requested!) -->
+        <div id="view-settings" class="view-pane">
+          <div style="margin-bottom: 16px;">
+            <h2 style="font-size: 16px; font-weight: 700; color: var(--text-main);">Settings & Preferences</h2>
+            <div style="font-size: 12px; color: var(--text-dim); margin-top: 2px;">Customize theme, accent colors, autostart, and system preferences</div>
+          </div>
+
+          <div class="dashboard-card" style="margin-bottom: 16px;">
+            <div class="card-title" style="margin-bottom: 12px;">Theme & Appearance</div>
+            
+            <div class="form-group">
+              <label class="form-label">Theme Mode:</label>
+              <div style="display: flex; gap: 10px;">
+                <button class="btn btn-outline btn-theme-toggle" data-theme="dark" style="flex: 1; padding: 10px;">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+                  <span>Dark Mode (Default)</span>
+                </button>
+                <button class="btn btn-outline btn-theme-toggle" data-theme="light" style="flex: 1; padding: 10px;">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+                  <span>Light Mode</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 16px;">
+              <label class="form-label">Custom Accent Color (Pick swatch or enter any Hex #):</label>
+              <div class="color-swatches">
+                <div class="color-swatch active" data-color="#10b981" style="background: #10b981;" title="Emerald"></div>
+                <div class="color-swatch" data-color="#06b6d4" style="background: #06b6d4;" title="Cyan"></div>
+                <div class="color-swatch" data-color="#3b82f6" style="background: #3b82f6;" title="Blue"></div>
+                <div class="color-swatch" data-color="#8b5cf6" style="background: #8b5cf6;" title="Purple"></div>
+                <div class="color-swatch" data-color="#ec4899" style="background: #ec4899;" title="Rose"></div>
+                <div class="color-swatch" data-color="#f59e0b" style="background: #f59e0b;" title="Amber"></div>
+                <div style="display: flex; gap: 8px; align-items: center; margin-left: 10px;">
+                  <input type="color" id="accent-color-picker" value="#10b981" style="width: 32px; height: 32px; border: none; border-radius: 4px; cursor: pointer; background: transparent;">
+                  <input type="text" id="accent-hex-input" class="input-text" style="width: 110px; font-family: var(--font-mono); text-transform: uppercase;" value="#10B981" placeholder="#10B981">
+                  <button class="btn btn-outline" id="btn-apply-custom-color" style="padding: 6px 12px;">Apply</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dashboard-card" style="margin-bottom: 16px;">
+            <div class="card-title" style="margin-bottom: 12px;">Startup & System Preferences</div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <label class="checkbox-label">
+                <input type="checkbox" id="setting-autostart-checkbox">
+                <span>Launch Agents Hub on Windows Startup</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="setting-minimized-checkbox">
+                <span>Start Minimized to System Tray on Launch</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="setting-tray-minimize-checkbox" checked>
+                <span>Enable Minimize to System Tray (Keep running in background when closed or minimized)</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="setting-notifications-checkbox" checked>
+                <span>Enable Windows Notifications (Balloon Tips & System Tray Alerts)</span>
+              </label>
+            </div>
+            <div style="margin-top: 14px; display: flex; justify-content: flex-end;">
+              <span id="settings-save-feedback" style="font-size: 12px; color: var(--accent-green); margin-right: 12px; align-self: center;"></span>
+              <button class="btn btn-success" id="btn-save-general-settings">Save Preferences</button>
+            </div>
+          </div>
+
+          <div class="dashboard-card">
+            <div class="card-title" style="margin-bottom: 8px;">About Agents Hub</div>
+            <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.6;">
+              <b>Agents Hub v1.0.3</b>: High Performance Multi-Agent Hub and Workspace.<br>
+              Unified process engine for Hermes, Claude Code, and Antigravity CLI.
+            </div>
+          </div>
+        </div>
+
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal: Add Antigravity Profile -->
+  <div id="modal-add-profile" class="modal-overlay">
+    <div class="modal-dialog">
+      <h3 style="font-size: 15px; color: var(--text-main); margin-bottom: 12px;">Create New Antigravity Profile</h3>
+      <div class="form-group">
+        <label class="form-label">Profile Name (e.g. Account_2):</label>
+        <input type="text" id="modal-profile-name-input" class="input-text">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-outline" id="btn-cancel-add-profile">Cancel</button>
+        <button class="btn btn-success" id="btn-confirm-add-profile">Create Profile</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add / Edit Dashboard Shortcut -->
+  <div id="modal-shortcut-editor" class="modal-overlay">
+    <div class="modal-dialog">
+      <h3 id="modal-shortcut-title" style="font-size: 15px; color: var(--text-main); margin-bottom: 14px;">Add New Shortcut</h3>
+      <input type="hidden" id="modal-shortcut-id">
+      <div class="form-group">
+        <label class="form-label">Shortcut Name:</label>
+        <input type="text" id="modal-shortcut-name" class="input-text" placeholder="e.g. Cursor, OpenCode, VS Code">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Category:</label>
+        <select id="modal-shortcut-cat" class="select-box">
+          <option value="AI Dev Tool">AI Dev Tool</option>
+          <option value="CLI / Script">CLI / Script</option>
+          <option value="Desktop Application">Desktop Application</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Target Executable / File Path / Command:</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="modal-shortcut-target" class="input-text" placeholder="C:\path\to\application.exe">
+          <button class="btn btn-outline" id="btn-browse-modal-shortcut" style="white-space: nowrap; padding: 6px 12px;">Browse...</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Arguments (Optional):</label>
+        <input type="text" id="modal-shortcut-args" class="input-text" placeholder="e.g. --profile Default">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
+        <button class="btn btn-outline" id="btn-cancel-shortcut-modal">Cancel</button>
+        <button class="btn btn-success" id="btn-save-shortcut-modal">Save Shortcut</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="./js/xterm.js"></script>
+  <script src="./js/xterm-addon-fit.js"></script>
+  <script src="./js/dashboard.js"></script>
+</body>
+</html>

@@ -61,4 +61,90 @@ public static class NetworkHelper
                desc.Contains("vmware") ||
                desc.Contains("npcap");
     }
+
+    private static readonly HttpClient _publicIpHttpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+
+    public static async Task<string?> FetchPublicIpAsync()
+    {
+        var providers = new[]
+        {
+            "https://api.ipify.org",
+            "https://icanhazip.com",
+            "https://ifconfig.me/ip",
+            "https://checkip.amazonaws.com"
+        };
+
+        foreach (var url in providers)
+        {
+            try
+            {
+                var response = await _publicIpHttpClient.GetStringAsync(url);
+                var ip = response.Trim();
+                if (IPAddress.TryParse(ip, out _))
+                {
+                    return ip;
+                }
+            }
+            catch
+            {
+                // Try next provider
+            }
+        }
+
+        return null;
+    }
+
+    public static async Task<string> RotateCloudflareWarpIpAsync()
+    {
+        try
+        {
+            await RunWarpCliCommandAsync("disconnect");
+            await Task.Delay(1500);
+
+            var connected = await RunWarpCliCommandAsync("connect");
+            if (!connected)
+            {
+                await Task.Delay(1000);
+                await RunWarpCliCommandAsync("connect");
+            }
+
+            string? newIp = null;
+            for (int i = 0; i < 10; i++)
+            {
+                await Task.Delay(1000);
+                newIp = await FetchPublicIpAsync();
+                if (!string.IsNullOrWhiteSpace(newIp)) break;
+            }
+
+            return newIp ?? "Rotation completed";
+        }
+        catch (Exception ex)
+        {
+            return "Failed: " + ex.Message;
+        }
+    }
+
+    private static async Task<bool> RunWarpCliCommandAsync(string arguments)
+    {
+        try
+        {
+            using var proc = new System.Diagnostics.Process();
+            proc.StartInfo = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "warp-cli.exe",
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            proc.Start();
+            await proc.WaitForExitAsync();
+            return proc.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

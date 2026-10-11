@@ -2,7 +2,7 @@
 ; Agents Hub Installer Configuration
 
 #define MyAppName "Agents Hub"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "ZeroNuxs"
 #define MyAppURL "https://github.com/ZerroDevs/HermesOn"
 #define MyAppExeName "HermesHub.exe"
