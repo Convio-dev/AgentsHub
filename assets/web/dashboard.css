@@ -18,6 +18,9 @@
   --accent-red: #ef4444;
   --accent-amber: #f59e0b;
   --accent-purple: #8b5cf6;
+  --accent-text: #ffffff;
+  --bg-terminal: #09090b;
+  --border-hover: #10b981;
   --font-sans: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
   --font-mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   --radius-sm: 6px;
@@ -213,7 +216,7 @@ body, html {
   gap: 8px;
   padding: 9px;
   background: var(--accent-green);
-  color: #06110d;
+  color: var(--accent-text, #ffffff);
   font-size: 12.5px;
   font-weight: 700;
   border-radius: var(--radius-md);
@@ -374,7 +377,7 @@ body, html {
 }
 
 .dashboard-card:hover {
-  border-color: #2b3548;
+  border-color: var(--border-hover, var(--accent-green));
 }
 
 .card-header {
@@ -467,7 +470,7 @@ body, html {
 
 .btn-success {
   background: var(--accent-green);
-  color: #06120d;
+  color: var(--accent-text, #ffffff);
 }
 .btn-success:hover {
   background: var(--accent-green-hover);
@@ -518,76 +521,80 @@ body, html {
   box-shadow: 0 0 10px var(--accent-green-bg);
 }
 
-/* Light Theme Component Overrides */
-html[data-theme="light"] .btn-outline {
-  background: #ffffff;
-  border-color: #cbd5e1;
-  color: #0f172a;
+/* Dynamic Component Surfaces */
+.btn-outline {
+  background: var(--bg-card);
+  border-color: var(--border-subtle);
+  color: var(--text-main);
 }
-html[data-theme="light"] .btn-outline:hover {
-  background: #f1f5f9;
+.btn-outline:hover {
+  background: var(--bg-card-hover);
   border-color: var(--accent-green);
-  color: #0f172a;
+  color: var(--text-main);
 }
 
-html[data-theme="light"] .btn-theme-toggle {
-  background: #ffffff;
-  border-color: #cbd5e1;
-  color: #0f172a;
+.btn-theme-toggle {
+  background: var(--bg-card);
+  border-color: var(--border-subtle);
+  color: var(--text-main);
 }
-html[data-theme="light"] .btn-theme-toggle:hover {
-  background: #f1f5f9;
+.btn-theme-toggle:hover {
+  background: var(--bg-card-hover);
   border-color: var(--accent-green);
-  color: #0f172a;
+  color: var(--text-main);
 }
-html[data-theme="light"] .btn-theme-toggle.active {
+.btn-theme-toggle.active {
   border-color: var(--accent-green) !important;
   background: var(--accent-green-bg);
-  color: #0f172a;
+  color: var(--text-main);
 }
 
-html[data-theme="light"] .btn-sidebar-secondary {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-  color: #334155;
+.btn-sidebar-secondary {
+  background: var(--bg-card);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
 }
-html[data-theme="light"] .btn-sidebar-secondary:hover {
-  background: #f1f5f9;
+.btn-sidebar-secondary:hover {
+  background: var(--bg-card-hover);
   border-color: var(--accent-green);
-  color: #0f172a;
+  color: var(--text-main);
 }
 
-html[data-theme="light"] .btn-icon {
-  background: #ffffff;
-  border-color: #cbd5e1;
-  color: #334155;
+.btn-icon {
+  background: var(--bg-card);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
 }
-html[data-theme="light"] .btn-icon:hover {
-  background: #f1f5f9;
+.btn-icon:hover {
+  background: var(--bg-card-hover);
   border-color: var(--accent-green);
-  color: #0f172a;
+  color: var(--text-main);
 }
 
-html[data-theme="light"] .status-pill {
-  background: #ffffff;
-  border-color: #cbd5e1;
-  color: #334155;
+.status-pill {
+  background: var(--bg-card);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
 }
 
-html[data-theme="light"] .metric-badge {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #0284c7;
+.metric-badge {
+  background: var(--bg-input);
+  border-color: var(--border-subtle);
+  color: var(--accent-cyan);
 }
 
-html[data-theme="light"] .card-url-box {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-  color: #0f172a;
+.card-url-box {
+  background: var(--bg-input);
+  border-color: var(--border-subtle);
+  color: var(--accent-cyan);
+}
+
+.dashboard-card {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 
 html[data-theme="light"] .dashboard-card {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .btn-danger {
@@ -644,6 +651,12 @@ html[data-theme="light"] .dashboard-card {
 
 .select-box:focus {
   border-color: var(--accent-green);
+}
+
+.select-box option,
+.select-box optgroup {
+  background: var(--bg-card);
+  color: var(--text-main);
 }
 
 .checkbox-label {
@@ -815,7 +828,7 @@ html[data-theme="light"] .dashboard-card {
 
 /* Dashboard Custom Shortcuts */
 .shortcut-card {
-  background: var(--bg-input);
+  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 13px;
@@ -868,14 +881,4 @@ html[data-theme="light"] .dashboard-card {
   overflow: hidden;
   text-overflow: ellipsis;
   margin-top: 4px;
-}
-
-html[data-theme="light"] .shortcut-card {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-}
-
-html[data-theme="light"] .shortcut-card:hover {
-  background: #ffffff;
-  border-color: var(--accent-green);
 }

@@ -18,10 +18,19 @@ public class AiProvider
 
 public class DashboardShortcut
 {
+    [JsonPropertyName("id")]
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("target")]
     public string Target { get; set; } = string.Empty;
+
+    [JsonPropertyName("arguments")]
     public string Arguments { get; set; } = string.Empty;
+
+    [JsonPropertyName("category")]
     public string Category { get; set; } = "AI Dev Tool";
 }
 
@@ -266,13 +275,53 @@ public class AiConfigService
         {
             _config.Shortcuts = new List<DashboardShortcut>
             {
-                new() { Name = "Antigravity IDE", Target = defaults.GetValueOrDefault("Antigravity-ide", string.Empty), Category = "AI Dev Tool" },
-                new() { Name = "Claude Desktop", Target = defaults.GetValueOrDefault("Claude", string.Empty), Category = "AI Dev Tool" },
-                new() { Name = "ChatGPT Desktop", Target = defaults.GetValueOrDefault("ChatGPT", string.Empty), Category = "AI Dev Tool" },
-                new() { Name = "OpenCode Desktop", Target = defaults.GetValueOrDefault("OpenCode", string.Empty), Category = "AI Dev Tool" },
-                new() { Name = "Cline", Target = defaults.GetValueOrDefault("Cline", string.Empty), Category = "AI Dev Tool" },
-                new() { Name = "DeepSeek", Target = defaults.GetValueOrDefault("DeepSeek", string.Empty), Category = "AI Dev Tool" }
+                new() { Name = "Antigravity IDE", Target = _config.ToolTargets.GetValueOrDefault("Antigravity-ide", defaults.GetValueOrDefault("Antigravity-ide", string.Empty)), Category = "AI Dev Tool" },
+                new() { Name = "Claude Desktop", Target = _config.ToolTargets.GetValueOrDefault("Claude", defaults.GetValueOrDefault("Claude", string.Empty)), Category = "AI Dev Tool" },
+                new() { Name = "ChatGPT Desktop", Target = _config.ToolTargets.GetValueOrDefault("ChatGPT", defaults.GetValueOrDefault("ChatGPT", string.Empty)), Category = "AI Dev Tool" },
+                new() { Name = "OpenCode Desktop", Target = _config.ToolTargets.GetValueOrDefault("OpenCode", defaults.GetValueOrDefault("OpenCode", string.Empty)), Category = "AI Dev Tool" },
+                new() { Name = "Cline", Target = _config.ToolTargets.GetValueOrDefault("Cline", defaults.GetValueOrDefault("Cline", string.Empty)), Category = "AI Dev Tool" },
+                new() { Name = "DeepSeek", Target = _config.ToolTargets.GetValueOrDefault("DeepSeek", defaults.GetValueOrDefault("DeepSeek", string.Empty)), Category = "AI Dev Tool" }
             };
         }
+        else
+        {
+            // Repair any shortcuts that have missing or empty target
+            foreach (var sc in _config.Shortcuts)
+            {
+                if (string.IsNullOrWhiteSpace(sc.Target))
+                {
+                    if (_config.ToolTargets.TryGetValue(sc.Name, out var exactMatch) && !string.IsNullOrWhiteSpace(exactMatch))
+                    {
+                        sc.Target = exactMatch;
+                    }
+                    else if (sc.Name.Contains("Antigravity", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sc.Target = _config.ToolTargets.GetValueOrDefault("Antigravity-ide", defaults.GetValueOrDefault("Antigravity-ide", string.Empty));
+                    }
+                    else if (sc.Name.Contains("Claude", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sc.Target = _config.ToolTargets.GetValueOrDefault("Claude", defaults.GetValueOrDefault("Claude", string.Empty));
+                    }
+                    else if (sc.Name.Contains("ChatGPT", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sc.Target = _config.ToolTargets.GetValueOrDefault("ChatGPT", defaults.GetValueOrDefault("ChatGPT", string.Empty));
+                    }
+                    else if (sc.Name.Contains("OpenCode", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sc.Target = _config.ToolTargets.GetValueOrDefault("OpenCode", defaults.GetValueOrDefault("OpenCode", string.Empty));
+                    }
+                    else if (sc.Name.Contains("Cline", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sc.Target = _config.ToolTargets.GetValueOrDefault("Cline", defaults.GetValueOrDefault("Cline", string.Empty));
+                    }
+                    else if (sc.Name.Contains("DeepSeek", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sc.Target = _config.ToolTargets.GetValueOrDefault("DeepSeek", defaults.GetValueOrDefault("DeepSeek", string.Empty));
+                    }
+                }
+            }
+        }
+
+        SaveConfig(_config);
     }
 }

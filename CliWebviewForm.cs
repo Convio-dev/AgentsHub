@@ -65,7 +65,8 @@ public partial class CliWebviewForm : Form
             var baseDir = AppContext.BaseDirectory;
             var uiTermPath = Path.Combine(baseDir, "ui", "terminal.html");
             _terminalHtmlPath = File.Exists(uiTermPath) ? uiTermPath : Path.Combine(baseDir, "assets", "web", "terminal.html");
-            _hermesOfflineHtmlPath = Path.Combine(baseDir, "assets", "web", "hermes-offline.html");
+            var uiOfflinePath = Path.Combine(baseDir, "ui", "hermes-offline.html");
+            _hermesOfflineHtmlPath = File.Exists(uiOfflinePath) ? uiOfflinePath : Path.Combine(baseDir, "assets", "web", "hermes-offline.html");
 
             SetupStyles();
             HookEvents();
@@ -100,7 +101,7 @@ public partial class CliWebviewForm : Form
         toolsPanel.Controls.Add(_profileComboBox);
         toolsPanel.Controls.Add(_addProfileButton);
 
-        SetupButtonHover(_addProfileButton, ThemeManager.Colors.ButtonBg, ThemeManager.Colors.ButtonHover);
+        SetupButtonHover(_addProfileButton);
 
         ApplyTheme();
 
@@ -113,9 +114,12 @@ public partial class CliWebviewForm : Form
             if (toggleRunButton.Enabled) toggleRunButton.BackColor = _toggleRunNormalColor;
         };
 
-        SetupButtonHover(restartCliButton, ThemeManager.Colors.ButtonBg, ThemeManager.Colors.ButtonHover);
-        SetupButtonHover(clearTerminalButton, ThemeManager.Colors.ButtonBg, ThemeManager.Colors.ButtonHover);
-        SetupButtonHover(openBrowserButton, ThemeManager.Colors.ButtonBg, ThemeManager.Colors.ButtonHover);
+        SetupButtonHover(restartCliButton);
+        SetupButtonHover(clearTerminalButton);
+        SetupButtonHover(openBrowserButton);
+        SetupTabHover(tabHermesButton, CliType.Hermes);
+        SetupTabHover(tabClaudeButton, CliType.ClaudeCode);
+        SetupTabHover(tabAntigravityButton, CliType.AntigravityCli);
 
         topToolbar.Resize += (_, _) => LayoutToolbar();
         toolsPanel.Resize += (_, _) => LayoutToolbar();
@@ -216,6 +220,36 @@ public partial class CliWebviewForm : Form
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
+        topToolbar.Invalidate();
+
+        NotifyWebViewsTheme();
+    }
+
+    public void NotifyWebViewsTheme()
+    {
+        var payload = new
+        {
+            type = "theme_changed",
+            theme = ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark",
+            accentColor = ThemeManager.AccentHex
+        };
+        var json = JsonSerializer.Serialize(payload);
+
+        PostToWebView(hermesWebView, json);
+        PostToWebView(claudeWebView, json);
+        PostToWebView(antigravityWebView, json);
+    }
+
+    private static void PostToWebView(Microsoft.Web.WebView2.WinForms.WebView2? wv, string json)
+    {
+        if (wv?.CoreWebView2 != null)
+        {
+            try
+            {
+                wv.CoreWebView2.PostWebMessageAsJson(json);
+            }
+            catch { }
+        }
     }
 
     protected override void OnShown(EventArgs e)
@@ -223,7 +257,7 @@ public partial class CliWebviewForm : Form
         base.OnShown(e);
         if (!IsInDesignMode)
         {
-            ThemeManager.ApplyDwmTitleBarTheme(Handle);
+            ApplyTheme();
         }
     }
 
@@ -389,6 +423,7 @@ public partial class CliWebviewForm : Form
             await hermesWebView.EnsureCoreWebView2Async(env);
             ConfigureWebViewSettings(hermesWebView.CoreWebView2);
             hermesWebView.CoreWebView2.WebMessageReceived += HermesWebView_WebMessageReceived;
+            hermesWebView.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
             _hermesInitialized = true;
             RefreshHermesNavigation();
 
@@ -396,6 +431,7 @@ public partial class CliWebviewForm : Form
             await claudeWebView.EnsureCoreWebView2Async(env);
             ConfigureWebViewSettings(claudeWebView.CoreWebView2);
             claudeWebView.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived(CliType.ClaudeCode, e);
+            claudeWebView.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
             if (File.Exists(_terminalHtmlPath))
             {
                 claudeWebView.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
@@ -405,12 +441,14 @@ public partial class CliWebviewForm : Form
             await antigravityWebView.EnsureCoreWebView2Async(env);
             ConfigureWebViewSettings(antigravityWebView.CoreWebView2);
             antigravityWebView.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived(CliType.AntigravityCli, e);
+            antigravityWebView.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
             if (File.Exists(_terminalHtmlPath))
             {
                 antigravityWebView.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
             }
 
             SwitchTab(_activeTab);
+            NotifyWebViewsTheme();
         }
         catch (Exception ex)
         {
@@ -755,15 +793,27 @@ public partial class CliWebviewForm : Form
         }
     }
 
-    private static void SetupButtonHover(Button button, Color normalColor, Color hoverColor)
+    private static void SetupButtonHover(Button button)
     {
         button.MouseEnter += (_, _) =>
         {
-            if (button.Enabled) button.BackColor = hoverColor;
+            if (button.Enabled) button.BackColor = ThemeManager.Colors.ButtonHover;
         };
         button.MouseLeave += (_, _) =>
         {
-            if (button.Enabled) button.BackColor = normalColor;
+            if (button.Enabled) button.BackColor = ThemeManager.Colors.ButtonBg;
+        };
+    }
+
+    private void SetupTabHover(Button btn, CliType type)
+    {
+        btn.MouseEnter += (_, _) =>
+        {
+            if (_activeTab != type) btn.BackColor = ThemeManager.Colors.ButtonHover;
+        };
+        btn.MouseLeave += (_, _) =>
+        {
+            if (_activeTab != type) btn.BackColor = ThemeManager.Colors.ButtonBg;
         };
     }
 

@@ -9,11 +9,12 @@
     lanUrl: 'http://127.0.0.1:9095/',
     publicIp: '',
     isIpMasked: false,
+    isShortcutsMasked: localStorage.getItem('agents_hub_mask_shortcuts') === 'true',
     qrBase64: '',
     clis: {},
     antigravity: { activeProfile: '', profiles: [] },
     aiConfig: { providers: [], toolTargets: {}, shortcuts: [], selectedProviderId: null, selectedModel: null },
-    settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, theme: 'dark', accentColor: '#10b981' },
+    settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
     activeTerminalCli: 'Hermes',
     selectedProvider: null,
@@ -159,59 +160,242 @@
     }
   }
 
-  // Theme & Color Engine
-  function applyTheme(themeName) {
-    document.documentElement.setAttribute('data-theme', themeName);
-    document.querySelectorAll('.btn-theme-toggle').forEach(b => {
-      b.classList.toggle('active', b.dataset.theme === themeName);
-      b.style.borderColor = '';
-    });
-    localStorage.setItem('agents_hub_theme', themeName);
+  // Discord Adaptive Theme & Color Engine
+  function hexToHsl(hex) {
+    hex = (hex || '').replace(/^#/, '').trim();
+    if (hex.length === 3) {
+      hex = hex.split('').map(c => c + c).join('');
+    }
+    if (hex.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(hex)) {
+      return { h: 160, s: 84, l: 39 }; // Fallback Emerald
+    }
+    const r = parseInt(hex.substring(0, 2), 16) / 255;
+    const g = parseInt(hex.substring(2, 4), 16) / 255;
+    const b = parseInt(hex.substring(4, 6), 16) / 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h = 0;
+    let s = 0;
+    let l = (max + min) / 2;
+
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h = Math.round(h * 60);
+    }
+    s = Math.round(s * 100);
+    l = Math.round(l * 100);
+    return { h, s, l };
   }
 
-  function applyAccentColor(hex) {
-    if (!hex || !hex.startsWith('#') || (hex.length !== 7 && hex.length !== 4)) return;
-    
-    document.documentElement.style.setProperty('--accent-green', hex);
-    document.documentElement.style.setProperty('--accent-green-bg', hex + '22'); // 13% opacity
-    document.documentElement.style.setProperty('--border-focus', hex);
+  function getPerceivedLuminance(hex) {
+    hex = (hex || '').replace(/^#/, '').trim();
+    if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+    if (hex.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(hex)) return 0.5;
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  }
 
-    // Update swatches
+  function applyAdaptiveTheme(themeName, hexColor, intensityVal = null) {
+    const activeTheme = themeName === 'light' ? 'light' : 'dark';
+    
+    let hex = (hexColor || '').trim();
+    if (!hex.startsWith('#')) hex = '#' + hex;
+    if (hex.length === 4) {
+      hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
+    }
+    if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
+      hex = '#4049B9';
+    }
+    hex = hex.toUpperCase();
+
+    // Color intensity support (Discord theme customizer: default 74%)
+    let intensity = intensityVal !== null ? parseInt(intensityVal, 10) : parseInt(localStorage.getItem('agents_hub_theme_intensity') || '74', 10);
+    if (isNaN(intensity) || intensity < 10 || intensity > 100) intensity = 74;
+    const intMult = intensity / 74;
+
+    const { h, s, l } = hexToHsl(hex);
+    const rootStyle = document.documentElement.style;
+
+    document.documentElement.setAttribute('data-theme', activeTheme);
+
+    if (activeTheme === 'dark') {
+      // Discord-style Dark Surface Hierarchy modulated by intensity
+      const sTint = s < 12 
+        ? Math.max(2, Math.round(s * intMult)) 
+        : Math.min(32, Math.max(6, Math.round(s * 0.28 * intMult)));
+      
+      rootStyle.setProperty('--bg-app', `hsl(${h}, ${sTint}%, 5.5%)`);
+      rootStyle.setProperty('--bg-sidebar', `hsl(${h}, ${sTint + 2}%, 7.5%)`);
+      rootStyle.setProperty('--bg-header', `hsl(${h}, ${sTint + 2}%, 9%)`);
+      rootStyle.setProperty('--bg-card', `hsl(${h}, ${sTint + 4}%, 12.5%)`);
+      rootStyle.setProperty('--bg-card-hover', `hsl(${h}, ${sTint + 5}%, 16%)`);
+      rootStyle.setProperty('--bg-input', `hsl(${h}, ${sTint}%, 7%)`);
+      rootStyle.setProperty('--border-subtle', `hsl(${h}, ${sTint + 2}%, 19%)`);
+      rootStyle.setProperty('--border-hover', `hsl(${h}, ${Math.min(s, 75)}%, 48%)`);
+      rootStyle.setProperty('--bg-terminal', `hsl(${h}, ${sTint}%, 5%)`);
+      
+      rootStyle.setProperty('--text-main', '#f8fafc');
+      rootStyle.setProperty('--text-muted', `hsl(${h}, 12%, 68%)`);
+      rootStyle.setProperty('--text-dim', `hsl(${h}, 10%, 48%)`);
+
+      const darkAccent = l < 42 ? `hsl(${h}, ${Math.max(s, 50)}%, 52%)` : hex;
+      const lum = getPerceivedLuminance(darkAccent);
+      rootStyle.setProperty('--accent-green', darkAccent);
+      rootStyle.setProperty('--accent-green-hover', `hsl(${h}, ${s}%, ${Math.max(12, l - 8)}%)`);
+      rootStyle.setProperty('--accent-green-bg', `hsla(${h}, ${s}%, ${l}%, 0.16)`);
+      rootStyle.setProperty('--accent-text', lum > 0.62 ? '#0a0f14' : '#ffffff');
+      rootStyle.setProperty('--border-focus', darkAccent);
+    } else {
+      // Discord-style Light Surface Hierarchy matching Discord app in screenshot
+      const sTintLight = s < 12 
+        ? Math.max(2, Math.round(s * 0.4 * intMult)) 
+        : Math.min(26, Math.max(4, Math.round(s * 0.22 * intMult)));
+
+      rootStyle.setProperty('--bg-app', `hsl(${h}, ${sTintLight}%, 95.5%)`);
+      rootStyle.setProperty('--bg-sidebar', `hsl(${h}, ${Math.round(sTintLight * 1.35)}%, 92.5%)`);
+      rootStyle.setProperty('--bg-header', `hsl(${h}, ${Math.round(sTintLight * 1.5)}%, 88%)`);
+      rootStyle.setProperty('--bg-card', '#ffffff');
+      rootStyle.setProperty('--bg-card-hover', `hsl(${h}, ${sTintLight}%, 96.5%)`);
+      rootStyle.setProperty('--bg-input', `hsl(${h}, ${sTintLight}%, 96.8%)`);
+      rootStyle.setProperty('--border-subtle', `hsl(${h}, ${Math.round(sTintLight * 1.25)}%, 83%)`);
+      rootStyle.setProperty('--border-hover', `hsl(${h}, ${Math.min(s, 75)}%, 45%)`);
+      rootStyle.setProperty('--bg-terminal', `hsl(${h}, 15%, 8%)`);
+
+      rootStyle.setProperty('--text-main', `hsl(${h}, 28%, 11%)`);
+      rootStyle.setProperty('--text-muted', `hsl(${h}, 16%, 36%)`);
+      rootStyle.setProperty('--text-dim', `hsl(${h}, 10%, 52%)`);
+
+      const lightAccent = l > 48 ? `hsl(${h}, ${Math.max(s, 60)}%, 42%)` : hex;
+      const lum = getPerceivedLuminance(lightAccent);
+      rootStyle.setProperty('--accent-green', lightAccent);
+      rootStyle.setProperty('--accent-green-hover', `hsl(${h}, ${s}%, 34%)`);
+      rootStyle.setProperty('--accent-green-bg', `hsla(${h}, ${s}%, 45%, 0.12)`);
+      rootStyle.setProperty('--accent-text', lum > 0.62 ? '#0a0f14' : '#ffffff');
+      rootStyle.setProperty('--border-focus', lightAccent);
+    }
+
+    if (termInstance) {
+      termInstance.options.theme = {
+        background: activeTheme === 'dark' ? `hsl(${h}, ${s < 12 ? 6 : 14}%, 5%)` : '#0d1117',
+        foreground: '#f8fafc',
+        cursor: hex,
+        selectionBackground: `hsla(${h}, ${s}%, 50%, 0.3)`
+      };
+    }
+
+    document.querySelectorAll('.btn-theme-toggle').forEach(b => {
+      b.classList.toggle('active', b.dataset.theme === activeTheme);
+    });
+
     document.querySelectorAll('.color-swatch').forEach(sw => {
-      sw.classList.toggle('active', sw.dataset.color.toLowerCase() === hex.toLowerCase());
+      sw.classList.toggle('active', sw.dataset.color.toUpperCase() === hex);
     });
 
     const hexInput = document.getElementById('accent-hex-input');
     const picker = document.getElementById('accent-color-picker');
-    if (hexInput) hexInput.value = hex.toUpperCase();
+    const slider = document.getElementById('theme-intensity-slider');
+    const sliderVal = document.getElementById('theme-intensity-val');
+    if (hexInput && document.activeElement !== hexInput) hexInput.value = hex;
     if (picker) picker.value = hex;
+    if (slider) slider.value = intensity;
+    if (sliderVal) sliderVal.textContent = intensity + '%';
 
+    localStorage.setItem('agents_hub_theme', activeTheme);
     localStorage.setItem('agents_hub_accent_color', hex);
+    localStorage.setItem('agents_hub_theme_intensity', intensity);
+  }
+
+  function applyTheme(themeName) {
+    const currentColor = localStorage.getItem('agents_hub_accent_color') || '#4049B9';
+    applyAdaptiveTheme(themeName, currentColor);
+  }
+
+  function applyAccentColor(hex) {
+    const currentTheme = localStorage.getItem('agents_hub_theme') || 'dark';
+    applyAdaptiveTheme(currentTheme, hex);
   }
 
   function setupSettingsView() {
     // Theme toggles
     document.querySelectorAll('.btn-theme-toggle').forEach(b => {
       b.addEventListener('click', () => {
-        applyTheme(b.dataset.theme);
+        const theme = b.dataset.theme;
+        const color = localStorage.getItem('agents_hub_accent_color') || '#4049B9';
+        applyAdaptiveTheme(theme, color);
+        callBridge('save_general_settings', {
+          settings: { theme, accentColor: color }
+        }).catch(() => {});
       });
     });
 
     // Color Swatches
     document.querySelectorAll('.color-swatch').forEach(sw => {
       sw.addEventListener('click', () => {
-        applyAccentColor(sw.dataset.color);
+        const color = sw.dataset.color;
+        const theme = localStorage.getItem('agents_hub_theme') || 'dark';
+        applyAdaptiveTheme(theme, color);
+        callBridge('save_general_settings', {
+          settings: { theme, accentColor: color }
+        }).catch(() => {});
       });
+    });
+
+    // Color Intensity Slider
+    const slider = document.getElementById('theme-intensity-slider');
+    const sliderVal = document.getElementById('theme-intensity-val');
+    slider?.addEventListener('input', (e) => {
+      const intVal = e.target.value;
+      if (sliderVal) sliderVal.textContent = intVal + '%';
+      const theme = localStorage.getItem('agents_hub_theme') || 'dark';
+      const color = localStorage.getItem('agents_hub_accent_color') || '#4049B9';
+      applyAdaptiveTheme(theme, color, intVal);
     });
 
     // Custom Color Picker & Hex Input
     const picker = document.getElementById('accent-color-picker');
     const hexInput = document.getElementById('accent-hex-input');
-    picker?.addEventListener('input', (e) => applyAccentColor(e.target.value));
-    document.getElementById('btn-apply-custom-color')?.addEventListener('click', () => {
+
+    picker?.addEventListener('input', (e) => {
+      const color = e.target.value;
+      const theme = localStorage.getItem('agents_hub_theme') || 'dark';
+      applyAdaptiveTheme(theme, color);
+    });
+
+    picker?.addEventListener('change', (e) => {
+      const color = e.target.value;
+      const theme = localStorage.getItem('agents_hub_theme') || 'dark';
+      callBridge('save_general_settings', {
+        settings: { theme, accentColor: color }
+      }).catch(() => {});
+    });
+
+    const triggerApplyCustomHex = () => {
       let val = hexInput.value.trim();
+      if (!val) return;
       if (!val.startsWith('#')) val = '#' + val;
-      applyAccentColor(val);
+      const theme = localStorage.getItem('agents_hub_theme') || 'dark';
+      applyAdaptiveTheme(theme, val);
+      callBridge('save_general_settings', {
+        settings: { theme, accentColor: val }
+      }).catch(() => {});
+    };
+
+    document.getElementById('btn-apply-custom-color')?.addEventListener('click', triggerApplyCustomHex);
+
+    hexInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        triggerApplyCustomHex();
+      }
     });
 
     // Save General Settings Button
@@ -220,12 +404,17 @@
       const startMinimized = document.getElementById('setting-minimized-checkbox').checked;
       const minimizeToTray = document.getElementById('setting-tray-minimize-checkbox')?.checked !== false;
       const notifications = document.getElementById('setting-notifications-checkbox')?.checked !== false;
+      const maskShortcutPaths = document.getElementById('setting-mask-paths-checkbox')?.checked === true;
       const theme = document.documentElement.getAttribute('data-theme') || 'dark';
       const accentColor = localStorage.getItem('agents_hub_accent_color') || '#10b981';
       const feedback = document.getElementById('settings-save-feedback');
 
+      state.isShortcutsMasked = maskShortcutPaths;
+      localStorage.setItem('agents_hub_mask_shortcuts', maskShortcutPaths);
+      renderDashboardShortcuts();
+
       await callBridge('save_general_settings', {
-        settings: { autostart, startMinimized, minimizeToTray, notifications, theme, accentColor }
+        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, theme, accentColor }
       });
 
       feedback.textContent = 'Preferences saved successfully!';
@@ -675,67 +864,200 @@
     })[m]);
   }
 
+  function normalizeShortcut(sc, index) {
+    if (!sc) return null;
+    const id = sc.id || sc.Id || ('sc_' + index);
+    let name = sc.name || sc.Name || '';
+    let target = sc.target || sc.Target || '';
+    const category = sc.category || sc.Category || 'AI Dev Tool';
+    const args = sc.arguments || sc.Arguments || '';
+
+    // If target is empty, attempt resolution from toolTargets
+    if (!target && state.aiConfig && state.aiConfig.toolTargets) {
+      const targets = state.aiConfig.toolTargets;
+      if (targets[name]) target = targets[name];
+      else if (name.includes('Antigravity') && targets['Antigravity-ide']) target = targets['Antigravity-ide'];
+      else if (name.includes('Claude') && targets['Claude']) target = targets['Claude'];
+      else if (name.includes('ChatGPT') && targets['ChatGPT']) target = targets['ChatGPT'];
+      else if (name.includes('OpenCode') && targets['OpenCode']) target = targets['OpenCode'];
+      else if (name.includes('Cline') && targets['Cline']) target = targets['Cline'];
+      else if (name.includes('DeepSeek') && targets['DeepSeek']) target = targets['DeepSeek'];
+      else if (name.includes('FreeBuff') && targets['FreeBuff']) target = targets['FreeBuff'];
+    }
+
+    if (!name) name = 'Shortcut ' + (index + 1);
+
+    return { id, name, target, category, arguments: args };
+  }
+
   function renderDashboardShortcuts() {
     const grid = document.getElementById('dashboard-shortcuts-grid');
     if (!grid) return;
     grid.innerHTML = '';
 
-    const shortcuts = state.aiConfig?.shortcuts || [];
-    if (shortcuts.length === 0) {
+    const rawShortcuts = state.aiConfig?.shortcuts || [];
+    if (rawShortcuts.length === 0) {
       grid.innerHTML = '<div style="color: var(--text-dim); font-size: 12px; grid-column: 1 / -1; padding: 10px 0;">No shortcuts configured yet. Click "+ Add Shortcut" above to add tools, CLIs, or applications.</div>';
       return;
     }
 
+    // Normalize and save back into state
+    state.aiConfig.shortcuts = rawShortcuts.map((s, idx) => normalizeShortcut(s, idx));
+    const shortcuts = state.aiConfig.shortcuts;
+
     shortcuts.forEach(sc => {
       const card = document.createElement('div');
       card.className = 'shortcut-card';
+      const targetDisplay = state.isShortcutsMasked ? '**' : (sc.target || 'No target configured');
+      const targetTooltip = state.isShortcutsMasked ? 'Location hidden (**)' : (sc.target || 'No target configured');
       card.innerHTML = `
         <div class="shortcut-top">
           <div class="shortcut-info">
             <div class="shortcut-name">${escapeHtml(sc.name)}</div>
-            <span class="shortcut-cat">${escapeHtml(sc.category || 'App')}</span>
+            <span class="shortcut-cat">${escapeHtml(sc.category || 'AI Dev Tool')}</span>
           </div>
           <div class="shortcut-actions">
             <button class="btn-icon btn-edit-sc" title="Edit Shortcut" data-id="${sc.id}">
-              <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <svg class="icon-svg" style="width: 13px; height: 13px; pointer-events: none;" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
             <button class="btn-icon btn-del-sc" title="Delete Shortcut" data-id="${sc.id}">
-              <svg class="icon-svg" style="width: 13px; height: 13px; color: var(--accent-red);" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              <svg class="icon-svg" style="width: 13px; height: 13px; color: var(--accent-red); pointer-events: none;" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
           </div>
         </div>
-        <div class="shortcut-target-text" title="${escapeHtml(sc.target || '')}">${escapeHtml(sc.target || 'No target configured')}</div>
+        <div class="shortcut-target-text" title="${escapeHtml(targetTooltip)}">${escapeHtml(targetDisplay)}</div>
         <button class="btn btn-outline btn-launch-sc" data-id="${sc.id}" style="width: 100%; margin-top: 10px; padding: 6px 12px; font-size: 12px; gap: 6px;">
-          <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <svg class="icon-svg" style="width: 13px; height: 13px; pointer-events: none;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           <span>Launch</span>
         </button>
       `;
       grid.appendChild(card);
     });
 
+    const maskShortcutsIcon = document.getElementById('icon-mask-shortcuts');
+    if (maskShortcutsIcon) {
+      if (state.isShortcutsMasked) {
+        maskShortcutsIcon.innerHTML = '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>';
+      } else {
+        maskShortcutsIcon.innerHTML = '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>';
+      }
+    }
+
     grid.querySelectorAll('.btn-launch-sc').forEach(b => {
-      b.addEventListener('click', () => {
-        const sc = shortcuts.find(s => s.id === b.dataset.id);
-        if (sc && sc.target) {
+      b.onclick = (e) => {
+        e.preventDefault();
+        const scId = b.getAttribute('data-id');
+        const sc = state.aiConfig.shortcuts.find(s => s.id === scId);
+        if (!sc) return;
+        if (sc.target.startsWith('cli:')) {
+          const cliKey = sc.target.split(':')[1].toLowerCase();
+          if (cliKey === 'hermes') callBridge('toggle_cli', { cli: 'Hermes' });
+          else if (cliKey === 'claude') callBridge('toggle_cli', { cli: 'ClaudeCode' });
+          else if (cliKey === 'antigravity') callBridge('toggle_cli', { cli: 'AntigravityCli' });
+          appendLog(`[Shortcuts] Toggling CLI ${sc.name}`);
+        } else if (sc.target) {
           callBridge('launch_shortcut', { target: sc.target, arguments: sc.arguments || '' });
+          appendLog(`[Shortcuts] Launching ${sc.name}`);
+        } else {
+          alert(`Shortcut '${sc.name}' has no target path configured. Click the Edit icon to configure its location.`);
         }
-      });
+      };
     });
 
     grid.querySelectorAll('.btn-edit-sc').forEach(b => {
-      b.addEventListener('click', () => {
-        const sc = shortcuts.find(s => s.id === b.dataset.id);
-        if (sc) openShortcutEditorModal(sc);
-      });
+      b.onclick = (e) => {
+        e.preventDefault();
+        const scId = b.getAttribute('data-id');
+        const sc = state.aiConfig.shortcuts.find(s => s.id === scId);
+        if (sc) {
+          openShortcutEditorModal(sc);
+        }
+      };
     });
 
     grid.querySelectorAll('.btn-del-sc').forEach(b => {
-      b.addEventListener('click', async () => {
-        state.aiConfig.shortcuts = (state.aiConfig.shortcuts || []).filter(s => s.id !== b.dataset.id);
-        await callBridge('save_shortcuts', { shortcuts: state.aiConfig.shortcuts });
-        renderDashboardShortcuts();
-      });
+      b.onclick = async (e) => {
+        e.preventDefault();
+        const scId = b.getAttribute('data-id');
+        const sc = state.aiConfig.shortcuts.find(s => s.id === scId);
+        const scName = sc ? sc.name : 'this shortcut';
+        if (confirm(`Are you sure you want to delete '${scName}' from your Dashboard shortcuts?`)) {
+          state.aiConfig.shortcuts = state.aiConfig.shortcuts.filter(s => s.id !== scId);
+          await callBridge('save_shortcuts', { shortcuts: state.aiConfig.shortcuts });
+          renderDashboardShortcuts();
+        }
+      };
     });
+  }
+
+  function populatePresetDropdown() {
+    const sel = document.getElementById('modal-shortcut-preset');
+    if (!sel) return;
+
+    sel.innerHTML = '<option value="">-- Custom Application (Enter manually or browse below) --</option>';
+
+    // Group 1: Configured AI Dev Tools
+    const toolTargets = state.aiConfig?.toolTargets || {};
+    const devToolsOptgroup = document.createElement('optgroup');
+    devToolsOptgroup.label = 'AI Dev Tools (Configured Paths)';
+
+    const knownTools = [
+      { key: 'Antigravity-ide', name: 'Antigravity IDE' },
+      { key: 'Claude', name: 'Claude Desktop' },
+      { key: 'ChatGPT', name: 'ChatGPT Desktop' },
+      { key: 'OpenCode', name: 'OpenCode Desktop' },
+      { key: 'Cline', name: 'Cline' },
+      { key: 'DeepSeek', name: 'DeepSeek' },
+      { key: 'FreeBuff', name: 'FreeBuff' }
+    ];
+
+    knownTools.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = `tool:${t.key}`;
+      const configuredPath = toolTargets[t.key] || '';
+      opt.textContent = `${t.name} ${configuredPath ? `(${configuredPath})` : '(Not configured)'}`;
+      opt.dataset.name = t.name;
+      opt.dataset.cat = 'AI Dev Tool';
+      opt.dataset.target = configuredPath;
+      devToolsOptgroup.appendChild(opt);
+    });
+
+    // Check if there are other keys in toolTargets not in knownTools
+    Object.keys(toolTargets).forEach(k => {
+      if (!knownTools.some(kt => kt.key.toLowerCase() === k.toLowerCase())) {
+        const opt = document.createElement('option');
+        opt.value = `tool:${k}`;
+        opt.textContent = `${k} (${toolTargets[k]})`;
+        opt.dataset.name = k;
+        opt.dataset.cat = 'AI Dev Tool';
+        opt.dataset.target = toolTargets[k];
+        devToolsOptgroup.appendChild(opt);
+      }
+    });
+
+    sel.appendChild(devToolsOptgroup);
+
+    // Group 2: Core Background CLIs
+    const cliOptgroup = document.createElement('optgroup');
+    cliOptgroup.label = 'Core Background CLIs';
+
+    const clis = [
+      { name: 'Hermes CLI', target: 'cli:hermes', cat: 'CLI / Script' },
+      { name: 'Claude Code CLI', target: 'cli:claude', cat: 'CLI / Script' },
+      { name: 'Antigravity CLI (agy)', target: 'cli:antigravity', cat: 'CLI / Script' }
+    ];
+
+    clis.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.target;
+      opt.textContent = `${c.name} (${c.target})`;
+      opt.dataset.name = c.name;
+      opt.dataset.cat = c.cat;
+      opt.dataset.target = c.target;
+      cliOptgroup.appendChild(opt);
+    });
+
+    sel.appendChild(cliOptgroup);
   }
 
   function openShortcutEditorModal(shortcut = null) {
@@ -747,6 +1069,9 @@
     const catInp = document.getElementById('modal-shortcut-cat');
     const targetInp = document.getElementById('modal-shortcut-target');
     const argsInp = document.getElementById('modal-shortcut-args');
+    const presetSel = document.getElementById('modal-shortcut-preset');
+
+    populatePresetDropdown();
 
     if (shortcut) {
       title.textContent = 'Edit Shortcut';
@@ -755,6 +1080,18 @@
       catInp.value = shortcut.category || 'AI Dev Tool';
       targetInp.value = shortcut.target || '';
       argsInp.value = shortcut.arguments || '';
+
+      // Match preset if target matches
+      if (presetSel) {
+        presetSel.value = '';
+        for (let i = 0; i < presetSel.options.length; i++) {
+          const opt = presetSel.options[i];
+          if (opt.dataset && opt.dataset.target && opt.dataset.target.toLowerCase() === (shortcut.target || '').toLowerCase()) {
+            presetSel.selectedIndex = i;
+            break;
+          }
+        }
+      }
     } else {
       title.textContent = 'Add New Shortcut';
       idInp.value = '';
@@ -762,6 +1099,7 @@
       catInp.value = 'AI Dev Tool';
       targetInp.value = '';
       argsInp.value = '';
+      if (presetSel) presetSel.selectedIndex = 0;
     }
 
     modal.classList.add('open');
@@ -772,8 +1110,36 @@
       openShortcutEditorModal(null);
     });
 
+    document.getElementById('btn-toggle-mask-shortcuts')?.addEventListener('click', async () => {
+      state.isShortcutsMasked = !state.isShortcutsMasked;
+      localStorage.setItem('agents_hub_mask_shortcuts', state.isShortcutsMasked);
+      renderDashboardShortcuts();
+      const maskCheck = document.getElementById('setting-mask-paths-checkbox');
+      if (maskCheck) maskCheck.checked = state.isShortcutsMasked;
+      await callBridge('save_general_settings', {
+        settings: { maskShortcutPaths: state.isShortcutsMasked }
+      });
+    });
+
     document.getElementById('btn-cancel-shortcut-modal')?.addEventListener('click', () => {
       document.getElementById('modal-shortcut-editor')?.classList.remove('open');
+    });
+
+    // Preset dropdown change event
+    const presetSel = document.getElementById('modal-shortcut-preset');
+    presetSel?.addEventListener('change', () => {
+      const selected = presetSel.options[presetSel.selectedIndex];
+      if (selected && selected.dataset && selected.value) {
+        const nameInp = document.getElementById('modal-shortcut-name');
+        const catInp = document.getElementById('modal-shortcut-cat');
+        const targetInp = document.getElementById('modal-shortcut-target');
+        const argsInp = document.getElementById('modal-shortcut-args');
+
+        if (selected.dataset.name && nameInp) nameInp.value = selected.dataset.name;
+        if (selected.dataset.cat && catInp) catInp.value = selected.dataset.cat;
+        if (selected.dataset.target && targetInp) targetInp.value = selected.dataset.target;
+        if (selected.dataset.args && argsInp) argsInp.value = selected.dataset.args;
+      }
     });
 
     document.getElementById('btn-browse-modal-shortcut')?.addEventListener('click', async () => {
@@ -811,6 +1177,8 @@
           item.category = category;
           item.target = target;
           item.arguments = args;
+        } else {
+          state.aiConfig.shortcuts.push({ id, name, category, target, arguments: args });
         }
       } else {
         state.aiConfig.shortcuts.push({
@@ -1158,12 +1526,16 @@
           if (trayCheck) trayCheck.checked = res.settings.minimizeToTray !== false;
           if (notifCheck) notifCheck.checked = res.settings.notifications !== false;
           state.isIpMasked = !!res.settings.maskPublicIp;
+          state.isShortcutsMasked = res.settings.maskShortcutPaths !== undefined
+            ? !!res.settings.maskShortcutPaths
+            : localStorage.getItem('agents_hub_mask_shortcuts') === 'true';
+          const maskPathsCheck = document.getElementById('setting-mask-paths-checkbox');
+          if (maskPathsCheck) maskPathsCheck.checked = state.isShortcutsMasked;
 
           // Apply initial theme & accent color
           const activeTheme = localStorage.getItem('agents_hub_theme') || res.settings.theme || 'dark';
-          const activeColor = localStorage.getItem('agents_hub_accent_color') || res.settings.accentColor || '#10b981';
-          applyTheme(activeTheme);
-          applyAccentColor(activeColor);
+          const activeColor = localStorage.getItem('agents_hub_accent_color') || res.settings.accentColor || '#4049B9';
+          applyAdaptiveTheme(activeTheme, activeColor);
         }
 
         // Fetch public IP initially
@@ -1210,9 +1582,8 @@
   window.addEventListener('DOMContentLoaded', () => {
     // Load local storage theme immediately to avoid flash
     const savedTheme = localStorage.getItem('agents_hub_theme') || 'dark';
-    const savedColor = localStorage.getItem('agents_hub_accent_color') || '#10b981';
-    applyTheme(savedTheme);
-    applyAccentColor(savedColor);
+    const savedColor = localStorage.getItem('agents_hub_accent_color') || '#4049B9';
+    applyAdaptiveTheme(savedTheme, savedColor);
 
     setupNavigation();
     initTerminal();

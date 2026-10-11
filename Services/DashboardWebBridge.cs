@@ -376,6 +376,7 @@ public sealed class DashboardWebBridge : IDisposable
                     {
                         _cliWebviewForm = new CliWebviewForm(_cliManager);
                     }
+                    _cliWebviewForm.ApplyTheme();
                     _cliWebviewForm.Show();
                     _cliWebviewForm.BringToFront();
                     _cliWebviewForm.Activate();
@@ -423,14 +424,36 @@ public sealed class DashboardWebBridge : IDisposable
                     {
                         StartupHelper.SetPreference("MaskPublicIp", maskEl.GetBoolean());
                     }
+                    if (stProp.TryGetProperty("maskShortcutPaths", out var maskPathsEl))
+                    {
+                        StartupHelper.SetPreference("MaskShortcutPaths", maskPathsEl.GetBoolean());
+                    }
+                    string? themeStr = null;
                     if (stProp.TryGetProperty("theme", out var themeEl))
                     {
-                        StartupHelper.SetStringPreference("Theme", themeEl.GetString() ?? "dark");
+                        themeStr = themeEl.GetString();
+                        StartupHelper.SetStringPreference("Theme", themeStr ?? "dark");
                     }
+                    string? accentStr = null;
                     if (stProp.TryGetProperty("accentColor", out var colEl))
                     {
-                        StartupHelper.SetStringPreference("AccentColor", colEl.GetString() ?? "#10b981");
+                        accentStr = colEl.GetString();
+                        StartupHelper.SetStringPreference("AccentColor", accentStr ?? "#4049B9");
                     }
+
+                    var appTheme = (themeStr != null && themeStr.Equals("light", StringComparison.OrdinalIgnoreCase))
+                        ? AppTheme.Light
+                        : AppTheme.Dark;
+                    ThemeManager.SetTheme(appTheme, accentStr);
+
+                    _mainForm.Invoke(() =>
+                    {
+                        if (_cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                        {
+                            _cliWebviewForm.ApplyTheme();
+                        }
+                    });
+
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
@@ -627,6 +650,22 @@ public sealed class DashboardWebBridge : IDisposable
         if (string.IsNullOrWhiteSpace(target)) return;
         try
         {
+            if (target.Equals("cli:hermes", StringComparison.OrdinalIgnoreCase))
+            {
+                ToggleCliInternal(CliType.Hermes);
+                return;
+            }
+            if (target.Equals("cli:claude", StringComparison.OrdinalIgnoreCase))
+            {
+                ToggleCliInternal(CliType.ClaudeCode);
+                return;
+            }
+            if (target.Equals("cli:antigravity", StringComparison.OrdinalIgnoreCase))
+            {
+                ToggleCliInternal(CliType.AntigravityCli);
+                return;
+            }
+
             if (target.StartsWith("shell:AppsFolder\\", StringComparison.OrdinalIgnoreCase))
             {
                 Process.Start(new ProcessStartInfo("explorer.exe", target) { UseShellExecute = true });
@@ -640,6 +679,19 @@ public sealed class DashboardWebBridge : IDisposable
         catch (Exception ex)
         {
             MessageBox.Show($"Failed to launch shortcut '{target}': {ex.Message}", "Launch Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void ToggleCliInternal(CliType cliType)
+    {
+        var info = _cliManager.GetInfo(cliType);
+        if (info.State == CliState.Running)
+        {
+            _ = _cliManager.StopAsync(cliType);
+        }
+        else
+        {
+            _cliManager.Start(cliType);
         }
     }
 
@@ -663,6 +715,7 @@ public sealed class DashboardWebBridge : IDisposable
                 minimizeToTray = StartupHelper.GetPreference("MinimizeToTray", true),
                 notifications = StartupHelper.GetPreference("WindowsNotifications", true),
                 maskPublicIp = StartupHelper.GetPreference("MaskPublicIp", false),
+                maskShortcutPaths = StartupHelper.GetPreference("MaskShortcutPaths", false),
                 theme = StartupHelper.GetStringPreference("Theme", "dark"),
                 accentColor = StartupHelper.GetStringPreference("AccentColor", "#10b981")
             },
@@ -689,7 +742,14 @@ public sealed class DashboardWebBridge : IDisposable
             selectedProviderId = cfg.SelectedProviderId,
             selectedModel = cfg.SelectedModel,
             toolTargets = cfg.ToolTargets,
-            shortcuts = cfg.Shortcuts,
+            shortcuts = cfg.Shortcuts.Select(s => new
+            {
+                id = s.Id,
+                name = s.Name,
+                target = s.Target,
+                arguments = s.Arguments,
+                category = s.Category
+            }).ToList(),
             providers = cfg.Providers.Select(p => new
             {
                 id = p.Id,
