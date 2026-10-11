@@ -200,7 +200,7 @@
               </div>
 
               <!-- Provider Segmented Control -->
-              <div class="vpn-provider-switcher" id="vpn-provider-switcher" role="tablist" aria-label="VPN Provider">
+              <div class="vpn-provider-switcher" id="provider-tabs" style="display: none;" role="tablist" aria-label="VPN Provider">
                 <button type="button" class="vpn-provider-btn active" id="btn-provider-warp" data-provider="warp" role="tab" aria-selected="true">
                   <svg class="icon-svg vpn-provider-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                   <span>Cloudflare WARP</span>
@@ -783,6 +783,13 @@
                 <input type="checkbox" id="setting-embed-shells-checkbox">
                 <span>Open CMD & PowerShell Terminals inside CLI Workspace Window</span>
               </label>
+              <div class="preference-item flex items-center justify-between py-2">
+                <label for="pref-enable-proton" class="text-sm font-medium">
+                  Enable Proton VPN Provider (Secondary / Experimental)
+                  <span class="block text-xs text-muted">Show Proton VPN tab in OpenCode Quota card for manual geo-routing.</span>
+                </label>
+                <input type="checkbox" id="pref-enable-proton" class="form-checkbox">
+              </div>
             </div>
             <div style="margin-top: 14px; display: flex; justify-content: flex-end;">
               <span id="settings-save-feedback" style="font-size: 12px; color: var(--accent-green); margin-right: 12px; align-self: center;"></span>
@@ -903,6 +910,7 @@
   <!-- Scripts -->
   <script src="./js/xterm.js"></script>
   <script src="./js/xterm-addon-fit.js"></script>
+  <script src="./js/settings.js"></script>
   <script src="./js/dashboard.js"></script>
 </body>
 </html>

@@ -22,14 +22,14 @@
     country: '',
     countryEmoji: '',
     city: '',
-    vpnProvider: localStorage.getItem('agents_hub_vpn_provider') || 'warp',
+    vpnProvider: (localStorage.getItem('agents_hub_enable_proton') === 'true' && localStorage.getItem('agents_hub_vpn_provider') === 'proton') ? 'proton' : 'warp',
     isDirectIsp: false,
     qrBase64: '',
     clis: {},
     antigravity: { activeProfile: '', profiles: [] },
     opencode: { isOnline: false, port: 0, activeSessions: [] },
     aiConfig: { providers: [], toolTargets: {}, shortcuts: [], selectedProviderId: null, selectedModel: null },
-    settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, theme: 'dark', accentColor: '#4049B9' },
+    settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
     activeTerminalCli: 'Hermes',
     selectedProvider: null,
@@ -486,20 +486,48 @@
       const notifications = document.getElementById('setting-notifications-checkbox')?.checked !== false;
       const maskShortcutPaths = document.getElementById('setting-mask-paths-checkbox')?.checked === true;
       const embedShells = document.getElementById('setting-embed-shells-checkbox')?.checked === true;
+      const enableProton = (document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox'))?.checked === true;
       const theme = document.documentElement.getAttribute('data-theme') || 'dark';
       const accentColor = localStorage.getItem('agents_hub_accent_color') || '#10b981';
       const feedback = document.getElementById('settings-save-feedback');
+
+      state.settings.enableProtonVpnProvider = enableProton;
+      localStorage.setItem('agents_hub_enable_proton', enableProton);
+      if (!enableProton && state.vpnProvider === 'proton') {
+        state.vpnProvider = 'warp';
+        localStorage.setItem('agents_hub_vpn_provider', 'warp');
+      }
+      updateVpnProviderUi();
 
       state.isShortcutsMasked = maskShortcutPaths;
       localStorage.setItem('agents_hub_mask_shortcuts', maskShortcutPaths);
       renderDashboardShortcuts();
 
       await callBridge('save_general_settings', {
-        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, theme, accentColor }
+        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, enableProtonVpnProvider: enableProton, theme, accentColor }
       });
 
       feedback.textContent = 'Preferences saved successfully!';
       setTimeout(() => feedback.textContent = '', 2500);
+    });
+
+    // Reactive checkbox toggle for Proton VPN Provider
+    const protonToggle = document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox');
+    protonToggle?.addEventListener('change', async (e) => {
+      const isEnabled = !!e.target.checked;
+      state.settings.enableProtonVpnProvider = isEnabled;
+      localStorage.setItem('agents_hub_enable_proton', isEnabled);
+      if (!isEnabled && state.vpnProvider === 'proton') {
+        state.vpnProvider = 'warp';
+        localStorage.setItem('agents_hub_vpn_provider', 'warp');
+      }
+      updateVpnProviderUi();
+      await callBridge('save_general_settings', {
+        settings: { enableProtonVpnProvider: isEnabled }
+      });
+      window.dispatchEvent(new CustomEvent('preference-changed', {
+        detail: { key: 'enableProtonVpnProvider', value: isEnabled }
+      }));
     });
 
     document.getElementById('setting-embed-shells-checkbox')?.addEventListener('change', async (e) => {
@@ -1643,6 +1671,19 @@
   let quotaCooldownInterval = null;
 
   function updateVpnProviderUi() {
+    const isProtonEnabled = state.settings.enableProtonVpnProvider === true || localStorage.getItem('agents_hub_enable_proton') === 'true';
+    const providerTabs = document.getElementById('provider-tabs') || document.getElementById('vpn-provider-switcher');
+
+    if (providerTabs) {
+      providerTabs.style.display = isProtonEnabled ? 'flex' : 'none';
+    }
+
+    // Default Fallback & Safety: If Proton is disabled, strictly force active provider to WARP
+    if (!isProtonEnabled && state.vpnProvider === 'proton') {
+      state.vpnProvider = 'warp';
+      localStorage.setItem('agents_hub_vpn_provider', 'warp');
+    }
+
     const isWarp = state.vpnProvider === 'warp';
     const btnWarp = document.getElementById('btn-provider-warp');
     const btnProton = document.getElementById('btn-provider-proton');
@@ -1884,6 +1925,9 @@
     });
 
     document.getElementById('btn-provider-proton')?.addEventListener('click', async () => {
+      const isProtonEnabled = state.settings.enableProtonVpnProvider === true || localStorage.getItem('agents_hub_enable_proton') === 'true';
+      if (!isProtonEnabled) return;
+
       state.vpnProvider = 'proton';
       state.isDirectIsp = false;
       localStorage.setItem('agents_hub_vpn_provider', 'proton');
@@ -2944,10 +2988,20 @@
           const embedShellsCheck = document.getElementById('setting-embed-shells-checkbox');
           if (embedShellsCheck) embedShellsCheck.checked = !!res.settings.embedShellsInTerminalWorkspace;
 
+          // Proton VPN Provider preference
+          const protonEnabled = res.settings.enableProtonVpnProvider === true;
+          state.settings.enableProtonVpnProvider = protonEnabled;
+          localStorage.setItem('agents_hub_enable_proton', protonEnabled);
+          const prefProtonCheck = document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox');
+          if (prefProtonCheck) prefProtonCheck.checked = protonEnabled;
+
           // Apply initial theme & accent color
           const activeTheme = localStorage.getItem('agents_hub_theme') || res.settings.theme || 'dark';
           const activeColor = localStorage.getItem('agents_hub_accent_color') || res.settings.accentColor || '#4049B9';
           applyAdaptiveTheme(activeTheme, activeColor);
+
+          // Update VPN Provider UI conditionally
+          updateVpnProviderUi();
         }
 
         // Fetch public IP initially (dual-stack IPv4 & IPv6)
@@ -3040,6 +3094,23 @@
         fn();
       } catch (err) {
         console.error(`Failed during ${name} setup:`, err);
+      }
+    });
+    window.AgentsHub = {
+      state,
+      callBridge,
+      updateVpnProviderUi,
+      showToast
+    };
+
+    window.addEventListener('preference-changed', (e) => {
+      if (e.detail && e.detail.key === 'enableProtonVpnProvider') {
+        state.settings.enableProtonVpnProvider = !!e.detail.value;
+        if (!state.settings.enableProtonVpnProvider && state.vpnProvider === 'proton') {
+          state.vpnProvider = 'warp';
+          localStorage.setItem('agents_hub_vpn_provider', 'warp');
+        }
+        updateVpnProviderUi();
       }
     });
   });
