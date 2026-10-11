@@ -1,3 +1,4 @@
+using System.Drawing.Drawing2D;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
@@ -34,20 +35,26 @@ public partial class CliWebviewForm : Form
     }
 
     private readonly CliManagerService? _cliManager;
-    private CliType _activeTab = CliType.Hermes;
+    private string _activeTabId = "hermes";
     private bool _hermesInitialized;
     private readonly string _terminalHtmlPath = string.Empty;
     private readonly string _hermesOfflineHtmlPath = string.Empty;
     private Color _toggleRunNormalColor = ThemeManager.Colors.AccentGreen;
     private Color _toggleRunHoverColor = ThemeManager.Colors.AccentGreenHover;
 
-    // تم نقل تعريف عناصر WebView2 إلى هنا ليتم إنشاؤها وقت التشغيل بدلاً من الـ Designer
     private Microsoft.Web.WebView2.WinForms.WebView2 hermesWebView = null!;
     private Microsoft.Web.WebView2.WinForms.WebView2 claudeWebView = null!;
     private Microsoft.Web.WebView2.WinForms.WebView2 antigravityWebView = null!;
+    private readonly Dictionary<string, Microsoft.Web.WebView2.WinForms.WebView2> _customWebViews = new(StringComparer.OrdinalIgnoreCase);
+    private CoreWebView2Environment? _webViewEnv;
 
     private ComboBox? _profileComboBox;
     private Button? _addProfileButton;
+    private Button? _manageClisButton;
+    private Button? _shellLauncherButton;
+    private ContextMenuStrip? _shellContextMenu;
+    private readonly List<Button> _dynamicTabButtons = new();
+    private readonly ToolTip _actionToolTip = new() { ShowAlways = true };
     private bool _isUpdatingProfileCombo;
 
     public CliWebviewForm()
@@ -60,7 +67,7 @@ public partial class CliWebviewForm : Form
         if (System.ComponentModel.LicenseManager.UsageMode != System.ComponentModel.LicenseUsageMode.Designtime && cliManager != null)
         {
             _cliManager = cliManager;
-            _activeTab = initialTab;
+            _activeTabId = AiConfigService.NormalizeCliId(CliTypeToId(initialTab));
 
             var baseDir = AppContext.BaseDirectory;
             var uiTermPath = Path.Combine(baseDir, "ui", "terminal.html");
@@ -75,36 +82,83 @@ public partial class CliWebviewForm : Form
         }
     }
 
+    public CliType ActiveTab => IdToCliType(_activeTabId);
+
+    private static string CliTypeToId(CliType type) => type switch
+    {
+        CliType.ClaudeCode => "claude_code",
+        CliType.AntigravityCli => "antigravity_cli",
+        _ => "hermes"
+    };
+
+    private static CliType IdToCliType(string id)
+    {
+        string norm = AiConfigService.NormalizeCliId(id);
+        return norm switch
+        {
+            "claude_code" => CliType.ClaudeCode,
+            "antigravity_cli" => CliType.AntigravityCli,
+            _ => CliType.Hermes
+        };
+    }
+
+    private static bool IsBuiltInCli(string id)
+    {
+        string norm = AiConfigService.NormalizeCliId(id);
+        return string.Equals(norm, "hermes", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(norm, "claude_code", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
+    }
+
     private void SetupStyles()
     {
         _profileComboBox = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 22,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 8.75F),
-            Size = new Size(160, 26),
+            Size = new Size(160, 28),
             Cursor = Cursors.Hand,
             Visible = false
         };
+        _profileComboBox.DrawItem += ProfileComboBox_DrawItem;
 
         _addProfileButton = new Button
         {
             Text = "+ Add",
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
-            Size = new Size(52, 30),
+            Size = new Size(52, 32),
             Cursor = Cursors.Hand,
             Visible = false
         };
         _addProfileButton.FlatAppearance.BorderSize = 1;
+        _actionToolTip.SetToolTip(_addProfileButton, "Add new Antigravity account");
 
         toolsPanel.Controls.Add(_profileComboBox);
         toolsPanel.Controls.Add(_addProfileButton);
 
         SetupButtonHover(_addProfileButton);
 
-        ApplyTheme();
+        _shellLauncherButton = new Button
+        {
+            Size = new Size(32, 32),
+            Text = "",
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        _shellLauncherButton.FlatAppearance.BorderSize = 1;
+        _shellLauncherButton.Paint += DrawShellLauncherIcon;
+        _actionToolTip.SetToolTip(_shellLauncherButton, "Open Shell (CMD / PowerShell - Standard & Admin)");
+        SetupButtonHover(_shellLauncherButton);
+        _shellLauncherButton.Click += ShellLauncherButton_Click;
+        toolsPanel.Controls.Add(_shellLauncherButton);
 
+        toggleRunButton.Size = new Size(32, 32);
+        toggleRunButton.Text = "";
+        toggleRunButton.Paint += DrawToggleRunIcon;
         toggleRunButton.MouseEnter += (_, _) =>
         {
             if (toggleRunButton.Enabled) toggleRunButton.BackColor = _toggleRunHoverColor;
@@ -114,33 +168,379 @@ public partial class CliWebviewForm : Form
             if (toggleRunButton.Enabled) toggleRunButton.BackColor = _toggleRunNormalColor;
         };
 
+        restartCliButton.Size = new Size(32, 32);
+        restartCliButton.Text = "";
+        restartCliButton.Paint += DrawRestartIcon;
         SetupButtonHover(restartCliButton);
+
+        clearTerminalButton.Size = new Size(32, 32);
+        clearTerminalButton.Text = "";
+        clearTerminalButton.Paint += DrawClearIcon;
         SetupButtonHover(clearTerminalButton);
+
+        openBrowserButton.Size = new Size(32, 32);
+        openBrowserButton.Text = "";
+        openBrowserButton.Paint += DrawBrowserIcon;
         SetupButtonHover(openBrowserButton);
-        SetupTabHover(tabHermesButton, CliType.Hermes);
-        SetupTabHover(tabClaudeButton, CliType.ClaudeCode);
-        SetupTabHover(tabAntigravityButton, CliType.AntigravityCli);
 
         topToolbar.Resize += (_, _) => LayoutToolbar();
         toolsPanel.Resize += (_, _) => LayoutToolbar();
+        contentPanel.Resize += (_, _) => TriggerTerminalFit();
         topToolbar.Paint += (s, e) =>
         {
             using var pen = new Pen(ThemeManager.Colors.CardBorder, 1);
             e.Graphics.DrawLine(pen, 0, topToolbar.Height - 1, topToolbar.Width, topToolbar.Height - 1);
         };
 
+        RebuildTabs();
+        ApplyTheme();
+    }
+
+    private void TriggerTerminalFit()
+    {
+        var targetWv = GetWebViewForId(_activeTabId);
+        if (targetWv?.CoreWebView2 != null)
+        {
+            PostToWebView(targetWv, "{\"type\":\"fit\"}");
+        }
+    }
+
+    private void DrawShellLauncherIcon(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Color glyphColor = ThemeManager.Colors.TextPrimary;
+        using var pen = new Pen(glyphColor, 1.8f);
+
+        int cx = 16;
+        int cy = 16;
+
+        Point[] pts =
+        [
+            new Point(cx - 7, cy - 5),
+            new Point(cx - 2, cy),
+            new Point(cx - 7, cy + 5)
+        ];
+        g.DrawLines(pen, pts);
+
+        g.DrawLine(pen, cx + 1, cy + 5, cx + 8, cy + 5);
+    }
+
+    private void ShellLauncherButton_Click(object? sender, EventArgs e)
+    {
+        if (_shellLauncherButton == null) return;
+        BuildShellContextMenu();
+        _shellContextMenu?.Show(_shellLauncherButton, new Point(0, _shellLauncherButton.Height + 2));
+    }
+
+    private void BuildShellContextMenu()
+    {
+        _shellContextMenu = new ContextMenuStrip
+        {
+            ShowImageMargin = false,
+            Renderer = new ToolStripProfessionalRenderer(new ShellColorTable())
+        };
+
+        var c = ThemeManager.Colors;
+        _shellContextMenu.BackColor = c.CardBackground;
+        _shellContextMenu.ForeColor = c.TextPrimary;
+
+        var cmdNormal = new ToolStripMenuItem("Command Prompt (Standard)", null, (_, _) => ShellLauncher.OpenCommandPrompt(false))
+        {
+            ForeColor = c.TextPrimary
+        };
+        var cmdAdmin = new ToolStripMenuItem("Command Prompt (Administrator)", null, (_, _) => ShellLauncher.OpenCommandPrompt(true))
+        {
+            ForeColor = c.DangerRed
+        };
+        var psNormal = new ToolStripMenuItem("PowerShell (Standard)", null, (_, _) => ShellLauncher.OpenPowerShell(false))
+        {
+            ForeColor = c.TextPrimary
+        };
+        var psAdmin = new ToolStripMenuItem("PowerShell (Administrator)", null, (_, _) => ShellLauncher.OpenPowerShell(true))
+        {
+            ForeColor = c.DangerRed
+        };
+
+        _shellContextMenu.Items.Add(cmdNormal);
+        _shellContextMenu.Items.Add(cmdAdmin);
+        _shellContextMenu.Items.Add(new ToolStripSeparator());
+        _shellContextMenu.Items.Add(psNormal);
+        _shellContextMenu.Items.Add(psAdmin);
+    }
+
+    private sealed class ShellColorTable : ProfessionalColorTable
+    {
+        public override Color MenuItemSelected => ThemeManager.Colors.ButtonHover;
+        public override Color MenuItemSelectedGradientBegin => ThemeManager.Colors.ButtonHover;
+        public override Color MenuItemSelectedGradientEnd => ThemeManager.Colors.ButtonHover;
+        public override Color MenuBorder => ThemeManager.Colors.CardBorder;
+        public override Color ToolStripDropDownBackground => ThemeManager.Colors.CardBackground;
+        public override Color ImageMarginGradientBegin => ThemeManager.Colors.CardBackground;
+        public override Color ImageMarginGradientMiddle => ThemeManager.Colors.CardBackground;
+        public override Color ImageMarginGradientEnd => ThemeManager.Colors.CardBackground;
+        public override Color SeparatorDark => ThemeManager.Colors.CardBorder;
+        public override Color SeparatorLight => ThemeManager.Colors.CardBorder;
+    }
+
+    private void ProfileComboBox_DrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || _profileComboBox == null) return;
+
+        var c = ThemeManager.Colors;
+        bool isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        var bg = isSelected ? c.ButtonHover : c.WellBackground;
+        var fg = isSelected ? c.AccentGreen : c.TextPrimary;
+
+        using var brush = new SolidBrush(bg);
+        e.Graphics.FillRectangle(brush, e.Bounds);
+
+        var item = _profileComboBox.Items[e.Index] as ProfileItem;
+        string text = item?.DisplayText ?? _profileComboBox.Items[e.Index]?.ToString() ?? "";
+
+        TextRenderer.DrawText(
+            e.Graphics,
+            text,
+            e.Font ?? _profileComboBox.Font,
+            new Rectangle(e.Bounds.X + 4, e.Bounds.Y + 2, e.Bounds.Width - 8, e.Bounds.Height - 4),
+            fg,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
+    private void DrawToggleRunIcon(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        if (_cliManager == null) return;
+        var info = _cliManager.GetInfo(_activeTabId);
+
+        Color glyphColor = info.State switch
+        {
+            CliState.Running => Color.White,
+            CliState.Starting => Color.Black,
+            _ => ThemeManager.Colors.AccentGreenText
+        };
+
+        using var brush = new SolidBrush(glyphColor);
+
+        int cx = toggleRunButton.Width / 2;
+        int cy = toggleRunButton.Height / 2;
+
+        if (info.State == CliState.Running)
+        {
+            // Stop icon (square)
+            g.FillRectangle(brush, cx - 5, cy - 5, 10, 10);
+        }
+        else if (info.State == CliState.Starting)
+        {
+            // Starting icon (pause / dual bars)
+            g.FillRectangle(brush, cx - 5, cy - 5, 3, 10);
+            g.FillRectangle(brush, cx + 2, cy - 5, 3, 10);
+        }
+        else
+        {
+            // Start icon (play triangle)
+            Point[] pts =
+            [
+                new Point(cx - 4, cy - 6),
+                new Point(cx - 4, cy + 6),
+                new Point(cx + 6, cy)
+            ];
+            g.FillPolygon(brush, pts);
+        }
+    }
+
+    private void DrawRestartIcon(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Color glyphColor = restartCliButton.Enabled ? ThemeManager.Colors.TextPrimary : ThemeManager.Colors.TextMuted;
+        using var pen = new Pen(glyphColor, 1.8f);
+
+        int cx = restartCliButton.Width / 2;
+        int cy = restartCliButton.Height / 2;
+        int r = 6;
+
+        g.DrawArc(pen, cx - r, cy - r, 2 * r, 2 * r, 45, 270);
+
+        // Arrow head pointing clockwise
+        using var brush = new SolidBrush(glyphColor);
+        Point[] pts =
+        [
+            new Point(cx + 5, cy - 7),
+            new Point(cx + 8, cy - 2),
+            new Point(cx + 2, cy - 3)
+        ];
+        g.FillPolygon(brush, pts);
+    }
+
+    private void DrawClearIcon(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Color glyphColor = clearTerminalButton.Enabled ? ThemeManager.Colors.TextPrimary : ThemeManager.Colors.TextMuted;
+        using var pen = new Pen(glyphColor, 1.6f);
+
+        int cx = clearTerminalButton.Width / 2;
+        int cy = clearTerminalButton.Height / 2;
+
+        // Trash lid
+        g.DrawLine(pen, cx - 7, cy - 4, cx + 7, cy - 4);
+        g.DrawLine(pen, cx - 3, cy - 6, cx + 3, cy - 6);
+
+        // Trash bin body
+        Point[] pts =
+        [
+            new Point(cx - 5, cy - 3),
+            new Point(cx - 4, cy + 7),
+            new Point(cx + 4, cy + 7),
+            new Point(cx + 5, cy - 3)
+        ];
+        g.DrawLines(pen, pts);
+
+        // Slats inside bin
+        g.DrawLine(pen, cx - 2, cy - 1, cx - 2, cy + 5);
+        g.DrawLine(pen, cx + 2, cy - 1, cx + 2, cy + 5);
+    }
+
+    private void DrawBrowserIcon(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Color glyphColor = openBrowserButton.Enabled ? ThemeManager.Colors.TextPrimary : ThemeManager.Colors.TextMuted;
+        using var pen = new Pen(glyphColor, 1.6f);
+
+        int cx = openBrowserButton.Width / 2;
+        int cy = openBrowserButton.Height / 2;
+        int r = 7;
+
+        // Globe circle
+        g.DrawEllipse(pen, cx - r, cy - r, 2 * r, 2 * r);
+        // Equator
+        g.DrawLine(pen, cx - r, cy, cx + r, cy);
+        // Meridian ellipse
+        g.DrawEllipse(pen, cx - (r / 2), cy - r, r, 2 * r);
+    }
+
+    private void DrawManageClisIcon(object? sender, PaintEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Color glyphColor = btn.Enabled ? ThemeManager.Colors.TextPrimary : ThemeManager.Colors.TextMuted;
+        using var pen = new Pen(glyphColor, 1.6f);
+
+        int cx = btn.Width / 2;
+        int cy = btn.Height / 2;
+
+        // Settings / Slider icon: 2 parallel slider tracks with knobs
+        g.DrawLine(pen, cx - 6, cy - 3, cx + 6, cy - 3);
+        g.DrawLine(pen, cx - 6, cy + 4, cx + 6, cy + 4);
+
+        using var brush = new SolidBrush(glyphColor);
+        g.FillRectangle(brush, cx - 3, cy - 5, 3, 5);
+        g.FillRectangle(brush, cx + 1, cy + 2, 3, 5);
+    }
+
+    public void RebuildTabs()
+    {
+        tabsPanel.SuspendLayout();
+        tabsPanel.Controls.Clear();
+        _dynamicTabButtons.Clear();
+
+        var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+        var enabledWorkspaces = workspaces.Where(w => w.IsEnabled).ToList();
+
+        if (enabledWorkspaces.Count == 0)
+        {
+            // Fallback: at least enable Hermes
+            AiConfigService.Instance.ToggleCliWorkspace("hermes", true);
+            enabledWorkspaces = AiConfigService.Instance.GetCliWorkspaces().Where(w => w.IsEnabled).ToList();
+        }
+
+        int curX = 8;
+        foreach (var ws in enabledWorkspaces)
+        {
+            string normId = AiConfigService.NormalizeCliId(ws.Id);
+            var btn = new Button
+            {
+                Tag = normId,
+                Height = 34,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 8.75F, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                Margin = Padding.Empty
+            };
+            btn.FlatAppearance.BorderSize = 1;
+
+            string wsName = ws.Name;
+            int estimatedWidth = Math.Max(95, TextRenderer.MeasureText(wsName, btn.Font).Width + 36);
+            btn.Size = new Size(estimatedWidth, 34);
+            btn.Location = new Point(curX, 6);
+            curX += estimatedWidth + 6;
+
+            string idToSwitch = normId;
+            btn.Click += (_, _) => SwitchTab(idToSwitch);
+            SetupTabHover(btn, normId);
+
+            _dynamicTabButtons.Add(btn);
+            tabsPanel.Controls.Add(btn);
+        }
+
+        _manageClisButton = new Button
+        {
+            Size = new Size(32, 34),
+            Location = new Point(curX, 6),
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand,
+            Text = "",
+            Margin = Padding.Empty
+        };
+        _manageClisButton.FlatAppearance.BorderSize = 1;
+        _manageClisButton.Paint += DrawManageClisIcon;
+        _manageClisButton.Click += (_, _) => OpenManageClisDialog();
+        SetupButtonHover(_manageClisButton);
+        _actionToolTip.SetToolTip(_manageClisButton, "Manage CLI Workspaces (Show/Hide, Add/Remove)");
+
+        curX += _manageClisButton.Width + 8;
+        tabsPanel.Controls.Add(_manageClisButton);
+
+        tabsPanel.Width = curX;
+        tabsPanel.ResumeLayout();
+
+        if (!enabledWorkspaces.Any(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), _activeTabId, StringComparison.OrdinalIgnoreCase)))
+        {
+            _activeTabId = AiConfigService.NormalizeCliId(enabledWorkspaces[0].Id);
+        }
+
         UpdateTabButtonsUi();
         UpdateToolbarUi();
+        LayoutToolbar();
+    }
+
+    private void OpenManageClisDialog()
+    {
+        using var form = new ManageClisForm();
+        form.ConfigurationChanged += RebuildTabs;
+        form.ShowDialog(this);
+        RebuildTabs();
     }
 
     private void LayoutToolbar()
     {
         if (toolsPanel == null || topToolbar == null) return;
 
-        toolsPanel.Width = Math.Max(580, topToolbar.ClientSize.Width - tabsPanel.Width);
+        toolsPanel.Width = Math.Max(380, topToolbar.ClientSize.Width - tabsPanel.Width);
 
         int right = toolsPanel.ClientSize.Width - 10;
 
+        // Action buttons laid out from right to left (each 32x32)
         openBrowserButton.Location = new Point(right - openBrowserButton.Width, 7);
         right = openBrowserButton.Left - 6;
 
@@ -151,18 +551,26 @@ public partial class CliWebviewForm : Form
         right = restartCliButton.Left - 6;
 
         toggleRunButton.Location = new Point(right - toggleRunButton.Width, 7);
-        right = toggleRunButton.Left - 10;
+        right = toggleRunButton.Left - 6;
 
-        if (_activeTab == CliType.AntigravityCli && _profileComboBox != null && _addProfileButton != null)
+        if (_shellLauncherButton != null)
+        {
+            _shellLauncherButton.Location = new Point(right - _shellLauncherButton.Width, 7);
+            right = _shellLauncherButton.Left - 10;
+        }
+
+        // Antigravity account switcher controls
+        bool isAntigravity = string.Equals(AiConfigService.NormalizeCliId(_activeTabId), "antigravity_cli", StringComparison.OrdinalIgnoreCase);
+        if (isAntigravity && _profileComboBox != null && _addProfileButton != null)
         {
             _profileComboBox.Visible = true;
             _addProfileButton.Visible = true;
 
-            _addProfileButton.Location = new Point(right - _addProfileButton.Width, 8);
+            _addProfileButton.Location = new Point(right - _addProfileButton.Width, 7);
             right = _addProfileButton.Left - 6;
 
             _profileComboBox.Location = new Point(right - _profileComboBox.Width, 9);
-            right = _profileComboBox.Left - 10;
+            right = _profileComboBox.Left - 12;
         }
         else
         {
@@ -170,10 +578,12 @@ public partial class CliWebviewForm : Form
             if (_addProfileButton != null) _addProfileButton.Visible = false;
         }
 
-        int maxStatusWidth = Math.Max(100, right - 10);
-        activeStatusLabel.MaximumSize = new Size(maxStatusWidth, 24);
+        // Status label strictly left-aligned and bounded to never overlap right controls
+        int leftMargin = 12;
+        activeStatusLabel.Location = new Point(leftMargin, 14);
+        int availableWidth = Math.Max(30, right - leftMargin - 10);
+        activeStatusLabel.MaximumSize = new Size(availableWidth, 24);
         activeStatusLabel.AutoEllipsis = true;
-        activeStatusLabel.Location = new Point(Math.Max(10, right - activeStatusLabel.PreferredWidth), 14);
     }
 
     public void ApplyTheme()
@@ -206,11 +616,27 @@ public partial class CliWebviewForm : Form
         openBrowserButton.ForeColor = c.ButtonText;
         openBrowserButton.FlatAppearance.BorderColor = c.ButtonBorder;
 
+        if (_manageClisButton != null)
+        {
+            _manageClisButton.BackColor = c.ButtonBg;
+            _manageClisButton.ForeColor = c.ButtonText;
+            _manageClisButton.FlatAppearance.BorderColor = c.ButtonBorder;
+        }
+
+        if (_shellLauncherButton != null)
+        {
+            _shellLauncherButton.BackColor = c.ButtonBg;
+            _shellLauncherButton.ForeColor = c.ButtonText;
+            _shellLauncherButton.FlatAppearance.BorderColor = c.ButtonBorder;
+            _shellLauncherButton.Invalidate();
+        }
+
         if (_profileComboBox != null)
         {
             _profileComboBox.BackColor = c.WellBackground;
             _profileComboBox.ForeColor = c.TextPrimary;
         }
+
         if (_addProfileButton != null)
         {
             _addProfileButton.BackColor = c.ButtonBg;
@@ -221,6 +647,7 @@ public partial class CliWebviewForm : Form
         UpdateTabButtonsUi();
         UpdateToolbarUi();
         topToolbar.Invalidate();
+        toolsPanel.Invalidate();
 
         NotifyWebViewsTheme();
     }
@@ -238,6 +665,11 @@ public partial class CliWebviewForm : Form
         PostToWebView(hermesWebView, json);
         PostToWebView(claudeWebView, json);
         PostToWebView(antigravityWebView, json);
+
+        foreach (var kvp in _customWebViews)
+        {
+            PostToWebView(kvp.Value, json);
+        }
     }
 
     private static void PostToWebView(Microsoft.Web.WebView2.WinForms.WebView2? wv, string json)
@@ -274,16 +706,12 @@ public partial class CliWebviewForm : Form
 
     private void HookEvents()
     {
-        tabHermesButton.Click += (_, _) => SwitchTab(CliType.Hermes);
-        tabClaudeButton.Click += (_, _) => SwitchTab(CliType.ClaudeCode);
-        tabAntigravityButton.Click += (_, _) => SwitchTab(CliType.AntigravityCli);
-
         toggleRunButton.Click += async (_, _) => await HandleToggleRunClickAsync();
         restartCliButton.Click += async (_, _) =>
         {
             if (_cliManager != null)
             {
-                await _cliManager.RestartAsync(_activeTab);
+                await _cliManager.RestartAsync(_activeTabId);
             }
         };
         clearTerminalButton.Click += (_, _) => HandleClearTerminalClick();
@@ -350,53 +778,119 @@ public partial class CliWebviewForm : Form
                 else RefreshProfileCombo();
             };
 
-            _cliManager.StatusChanged += (type, state, msg) =>
+            _cliManager.StatusChangedId += (id, state, msg) =>
             {
                 if (InvokeRequired)
                 {
-                    BeginInvoke(() => OnCliStatusChanged(type, state, msg));
+                    BeginInvoke(() => OnCliStatusChanged(id, state, msg));
                 }
                 else
                 {
-                    OnCliStatusChanged(type, state, msg);
+                    OnCliStatusChanged(id, state, msg);
                 }
             };
 
-            _cliManager.TerminalDataReceived += (type, text) =>
+            _cliManager.TerminalDataReceivedId += (id, text) =>
             {
                 if (InvokeRequired)
                 {
-                    BeginInvoke(() => ForwardTerminalData(type, text));
+                    BeginInvoke(() => ForwardTerminalData(id, text));
                 }
                 else
                 {
-                    ForwardTerminalData(type, text);
+                    ForwardTerminalData(id, text);
                 }
             };
         }
+
+        ThemeManager.ThemeChanged += () =>
+        {
+            if (IsDisposed) return;
+            if (InvokeRequired) BeginInvoke(ApplyTheme);
+            else ApplyTheme();
+        };
 
         RefreshProfileCombo();
     }
 
-    public void SwitchTab(CliType type)
+    public void SwitchTab(CliType type) => SwitchTab(CliTypeToId(type));
+
+    public void SwitchTab(string id)
     {
-        _activeTab = type;
+        _activeTabId = AiConfigService.NormalizeCliId(id);
+        id = _activeTabId;
+
         UpdateTabButtonsUi();
         UpdateToolbarUi();
         LayoutToolbar();
 
-        if (type == CliType.AntigravityCli)
+        if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
         {
             RefreshProfileCombo();
         }
 
-        if (hermesWebView != null) hermesWebView.Visible = type == CliType.Hermes;
-        if (claudeWebView != null) claudeWebView.Visible = type == CliType.ClaudeCode;
-        if (antigravityWebView != null) antigravityWebView.Visible = type == CliType.AntigravityCli;
+        if (hermesWebView != null) hermesWebView.Visible = string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase);
+        if (claudeWebView != null) claudeWebView.Visible = string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase);
+        if (antigravityWebView != null) antigravityWebView.Visible = string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
 
-        if (type == CliType.Hermes && _hermesInitialized)
+        foreach (var kvp in _customWebViews)
+        {
+            kvp.Value.Visible = string.Equals(AiConfigService.NormalizeCliId(kvp.Key), id, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase) && _hermesInitialized)
         {
             RefreshHermesNavigation();
+        }
+        else if (!IsBuiltInCli(id))
+        {
+            var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), id, StringComparison.OrdinalIgnoreCase));
+            if (ws != null)
+            {
+                _ = EnsureCustomWebViewAsync(ws);
+            }
+        }
+
+        TriggerTerminalFit();
+    }
+
+    private async Task EnsureCustomWebViewAsync(CliWorkspaceConfig ws)
+    {
+        if (_customWebViews.ContainsKey(ws.Id) || _webViewEnv == null) return;
+
+        try
+        {
+            var wv = new Microsoft.Web.WebView2.WinForms.WebView2
+            {
+                Dock = DockStyle.Fill,
+                Visible = string.Equals(_activeTabId, ws.Id, StringComparison.OrdinalIgnoreCase)
+            };
+            contentPanel.Controls.Add(wv);
+            _customWebViews[ws.Id] = wv;
+
+            await wv.EnsureCoreWebView2Async(_webViewEnv);
+            ConfigureWebViewSettings(wv.CoreWebView2);
+            wv.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
+
+            if (ws.IsWebUi && ws.Port.HasValue)
+            {
+                var targetUrl = $"http://127.0.0.1:{ws.Port.Value}/";
+                wv.CoreWebView2.Navigate(targetUrl);
+            }
+            else
+            {
+                wv.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived(ws.Id, e);
+                if (File.Exists(_terminalHtmlPath))
+                {
+                    wv.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
+                }
+            }
+
+            NotifyWebViewsTheme();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CliWebviewForm] Failed to create WebView for custom CLI '{ws.Name}': {ex.Message}");
         }
     }
 
@@ -404,7 +898,6 @@ public partial class CliWebviewForm : Form
     {
         try
         {
-            // بناء الـ WebViews برمجياً وإضافتها لـ contentPanel في الـ Runtime
             hermesWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
             claudeWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
             antigravityWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
@@ -417,10 +910,10 @@ public partial class CliWebviewForm : Form
             var legacyUserFolder = Path.Combine(baseLocalApp, "HermesHub", "WebView2Data");
             var newUserFolder = Path.Combine(baseLocalApp, "AgentsHub", "WebView2Data");
             var userDataFolder = Directory.Exists(legacyUserFolder) && !Directory.Exists(newUserFolder) ? legacyUserFolder : newUserFolder;
-            var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+            _webViewEnv = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
 
             // Hermes WebView
-            await hermesWebView.EnsureCoreWebView2Async(env);
+            await hermesWebView.EnsureCoreWebView2Async(_webViewEnv);
             ConfigureWebViewSettings(hermesWebView.CoreWebView2);
             hermesWebView.CoreWebView2.WebMessageReceived += HermesWebView_WebMessageReceived;
             hermesWebView.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
@@ -428,9 +921,9 @@ public partial class CliWebviewForm : Form
             RefreshHermesNavigation();
 
             // Claude Code WebView
-            await claudeWebView.EnsureCoreWebView2Async(env);
+            await claudeWebView.EnsureCoreWebView2Async(_webViewEnv);
             ConfigureWebViewSettings(claudeWebView.CoreWebView2);
-            claudeWebView.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived(CliType.ClaudeCode, e);
+            claudeWebView.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived("claude_code", e);
             claudeWebView.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
             if (File.Exists(_terminalHtmlPath))
             {
@@ -438,16 +931,16 @@ public partial class CliWebviewForm : Form
             }
 
             // Antigravity CLI WebView
-            await antigravityWebView.EnsureCoreWebView2Async(env);
+            await antigravityWebView.EnsureCoreWebView2Async(_webViewEnv);
             ConfigureWebViewSettings(antigravityWebView.CoreWebView2);
-            antigravityWebView.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived(CliType.AntigravityCli, e);
+            antigravityWebView.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived("antigravity_cli", e);
             antigravityWebView.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
             if (File.Exists(_terminalHtmlPath))
             {
                 antigravityWebView.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
             }
 
-            SwitchTab(_activeTab);
+            SwitchTab(_activeTabId);
             NotifyWebViewsTheme();
         }
         catch (Exception ex)
@@ -471,7 +964,7 @@ public partial class CliWebviewForm : Form
             return;
         }
 
-        var hermesInfo = _cliManager.GetInfo(CliType.Hermes);
+        var hermesInfo = _cliManager.GetInfo("hermes");
         if (hermesInfo.State == CliState.Running)
         {
             var targetUrl = $"http://127.0.0.1:{_cliManager.HermesService.Port}/";
@@ -504,7 +997,7 @@ public partial class CliWebviewForm : Form
                 var typeStr = typeEl.GetString();
                 if (typeStr == "start_hermes")
                 {
-                    _cliManager?.Start(CliType.Hermes);
+                    _cliManager?.Start("hermes");
                 }
             }
         }
@@ -514,7 +1007,7 @@ public partial class CliWebviewForm : Form
         }
     }
 
-    private void TerminalWebView_WebMessageReceived(CliType cliType, CoreWebView2WebMessageReceivedEventArgs e)
+    private void TerminalWebView_WebMessageReceived(string cliId, CoreWebView2WebMessageReceivedEventArgs e)
     {
         if (_cliManager == null) return;
 
@@ -528,7 +1021,7 @@ public partial class CliWebviewForm : Form
                 switch (msgType)
                 {
                     case "ready":
-                        SendTerminalInit(cliType);
+                        SendTerminalInit(cliId);
                         break;
 
                     case "input":
@@ -537,7 +1030,7 @@ public partial class CliWebviewForm : Form
                             var input = dataEl.GetString();
                             if (input != null)
                             {
-                                _cliManager.SendInput(cliType, input);
+                                _cliManager.SendInput(cliId, input);
                             }
                         }
                         break;
@@ -548,12 +1041,12 @@ public partial class CliWebviewForm : Form
                         {
                             short cols = colsEl.GetInt16();
                             short rows = rowsEl.GetInt16();
-                            _cliManager.Resize(cliType, cols, rows);
+                            _cliManager.Resize(cliId, cols, rows);
                         }
                         break;
 
                     case "start":
-                        _cliManager.Start(cliType);
+                        _cliManager.Start(cliId);
                         break;
                 }
             }
@@ -564,51 +1057,54 @@ public partial class CliWebviewForm : Form
         }
     }
 
-    private void SendTerminalInit(CliType type)
+    private Microsoft.Web.WebView2.WinForms.WebView2? GetWebViewForId(string id)
+    {
+        if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase)) return hermesWebView;
+        if (string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase)) return claudeWebView;
+        if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase)) return antigravityWebView;
+        if (_customWebViews.TryGetValue(id, out var wv)) return wv;
+        return null;
+    }
+
+    private void SendTerminalInit(string cliId)
     {
         if (_cliManager == null) return;
 
-        var targetWv = type == CliType.ClaudeCode ? claudeWebView : antigravityWebView;
-        if (targetWv?.CoreWebView2 == null)
-        {
-            return;
-        }
+        var targetWv = GetWebViewForId(cliId);
+        if (targetWv?.CoreWebView2 == null) return;
 
-        var info = _cliManager.GetInfo(type);
-        var history = _cliManager.GetTerminalHistory(type);
+        var info = _cliManager.GetInfo(cliId);
+        var history = _cliManager.GetTerminalHistory(cliId);
 
         var payload = new TerminalInitPayload("init", info.ShortName, info.State == CliState.Running, info.StatusText, history);
         targetWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalInitPayload));
     }
 
-    private void ForwardTerminalData(CliType type, string text)
+    private void ForwardTerminalData(string cliId, string text)
     {
-        var targetWv = type == CliType.ClaudeCode ? claudeWebView : antigravityWebView;
-        if (targetWv?.CoreWebView2 == null)
-        {
-            return;
-        }
+        var targetWv = GetWebViewForId(cliId);
+        if (targetWv?.CoreWebView2 == null) return;
 
         var payload = new TerminalOutputPayload("output", text);
         targetWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalOutputPayload));
     }
 
-    private void OnCliStatusChanged(CliType type, CliState state, string message)
+    private void OnCliStatusChanged(string cliId, CliState state, string message)
     {
         UpdateTabButtonsUi();
 
-        if (type == _activeTab)
+        if (string.Equals(cliId, _activeTabId, StringComparison.OrdinalIgnoreCase))
         {
             UpdateToolbarUi();
         }
 
-        if (type == CliType.Hermes)
+        if (string.Equals(cliId, "hermes", StringComparison.OrdinalIgnoreCase))
         {
             RefreshHermesNavigation();
         }
         else
         {
-            var targetWv = type == CliType.ClaudeCode ? claudeWebView : antigravityWebView;
+            var targetWv = GetWebViewForId(cliId);
             if (targetWv?.CoreWebView2 != null)
             {
                 var payload = new TerminalStatusPayload("status", state == CliState.Running, message);
@@ -622,10 +1118,12 @@ public partial class CliWebviewForm : Form
         if (_cliManager == null) return;
         var c = ThemeManager.Colors;
 
-        void FormatTab(Button btn, CliType type, string name)
+        foreach (var btn in _dynamicTabButtons)
         {
-            var info = _cliManager.GetInfo(type);
-            var isSelected = _activeTab == type;
+            if (btn.Tag is not string id) continue;
+
+            var info = _cliManager.GetInfo(id);
+            bool isSelected = string.Equals(_activeTabId, id, StringComparison.OrdinalIgnoreCase);
 
             var dotColor = info.State switch
             {
@@ -635,7 +1133,7 @@ public partial class CliWebviewForm : Form
                 _ => "○"
             };
 
-            btn.Text = $"{dotColor} {name}";
+            btn.Text = $"{dotColor} {info.ShortName}";
 
             if (isSelected)
             {
@@ -651,91 +1149,124 @@ public partial class CliWebviewForm : Form
             }
         }
 
-        FormatTab(tabHermesButton, CliType.Hermes, "Hermes");
-        FormatTab(tabClaudeButton, CliType.ClaudeCode, "Claude Code");
-        FormatTab(tabAntigravityButton, CliType.AntigravityCli, "Antigravity CLI");
+        if (_manageClisButton != null)
+        {
+            _manageClisButton.BackColor = c.ButtonBg;
+            _manageClisButton.FlatAppearance.BorderColor = c.ButtonBorder;
+            _manageClisButton.Invalidate();
+        }
     }
 
     private void UpdateToolbarUi()
     {
         if (_cliManager == null) return;
         var c = ThemeManager.Colors;
-        var info = _cliManager.GetInfo(_activeTab);
+        var info = _cliManager.GetInfo(_activeTabId);
         activeStatusLabel.Text = $"{info.ShortName}: {info.StatusText}";
+
+        int browserPort = GetBrowserPortForActiveTab();
 
         if (info.State == CliState.Running)
         {
             activeStatusLabel.ForeColor = c.AccentGreen;
-            toggleRunButton.Text = "Stop";
             _toggleRunNormalColor = c.DangerRed;
             _toggleRunHoverColor = Color.FromArgb(220, 38, 38);
             toggleRunButton.BackColor = _toggleRunNormalColor;
-            toggleRunButton.ForeColor = Color.White;
             toggleRunButton.FlatAppearance.BorderColor = c.DangerRed;
+            _actionToolTip.SetToolTip(toggleRunButton, $"Stop {info.ShortName}");
+
             restartCliButton.Enabled = true;
             clearTerminalButton.Enabled = true;
         }
         else if (info.State == CliState.Starting)
         {
             activeStatusLabel.ForeColor = c.WarningAmber;
-            toggleRunButton.Text = "Starting...";
             _toggleRunNormalColor = c.WarningAmber;
             _toggleRunHoverColor = Color.FromArgb(217, 119, 6);
             toggleRunButton.BackColor = _toggleRunNormalColor;
-            toggleRunButton.ForeColor = Color.Black;
             toggleRunButton.FlatAppearance.BorderColor = c.WarningAmber;
+            _actionToolTip.SetToolTip(toggleRunButton, $"Starting {info.ShortName}...");
+
             restartCliButton.Enabled = false;
             clearTerminalButton.Enabled = true;
         }
         else
         {
             activeStatusLabel.ForeColor = c.TextMuted;
-            toggleRunButton.Text = "Start";
             _toggleRunNormalColor = c.AccentGreen;
             _toggleRunHoverColor = c.AccentGreenHover;
             toggleRunButton.BackColor = _toggleRunNormalColor;
-            toggleRunButton.ForeColor = c.AccentGreenText;
             toggleRunButton.FlatAppearance.BorderColor = c.AccentGreen;
+            _actionToolTip.SetToolTip(toggleRunButton, $"Start {info.ShortName}");
+
             restartCliButton.Enabled = false;
             clearTerminalButton.Enabled = true;
         }
 
-        openBrowserButton.Visible = true;
-        openBrowserButton.Text = _activeTab switch
+        _actionToolTip.SetToolTip(restartCliButton, $"Restart {info.ShortName}");
+        _actionToolTip.SetToolTip(clearTerminalButton, "Clear terminal screen");
+
+        if (browserPort > 0)
         {
-            CliType.Hermes => $"Browser :{_cliManager.HermesService.Port}",
-            CliType.ClaudeCode => "Browser :9229",
-            CliType.AntigravityCli => "Browser :9339",
-            _ => "Browser"
-        };
+            openBrowserButton.Visible = true;
+            _actionToolTip.SetToolTip(openBrowserButton, $"Open in browser (http://127.0.0.1:{browserPort}/)");
+        }
+        else
+        {
+            openBrowserButton.Visible = false;
+        }
+
+        toggleRunButton.Invalidate();
+        restartCliButton.Invalidate();
+        clearTerminalButton.Invalidate();
+        openBrowserButton.Invalidate();
 
         LayoutToolbar();
+    }
+
+    private int GetBrowserPortForActiveTab()
+    {
+        if (string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase))
+        {
+            return _cliManager?.HermesService.Port ?? 8000;
+        }
+        if (string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
+        {
+            return 9229;
+        }
+        if (string.Equals(_activeTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        {
+            return 9339;
+        }
+
+        var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w => string.Equals(w.Id, _activeTabId, StringComparison.OrdinalIgnoreCase));
+        return ws?.Port ?? 0;
     }
 
     private async Task HandleToggleRunClickAsync()
     {
         if (_cliManager == null) return;
 
-        var info = _cliManager.GetInfo(_activeTab);
+        var info = _cliManager.GetInfo(_activeTabId);
         if (info.State == CliState.Running || info.State == CliState.Starting)
         {
-            await _cliManager.StopAsync(_activeTab);
+            await _cliManager.StopAsync(_activeTabId);
         }
         else
         {
-            _cliManager.Start(_activeTab);
+            _cliManager.Start(_activeTabId);
         }
     }
 
     private void HandleClearTerminalClick()
     {
-        if (_cliManager == null || _activeTab == CliType.Hermes)
+        if (_cliManager == null || string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        _cliManager.ClearTerminalHistory(_activeTab);
-        var targetWv = _activeTab == CliType.ClaudeCode ? claudeWebView : antigravityWebView;
+        _cliManager.ClearTerminalHistory(_activeTabId);
+        var targetWv = GetWebViewForId(_activeTabId);
         if (targetWv?.CoreWebView2 != null)
         {
             var payload = new TerminalActionPayload("clear");
@@ -777,15 +1308,11 @@ public partial class CliWebviewForm : Form
 
         try
         {
-            int port = _activeTab switch
+            int port = GetBrowserPortForActiveTab();
+            if (port > 0)
             {
-                CliType.Hermes => _cliManager.HermesService.Port,
-                CliType.ClaudeCode => 9229,
-                CliType.AntigravityCli => 9339,
-                _ => 9119
-            };
-
-            Process.Start(new ProcessStartInfo($"http://127.0.0.1:{port}/") { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo($"http://127.0.0.1:{port}/") { UseShellExecute = true });
+            }
         }
         catch (Exception ex)
         {
@@ -805,15 +1332,21 @@ public partial class CliWebviewForm : Form
         };
     }
 
-    private void SetupTabHover(Button btn, CliType type)
+    private void SetupTabHover(Button btn, string id)
     {
         btn.MouseEnter += (_, _) =>
         {
-            if (_activeTab != type) btn.BackColor = ThemeManager.Colors.ButtonHover;
+            if (!string.Equals(_activeTabId, id, StringComparison.OrdinalIgnoreCase))
+            {
+                btn.BackColor = ThemeManager.Colors.ButtonHover;
+            }
         };
         btn.MouseLeave += (_, _) =>
         {
-            if (_activeTab != type) btn.BackColor = ThemeManager.Colors.ButtonBg;
+            if (!string.Equals(_activeTabId, id, StringComparison.OrdinalIgnoreCase))
+            {
+                btn.BackColor = ThemeManager.Colors.ButtonBg;
+            }
         };
     }
 
@@ -827,19 +1360,34 @@ public partial class CliWebviewForm : Form
 
         if (keyData == (Keys.Control | Keys.Tab))
         {
-            int next = ((int)_activeTab + 1) % 3;
-            SwitchTab((CliType)next);
+            CycleTab(forward: true);
             return true;
         }
 
         if (keyData == (Keys.Control | Keys.Shift | Keys.Tab))
         {
-            int prev = ((int)_activeTab + 2) % 3;
-            SwitchTab((CliType)prev);
+            CycleTab(forward: false);
             return true;
         }
 
         return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    private void CycleTab(bool forward)
+    {
+        if (_dynamicTabButtons.Count == 0) return;
+
+        int currentIndex = _dynamicTabButtons.FindIndex(b => string.Equals(b.Tag as string, _activeTabId, StringComparison.OrdinalIgnoreCase));
+        if (currentIndex < 0) currentIndex = 0;
+
+        int nextIndex = forward
+            ? (currentIndex + 1) % _dynamicTabButtons.Count
+            : (currentIndex - 1 + _dynamicTabButtons.Count) % _dynamicTabButtons.Count;
+
+        if (_dynamicTabButtons[nextIndex].Tag is string nextId)
+        {
+            SwitchTab(nextId);
+        }
     }
 
     private void RefreshProfileCombo()

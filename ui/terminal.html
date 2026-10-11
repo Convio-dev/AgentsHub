@@ -214,13 +214,23 @@
 
     function reportResize() {
       try {
+        if (!container.clientWidth || !container.clientHeight) return;
         fitAddon.fit();
-        sendHostMessage({
-          type: 'resize',
-          cols: term.cols,
-          rows: term.rows
-        });
+        if (term.cols > 10 && term.rows > 4) {
+          sendHostMessage({
+            type: 'resize',
+            cols: term.cols,
+            rows: term.rows
+          });
+        }
       } catch (e) {}
+    }
+
+    if (window.ResizeObserver) {
+      const resizeObserver = new ResizeObserver(() => {
+        reportResize();
+      });
+      resizeObserver.observe(container);
     }
 
     window.addEventListener('resize', () => {
@@ -295,6 +305,10 @@
 
         case 'focus':
           term.focus();
+          break;
+
+        case 'fit':
+          reportResize();
           break;
 
         case 'theme_changed':

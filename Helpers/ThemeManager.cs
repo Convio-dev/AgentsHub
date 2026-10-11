@@ -222,6 +222,8 @@ public static class ThemeManager
         }
     }
 
+    public static event Action? ThemeChanged;
+
     public static void Initialize()
     {
         var savedTheme = StartupHelper.GetStringPreference("Theme", "dark");
@@ -233,6 +235,7 @@ public static class ThemeManager
     {
         _currentTheme = _currentTheme == AppTheme.Dark ? AppTheme.Light : AppTheme.Dark;
         StartupHelper.SetStringPreference("Theme", _currentTheme == AppTheme.Light ? "light" : "dark");
+        ThemeChanged?.Invoke();
     }
 
     public static void SetTheme(AppTheme theme, string? accentColor = null)
@@ -244,6 +247,7 @@ public static class ThemeManager
             StartupHelper.SetStringPreference("AccentColor", _accentHex);
         }
         StartupHelper.SetStringPreference("Theme", _currentTheme == AppTheme.Light ? "light" : "dark");
+        ThemeChanged?.Invoke();
     }
 
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]

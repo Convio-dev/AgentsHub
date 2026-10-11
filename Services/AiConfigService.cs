@@ -34,6 +34,33 @@ public class DashboardShortcut
     public string Category { get; set; } = "AI Dev Tool";
 }
 
+public class CliWorkspaceConfig
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("command")]
+    public string Command { get; set; } = string.Empty;
+
+    [JsonPropertyName("workingDirectory")]
+    public string WorkingDirectory { get; set; } = string.Empty;
+
+    [JsonPropertyName("port")]
+    public int? Port { get; set; }
+
+    [JsonPropertyName("isWebUi")]
+    public bool IsWebUi { get; set; } = false;
+
+    [JsonPropertyName("isDefault")]
+    public bool IsDefault { get; set; } = false;
+
+    [JsonPropertyName("isEnabled")]
+    public bool IsEnabled { get; set; } = true;
+}
+
 public class AiConfig
 {
     public Dictionary<string, string> ToolTargets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -41,6 +68,7 @@ public class AiConfig
     public string? SelectedProviderId { get; set; }
     public string? SelectedModel { get; set; }
     public List<DashboardShortcut> Shortcuts { get; set; } = new();
+    public List<CliWorkspaceConfig> CliWorkspaces { get; set; } = new();
 }
 
 public class AiConfigService
@@ -322,6 +350,130 @@ public class AiConfigService
             }
         }
 
+        if (_config.CliWorkspaces == null || _config.CliWorkspaces.Count == 0)
+        {
+            _config.CliWorkspaces = new List<CliWorkspaceConfig>();
+        }
+
+        // Migrate legacy IDs if present in loaded config
+        foreach (var ws in _config.CliWorkspaces)
+        {
+            if (string.Equals(ws.Id, "AntigravityCli", StringComparison.OrdinalIgnoreCase)) ws.Id = "antigravity_cli";
+            else if (string.Equals(ws.Id, "ClaudeCode", StringComparison.OrdinalIgnoreCase)) ws.Id = "claude_code";
+            else if (string.Equals(ws.Id, "Hermes", StringComparison.OrdinalIgnoreCase)) ws.Id = "hermes";
+        }
+
+        void EnsureDefaultCli(string id, string name, string cmd, int port, bool isWebUi)
+        {
+            var existing = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (existing == null)
+            {
+                _config.CliWorkspaces.Add(new CliWorkspaceConfig
+                {
+                    Id = id,
+                    Name = name,
+                    Command = cmd,
+                    Port = port,
+                    IsWebUi = isWebUi,
+                    IsDefault = true,
+                    IsEnabled = true
+                });
+            }
+            else
+            {
+                existing.Id = id;
+                existing.IsDefault = true;
+                if (string.IsNullOrWhiteSpace(existing.Name)) existing.Name = name;
+                if (string.IsNullOrWhiteSpace(existing.Command)) existing.Command = cmd;
+                if (existing.Port == null || existing.Port == 0) existing.Port = port;
+                existing.IsWebUi = isWebUi;
+            }
+        }
+
+        EnsureDefaultCli("hermes", "Hermes", "hermes dashboard", 9119, true);
+        EnsureDefaultCli("claude_code", "Claude Code", "claude", 9229, false);
+        EnsureDefaultCli("antigravity_cli", "Antigravity CLI", "agy", 9339, false);
+
+        // Remove any duplicates after migration
+        var uniqueWorkspaces = new List<CliWorkspaceConfig>();
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ws in _config.CliWorkspaces)
+        {
+            if (seenIds.Add(ws.Id))
+            {
+                uniqueWorkspaces.Add(ws);
+            }
+        }
+        _config.CliWorkspaces = uniqueWorkspaces;
+
+        SaveConfig(_config);
+    }
+
+    public static string NormalizeCliId(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return "hermes";
+        var clean = id.Trim().ToLowerInvariant().Replace("_", "").Replace("-", "");
+        return clean switch
+        {
+            "hermes" => "hermes",
+            "claude" or "claudecode" => "claude_code",
+            "antigravity" or "antigravitycli" => "antigravity_cli",
+            _ => id.Trim()
+        };
+    }
+
+    public List<CliWorkspaceConfig> GetCliWorkspaces()
+    {
+        lock (_lock)
+        {
+            return [.. _config.CliWorkspaces];
+        }
+    }
+
+    public void SaveCliWorkspace(CliWorkspaceConfig item)
+    {
+        lock (_lock)
+        {
+            var idx = _config.CliWorkspaces.FindIndex(c => string.Equals(c.Id, item.Id, StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0)
+            {
+                item.IsDefault = _config.CliWorkspaces[idx].IsDefault;
+                _config.CliWorkspaces[idx] = item;
+            }
+            else
+            {
+                item.IsDefault = false;
+                _config.CliWorkspaces.Add(item);
+            }
+        }
+        SaveConfig(_config);
+    }
+
+    public bool DeleteCliWorkspace(string id)
+    {
+        lock (_lock)
+        {
+            var item = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (item == null || item.IsDefault)
+            {
+                return false;
+            }
+            _config.CliWorkspaces.Remove(item);
+        }
+        SaveConfig(_config);
+        return true;
+    }
+
+    public void ToggleCliWorkspace(string id, bool isEnabled)
+    {
+        lock (_lock)
+        {
+            var item = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (item != null)
+            {
+                item.IsEnabled = isEnabled;
+            }
+        }
         SaveConfig(_config);
     }
 }

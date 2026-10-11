@@ -493,6 +493,20 @@
     document.getElementById('btn-popout-terminals')?.addEventListener('click', openStandalone);
     document.getElementById('btn-popout-terminals-dash')?.addEventListener('click', openStandalone);
     document.getElementById('btn-open-standalone-hdr')?.addEventListener('click', openStandalone);
+
+    // System Shell Launchers (Standard & Administrator)
+    document.getElementById('btn-shell-cmd')?.addEventListener('click', () => {
+      callBridge('open_system_shell', { shell: 'cmd', asAdmin: false });
+    });
+    document.getElementById('btn-shell-cmd-admin')?.addEventListener('click', () => {
+      callBridge('open_system_shell', { shell: 'cmd', asAdmin: true });
+    });
+    document.getElementById('btn-shell-ps')?.addEventListener('click', () => {
+      callBridge('open_system_shell', { shell: 'powershell', asAdmin: false });
+    });
+    document.getElementById('btn-shell-ps-admin')?.addEventListener('click', () => {
+      callBridge('open_system_shell', { shell: 'powershell', asAdmin: true });
+    });
   }
 
   // Header & Status Updates

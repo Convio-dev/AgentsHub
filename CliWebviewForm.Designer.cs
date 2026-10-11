@@ -8,9 +8,6 @@ partial class CliWebviewForm
 
     private Panel topToolbar = null!;
     private Panel tabsPanel = null!;
-    private Button tabHermesButton = null!;
-    private Button tabClaudeButton = null!;
-    private Button tabAntigravityButton = null!;
 
     private Panel toolsPanel = null!;
     private Label activeStatusLabel = null!;
@@ -34,9 +31,6 @@ partial class CliWebviewForm
     {
         topToolbar = new Panel();
         tabsPanel = new Panel();
-        tabHermesButton = new Button();
-        tabClaudeButton = new Button();
-        tabAntigravityButton = new Button();
 
         toolsPanel = new Panel();
         activeStatusLabel = new Label();
@@ -62,39 +56,11 @@ partial class CliWebviewForm
         // 
         tabsPanel.Dock = DockStyle.Left;
         tabsPanel.Width = 380;
-        tabsPanel.Controls.Add(tabHermesButton);
-        tabsPanel.Controls.Add(tabClaudeButton);
-        tabsPanel.Controls.Add(tabAntigravityButton);
-
-        tabHermesButton.Location = new Point(8, 6);
-        tabHermesButton.Size = new Size(110, 34);
-        tabHermesButton.FlatStyle = FlatStyle.Flat;
-        tabHermesButton.FlatAppearance.BorderSize = 1;
-        tabHermesButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
-        tabHermesButton.Text = "⚡ Hermes";
-        tabHermesButton.Cursor = Cursors.Hand;
-
-        tabClaudeButton.Location = new Point(122, 6);
-        tabClaudeButton.Size = new Size(114, 34);
-        tabClaudeButton.FlatStyle = FlatStyle.Flat;
-        tabClaudeButton.FlatAppearance.BorderSize = 1;
-        tabClaudeButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
-        tabClaudeButton.Text = "🤖 Claude";
-        tabClaudeButton.Cursor = Cursors.Hand;
-
-        tabAntigravityButton.Location = new Point(240, 6);
-        tabAntigravityButton.Size = new Size(126, 34);
-        tabAntigravityButton.FlatStyle = FlatStyle.Flat;
-        tabAntigravityButton.FlatAppearance.BorderSize = 1;
-        tabAntigravityButton.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold);
-        tabAntigravityButton.Text = "🚀 Antigravity";
-        tabAntigravityButton.Cursor = Cursors.Hand;
 
         // 
-        // Tools Panel (docked right)
+        // Tools Panel (fills remainder of toolbar)
         // 
-        toolsPanel.Dock = DockStyle.Right;
-        toolsPanel.Width = 540;
+        toolsPanel.Dock = DockStyle.Fill;
         toolsPanel.Controls.Add(activeStatusLabel);
         toolsPanel.Controls.Add(toggleRunButton);
         toolsPanel.Controls.Add(restartCliButton);
@@ -106,36 +72,32 @@ partial class CliWebviewForm
         activeStatusLabel.Location = new Point(8, 15);
         activeStatusLabel.Text = "Status: Offline";
 
-        toggleRunButton.Location = new Point(180, 7);
-        toggleRunButton.Size = new Size(74, 32);
+        toggleRunButton.Size = new Size(32, 32);
         toggleRunButton.FlatStyle = FlatStyle.Flat;
         toggleRunButton.FlatAppearance.BorderSize = 1;
-        toggleRunButton.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
-        toggleRunButton.Text = "Start";
+        toggleRunButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        toggleRunButton.Text = "";
         toggleRunButton.Cursor = Cursors.Hand;
 
-        restartCliButton.Location = new Point(260, 7);
-        restartCliButton.Size = new Size(68, 32);
+        restartCliButton.Size = new Size(32, 32);
         restartCliButton.FlatStyle = FlatStyle.Flat;
         restartCliButton.FlatAppearance.BorderSize = 1;
-        restartCliButton.Font = new Font("Segoe UI", 8.5F);
-        restartCliButton.Text = "Restart";
+        restartCliButton.Font = new Font("Segoe UI", 9F);
+        restartCliButton.Text = "";
         restartCliButton.Cursor = Cursors.Hand;
 
-        clearTerminalButton.Location = new Point(334, 7);
-        clearTerminalButton.Size = new Size(58, 32);
+        clearTerminalButton.Size = new Size(32, 32);
         clearTerminalButton.FlatStyle = FlatStyle.Flat;
         clearTerminalButton.FlatAppearance.BorderSize = 1;
-        clearTerminalButton.Font = new Font("Segoe UI", 8.5F);
-        clearTerminalButton.Text = "Clear";
+        clearTerminalButton.Font = new Font("Segoe UI", 9F);
+        clearTerminalButton.Text = "";
         clearTerminalButton.Cursor = Cursors.Hand;
 
-        openBrowserButton.Location = new Point(398, 7);
-        openBrowserButton.Size = new Size(116, 32);
+        openBrowserButton.Size = new Size(32, 32);
         openBrowserButton.FlatStyle = FlatStyle.Flat;
         openBrowserButton.FlatAppearance.BorderSize = 1;
-        openBrowserButton.Font = new Font("Segoe UI", 8.5F);
-        openBrowserButton.Text = "Browser :9119";
+        openBrowserButton.Font = new Font("Segoe UI", 9F);
+        openBrowserButton.Text = "";
         openBrowserButton.Cursor = Cursors.Hand;
 
         // 

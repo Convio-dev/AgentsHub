@@ -22,7 +22,8 @@ public enum CliState
 
 public class CliItemInfo
 {
-    public CliType Type { get; set; }
+    public string Id { get; set; } = "";
+    public CliType Type { get; set; } = CliType.Hermes;
     public string DisplayName { get; set; } = "";
     public string ShortName { get; set; } = "";
     public string CommandDescription { get; set; } = "";
@@ -30,7 +31,11 @@ public class CliItemInfo
     public string StatusText { get; set; } = "Offline";
     public int ProcessId { get; set; }
     public DateTime? StartTime { get; set; }
-    public bool IsWebUi => Type == CliType.Hermes;
+    public bool IsCustom { get; set; } = false;
+    public bool IsEnabled { get; set; } = true;
+    public int? Port { get; set; }
+    public bool IsWebUi => !string.IsNullOrEmpty(WebUrl) || Type == CliType.Hermes;
+    public string? WebUrl { get; set; }
 }
 
 public class CliManagerService : IDisposable
@@ -38,9 +43,9 @@ public class CliManagerService : IDisposable
     private readonly HermesProcessService _hermesService;
     private readonly CliWebTerminalServer _webTerminalServer;
     private readonly AntigravityProfileService _profileService;
-    private readonly ConcurrentDictionary<CliType, ConPtySession> _terminalSessions = new();
-    private readonly ConcurrentDictionary<CliType, StringBuilder> _terminalBuffers = new();
-    private readonly ConcurrentDictionary<CliType, CliItemInfo> _cliStates = new();
+    private readonly ConcurrentDictionary<string, ConPtySession> _terminalSessions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, StringBuilder> _terminalBuffers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CliItemInfo> _cliStates = new(StringComparer.OrdinalIgnoreCase);
     private const int MaxBufferSize = 150_000;
 
     public HermesProcessService HermesService => _hermesService;
@@ -49,6 +54,8 @@ public class CliManagerService : IDisposable
 
     public event Action<CliType, CliState, string>? StatusChanged;
     public event Action<CliType, string>? TerminalDataReceived;
+    public event Action<string, CliState, string>? StatusChangedId;
+    public event Action<string, string>? TerminalDataReceivedId;
     public event Action<string, string>? LogMessage;
 
     public CliManagerService(HermesProcessService hermesService)
@@ -66,38 +73,45 @@ public class CliManagerService : IDisposable
             LogMessage?.Invoke("Antigravity Profile", $"Saved credentials for profile '{name}'.");
         };
 
-        _cliStates[CliType.Hermes] = new CliItemInfo
+        _cliStates["Hermes"] = new CliItemInfo
         {
+            Id = "Hermes",
             Type = CliType.Hermes,
             DisplayName = "Hermes (Web Dashboard)",
             ShortName = "Hermes",
             CommandDescription = "hermes dashboard --port [PORT]",
             State = CliState.Offline,
-            StatusText = "Engine: Offline"
+            StatusText = "Engine: Offline",
+            Port = 9119,
+            WebUrl = "http://127.0.0.1:9119"
         };
 
-        _cliStates[CliType.ClaudeCode] = new CliItemInfo
+        _cliStates["ClaudeCode"] = new CliItemInfo
         {
+            Id = "ClaudeCode",
             Type = CliType.ClaudeCode,
             DisplayName = "Claude Code (CLI)",
             ShortName = "Claude Code",
             CommandDescription = "claude",
             State = CliState.Offline,
-            StatusText = "CLI: Offline"
+            StatusText = "CLI: Offline",
+            Port = 9229
         };
 
-        _cliStates[CliType.AntigravityCli] = new CliItemInfo
+        _cliStates["AntigravityCli"] = new CliItemInfo
         {
+            Id = "AntigravityCli",
             Type = CliType.AntigravityCli,
             DisplayName = "Antigravity CLI",
             ShortName = "Antigravity",
             CommandDescription = "agy",
             State = CliState.Offline,
-            StatusText = "CLI: Offline"
+            StatusText = "CLI: Offline",
+            Port = 9339
         };
 
-        _terminalBuffers[CliType.ClaudeCode] = new StringBuilder();
-        _terminalBuffers[CliType.AntigravityCli] = new StringBuilder();
+        _terminalBuffers["ClaudeCode"] = new StringBuilder();
+        _terminalBuffers["AntigravityCli"] = new StringBuilder();
 
         // Bind Hermes service events
         _hermesService.StatusChanged += (hStatus, msg) =>
@@ -110,10 +124,20 @@ public class CliManagerService : IDisposable
                 _ => CliState.Offline
             };
 
-            var item = _cliStates[CliType.Hermes];
+            var item = _cliStates.GetOrAdd("Hermes", _ => new CliItemInfo
+            {
+                Id = "Hermes",
+                Type = CliType.Hermes,
+                DisplayName = "Hermes (Web Dashboard)",
+                ShortName = "Hermes",
+                CommandDescription = "hermes dashboard --port [PORT]",
+                Port = 9119,
+                WebUrl = "http://127.0.0.1:9119"
+            });
             item.State = cliState;
             item.StatusText = msg;
             StatusChanged?.Invoke(CliType.Hermes, cliState, msg);
+            StatusChangedId?.Invoke("Hermes", cliState, msg);
         };
 
         _hermesService.LogMessage += (msg) =>
@@ -125,19 +149,57 @@ public class CliManagerService : IDisposable
         _webTerminalServer.Start();
     }
 
-    public CliItemInfo GetInfo(CliType type)
+    public CliItemInfo GetInfo(string id)
     {
-        if (_cliStates.TryGetValue(type, out var info))
+        id = AiConfigService.NormalizeCliId(id);
+        if (_cliStates.TryGetValue(id, out var info))
         {
             return info;
         }
 
-        return new CliItemInfo { Type = type };
+        var cfg = AiConfigService.Instance.CurrentConfig.CliWorkspaces.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (cfg != null)
+        {
+            var created = new CliItemInfo
+            {
+                Id = cfg.Id,
+                DisplayName = cfg.Name,
+                ShortName = cfg.Name,
+                CommandDescription = cfg.Command,
+                IsCustom = !cfg.IsDefault,
+                IsEnabled = cfg.IsEnabled,
+                Port = cfg.Port,
+                WebUrl = cfg.IsWebUi ? $"http://127.0.0.1:{cfg.Port ?? 9119}" : null
+            };
+            _cliStates[cfg.Id] = created;
+            return created;
+        }
+
+        if (Enum.TryParse<CliType>(id, out var ct))
+        {
+            return new CliItemInfo { Id = id, Type = ct, ShortName = id, DisplayName = id };
+        }
+
+        return new CliItemInfo { Id = id, ShortName = id, DisplayName = id };
     }
+
+    private static string CliTypeToNormalizedId(CliType type) => type switch
+    {
+        CliType.ClaudeCode => "claude_code",
+        CliType.AntigravityCli => "antigravity_cli",
+        _ => "hermes"
+    };
+
+    public CliItemInfo GetInfo(CliType type) => GetInfo(CliTypeToNormalizedId(type));
 
     public IReadOnlyList<CliItemInfo> GetAllInfos()
     {
-        return [.. _cliStates.Values.OrderBy(x => (int)x.Type)];
+        var workspaces = AiConfigService.Instance.CurrentConfig.CliWorkspaces;
+        foreach (var ws in workspaces)
+        {
+            GetInfo(ws.Id);
+        }
+        return [.. _cliStates.Values];
     }
 
     public int GetActiveCount()
@@ -145,15 +207,18 @@ public class CliManagerService : IDisposable
         return _cliStates.Values.Count(x => x.State == CliState.Running || x.State == CliState.Starting);
     }
 
-    public void Start(CliType type)
+    public void Start(CliType type) => Start(CliTypeToNormalizedId(type));
+
+    public void Start(string id)
     {
-        if (type == CliType.Hermes)
+        id = AiConfigService.NormalizeCliId(id);
+        if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
         {
             _hermesService.Start();
             return;
         }
 
-        var info = _cliStates[type];
+        var info = GetInfo(id);
         if (info.State == CliState.Running || info.State == CliState.Starting)
         {
             return;
@@ -161,95 +226,103 @@ public class CliManagerService : IDisposable
 
         info.State = CliState.Starting;
         info.StatusText = $"Starting {info.ShortName}...";
-        StatusChanged?.Invoke(type, CliState.Starting, info.StatusText);
+        FireStatusChanged(id, CliState.Starting, info.StatusText);
         LogMessage?.Invoke(info.ShortName, $"Launching interactive {info.ShortName} session...");
 
         try
         {
-            // Close existing session if any
-            if (_terminalSessions.TryRemove(type, out var oldSession))
+            if (_terminalSessions.TryRemove(id, out var oldSession))
             {
                 oldSession.Dispose();
             }
 
-            // Clear previous buffer on new run
-            if (_terminalBuffers.TryGetValue(type, out var buf))
+            var buf = _terminalBuffers.GetOrAdd(id, _ => new StringBuilder());
+            lock (buf)
             {
-                lock (buf)
-                {
-                    buf.Clear();
-                }
+                buf.Clear();
             }
 
             var session = new ConPtySession();
 
             session.OutputDataReceived += (text) =>
             {
-                if (_terminalBuffers.TryGetValue(type, out var b))
+                lock (buf)
                 {
-                    lock (b)
+                    buf.Append(text);
+                    if (buf.Length > MaxBufferSize)
                     {
-                        b.Append(text);
-                        if (b.Length > MaxBufferSize)
-                        {
-                            b.Remove(0, b.Length - MaxBufferSize);
-                        }
+                        buf.Remove(0, buf.Length - MaxBufferSize);
                     }
                 }
 
-                TerminalDataReceived?.Invoke(type, text);
+                FireTerminalDataReceived(id, text);
             };
 
             session.Exited += (exitCode) =>
             {
-                if (type == CliType.AntigravityCli)
+                if (string.Equals(id, "AntigravityCli", StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {
                         _profileService.ExportCurrentSession(_profileService.ActiveProfile);
                     }
-                    catch
-                    {
-                        // Ignore exit export failures
-                    }
+                    catch { }
                 }
 
                 info.State = CliState.Offline;
                 info.StatusText = exitCode == 0 ? "Exited cleanly" : $"Exited with code {exitCode}";
                 info.ProcessId = 0;
-                StatusChanged?.Invoke(type, CliState.Offline, info.StatusText);
+                FireStatusChanged(id, CliState.Offline, info.StatusText);
                 LogMessage?.Invoke(info.ShortName, $"Process terminated with exit code {exitCode}.");
             };
 
-            // Spawn through Windows command interpreter to resolve path and script aliases
-            string command = type switch
-            {
-                CliType.ClaudeCode => "cmd.exe /c claude",
-                CliType.AntigravityCli => "cmd.exe /c agy",
-                _ => "cmd.exe"
-            };
+            string command;
+            string workDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-            if (type == CliType.AntigravityCli)
+            if (string.Equals(id, "ClaudeCode", StringComparison.OrdinalIgnoreCase))
             {
+                command = "cmd.exe /c claude";
+            }
+            else if (string.Equals(id, "AntigravityCli", StringComparison.OrdinalIgnoreCase))
+            {
+                command = "cmd.exe /c agy";
                 _profileService.EnsureActiveProfileApplied();
             }
+            else
+            {
+                var cfg = AiConfigService.Instance.CurrentConfig.CliWorkspaces.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+                var rawCmd = cfg != null && !string.IsNullOrWhiteSpace(cfg.Command) ? cfg.Command.Trim() : id;
+                if (!string.IsNullOrWhiteSpace(cfg?.WorkingDirectory) && Directory.Exists(cfg.WorkingDirectory))
+                {
+                    workDir = cfg.WorkingDirectory;
+                }
 
-            bool started = session.Start(command, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), 120, 32);
+                if (rawCmd.StartsWith("cmd.exe", StringComparison.OrdinalIgnoreCase) || rawCmd.StartsWith("powershell", StringComparison.OrdinalIgnoreCase))
+                {
+                    command = rawCmd;
+                }
+                else
+                {
+                    command = $"cmd.exe /c {rawCmd}";
+                }
+            }
+
+            bool started = session.Start(command, workDir, 120, 32);
             if (started)
             {
-                _terminalSessions[type] = session;
+                _terminalSessions[id] = session;
                 info.State = CliState.Running;
                 info.ProcessId = session.ProcessId;
                 info.StartTime = DateTime.UtcNow;
                 info.StatusText = $"Running (PID: {session.ProcessId})";
-                StatusChanged?.Invoke(type, CliState.Running, info.StatusText);
+                FireStatusChanged(id, CliState.Running, info.StatusText);
                 LogMessage?.Invoke(info.ShortName, $"Session active with PID {session.ProcessId}.");
             }
             else
             {
                 info.State = CliState.Error;
                 info.StatusText = "Failed to launch session.";
-                StatusChanged?.Invoke(type, CliState.Error, info.StatusText);
+                FireStatusChanged(id, CliState.Error, info.StatusText);
                 LogMessage?.Invoke(info.ShortName, "Session launch failed.");
             }
         }
@@ -257,20 +330,23 @@ public class CliManagerService : IDisposable
         {
             info.State = CliState.Error;
             info.StatusText = $"Launch error: {ex.Message}";
-            StatusChanged?.Invoke(type, CliState.Error, info.StatusText);
+            FireStatusChanged(id, CliState.Error, info.StatusText);
             LogMessage?.Invoke(info.ShortName, $"Exception during launch: {ex.Message}");
         }
     }
 
-    public async Task StopAsync(CliType type)
+    public Task StopAsync(CliType type) => StopAsync(CliTypeToNormalizedId(type));
+
+    public async Task StopAsync(string id)
     {
-        if (type == CliType.Hermes)
+        id = AiConfigService.NormalizeCliId(id);
+        if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
         {
             await _hermesService.StopAsync();
             return;
         }
 
-        if (type == CliType.AntigravityCli)
+        if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
         {
             try
             {
@@ -282,14 +358,14 @@ public class CliManagerService : IDisposable
             }
         }
 
-        var info = _cliStates[type];
+        var info = GetInfo(id);
         info.StatusText = $"Stopping {info.ShortName}...";
-        StatusChanged?.Invoke(type, CliState.Offline, info.StatusText);
+        FireStatusChanged(id, CliState.Offline, info.StatusText);
         LogMessage?.Invoke(info.ShortName, "Terminating interactive session...");
 
         await Task.Run(() =>
         {
-            if (_terminalSessions.TryRemove(type, out var session))
+            if (_terminalSessions.TryRemove(id, out var session))
             {
                 session.Stop();
                 session.Dispose();
@@ -298,37 +374,49 @@ public class CliManagerService : IDisposable
             info.State = CliState.Offline;
             info.StatusText = "CLI: Offline";
             info.ProcessId = 0;
-            StatusChanged?.Invoke(type, CliState.Offline, info.StatusText);
+            FireStatusChanged(id, CliState.Offline, info.StatusText);
             LogMessage?.Invoke(info.ShortName, "Session stopped.");
         });
     }
 
-    public async Task RestartAsync(CliType type)
+    public Task RestartAsync(CliType type) => RestartAsync(CliTypeToNormalizedId(type));
+
+    public async Task RestartAsync(string id)
     {
-        await StopAsync(type);
+        id = AiConfigService.NormalizeCliId(id);
+        await StopAsync(id);
         await Task.Delay(300);
-        Start(type);
+        Start(id);
     }
 
-    public void SendInput(CliType type, string data)
+    public void SendInput(CliType type, string data) => SendInput(CliTypeToNormalizedId(type), data);
+
+    public void SendInput(string id, string data)
     {
-        if (_terminalSessions.TryGetValue(type, out var session) && session.IsRunning)
+        id = AiConfigService.NormalizeCliId(id);
+        if (_terminalSessions.TryGetValue(id, out var session) && session.IsRunning)
         {
             session.Write(data);
         }
     }
 
-    public void Resize(CliType type, short cols, short rows)
+    public void Resize(CliType type, short cols, short rows) => Resize(CliTypeToNormalizedId(type), cols, rows);
+
+    public void Resize(string id, short cols, short rows)
     {
-        if (_terminalSessions.TryGetValue(type, out var session) && session.IsRunning)
+        id = AiConfigService.NormalizeCliId(id);
+        if (_terminalSessions.TryGetValue(id, out var session) && session.IsRunning)
         {
             session.Resize(cols, rows);
         }
     }
 
-    public string GetTerminalHistory(CliType type)
+    public string GetTerminalHistory(CliType type) => GetTerminalHistory(CliTypeToNormalizedId(type));
+
+    public string GetTerminalHistory(string id)
     {
-        if (_terminalBuffers.TryGetValue(type, out var buf))
+        id = AiConfigService.NormalizeCliId(id);
+        if (_terminalBuffers.TryGetValue(id, out var buf))
         {
             lock (buf)
             {
@@ -339,14 +427,51 @@ public class CliManagerService : IDisposable
         return string.Empty;
     }
 
-    public void ClearTerminalHistory(CliType type)
+    public void ClearTerminalHistory(CliType type) => ClearTerminalHistory(CliTypeToNormalizedId(type));
+
+    public void ClearTerminalHistory(string id)
     {
-        if (_terminalBuffers.TryGetValue(type, out var buf))
+        id = AiConfigService.NormalizeCliId(id);
+        if (_terminalBuffers.TryGetValue(id, out var buf))
         {
             lock (buf)
             {
                 buf.Clear();
             }
+        }
+    }
+
+    private void FireStatusChanged(string id, CliState state, string message)
+    {
+        id = AiConfigService.NormalizeCliId(id);
+        StatusChangedId?.Invoke(id, state, message);
+        var ct = id switch
+        {
+            "claude_code" => CliType.ClaudeCode,
+            "antigravity_cli" => CliType.AntigravityCli,
+            "hermes" => CliType.Hermes,
+            _ => (CliType?)null
+        };
+        if (ct.HasValue)
+        {
+            StatusChanged?.Invoke(ct.Value, state, message);
+        }
+    }
+
+    private void FireTerminalDataReceived(string id, string data)
+    {
+        id = AiConfigService.NormalizeCliId(id);
+        TerminalDataReceivedId?.Invoke(id, data);
+        var ct = id switch
+        {
+            "claude_code" => CliType.ClaudeCode,
+            "antigravity_cli" => CliType.AntigravityCli,
+            "hermes" => CliType.Hermes,
+            _ => (CliType?)null
+        };
+        if (ct.HasValue)
+        {
+            TerminalDataReceived?.Invoke(ct.Value, data);
         }
     }
 
@@ -363,12 +488,12 @@ public class CliManagerService : IDisposable
             LogMessage?.Invoke("Antigravity Profile", $"Pre-switch export notice: {ex.Message}");
         }
 
-        var wasRunning = _cliStates.TryGetValue(CliType.AntigravityCli, out var info) &&
+        var wasRunning = _cliStates.TryGetValue("antigravity_cli", out var info) &&
                          (info.State == CliState.Running || info.State == CliState.Starting);
 
         if (wasRunning)
         {
-            await StopAsync(CliType.AntigravityCli);
+            await StopAsync("antigravity_cli");
             await Task.Delay(350);
         }
 
@@ -377,7 +502,7 @@ public class CliManagerService : IDisposable
         if (wasRunning && applied)
         {
             await Task.Delay(200);
-            Start(CliType.AntigravityCli);
+            Start("antigravity_cli");
         }
 
         return applied;
@@ -396,12 +521,12 @@ public class CliManagerService : IDisposable
             LogMessage?.Invoke("Antigravity Profile", $"Pre-create export notice: {ex.Message}");
         }
 
-        var wasRunning = _cliStates.TryGetValue(CliType.AntigravityCli, out var info) &&
+        var wasRunning = _cliStates.TryGetValue("antigravity_cli", out var info) &&
                          (info.State == CliState.Running || info.State == CliState.Starting);
 
         if (wasRunning)
         {
-            await StopAsync(CliType.AntigravityCli);
+            await StopAsync("antigravity_cli");
             await Task.Delay(350);
         }
 
@@ -410,7 +535,7 @@ public class CliManagerService : IDisposable
         if (prepared)
         {
             await Task.Delay(200);
-            Start(CliType.AntigravityCli);
+            Start("antigravity_cli");
         }
 
         return prepared;

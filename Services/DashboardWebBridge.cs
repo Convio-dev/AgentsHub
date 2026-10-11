@@ -384,6 +384,22 @@ public sealed class DashboardWebBridge : IDisposable
                 SendResponse(requestId, true, new { success = true });
                 break;
 
+            case "open_system_shell":
+                {
+                    string shellName = data.TryGetProperty("shell", out var shEl) ? shEl.GetString() ?? "cmd" : "cmd";
+                    bool asAdmin = data.TryGetProperty("asAdmin", out var adEl) && adEl.GetBoolean();
+                    if (shellName.Equals("powershell", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ShellLauncher.OpenPowerShell(asAdmin);
+                    }
+                    else
+                    {
+                        ShellLauncher.OpenCommandPrompt(asAdmin);
+                    }
+                    SendResponse(requestId, true, new { success = true });
+                }
+                break;
+
             case "minimize_to_tray":
                 _mainForm.Invoke(() =>
                 {
