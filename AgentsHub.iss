@@ -50,11 +50,21 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "startupicon"; Description: "Launch Agents Hub minimized to system tray on Windows startup"; GroupDescription: "Startup:"; Flags: unchecked
 
 [Files]
-Source: "bin\Release\net10.0-windows\win-x64\publish\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "assets\app.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "bin\Release\net10.0-windows\win-x64\publish\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+; الملف التنفيذي وكافة مخرجات الـ publish (DLLs وأي ملفات runtime مصاحبة)
+Source: "bin\Release\net10.0-windows\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; ملفات الواجهة الأمامية لمجلد UI بالكامل (HTML / CSS / JS / xterm)
+Source: "ui\*"; DestDir: "{app}\ui"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; مجلد الأصول الثابتة
+Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; ملف سكريبت fixquota الإضافي إن وُجد
+Source: "dist\fixquota-command.js"; DestDir: "{app}\dist"; Flags: ignoreversion skipifsourcedoesntexist
+
+; ملفات الرخص والتوثيق
+Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

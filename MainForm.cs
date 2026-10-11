@@ -61,7 +61,7 @@ public partial class MainForm : Form
             ListenPort = savedLanPort,
             TargetPort = savedEnginePort,
             StartHermesAction = () => { _cliManager.Start(CliType.Hermes); return Task.CompletedTask; },
-            CheckHermesAliveAction = async () => _cliManager.GetInfo(CliType.Hermes).State == CliState.Running
+            CheckHermesAliveAction = () => Task.FromResult(_cliManager.GetInfo(CliType.Hermes).State == CliState.Running)
         };
         var lanProxyEnabled = StartupHelper.GetPreference("LanProxyEnabled", true);
         if (lanProxyEnabled)
