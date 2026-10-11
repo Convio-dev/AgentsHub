@@ -16,6 +16,7 @@
     qrBase64: '',
     clis: {},
     antigravity: { activeProfile: '', profiles: [] },
+    opencode: { isOnline: false, port: 0, activeSessions: [] },
     aiConfig: { providers: [], toolTargets: {}, shortcuts: [], selectedProviderId: null, selectedModel: null },
     settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
@@ -59,6 +60,11 @@
         return;
       }
 
+      // Handle OpenCode live push events
+      if (msg.type === 'OPENCODE_UPDATE' && msg.data) {
+        handleOpenCodeUpdate(msg.data);
+      }
+
       // Handle Push Events
       if (msg.event) {
         handleBackendEvent(msg.event, msg.payload);
@@ -73,6 +79,19 @@
     }
 
     switch (eventType) {
+      case 'opencode_status_changed':
+      case 'opencode_sessions_updated':
+        if (payload) {
+          handleOpenCodeUpdate(payload);
+        }
+        break;
+
+      case 'quota_reset_progress':
+        if (payload && payload.line) {
+          appendLog(`[QuotaReset] ${payload.line}`);
+        }
+        break;
+
       case 'cli_status_changed':
         if (payload && payload.cli) {
           state.clis[payload.cli] = { state: payload.state, port: payload.port, pid: payload.pid };
@@ -1617,29 +1636,216 @@
 
     document.getElementById('btn-reset-opencode-quota')?.addEventListener('click', async () => {
       const btn = document.getElementById('btn-reset-opencode-quota');
+      const icon = document.getElementById('icon-reset-quota');
       const lbl = document.getElementById('lbl-reset-quota-btn');
       const ipText = document.getElementById('dash-public-ip-text');
+
       if (btn) btn.disabled = true;
-      if (lbl) lbl.textContent = 'Rotating Cloudflare WARP IP...';
+      if (icon) icon.classList.add('spinning');
+      if (lbl) lbl.textContent = 'Rotating Tunnel & Clearing Sockets...';
       if (ipText && !state.isIpMasked) ipText.textContent = 'IP: Rotating...';
 
       try {
-        const res = await callBridge('rotate_warp_ip');
-        if (res) {
-          if (res.ip) state.publicIp = res.ip;
+        const res = await callBridge('reset_opencode_quota');
+        if (res && res.success) {
+          const freshIp = res.newIp || res.ip;
+          if (freshIp && freshIp !== 'unknown') {
+            state.publicIp = freshIp;
+          }
           renderPublicIpDisplay();
-          appendLog('[QuotaReset] ' + (res.message || 'WARP IP rotated successfully.'));
+
+          // Play subtle success animation on IP badge/text
+          if (ipText) {
+            ipText.classList.remove('pulse-success');
+            void ipText.offsetWidth; // Force CSS reflow
+            ipText.classList.add('pulse-success');
+          }
+
+          const oldStr = res.oldIp || 'Previous';
+          const newStr = res.newIp || freshIp || 'Updated';
+          const toastMsg = res.sidecarSynced
+            ? `IP Rotated: ${oldStr} ➜ ${newStr} | Sidecar Re-synced`
+            : `IP Rotated: ${oldStr} ➜ ${newStr}`;
+
+          showToast(toastMsg, 'success', 5000);
+          appendLog('[QuotaReset] ' + (res.message || toastMsg));
           if (lbl) lbl.textContent = 'Reset Succeeded!';
-          setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3000);
+          setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3500);
+        } else {
+          const errMsg = (res && res.message) ? res.message : 'Tunnel rotation timed out or failed';
+          showToast(`Quota Reset Failed: ${errMsg}`, 'error', 6000);
+          appendLog(`[QuotaReset] Failed: ${errMsg}`);
+          if (lbl) lbl.textContent = 'Reset Failed';
+          setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3500);
         }
       } catch (err) {
+        showToast(`Quota Reset Error: ${err.message}`, 'error', 6000);
         appendLog('[QuotaReset] Error: ' + err.message);
         if (lbl) lbl.textContent = 'Reset Failed';
-        setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3000);
+        setTimeout(() => { if (lbl) lbl.textContent = 'Reset OpenCode Quota (WARP IP)'; }, 3500);
       } finally {
+        if (icon) icon.classList.remove('spinning');
         if (btn) btn.disabled = false;
       }
     });
+
+    document.getElementById('btn-refresh-opencode-sidecar')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-refresh-opencode-sidecar');
+      const svg = btn?.querySelector('svg');
+      if (svg) svg.classList.add('spinning');
+      try {
+        const fresh = await callBridge('refresh_opencode_sidecar');
+        if (fresh) {
+          handleOpenCodeUpdate(fresh);
+          showToast(`Sidecar ${fresh.isOnline ? 'Online (Port ' + fresh.port + ')' : 'Offline'}`, fresh.isOnline ? 'success' : 'info', 2500);
+        }
+      } catch (err) {
+        showToast('Sidecar refresh failed: ' + err.message, 'error', 3000);
+      } finally {
+        if (svg) svg.classList.remove('spinning');
+      }
+    });
+  }
+
+  function handleOpenCodeUpdate(data) {
+    if (!data) return;
+    state.opencode = {
+      isOnline: !!data.isOnline,
+      port: data.port || 0,
+      activeSessions: Array.isArray(data.activeSessions) ? data.activeSessions : []
+    };
+    renderOpenCodeCard();
+  }
+
+  function renderOpenCodeCard() {
+    const badge = document.getElementById('opencode-sidecar-badge');
+    const dot = document.getElementById('opencode-sidecar-dot');
+    const text = document.getElementById('opencode-sidecar-text');
+    const countEl = document.getElementById('opencode-sessions-count');
+    const badgeIcon = document.getElementById('opencode-sessions-badge-icon');
+    const listEl = document.getElementById('opencode-sessions-list');
+
+    const isOnline = !!state.opencode?.isOnline;
+    const port = state.opencode?.port || 0;
+    const sessions = state.opencode?.activeSessions || [];
+
+    // 1. Sidecar Status Header Pill
+    if (badge && dot && text) {
+      if (isOnline) {
+        badge.style.background = 'rgba(16, 185, 129, 0.15)';
+        badge.style.color = '#10b981';
+        badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        dot.style.background = '#10b981';
+        text.textContent = `Sidecar: Connected (Port ${port})`;
+      } else {
+        badge.style.background = 'rgba(100, 116, 139, 0.15)';
+        badge.style.color = 'var(--text-dim, #94a3b8)';
+        badge.style.borderColor = 'rgba(148, 163, 184, 0.2)';
+        dot.style.background = '#64748b';
+        text.textContent = 'Sidecar: Offline';
+      }
+    }
+
+    // 2. Active Sessions Tray
+    if (countEl) countEl.textContent = String(sessions.length);
+    if (badgeIcon) badgeIcon.textContent = (isOnline && sessions.length > 0) ? '🔥' : '📁';
+
+    if (listEl) {
+      listEl.innerHTML = '';
+
+      if (!isOnline) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'empty-state';
+        emptyDiv.style.cssText = 'font-size: 11px; color: var(--text-dim, #94a3b8); padding: 4px 0; font-style: italic;';
+        emptyDiv.textContent = 'Sidecar offline (Open OpenCode Desktop to connect)';
+        listEl.appendChild(emptyDiv);
+      } else if (sessions.length === 0) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'empty-state';
+        emptyDiv.style.cssText = 'font-size: 11px; color: var(--text-dim, #94a3b8); padding: 4px 0; font-style: italic;';
+        emptyDiv.textContent = 'Idle (No active sessions)';
+        listEl.appendChild(emptyDiv);
+      } else {
+        sessions.forEach(s => {
+          const item = document.createElement('div');
+          item.className = 'opencode-session-item';
+
+          const title = escapeHtml(s.title || 'Untitled Session');
+          const dir = escapeHtml(s.directory || 'No directory');
+
+          item.innerHTML = `
+            <div class="opencode-session-info">
+              <div class="opencode-session-title" title="${title}">${title}</div>
+              <div class="opencode-session-path" title="${dir}">${dir}</div>
+            </div>
+            <button class="btn-session-focus" title="Bring OpenCode to foreground">Focus</button>
+          `;
+
+          const focusBtn = item.querySelector('.btn-session-focus');
+          if (focusBtn) {
+            focusBtn.addEventListener('click', async (ev) => {
+              ev.stopPropagation();
+              focusBtn.disabled = true;
+              focusBtn.textContent = 'Opening...';
+              try {
+                await callBridge('focus_opencode_session', {
+                  sessionId: s.id,
+                  directory: s.directory
+                });
+                showToast(`Focused session: ${s.title}`, 'info', 2500);
+              } catch (err) {
+                showToast(`Focus failed: ${err.message}`, 'error', 3000);
+              } finally {
+                setTimeout(() => {
+                  focusBtn.disabled = false;
+                  focusBtn.textContent = 'Focus';
+                }, 1000);
+              }
+            });
+          }
+
+          listEl.appendChild(item);
+        });
+      }
+    }
+  }
+
+  // Modern Dynamic Toast System
+  function showToast(message, type = 'info', durationMs = 4500) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast-item toast-${type}`;
+
+    let iconSvg = '';
+    if (type === 'success') {
+      iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#10b981" stroke-width="2.5" fill="none"><path d="M20 6L9 17l-5-5"/></svg>`;
+    } else if (type === 'error') {
+      iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#ef4444" stroke-width="2.5" fill="none"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+    } else {
+      iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#3b82f6" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+    }
+
+    toast.innerHTML = `
+      <span style="display: flex; align-items: center; flex-shrink: 0;">${iconSvg}</span>
+      <span style="flex: 1; word-break: break-word;">${escapeHtml(message)}</span>
+    `;
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      toast.classList.add('toast-out');
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      }, 250);
+    }, durationMs);
   }
 
   // AI Providers & Models Setup View
@@ -1954,6 +2160,10 @@
         if (res.aiConfig) {
           state.aiConfig = res.aiConfig;
         }
+        if (res.opencode) {
+          state.opencode = res.opencode;
+          renderOpenCodeCard();
+        }
         if (res.settings) {
           state.settings = res.settings;
           const autoCheck = document.getElementById('setting-autostart-checkbox');
@@ -2044,6 +2254,7 @@
     setupSettingsView();
     setupShortcutEditor();
     setupQuotaAndIpWidget();
+    renderOpenCodeCard();
     setupGlobalActions();
     loadInitialState();
   });

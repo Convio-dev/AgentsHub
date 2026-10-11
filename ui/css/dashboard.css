@@ -958,3 +958,123 @@ html[data-theme="light"] .dashboard-card {
   text-overflow: ellipsis;
   margin-top: 4px;
 }
+
+/* Animations */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spinning {
+  animation: spin 0.85s linear infinite;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.02); }
+}
+.pulse-success {
+  animation: pulse-subtle 0.5s ease-in-out;
+}
+
+/* OpenCode Command Station Sessions */
+.opencode-session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.opencode-session-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.opencode-session-info {
+  flex: 1;
+  min-width: 0;
+}
+.opencode-session-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-main, #f8fafc);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.opencode-session-path {
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-dim, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-session-focus {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #10b981;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.btn-session-focus:hover {
+  background: #10b981;
+  color: #ffffff;
+}
+
+/* Modern Dynamic Toast System */
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  max-width: 380px;
+  width: calc(100vw - 48px);
+}
+.toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md, 8px);
+  background: #18181b;
+  color: #f4f4f5;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
+  animation: toast-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.toast-item.toast-out {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.95);
+}
+.toast-item.toast-success {
+  border-left: 3px solid #10b981;
+}
+.toast-item.toast-error {
+  border-left: 3px solid #ef4444;
+}
+.toast-item.toast-info {
+  border-left: 3px solid #3b82f6;
+}
+@keyframes toast-in {
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

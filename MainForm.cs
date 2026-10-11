@@ -15,6 +15,7 @@ public partial class MainForm : Form
     private CliManagerService? _cliManager;
     private LanProxyService? _lanProxyService;
     private DashboardWebBridge? _dashboardWebBridge;
+    private OpenCodeWatcherService? _openCodeWatcher;
     private WebView2? _webView;
 
     private NotifyIcon? _notifyIcon;
@@ -56,6 +57,7 @@ public partial class MainForm : Form
 
         _hermesService = new HermesProcessService(savedEnginePort);
         _cliManager = new CliManagerService(_hermesService);
+        _openCodeWatcher = new OpenCodeWatcherService();
         _lanProxyService = new LanProxyService
         {
             ListenPort = savedLanPort,
@@ -129,7 +131,7 @@ public partial class MainForm : Form
             // Attach C# backend bridge
             if (_cliManager != null)
             {
-                _dashboardWebBridge = new DashboardWebBridge(this, _cliManager, _lanProxyService);
+                _dashboardWebBridge = new DashboardWebBridge(this, _cliManager, _lanProxyService, _openCodeWatcher);
                 _dashboardWebBridge.AttachWebView(_webView.CoreWebView2);
             }
 
@@ -229,6 +231,9 @@ public partial class MainForm : Form
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
         }
+
+        _openCodeWatcher?.Dispose();
+        _dashboardWebBridge?.Dispose();
 
         Application.Exit();
     }

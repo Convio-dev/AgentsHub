@@ -3,7 +3,8 @@
 [Oo]bj/
 [Oo]ut/
 publish/
-[Dd]ist/
+[Dd]ist/*
+![Dd]ist/fixquota-command.js
 
 # Visual Studio
 .vs/

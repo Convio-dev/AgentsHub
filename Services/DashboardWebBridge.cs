@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HermesHub.Helpers;
@@ -14,6 +15,7 @@ public sealed class DashboardWebBridge : IDisposable
     private readonly Form _mainForm;
     private readonly CliManagerService _cliManager;
     private readonly LanProxyService? _lanProxyService;
+    private readonly OpenCodeWatcherService? _openCodeWatcher;
     private CoreWebView2? _coreWebView;
     private CliWebviewForm? _cliWebviewForm;
 
@@ -31,11 +33,12 @@ public sealed class DashboardWebBridge : IDisposable
     private readonly PerformanceCounter? _cpuCounter;
     private CancellationTokenSource? _promptEnhanceCts;
 
-    public DashboardWebBridge(Form mainForm, CliManagerService cliManager, LanProxyService? lanProxyService)
+    public DashboardWebBridge(Form mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
     {
         _mainForm = mainForm;
         _cliManager = cliManager;
         _lanProxyService = lanProxyService;
+        _openCodeWatcher = openCodeWatcher;
 
         // Initialize debounced terminal stream timer (flushes every 20ms)
         _streamFlushTimer = new System.Windows.Forms.Timer { Interval = 20 };
@@ -64,6 +67,12 @@ public sealed class DashboardWebBridge : IDisposable
     {
         _coreWebView = coreWebView;
         _coreWebView.WebMessageReceived += OnWebMessageReceived;
+
+        if (_openCodeWatcher != null)
+        {
+            var stateDto = _openCodeWatcher.GetStateDto();
+            PostOpenCodeUpdate(stateDto);
+        }
     }
 
     private void HookBackendEvents()
@@ -127,6 +136,21 @@ public sealed class DashboardWebBridge : IDisposable
                     lanProxyRunning = isRunning,
                     runningPorts = rPorts
                 });
+            };
+        }
+
+        if (_openCodeWatcher != null)
+        {
+            _openCodeWatcher.OnStatusChanged += (isOnline, port) =>
+            {
+                var stateDto = _openCodeWatcher.GetStateDto();
+                PostOpenCodeUpdate(stateDto);
+            };
+
+            _openCodeWatcher.OnSessionsUpdated += (sessions) =>
+            {
+                var stateDto = _openCodeWatcher.GetStateDto();
+                PostOpenCodeUpdate(stateDto);
             };
         }
     }
@@ -633,15 +657,33 @@ public sealed class DashboardWebBridge : IDisposable
                 SendResponse(requestId, true, new { ip = currentIp ?? "Unavailable" });
                 break;
 
+            case "reset_opencode_quota":
             case "rotate_warp_ip":
-                var rotateMsg = await NetworkHelper.RotateCloudflareWarpIpAsync();
-                var freshIp = await NetworkHelper.FetchPublicIpAsync();
-                SendResponse(requestId, true, new
+            case "ResetOpenCodeQuota":
+                await ResetOpenCodeQuotaAsync(requestId);
+                break;
+
+            case "get_opencode_state":
+            case "GetOpenCodeState":
+                SendResponse(requestId, true, GetOpenCodeState());
+                break;
+
+            case "focus_opencode_session":
+            case "FocusOpenCodeSession":
                 {
-                    success = !rotateMsg.StartsWith("Failed", StringComparison.OrdinalIgnoreCase),
-                    message = rotateMsg,
-                    ip = freshIp ?? rotateMsg
-                });
+                    string? sId = data.TryGetProperty("sessionId", out var sEl) ? sEl.GetString() : (data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null);
+                    string? sDir = data.TryGetProperty("directory", out var dEl) ? dEl.GetString() : (data.TryGetProperty("path", out var pEl) ? pEl.GetString() : null);
+                    var ok = FocusOpenCodeSession(sId, sDir);
+                    SendResponse(requestId, ok, new { success = ok });
+                }
+                break;
+
+            case "refresh_opencode_sidecar":
+            case "RefreshOpenCodeSidecar":
+                {
+                    var freshState = await RefreshOpenCodeSidecarAsync();
+                    SendResponse(requestId, true, freshState);
+                }
                 break;
 
             case "generate_qr_code":
@@ -907,6 +949,7 @@ public sealed class DashboardWebBridge : IDisposable
                 activeProfile = _cliManager.ProfileService.ActiveProfile,
                 profiles = GetProfilesWithEmail()
             },
+            opencode = GetOpenCodeState(),
             aiConfig = GetAiConfigDto()
         };
     }
@@ -1050,6 +1093,172 @@ public sealed class DashboardWebBridge : IDisposable
             _coreWebView.PostWebMessageAsJson(envelope);
         }
         catch { }
+    }
+
+    private void PostOpenCodeUpdate(OpenCodeStateDto stateDto)
+    {
+        if (_coreWebView == null) return;
+        try
+        {
+            var envelope = JsonSerializer.Serialize(new
+            {
+                type = "OPENCODE_UPDATE",
+                data = stateDto,
+                @event = "opencode_status_changed",
+                payload = stateDto
+            });
+            _coreWebView.PostWebMessageAsJson(envelope);
+        }
+        catch { }
+    }
+
+    public OpenCodeStateDto GetOpenCodeState()
+    {
+        return _openCodeWatcher?.GetStateDto() ?? new OpenCodeStateDto();
+    }
+
+    public bool FocusOpenCodeSession(string? sessionId, string? directory)
+    {
+        return _openCodeWatcher?.FocusOpenCodeSession(sessionId, directory) ?? false;
+    }
+
+    public async Task<OpenCodeStateDto> RefreshOpenCodeSidecarAsync()
+    {
+        if (_openCodeWatcher != null)
+        {
+            return await _openCodeWatcher.RefreshAsync();
+        }
+        return new OpenCodeStateDto();
+    }
+
+    public async Task<object> ResetOpenCodeQuotaAsync(string? requestId = null)
+    {
+        string baseDir = AppContext.BaseDirectory;
+        string scriptPath = Path.Combine(baseDir, "dist", "fixquota-command.js");
+        if (!File.Exists(scriptPath))
+        {
+            var fallback = Path.Combine(Directory.GetCurrentDirectory(), "dist", "fixquota-command.js");
+            if (File.Exists(fallback)) scriptPath = fallback;
+        }
+
+        bool nodeExecuted = false;
+        string outputJson = string.Empty;
+        var outputLines = new List<string>();
+
+        if (File.Exists(scriptPath))
+        {
+            try
+            {
+                using var proc = new Process();
+                proc.StartInfo = new ProcessStartInfo
+                {
+                    FileName = "node.exe",
+                    Arguments = $"\"{scriptPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+
+                proc.OutputDataReceived += (_, e) =>
+                {
+                    if (e.Data != null)
+                    {
+                        outputLines.Add(e.Data);
+                        PostEventToUi("terminal_data", new { cli = "QuotaReset", data = e.Data + "\r\n" });
+                        PostEventToUi("quota_reset_progress", new { line = e.Data });
+                    }
+                };
+                proc.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data != null)
+                    {
+                        outputLines.Add(e.Data);
+                        PostEventToUi("terminal_data", new { cli = "QuotaReset", data = e.Data + "\r\n" });
+                    }
+                };
+
+                proc.Start();
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+
+                await proc.WaitForExitAsync();
+                nodeExecuted = true;
+                outputJson = string.Join(Environment.NewLine, outputLines);
+            }
+            catch
+            {
+                nodeExecuted = false;
+            }
+        }
+
+        // If node was executed, try parsing clean JSON output
+        if (nodeExecuted && !string.IsNullOrWhiteSpace(outputJson))
+        {
+            try
+            {
+                int start = outputJson.IndexOf('{');
+                int end = outputJson.LastIndexOf('}');
+                if (start >= 0 && end > start)
+                {
+                    var jsonBlock = outputJson.Substring(start, end - start + 1);
+                    using var doc = JsonDocument.Parse(jsonBlock);
+                    var root = doc.RootElement;
+                    bool success = root.TryGetProperty("success", out var sProp) && sProp.GetBoolean();
+                    string oldIp = root.TryGetProperty("oldIp", out var oiProp) ? oiProp.GetString() ?? "unknown" : "unknown";
+                    string newIp = root.TryGetProperty("newIp", out var niProp) ? niProp.GetString() ?? "unknown" : "unknown";
+                    bool dnsFlushed = root.TryGetProperty("dnsFlushed", out var dfProp) && dfProp.GetBoolean();
+                    bool sidecarSynced = root.TryGetProperty("sidecarSynced", out var ssProp) && ssProp.GetBoolean();
+                    string message = root.TryGetProperty("message", out var mProp) ? mProp.GetString() ?? string.Empty : string.Empty;
+
+                    if (_openCodeWatcher != null)
+                    {
+                        _ = _openCodeWatcher.RefreshAsync();
+                    }
+
+                    var resultObj = new
+                    {
+                        success,
+                        oldIp,
+                        newIp,
+                        dnsFlushed,
+                        sidecarSynced,
+                        message,
+                        ip = newIp != "unknown" ? newIp : null
+                    };
+
+                    if (requestId != null) SendResponse(requestId, success, resultObj);
+                    return resultObj;
+                }
+            }
+            catch { }
+        }
+
+        // Fallback execution via NetworkHelper if node is missing or script threw
+        var rotateMsg = await NetworkHelper.RotateCloudflareWarpIpAsync();
+        var freshIp = await NetworkHelper.FetchPublicIpAsync();
+        bool fallbackSuccess = !rotateMsg.StartsWith("Failed", StringComparison.OrdinalIgnoreCase);
+
+        if (_openCodeWatcher != null)
+        {
+            _ = _openCodeWatcher.RefreshAsync();
+        }
+
+        var fallbackResult = new
+        {
+            success = fallbackSuccess,
+            oldIp = "unknown",
+            newIp = freshIp ?? "unknown",
+            dnsFlushed = false,
+            sidecarSynced = _openCodeWatcher?.IsOnline ?? false,
+            message = rotateMsg,
+            ip = freshIp ?? rotateMsg
+        };
+
+        if (requestId != null) SendResponse(requestId, fallbackSuccess, fallbackResult);
+        return fallbackResult;
     }
 
     private object[] GetProfilesWithEmail()

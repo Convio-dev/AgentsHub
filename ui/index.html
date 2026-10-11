@@ -169,9 +169,9 @@
               </div>
             </div>
 
-            <div class="dashboard-card">
-              <div class="card-header">
-                <div class="card-title-group">
+            <div class="dashboard-card" id="card-opencode-quota">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                <div class="card-title-group" style="flex: 1;">
                   <div class="card-icon">
                     <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                   </div>
@@ -179,6 +179,10 @@
                     <div class="card-title">OPENCODE QUOTA & PUBLIC IP</div>
                     <div class="card-subtitle">Rotate Cloudflare WARP IP for OpenCode free trials</div>
                   </div>
+                </div>
+                <div id="opencode-sidecar-badge" class="badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 3px 8px; border-radius: 9999px; background: rgba(100, 116, 139, 0.15); color: var(--text-dim, #94a3b8); border: 1px solid rgba(148, 163, 184, 0.2); white-space: nowrap;">
+                  <span id="opencode-sidecar-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #64748b;"></span>
+                  <span id="opencode-sidecar-text">Sidecar: Offline</span>
                 </div>
               </div>
               <div class="card-url-box">
@@ -192,10 +196,29 @@
                   </button>
                 </div>
               </div>
-              <button class="btn btn-outline" id="btn-reset-opencode-quota" style="width: 100%; margin-top: 10px; padding: 7px 12px; font-size: 12px; gap: 6px;">
-                <svg class="icon-svg" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <button class="btn btn-outline" id="btn-reset-opencode-quota" style="width: 100%; margin-top: 10px; padding: 7px 12px; font-size: 12px; gap: 6px; position: relative;">
+                <svg class="icon-svg" id="icon-reset-quota" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                 <span id="lbl-reset-quota-btn">Reset OpenCode Quota (WARP IP)</span>
               </button>
+
+              <!-- Active Sessions Tray -->
+              <div id="opencode-sessions-container" style="margin-top: 12px; border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.08)); padding-top: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px;">
+                  <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim, #94a3b8); display: flex; align-items: center; gap: 6px;">
+                    <span id="opencode-sessions-badge-icon">🔥</span>
+                    <span id="opencode-sessions-header">Active Sessions</span>
+                    <span id="opencode-sessions-count" style="background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 500;">0</span>
+                  </div>
+                  <button class="btn-icon" id="btn-refresh-opencode-sidecar" title="Refresh OpenCode Sidecar" style="padding: 2px 4px;">
+                    <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                  </button>
+                </div>
+                <div id="opencode-sessions-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto;">
+                  <div class="empty-state" style="font-size: 11px; color: var(--text-dim, #94a3b8); padding: 4px 0; font-style: italic;">
+                    Idle (No active sessions)
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="dashboard-card">
@@ -721,6 +744,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Modern Toast Container -->
+  <div id="toast-container"></div>
 
   <!-- Scripts -->
   <script src="./js/xterm.js"></script>
