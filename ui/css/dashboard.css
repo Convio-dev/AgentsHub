@@ -415,6 +415,47 @@ body, html {
   color: var(--text-dim);
 }
 
+.profile-email-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.profile-email-text {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  letter-spacing: 1px;
+  user-select: none;
+}
+
+.btn-eye-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.btn-eye-toggle:hover {
+  color: var(--accent-cyan);
+}
+
+.icon-eye {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .card-url-box {
   display: flex;
   align-items: center;

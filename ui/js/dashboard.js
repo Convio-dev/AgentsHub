@@ -725,10 +725,23 @@
     const active = state.antigravity.activeProfile || '';
 
     profiles.forEach(p => {
-      const isActive = p.toLowerCase() === active.toLowerCase();
+      const name = typeof p === 'object' ? (p.name || '') : p;
+      const email = typeof p === 'object' ? (p.email || '') : '';
+      const isActive = name.toLowerCase() === active.toLowerCase();
+      const cardId = 'prof-card-' + name.replace(/[^a-z0-9]/gi, '_');
       const card = document.createElement('div');
       card.className = 'dashboard-card';
+      card.id = cardId;
       card.style.borderColor = isActive ? 'var(--accent-green)' : 'var(--border-subtle)';
+
+      const emailHtml = email ? `
+        <div class="profile-email-row" data-visible="false">
+          <span class="profile-email-text">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span>
+          <button class="btn-eye-toggle" title="Show / hide email" aria-label="Toggle email visibility">
+            <svg viewBox="0 0 24 24" class="icon-eye icon-eye-off"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            <svg viewBox="0 0 24 24" class="icon-eye icon-eye-on" style="display:none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>` : '';
 
       card.innerHTML = `
         <div class="card-header">
@@ -737,18 +750,42 @@
               <svg class="icon-svg" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
             <div>
-              <div class="card-title">${p}</div>
+              <div class="card-title">${name}</div>
               <div class="card-subtitle">${isActive ? 'Active Session' : 'Ready to switch'}</div>
+              ${emailHtml}
             </div>
           </div>
           ${isActive ? '<span class="brand-badge">ACTIVE</span>' : ''}
         </div>
         <div style="display: flex; gap: 8px; margin-top: 14px;">
-          ${!isActive ? `<button class="btn btn-success btn-switch-prof" data-name="${p}" style="flex: 1;">Switch</button>` : ''}
-          <button class="btn btn-outline btn-rename-prof" data-name="${p}">Rename</button>
-          ${!isActive ? `<button class="btn btn-danger btn-delete-prof" data-name="${p}">Delete</button>` : ''}
+          ${!isActive ? `<button class="btn btn-success btn-switch-prof" data-name="${name}" style="flex: 1;">Switch</button>` : ''}
+          <button class="btn btn-outline btn-rename-prof" data-name="${name}">Rename</button>
+          ${!isActive ? `<button class="btn btn-danger btn-delete-prof" data-name="${name}">Delete</button>` : ''}
         </div>
       `;
+
+      // Eye toggle handler
+      const emailRow = card.querySelector('.profile-email-row');
+      if (emailRow) {
+        const emailText = emailRow.querySelector('.profile-email-text');
+        const eyeOff = emailRow.querySelector('.icon-eye-off');
+        const eyeOn  = emailRow.querySelector('.icon-eye-on');
+        emailRow.querySelector('.btn-eye-toggle').addEventListener('click', () => {
+          const visible = emailRow.dataset.visible === 'true';
+          if (visible) {
+            emailText.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+            eyeOff.style.display = '';
+            eyeOn.style.display  = 'none';
+            emailRow.dataset.visible = 'false';
+          } else {
+            emailText.textContent = email;
+            eyeOff.style.display = 'none';
+            eyeOn.style.display  = '';
+            emailRow.dataset.visible = 'true';
+          }
+        });
+      }
+
       container.appendChild(card);
     });
 
@@ -788,9 +825,11 @@
     const sel = document.getElementById('quick-profile-select');
     const cardSel = document.getElementById('dash-card-profile-select');
     const summary = document.getElementById('dash-active-profile-summary');
-    const profiles = (state.antigravity.profiles && state.antigravity.profiles.length > 0)
+    const rawProfiles = (state.antigravity.profiles && state.antigravity.profiles.length > 0)
       ? state.antigravity.profiles
       : (state.antigravity.activeProfile ? [state.antigravity.activeProfile] : ['default']);
+    // Normalize to name strings for the dropdown
+    const profiles = rawProfiles.map(p => (typeof p === 'object' ? p.name : p));
     const active = state.antigravity.activeProfile || (profiles[0] || 'default');
 
     if (summary) {

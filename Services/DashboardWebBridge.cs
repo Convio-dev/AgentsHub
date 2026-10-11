@@ -97,7 +97,7 @@ public sealed class DashboardWebBridge : IDisposable
             PostEventToUi("profile_changed", new
             {
                 activeProfile,
-                profiles = _cliManager.ProfileService.GetProfiles()
+                profiles = GetProfilesWithEmail()
             });
         };
 
@@ -106,7 +106,7 @@ public sealed class DashboardWebBridge : IDisposable
             PostEventToUi("profile_saved", new
             {
                 profile,
-                profiles = _cliManager.ProfileService.GetProfiles()
+                profiles = GetProfilesWithEmail()
             });
         };
 
@@ -322,7 +322,7 @@ public sealed class DashboardWebBridge : IDisposable
                             return;
                         }
                         await _cliManager.CreateAndSwitchNewProfileAsync(newName);
-                        SendResponse(requestId, true, new { activeProfile = _cliManager.ProfileService.ActiveProfile, profiles = _cliManager.ProfileService.GetProfiles() });
+                        SendResponse(requestId, true, new { activeProfile = _cliManager.ProfileService.ActiveProfile, profiles = GetProfilesWithEmail() });
                     }
                 }
                 break;
@@ -335,7 +335,7 @@ public sealed class DashboardWebBridge : IDisposable
                     if (!string.IsNullOrWhiteSpace(oldName) && !string.IsNullOrWhiteSpace(newName))
                     {
                         var ok = _cliManager.ProfileService.RenameProfile(oldName, newName);
-                        SendResponse(requestId, ok, new { activeProfile = _cliManager.ProfileService.ActiveProfile, profiles = _cliManager.ProfileService.GetProfiles() });
+                        SendResponse(requestId, ok, new { activeProfile = _cliManager.ProfileService.ActiveProfile, profiles = GetProfilesWithEmail() });
                     }
                 }
                 break;
@@ -347,7 +347,7 @@ public sealed class DashboardWebBridge : IDisposable
                     if (!string.IsNullOrWhiteSpace(pName))
                     {
                         var ok = _cliManager.ProfileService.DeleteProfile(pName);
-                        SendResponse(requestId, ok, new { activeProfile = _cliManager.ProfileService.ActiveProfile, profiles = _cliManager.ProfileService.GetProfiles() });
+                        SendResponse(requestId, ok, new { activeProfile = _cliManager.ProfileService.ActiveProfile, profiles = GetProfilesWithEmail() });
                     }
                 }
                 break;
@@ -885,7 +885,7 @@ public sealed class DashboardWebBridge : IDisposable
             antigravity = new
             {
                 activeProfile = _cliManager.ProfileService.ActiveProfile,
-                profiles = _cliManager.ProfileService.GetProfiles()
+                profiles = GetProfilesWithEmail()
             },
             aiConfig = GetAiConfigDto()
         };
@@ -1030,6 +1030,17 @@ public sealed class DashboardWebBridge : IDisposable
             _coreWebView.PostWebMessageAsJson(envelope);
         }
         catch { }
+    }
+
+    private object[] GetProfilesWithEmail()
+    {
+        return _cliManager.ProfileService.GetProfiles()
+            .Select(name => (object)new
+            {
+                name,
+                email = _cliManager.ProfileService.GetAccountEmail(name) ?? string.Empty
+            })
+            .ToArray();
     }
 
     public void Dispose()
