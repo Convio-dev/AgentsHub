@@ -113,6 +113,9 @@ partial class CliWebviewForm
         ClientSize = new Size(1020, 680);
         Controls.Add(contentPanel);
         Controls.Add(topToolbar);
+        // The toolbar paints its own background, so it must stay above the
+        // content panel or terminal content shows through behind it.
+        topToolbar.BringToFront();
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = true;
         MinimizeBox = true;

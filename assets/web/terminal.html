@@ -8,6 +8,10 @@
   <style>
     :root {
       --bg-terminal: #09090b;
+      /* The xterm canvas is always dark, so the page around it must match it.
+         Using --bg-terminal here would turn the page white in light theme and
+         paint an opaque bar over the last column of the terminal. */
+      --bg-page: #09090b;
       --bg-overlay: rgba(9, 9, 11, 0.92);
       --bg-card: #18181b;
       --border-subtle: #27272a;
@@ -25,7 +29,7 @@
     html, body {
       width: 100%;
       height: 100%;
-      background-color: var(--bg-terminal);
+      background-color: var(--bg-page);
       color: var(--text-main);
       font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
       overflow: hidden;
@@ -35,16 +39,24 @@
       width: 100%;
       height: 100%;
       padding: 6px 10px 8px 10px;
+      background-color: var(--bg-page);
     }
     .xterm {
       width: 100%;
       height: 100%;
     }
+    /* The viewport keeps its own opaque background and an always-reserved
+       scrollbar gutter, so paint both with the page colour instead of white. */
+    .xterm .xterm-viewport {
+      background-color: var(--bg-page);
+      scrollbar-width: thin;
+      scrollbar-color: #3f3f46 var(--bg-page);
+    }
     .xterm-viewport::-webkit-scrollbar {
       width: 8px;
     }
     .xterm-viewport::-webkit-scrollbar-track {
-      background: var(--bg-terminal);
+      background: var(--bg-page);
     }
     .xterm-viewport::-webkit-scrollbar-thumb {
       background: var(--border-subtle);
@@ -214,13 +226,29 @@
 
     function reportResize() {
       try {
+        if (!container.clientWidth || !container.clientHeight) return;
         fitAddon.fit();
-        sendHostMessage({
-          type: 'resize',
-          cols: term.cols,
-          rows: term.rows
-        });
+        // A stale scroll offset keeps content clipped even after the terminal
+        // has been refitted to the new window size. Drop it, but only when the
+        // user is already at the bottom so scrollback is not yanked away.
+        if (term.buffer.active.viewportY >= term.buffer.active.baseY) {
+          term.scrollToBottom();
+        }
+        if (term.cols > 10 && term.rows > 4) {
+          sendHostMessage({
+            type: 'resize',
+            cols: term.cols,
+            rows: term.rows
+          });
+        }
       } catch (e) {}
+    }
+
+    if (window.ResizeObserver) {
+      const resizeObserver = new ResizeObserver(() => {
+        reportResize();
+      });
+      resizeObserver.observe(container);
     }
 
     window.addEventListener('resize', () => {
@@ -297,6 +325,10 @@
           term.focus();
           break;
 
+        case 'fit':
+          reportResize();
+          break;
+
         case 'theme_changed':
           if (msg.theme || msg.accentColor) {
             const newTheme = msg.theme || localStorage.getItem('agents_hub_theme') || 'light';
@@ -336,6 +368,10 @@
       const hex = accentHex || '#4049B9';
       const { h, s, l } = hexToHsl(hex);
       const root = document.documentElement.style;
+      // The xterm canvas is always dark, so the page around it must use the
+      // exact same colour. Otherwise the padding frame, the strip below the
+      // fitted rows and the scrollbar gutter render white in light theme.
+      const canvasBg = isLight ? `hsl(${h}, 15%, 8%)` : `hsl(${h}, 22%, 5.5%)`;
 
       if (isLight) {
         root.setProperty('--bg-terminal', `hsl(${h}, 22%, 95.5%)`);
@@ -359,12 +395,14 @@
         root.setProperty('--accent-text', '#ffffff');
       }
 
+      root.setProperty('--bg-page', canvasBg);
+
       if (term) {
         term.options.theme = {
-          background: isLight ? `hsl(${h}, 15%, 8%)` : `hsl(${h}, 22%, 5.5%)`,
+          background: canvasBg,
           foreground: '#f4f4f5',
           cursor: hex,
-          cursorAccent: isLight ? `hsl(${h}, 15%, 8%)` : `hsl(${h}, 22%, 5.5%)`,
+          cursorAccent: canvasBg,
           selectionBackground: `hsla(${h}, ${s}%, 50%, 0.35)`
         };
       }

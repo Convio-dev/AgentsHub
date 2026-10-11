@@ -187,6 +187,9 @@ public partial class CliWebviewForm : Form
         topToolbar.Resize += (_, _) => LayoutToolbar();
         toolsPanel.Resize += (_, _) => LayoutToolbar();
         contentPanel.Resize += (_, _) => TriggerTerminalFit();
+        // While the border is dragged Resize fires continuously and the
+        // terminal can settle on a stale grid; refit once the drag ends.
+        ResizeEnd += (_, _) => TriggerTerminalFit();
         topToolbar.Paint += (s, e) =>
         {
             using var pen = new Pen(ThemeManager.Colors.CardBorder, 1);
@@ -562,7 +565,10 @@ public partial class CliWebviewForm : Form
     {
         if (toolsPanel == null || topToolbar == null) return;
 
-        toolsPanel.Width = Math.Max(380, topToolbar.ClientSize.Width - tabsPanel.Width);
+        // toolsPanel is Dock.Fill, so it already gets whatever the tabs leave
+        // over. Never widen it beyond that or the action buttons and the
+        // status label get pushed outside the toolbar when the form is narrow.
+        toolsPanel.Width = Math.Max(0, topToolbar.ClientSize.Width - tabsPanel.Width);
 
         int right = toolsPanel.ClientSize.Width - 10;
 
@@ -716,6 +722,7 @@ public partial class CliWebviewForm : Form
         if (!IsInDesignMode)
         {
             ApplyTheme();
+            TriggerTerminalFit();
         }
     }
 
@@ -947,11 +954,8 @@ public partial class CliWebviewForm : Form
 
         try
         {
-            var wv = new Microsoft.Web.WebView2.WinForms.WebView2
-            {
-                Dock = DockStyle.Fill,
-                Visible = string.Equals(_activeTabId, ws.Id, StringComparison.OrdinalIgnoreCase)
-            };
+            var wv = CreateHostedWebView();
+            wv.Visible = string.Equals(_activeTabId, ws.Id, StringComparison.OrdinalIgnoreCase);
             contentPanel.Controls.Add(wv);
             _customWebViews[ws.Id] = wv;
 
@@ -981,13 +985,24 @@ public partial class CliWebviewForm : Form
         }
     }
 
+    private Microsoft.Web.WebView2.WinForms.WebView2 CreateHostedWebView()
+    {
+        // WebView2's default background is opaque white, which paints as a
+        // white bar across the terminal while the control resizes with the form.
+        return new Microsoft.Web.WebView2.WinForms.WebView2
+        {
+            Dock = DockStyle.Fill,
+            DefaultBackgroundColor = Color.Transparent
+        };
+    }
+
     private async Task InitializeWebViewsAsync()
     {
         try
         {
-            hermesWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
-            claudeWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
-            antigravityWebView = new Microsoft.Web.WebView2.WinForms.WebView2 { Dock = DockStyle.Fill };
+            hermesWebView = CreateHostedWebView();
+            claudeWebView = CreateHostedWebView();
+            antigravityWebView = CreateHostedWebView();
 
             contentPanel.Controls.Add(hermesWebView);
             contentPanel.Controls.Add(claudeWebView);
