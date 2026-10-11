@@ -166,9 +166,19 @@ public class HermesProcessService : IDisposable
     {
         try
         {
+            int currentPid = Environment.ProcessId;
+            var currentProcName = Process.GetCurrentProcess().ProcessName;
+
+            // Never kill ourselves or any process with the same name as our host application
+            if (string.Equals(processName, currentProcName, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             var processes = Process.GetProcessesByName(processName);
             foreach (var proc in processes)
             {
+                if (proc.Id == currentPid) continue;
                 try
                 {
                     proc.Kill(entireProcessTree: true);
@@ -190,16 +200,48 @@ public class HermesProcessService : IDisposable
     {
         try
         {
+            int currentPid = Environment.ProcessId;
             var psi = new ProcessStartInfo
             {
-                FileName = "powershell.exe",
-                Arguments = $"-NoProfile -Command \"Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue | ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }}\"",
-                CreateNoWindow = true,
+                FileName = "netstat.exe",
+                Arguments = "-ano -p tcp",
+                RedirectStandardOutput = true,
                 UseShellExecute = false,
-                WindowStyle = ProcessWindowStyle.Hidden
+                CreateNoWindow = true
             };
+
             using var proc = Process.Start(psi);
-            proc?.WaitForExit(2000);
+            if (proc == null) return;
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(2000);
+
+            var portSuffix = $":{port}";
+            foreach (var line in output.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (!trimmed.StartsWith("TCP", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!trimmed.Contains("LISTENING", StringComparison.OrdinalIgnoreCase)) continue;
+
+                var parts = trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 5 && parts[1].EndsWith(portSuffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (int.TryParse(parts[4], out int pid) && pid > 4 && pid != currentPid)
+                    {
+                        try
+                        {
+                            using var targetProc = Process.GetProcessById(pid);
+                            if (targetProc.Id != currentPid)
+                            {
+                                targetProc.Kill(entireProcessTree: true);
+                            }
+                        }
+                        catch
+                        {
+                            // Process might have already exited
+                        }
+                    }
+                }
+            }
         }
         catch
         {
