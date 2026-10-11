@@ -352,6 +352,26 @@ public sealed class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "open_profile_folder":
+                if (data.TryGetProperty("profileName", out var folderProp))
+                {
+                    var pName = folderProp.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(pName))
+                    {
+                        var profileDir = Path.Combine(AntigravityProfileService.ProfilesBaseDir, pName);
+                        if (Directory.Exists(profileDir))
+                        {
+                            Process.Start(new ProcessStartInfo("explorer.exe", profileDir) { UseShellExecute = true });
+                            SendResponse(requestId, true, null);
+                        }
+                        else
+                        {
+                            SendResponse(requestId, false, "Profile folder not found.");
+                        }
+                    }
+                }
+                break;
+
             case "enhance_prompt":
                 await HandleEnhancePromptAsync(data, requestId);
                 break;

@@ -755,7 +755,12 @@
               ${emailHtml}
             </div>
           </div>
-          ${isActive ? '<span class="brand-badge">ACTIVE</span>' : ''}
+          <div class="profile-card-actions">
+            ${isActive ? '<span class="brand-badge">ACTIVE</span>' : ''}
+            <button class="btn-open-folder" data-name="${name}" title="Open profile folder" aria-label="Open profile folder in Explorer">
+              <svg viewBox="0 0 24 24" class="icon-folder"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            </button>
+          </div>
         </div>
         <div style="display: flex; gap: 8px; margin-top: 14px;">
           ${!isActive ? `<button class="btn btn-success btn-switch-prof" data-name="${name}" style="flex: 1;">Switch</button>` : ''}
@@ -785,6 +790,11 @@
           }
         });
       }
+
+      // Folder open handler
+      card.querySelector('.btn-open-folder')?.addEventListener('click', async () => {
+        await callBridge('open_profile_folder', { profileName: name });
+      });
 
       container.appendChild(card);
     });

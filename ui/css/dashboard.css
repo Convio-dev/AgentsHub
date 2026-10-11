@@ -456,6 +456,41 @@ body, html {
   stroke-linejoin: round;
 }
 
+.profile-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-open-folder {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.btn-open-folder:hover {
+  color: var(--accent-cyan);
+  background: var(--bg-hover);
+}
+
+.icon-folder {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .card-url-box {
   display: flex;
   align-items: center;
