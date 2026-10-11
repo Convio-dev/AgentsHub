@@ -816,7 +816,18 @@
         const oldName = b.dataset.name;
         const newName = prompt(`Enter new name for profile '${oldName}':`, oldName);
         if (newName && newName.trim() && newName.trim() !== oldName) {
-          await callBridge('rename_antigravity_profile', { oldName, newName: newName.trim() });
+          try {
+            const res = await callBridge('rename_antigravity_profile', { oldName, newName: newName.trim() });
+            if (res) {
+              if (res.activeProfile !== undefined) state.antigravity.activeProfile = res.activeProfile;
+              if (res.profiles) state.antigravity.profiles = res.profiles;
+              renderProfiles();
+              renderQuickProfileSelect();
+              updateHeaderStatus();
+            }
+          } catch (e) {
+            console.error('Rename profile failed:', e);
+          }
         }
       });
     });
@@ -825,7 +836,18 @@
       b.addEventListener('click', async () => {
         const name = b.dataset.name;
         if (confirm(`Are you sure you want to delete profile '${name}'?`)) {
-          await callBridge('delete_antigravity_profile', { profileName: name });
+          try {
+            const res = await callBridge('delete_antigravity_profile', { profileName: name });
+            if (res) {
+              if (res.activeProfile !== undefined) state.antigravity.activeProfile = res.activeProfile;
+              if (res.profiles) state.antigravity.profiles = res.profiles;
+              renderProfiles();
+              renderQuickProfileSelect();
+              updateHeaderStatus();
+            }
+          } catch (e) {
+            console.error('Delete profile failed:', e);
+          }
         }
       });
     });
@@ -1888,7 +1910,18 @@
     document.getElementById('btn-confirm-add-profile')?.addEventListener('click', async () => {
       const name = nameInp.value.trim();
       if (name) {
-        await callBridge('create_antigravity_profile', { profileName: name });
+        try {
+          const res = await callBridge('create_antigravity_profile', { profileName: name });
+          if (res) {
+            if (res.activeProfile !== undefined) state.antigravity.activeProfile = res.activeProfile;
+            if (res.profiles) state.antigravity.profiles = res.profiles;
+            renderProfiles();
+            renderQuickProfileSelect();
+            updateHeaderStatus();
+          }
+        } catch (e) {
+          console.error('Create profile failed:', e);
+        }
         modal.classList.remove('open');
       }
     });
