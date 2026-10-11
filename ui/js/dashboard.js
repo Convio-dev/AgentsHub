@@ -75,6 +75,7 @@
           state.clis[payload.cli] = { state: payload.state, port: payload.port, pid: payload.pid };
           updateHeaderStatus();
           updateDashboardCliRows();
+          renderRunningPorts();
         }
         break;
 
@@ -492,7 +493,8 @@
 
     document.getElementById('btn-term-open-browser')?.addEventListener('click', () => {
       const port = state.activeTerminalCli === 'Hermes' ? 9095 : (state.activeTerminalCli === 'ClaudeCode' ? 9229 : 9339);
-      callBridge('open_url_external', { url: `http://127.0.0.1:${port}/` });
+      const themeParam = `?theme=${encodeURIComponent(state.theme || 'light')}&accent=${encodeURIComponent(state.accentColor || '#4049B9')}`;
+      callBridge('open_url_external', { url: `http://127.0.0.1:${port}/${themeParam}` });
     });
 
     // Standalone Terminals Window Buttons
@@ -547,7 +549,7 @@
 
     const summaryEl = document.getElementById('dash-active-profile-summary');
     if (summaryEl) {
-      summaryEl.textContent = `Active Profile: ${state.antigravity.activeProfile || 'None'}`;
+      summaryEl.textContent = `Antigravity Profile: ${state.antigravity.activeProfile || 'None'}`;
     }
   }
 
@@ -769,23 +771,218 @@
 
   function renderQuickProfileSelect() {
     const sel = document.getElementById('quick-profile-select');
-    if (!sel) return;
+    const cardSel = document.getElementById('dash-card-profile-select');
+    const summary = document.getElementById('dash-active-profile-summary');
+    const profiles = (state.antigravity.profiles && state.antigravity.profiles.length > 0)
+      ? state.antigravity.profiles
+      : (state.antigravity.activeProfile ? [state.antigravity.activeProfile] : ['default']);
+    const active = state.antigravity.activeProfile || (profiles[0] || 'default');
 
-    sel.innerHTML = '';
-    const profiles = state.antigravity.profiles || [];
-    const active = state.antigravity.activeProfile || '';
+    if (summary) {
+      summary.textContent = `Antigravity Profile: ${active}`;
+    }
 
-    profiles.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p;
-      opt.textContent = p;
-      if (p.toLowerCase() === active.toLowerCase()) opt.selected = true;
-      sel.appendChild(opt);
+    [sel, cardSel].forEach(dropdown => {
+      if (!dropdown) return;
+      dropdown.innerHTML = '';
+      profiles.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        if (p.toLowerCase() === active.toLowerCase()) opt.selected = true;
+        dropdown.appendChild(opt);
+      });
+
+      dropdown.onchange = async () => {
+        const chosen = dropdown.value;
+        await callBridge('switch_antigravity_profile', { profile: chosen });
+        state.antigravity.activeProfile = chosen;
+        if (summary) summary.textContent = `Antigravity Profile: ${chosen}`;
+        if (sel && sel !== dropdown) sel.value = chosen;
+        if (cardSel && cardSel !== dropdown) cardSel.value = chosen;
+      };
     });
+  }
 
-    sel.onchange = async () => {
-      await callBridge('switch_antigravity_profile', { profile: sel.value });
-    };
+  let selectedPortId = 'hermes';
+
+  function getWebPortsList() {
+    if (state.runningPorts && state.runningPorts.length > 0) {
+      return state.runningPorts.map(p => {
+        if (p.id === 'hermes') {
+          const h = state.clis['Hermes'] || {};
+          return { ...p, state: h.state || 'Offline', isRunning: h.state === 'Running' };
+        }
+        if (p.id === 'claude_code') {
+          const c = state.clis['ClaudeCode'] || {};
+          return { ...p, state: c.state || 'Running', isRunning: true };
+        }
+        if (p.id === 'antigravity_cli') {
+          const a = state.clis['AntigravityCli'] || {};
+          return { ...p, state: a.state || 'Running', isRunning: true };
+        }
+        return p;
+      });
+    }
+
+    const lanIp = state.lanIp || '127.0.0.1';
+    const hermesState = (state.clis['Hermes'] || {}).state || 'Offline';
+    const proxyPort = state.lanProxyPort || 9191;
+    const themeParam = `?theme=${encodeURIComponent(state.theme || 'light')}&accent=${encodeURIComponent(state.accentColor || '#4049B9')}`;
+
+    return [
+      {
+        id: 'hermes',
+        name: 'Hermes Dashboard',
+        port: 9119,
+        lanPort: proxyPort,
+        localUrl: `http://127.0.0.1:9119/${themeParam}`,
+        lanUrl: `http://${lanIp}:${proxyPort}/${themeParam}`,
+        state: hermesState,
+        isRunning: hermesState === 'Running'
+      },
+      {
+        id: 'claude_code',
+        name: 'Claude Code Web',
+        port: 9229,
+        lanPort: 9229,
+        localUrl: `http://127.0.0.1:9229/${themeParam}`,
+        lanUrl: `http://${lanIp}:9229/${themeParam}`,
+        state: 'Running',
+        isRunning: true
+      },
+      {
+        id: 'antigravity_cli',
+        name: 'Antigravity CLI Web',
+        port: 9339,
+        lanPort: 9339,
+        localUrl: `http://127.0.0.1:9339/${themeParam}`,
+        lanUrl: `http://${lanIp}:9339/${themeParam}`,
+        state: 'Running',
+        isRunning: true
+      },
+      {
+        id: 'lan_proxy',
+        name: 'LAN Remote Gateway',
+        port: proxyPort,
+        lanPort: proxyPort,
+        localUrl: `http://127.0.0.1:${proxyPort}/${themeParam}`,
+        lanUrl: `http://${lanIp}:${proxyPort}/${themeParam}`,
+        state: 'Running',
+        isRunning: true
+      }
+    ];
+  }
+
+  function renderRunningPorts() {
+    const ports = getWebPortsList();
+    if (!ports || ports.length === 0) return;
+
+    if (!ports.some(p => p.id === selectedPortId)) {
+      selectedPortId = ports[0].id;
+    }
+
+    const activePort = ports.find(p => p.id === selectedPortId) || ports[0];
+
+    // 1. Dashboard Card: WEB APP HOSTS & RUNNING PORTS
+    const dashSelect = document.getElementById('dash-web-port-select');
+    if (dashSelect) {
+      dashSelect.innerHTML = '';
+      ports.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.name} (Port ${p.port})`;
+        if (p.id === selectedPortId) opt.selected = true;
+        dashSelect.appendChild(opt);
+      });
+      dashSelect.onchange = () => {
+        selectedPortId = dashSelect.value;
+        renderRunningPorts();
+      };
+    }
+
+    const dashUrl = document.getElementById('dash-lan-url');
+    if (dashUrl) {
+      dashUrl.textContent = activePort.localUrl;
+    }
+
+    const dashChips = document.getElementById('dash-running-ports-chips');
+    if (dashChips) {
+      dashChips.innerHTML = '';
+      ports.forEach(p => {
+        const chip = document.createElement('button');
+        const isSel = p.id === selectedPortId;
+        chip.className = `btn btn-outline ${isSel ? 'active' : ''}`;
+        chip.style.cssText = `padding: 3px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border-radius: var(--radius-sm); ${isSel ? 'border-color: var(--accent-green); color: var(--accent-green); font-weight: 600;' : ''}`;
+        chip.innerHTML = `<span class="dot ${p.isRunning ? 'online' : ''}" style="width: 7px; height: 7px;"></span><span>${p.name}: ${p.port}</span>`;
+        chip.onclick = () => {
+          selectedPortId = p.id;
+          renderRunningPorts();
+        };
+        dashChips.appendChild(chip);
+      });
+    }
+
+    // 2. LAN Remote View
+    const lanSelect = document.getElementById('lan-port-select');
+    if (lanSelect) {
+      lanSelect.innerHTML = '';
+      ports.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.name} (LAN :${p.lanPort})`;
+        if (p.id === selectedPortId) opt.selected = true;
+        lanSelect.appendChild(opt);
+      });
+      lanSelect.onchange = () => {
+        selectedPortId = lanSelect.value;
+        renderRunningPorts();
+      };
+    }
+
+    const lanUrl = document.getElementById('lan-full-url');
+    if (lanUrl) {
+      lanUrl.textContent = activePort.lanUrl;
+    }
+
+    const lanDesc = document.getElementById('lan-port-description');
+    if (lanDesc) {
+      lanDesc.textContent = `Scan QR code to connect directly to ${activePort.name} on local Wi-Fi network.`;
+    }
+
+    const lanChips = document.getElementById('lan-running-ports-chips');
+    if (lanChips) {
+      lanChips.innerHTML = '';
+      ports.forEach(p => {
+        const chip = document.createElement('button');
+        const isSel = p.id === selectedPortId;
+        chip.className = `btn btn-outline ${isSel ? 'active' : ''}`;
+        chip.style.cssText = `padding: 3px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; border-radius: var(--radius-sm); ${isSel ? 'border-color: var(--accent-green); color: var(--accent-green); font-weight: 600;' : ''}`;
+        chip.innerHTML = `<span class="dot ${p.isRunning ? 'online' : ''}" style="width: 7px; height: 7px;"></span><span>${p.name}: ${p.lanPort}</span>`;
+        chip.onclick = () => {
+          selectedPortId = p.id;
+          renderRunningPorts();
+        };
+        lanChips.appendChild(chip);
+      });
+    }
+
+    // Update QR Code dynamically for activePort.lanUrl
+    updateQrCodeForUrl(activePort.lanUrl);
+  }
+
+  function updateQrCodeForUrl(url) {
+    const qrImg = document.getElementById('lan-qr-img');
+    const qrFallback = document.getElementById('lan-qr-fallback');
+    callBridge('generate_qr_code', { url }).then(res => {
+      if (res && res.qrBase64) {
+        if (qrImg) {
+          qrImg.src = res.qrBase64;
+          qrImg.style.display = 'block';
+        }
+        if (qrFallback) qrFallback.style.display = 'none';
+      }
+    }).catch(() => {});
   }
 
   // AI Dev Tools View (Browse file selector & edit targets)
@@ -1481,14 +1678,26 @@
     document.getElementById('btn-refresh-state')?.addEventListener('click', loadInitialState);
 
     document.getElementById('btn-copy-lan-url')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(state.lanUrl);
-      appendLog('Copied LAN URL: ' + state.lanUrl);
+      const ports = getWebPortsList();
+      const p = ports.find(x => x.id === selectedPortId) || ports[0];
+      navigator.clipboard.writeText(p.localUrl);
+      appendLog('Copied Web Host URL: ' + p.localUrl);
     });
     document.getElementById('btn-open-lan-url')?.addEventListener('click', () => {
-      callBridge('open_url_external', { url: state.lanUrl });
+      const ports = getWebPortsList();
+      const p = ports.find(x => x.id === selectedPortId) || ports[0];
+      callBridge('open_url_external', { url: p.localUrl });
     });
     document.getElementById('btn-copy-lan-tab-url')?.addEventListener('click', () => {
-      navigator.clipboard.writeText(state.lanUrl);
+      const ports = getWebPortsList();
+      const p = ports.find(x => x.id === selectedPortId) || ports[0];
+      navigator.clipboard.writeText(p.lanUrl);
+      appendLog('Copied LAN Remote URL: ' + p.lanUrl);
+    });
+    document.getElementById('btn-open-lan-tab-url')?.addEventListener('click', () => {
+      const ports = getWebPortsList();
+      const p = ports.find(x => x.id === selectedPortId) || ports[0];
+      callBridge('open_url_external', { url: p.localUrl });
     });
 
     // Modal: Add profile
@@ -1586,6 +1795,11 @@
           if (qrFallback) qrFallback.style.display = 'none';
         }
 
+        if (res.runningPorts) {
+          state.runningPorts = res.runningPorts;
+        }
+        state.lanProxyPort = res.lanProxyPort || 9191;
+
         updateHeaderStatus();
         updateDashboardCliRows();
         renderDashboardShortcuts();
@@ -1595,6 +1809,7 @@
         renderPromptModelsDropdown();
         renderProvidersList();
         renderDevToolsList();
+        renderRunningPorts();
       }
     } catch (err) {
       console.error('Failed to load initial state:', err);

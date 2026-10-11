@@ -566,13 +566,61 @@ public sealed class DashboardWebBridge : IDisposable
                 });
                 break;
 
+            case "generate_qr_code":
+                if (data.TryGetProperty("url", out var qrUrlEl))
+                {
+                    var u = qrUrlEl.GetString() ?? string.Empty;
+                    var qr = QrCodeHelper.GenerateQrCodeBase64(u);
+                    SendResponse(requestId, true, new { qrBase64 = qr });
+                }
+                break;
+
             case "open_url_external":
                 if (data.TryGetProperty("url", out var urlProp))
                 {
                     var targetUrl = urlProp.GetString();
                     if (!string.IsNullOrWhiteSpace(targetUrl))
                     {
-                        Process.Start(new ProcessStartInfo(targetUrl) { UseShellExecute = true });
+                        if (targetUrl.Contains(":9119") || targetUrl.Contains(":9191"))
+                        {
+                            var hermesInfo = _cliManager.GetInfo(CliType.Hermes);
+                            if (hermesInfo.State != CliState.Running)
+                            {
+                                if (hermesInfo.State != CliState.Starting)
+                                {
+                                    _cliManager.Start(CliType.Hermes);
+                                }
+
+                                for (int i = 0; i < 35; i++)
+                                {
+                                    await Task.Delay(100);
+                                    try
+                                    {
+                                        using var testClient = new System.Net.Sockets.TcpClient();
+                                        using var cts = new CancellationTokenSource(200);
+                                        await testClient.ConnectAsync(System.Net.IPAddress.Loopback, _cliManager.HermesService.Port, cts.Token);
+                                        if (testClient.Connected) break;
+                                    }
+                                    catch { }
+                                }
+                            }
+                        }
+
+                        var localTarget = targetUrl;
+                        var lanIp = NetworkHelper.GetLocalIPv4();
+                        if (!string.IsNullOrEmpty(lanIp) && localTarget.Contains(lanIp))
+                        {
+                            localTarget = localTarget.Replace(lanIp, "127.0.0.1");
+                        }
+
+                        if (!localTarget.Contains("theme=") && (localTarget.Contains(":9229") || localTarget.Contains(":9339") || localTarget.Contains(":9191") || localTarget.Contains(":9119")))
+                        {
+                            string sep = localTarget.Contains('?') ? "&" : "?";
+                            string themeParam = $"theme={(ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark")}&accent={Uri.EscapeDataString(ThemeManager.AccentHex)}";
+                            localTarget = $"{localTarget}{sep}{themeParam}";
+                        }
+
+                        Process.Start(new ProcessStartInfo(localTarget) { UseShellExecute = true });
                         SendResponse(requestId, true, new { success = true });
                     }
                 }
@@ -742,15 +790,19 @@ public sealed class DashboardWebBridge : IDisposable
     {
         var lanIp = NetworkHelper.GetLocalIPv4();
         int hermesPort = _cliManager.HermesService.Port;
-        string lanUrl = $"http://{lanIp}:{hermesPort}/";
+        int lanProxyPort = _lanProxyService?.ListenPort ?? 9191;
+        string lanUrl = $"http://{lanIp}:{lanProxyPort}/";
         string qrBase64 = QrCodeHelper.GenerateQrCodeBase64(lanUrl);
+        var runningPorts = GetRunningWebPorts(lanIp, hermesPort, lanProxyPort);
 
         return new
         {
             version = "v1.0.3",
             lanIp,
             lanUrl,
+            lanProxyPort,
             qrBase64,
+            runningPorts,
             settings = new
             {
                 autostart = StartupHelper.IsWindowsStartupEnabled(),
@@ -776,6 +828,80 @@ public sealed class DashboardWebBridge : IDisposable
             },
             aiConfig = GetAiConfigDto()
         };
+    }
+
+    private object GetRunningWebPorts(string lanIp, int hermesPort, int lanProxyPort)
+    {
+        string themeParam = $"?theme={(ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark")}&accent={Uri.EscapeDataString(ThemeManager.AccentHex)}";
+        var list = new List<object>
+        {
+            new
+            {
+                id = "hermes",
+                name = "Hermes Dashboard",
+                port = hermesPort,
+                lanPort = lanProxyPort,
+                localUrl = $"http://127.0.0.1:{hermesPort}/{themeParam}",
+                lanUrl = $"http://{lanIp}:{lanProxyPort}/{themeParam}",
+                state = _cliManager.GetInfo(CliType.Hermes).State.ToString(),
+                isRunning = _cliManager.GetInfo(CliType.Hermes).State == CliState.Running
+            },
+            new
+            {
+                id = "claude_code",
+                name = "Claude Code Web",
+                port = 9229,
+                lanPort = 9229,
+                localUrl = $"http://127.0.0.1:9229/{themeParam}",
+                lanUrl = $"http://{lanIp}:9229/{themeParam}",
+                state = "Running",
+                isRunning = true
+            },
+            new
+            {
+                id = "antigravity_cli",
+                name = "Antigravity CLI Web",
+                port = 9339,
+                lanPort = 9339,
+                localUrl = $"http://127.0.0.1:9339/{themeParam}",
+                lanUrl = $"http://{lanIp}:9339/{themeParam}",
+                state = "Running",
+                isRunning = true
+            },
+            new
+            {
+                id = "lan_proxy",
+                name = "LAN Remote Gateway",
+                port = lanProxyPort,
+                lanPort = lanProxyPort,
+                localUrl = $"http://127.0.0.1:{lanProxyPort}/{themeParam}",
+                lanUrl = $"http://{lanIp}:{lanProxyPort}/{themeParam}",
+                state = (_lanProxyService?.IsRunning ?? false) ? "Running" : "Offline",
+                isRunning = _lanProxyService?.IsRunning ?? false
+            }
+        };
+
+        var customWs = AiConfigService.Instance.CurrentConfig.CliWorkspaces;
+        foreach (var ws in customWs)
+        {
+            if (ws.IsWebUi && ws.Port.HasValue && ws.Port.Value > 0)
+            {
+                int p = ws.Port.Value;
+                list.Add(new
+                {
+                    id = ws.Id,
+                    name = ws.Name,
+                    port = p,
+                    lanPort = p,
+                    localUrl = $"http://127.0.0.1:{p}/",
+                    lanUrl = $"http://{lanIp}:{p}/",
+                    state = _cliManager.GetInfo(ws.Id).State.ToString(),
+                    isRunning = _cliManager.GetInfo(ws.Id).State == CliState.Running
+                });
+            }
+        }
+
+        return list;
     }
 
     private object GetAiConfigDto()
@@ -806,9 +932,9 @@ public sealed class DashboardWebBridge : IDisposable
         };
     }
 
-    private static int GetCliPort(CliType type) => type switch
+    private int GetCliPort(CliType type) => type switch
     {
-        CliType.Hermes => 9095,
+        CliType.Hermes => _cliManager.HermesService.Port,
         CliType.ClaudeCode => 9229,
         CliType.AntigravityCli => 9339,
         _ => 0

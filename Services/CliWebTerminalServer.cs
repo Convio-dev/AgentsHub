@@ -5,6 +5,9 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+
+using HermesHub.Helpers;
 
 namespace HermesHub.Services;
 
@@ -61,6 +64,7 @@ public sealed class CliWebTerminalServer : IDisposable
 
         _cliManager.TerminalDataReceived += OnTerminalDataReceived;
         _cliManager.StatusChanged += OnStatusChanged;
+        ThemeManager.ThemeChanged += OnThemeChanged;
     }
 
     public void Start()
@@ -165,16 +169,60 @@ public sealed class CliWebTerminalServer : IDisposable
         string fullPath = Path.Combine(_webAssetsDir, relativeFile);
         if (!File.Exists(fullPath))
         {
-            context.Response.StatusCode = 404;
-            context.Response.Close();
-            return;
+            string altPath = Path.Combine(AppContext.BaseDirectory, "ui", relativeFile);
+            if (File.Exists(altPath)) fullPath = altPath;
+            else
+            {
+                context.Response.StatusCode = 404;
+                context.Response.Close();
+                return;
+            }
         }
 
-        byte[] bytes = await File.ReadAllBytesAsync(fullPath).ConfigureAwait(false);
+        byte[] bytes;
+        if (relativeFile.Equals("terminal.html", StringComparison.OrdinalIgnoreCase) ||
+            relativeFile.EndsWith("terminal.html", StringComparison.OrdinalIgnoreCase))
+        {
+            string html = await File.ReadAllTextAsync(fullPath).ConfigureAwait(false);
+
+            string reqTheme = context.Request.QueryString["theme"] ?? (ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark");
+            string reqAccent = context.Request.QueryString["accent"] ?? ThemeManager.AccentHex;
+            bool isLight = reqTheme.Equals("light", StringComparison.OrdinalIgnoreCase);
+
+            var (h, s, l) = ThemeManager.HexToHsl(reqAccent);
+            double lum = ThemeManager.GetLuminance(reqAccent);
+            string accentText = lum > 0.62 ? "#0a0f14" : "#ffffff";
+
+            string bgTerminal = isLight ? $"hsl({h}, 22%, 95.5%)" : $"hsl({h}, 22%, 5.5%)";
+            string bgOverlay = isLight ? $"hsla({h}, 22%, 95.5%, 0.94)" : $"hsla({h}, 22%, 5.5%, 0.94)";
+            string bgCard = isLight ? "#ffffff" : $"hsl({h}, 26%, 12.5%)";
+            string borderSubtle = isLight ? $"hsl({h}, 25%, 83%)" : $"hsl({h}, 24%, 19%)";
+            string textMain = isLight ? $"hsl({h}, 28%, 11%)" : "#f8fafc";
+            string textMuted = isLight ? $"hsl({h}, 16%, 36%)" : $"hsl({h}, 12%, 68%)";
+            string textDim = isLight ? $"hsl({h}, 10%, 52%)" : $"hsl({h}, 10%, 48%)";
+
+            string dynamicRoot = $":root {{\n      --bg-terminal: {bgTerminal};\n      --bg-overlay: {bgOverlay};\n      --bg-card: {bgCard};\n      --border-subtle: {borderSubtle};\n      --text-main: {textMain};\n      --text-muted: {textMuted};\n      --text-dim: {textDim};\n      --accent-green: {reqAccent};\n      --accent-text: {accentText};\n    }}";
+
+            var rootRegex = new Regex(@":root\s*\{[^}]*\}", RegexOptions.Singleline);
+            if (rootRegex.IsMatch(html))
+            {
+                html = rootRegex.Replace(html, dynamicRoot, 1);
+            }
+
+            string scriptInject = $"<script>window.__INITIAL_THEME__='{reqTheme}';window.__INITIAL_ACCENT__='{reqAccent}';</script>\n</head>";
+            html = html.Replace("</head>", scriptInject, StringComparison.OrdinalIgnoreCase);
+
+            bytes = Encoding.UTF8.GetBytes(html);
+        }
+        else
+        {
+            bytes = await File.ReadAllBytesAsync(fullPath).ConfigureAwait(false);
+        }
+
         context.Response.ContentType = contentType;
         context.Response.ContentLength64 = bytes.Length;
         context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
-        context.Response.Headers.Add("Cache-Control", "no-cache");
+        context.Response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate");
         context.Response.StatusCode = 200;
         await context.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
         context.Response.Close();
@@ -211,6 +259,13 @@ public sealed class CliWebTerminalServer : IDisposable
 
             string initJson = JsonSerializer.Serialize(initPayload, CliWebviewForm.CliJsonContext.Default.TerminalInitPayload);
             await client.SendTextAsync(initJson, ct).ConfigureAwait(false);
+
+            // Send current active theme immediately
+            string currentTheme = ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark";
+            string currentAccent = ThemeManager.AccentHex;
+            var themePayload = new { type = "theme_changed", theme = currentTheme, accentColor = currentAccent };
+            string themeJson = JsonSerializer.Serialize(themePayload);
+            await client.SendTextAsync(themeJson, ct).ConfigureAwait(false);
 
             byte[] buffer = new byte[8192];
             using var ms = new MemoryStream();
@@ -321,6 +376,30 @@ public sealed class CliWebTerminalServer : IDisposable
         }
     }
 
+    private void OnThemeChanged()
+    {
+        BroadcastTheme();
+    }
+
+    private void BroadcastTheme()
+    {
+        string theme = ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark";
+        string accent = ThemeManager.AccentHex;
+        var payload = new { type = "theme_changed", theme, accentColor = accent };
+        string json = JsonSerializer.Serialize(payload);
+
+        foreach (var endpoint in _endpoints)
+        {
+            foreach (var client in endpoint.Sockets.Values)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { await client.SendTextAsync(json, _cts.Token).ConfigureAwait(false); } catch { }
+                });
+            }
+        }
+    }
+
     public void Dispose()
     {
         if (_isDisposed) return;
@@ -328,6 +407,7 @@ public sealed class CliWebTerminalServer : IDisposable
 
         _cliManager.TerminalDataReceived -= OnTerminalDataReceived;
         _cliManager.StatusChanged -= OnStatusChanged;
+        ThemeManager.ThemeChanged -= OnThemeChanged;
 
         _cts.Cancel();
 

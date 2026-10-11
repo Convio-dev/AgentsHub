@@ -585,9 +585,9 @@ public partial class CliWebviewForm : Form
             right = _shellLauncherButton.Left - 10;
         }
 
-        // Antigravity account switcher controls
-        bool isAntigravity = string.Equals(AiConfigService.NormalizeCliId(_activeTabId), "antigravity_cli", StringComparison.OrdinalIgnoreCase);
-        if (isAntigravity && _profileComboBox != null && _addProfileButton != null)
+        // Antigravity account switcher controls - only show when user is on the Antigravity CLI tab
+        bool isAntigravityActive = string.Equals(AiConfigService.NormalizeCliId(_activeTabId), "antigravity_cli", StringComparison.OrdinalIgnoreCase);
+        if (isAntigravityActive && _profileComboBox != null && _addProfileButton != null)
         {
             _profileComboBox.Visible = true;
             _addProfileButton.Visible = true;

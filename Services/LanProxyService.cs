@@ -4,6 +4,8 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 
+using HermesHub.Helpers;
+
 namespace HermesHub.Services;
 
 public class ConnectedClientInfo
@@ -20,6 +22,7 @@ public class ConnectedClientInfo
 public class LanProxyService : IDisposable
 {
     private TcpListener? _listener;
+    private readonly List<TcpListener> _secondaryListeners = new();
     private CancellationTokenSource? _cts;
     private Task? _listenTask;
     private readonly Lock _lock = new();
@@ -59,6 +62,16 @@ public class LanProxyService : IDisposable
                 _listenTask = Task.Run(() => AcceptConnectionsAsync(_listener, _cts.Token));
 
                 LogMessage?.Invoke($"LAN Proxy active on 0.0.0.0:{listenPort} -> 127.0.0.1:{targetPort}");
+
+                // Bind secondary listeners on LAN IP for direct port forwarding without port remapping
+                var lanIpStr = NetworkHelper.GetLocalIPv4();
+                if (IPAddress.TryParse(lanIpStr, out var lanIp) && !IPAddress.IsLoopback(lanIp))
+                {
+                    BindDirectForwarder(lanIp, targetPort, targetPort, true);
+                    BindDirectForwarder(lanIp, 9229, 9229, false);
+                    BindDirectForwarder(lanIp, 9339, 9339, false);
+                }
+
                 StateChanged?.Invoke(true);
                 return true;
             }
@@ -68,6 +81,74 @@ public class LanProxyService : IDisposable
                 Stop();
                 return false;
             }
+        }
+    }
+
+    private void BindDirectForwarder(IPAddress ip, int listenPort, int targetPort, bool isHermes)
+    {
+        try
+        {
+            var l = new TcpListener(ip, listenPort);
+            l.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            l.Start();
+            _secondaryListeners.Add(l);
+
+            if (_cts != null)
+            {
+                if (isHermes)
+                {
+                    _ = Task.Run(() => AcceptConnectionsAsync(l, _cts.Token));
+                }
+                else
+                {
+                    _ = Task.Run(() => AcceptForwardConnectionAsync(l, targetPort, _cts.Token));
+                }
+            }
+            LogMessage?.Invoke($"LAN Direct Forwarder active on {ip}:{listenPort} -> 127.0.0.1:{targetPort}");
+        }
+        catch (Exception ex)
+        {
+            LogMessage?.Invoke($"Direct LAN forwarder notice on {ip}:{listenPort}: {ex.Message}");
+        }
+    }
+
+    private async Task AcceptForwardConnectionAsync(TcpListener listener, int targetLoopbackPort, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                var client = await listener.AcceptTcpClientAsync(token);
+                _ = Task.Run(async () =>
+                {
+                    using (client)
+                    {
+                        using var backend = new TcpClient();
+                        try
+                        {
+                            using var connectCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                            await backend.ConnectAsync(IPAddress.Loopback, targetLoopbackPort, connectCts.Token);
+                            using var clientCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                            var cStream = client.GetStream();
+                            var bStream = backend.GetStream();
+                            var t1 = cStream.CopyToAsync(bStream, clientCts.Token);
+                            var t2 = bStream.CopyToAsync(cStream, clientCts.Token);
+                            await Task.WhenAny(t1, t2);
+                            clientCts.Cancel();
+                        }
+                        catch { }
+                    }
+                }, token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (SocketException) when (token.IsCancellationRequested)
+            {
+                break;
+            }
+            catch { }
         }
     }
 
@@ -96,6 +177,12 @@ public class LanProxyService : IDisposable
             {
                 // Suppress socket stop exceptions
             }
+
+            foreach (var l in _secondaryListeners)
+            {
+                try { l.Stop(); } catch { }
+            }
+            _secondaryListeners.Clear();
 
             _listener = null;
             _cts?.Dispose();
@@ -363,7 +450,7 @@ public class LanProxyService : IDisposable
                     {
                         _ = StartHermesAction.Invoke();
                     }
-                    await SendStartingPageAsync(clientStream);
+                    await SendStartingPageAsync(clientStream, requestPath);
                     return;
                 }
 
@@ -379,7 +466,7 @@ public class LanProxyService : IDisposable
                 var backendHealthy = await CheckBackendAliveAsync(TargetPort);
                 if (!backendHealthy)
                 {
-                    await SendOfflinePageAsync(clientStream);
+                    await SendOfflinePageAsync(clientStream, requestPath);
                     return;
                 }
 
@@ -392,7 +479,7 @@ public class LanProxyService : IDisposable
                 }
                 catch
                 {
-                    await SendOfflinePageAsync(clientStream);
+                    await SendOfflinePageAsync(clientStream, requestPath);
                     return;
                 }
 
@@ -530,9 +617,88 @@ public class LanProxyService : IDisposable
         }
     }
 
-    private static async Task SendOfflinePageAsync(Stream stream)
+    private record LanThemeTokens(
+        string BgApp,
+        string BgCard,
+        string BorderSubtle,
+        string TextMain,
+        string TextMuted,
+        string TextDim,
+        string Accent,
+        string AccentText,
+        string BtnOpenBg,
+        string BtnOpenText,
+        string Shadow
+    );
+
+    private static LanThemeTokens GetLanThemeTokens(string? requestPath = null)
     {
-        const string html = """
+        bool isLight = ThemeManager.CurrentTheme == AppTheme.Light;
+        string accent = ThemeManager.AccentHex;
+
+        if (!string.IsNullOrEmpty(requestPath) && requestPath.Contains('?'))
+        {
+            var qs = requestPath[(requestPath.IndexOf('?') + 1)..];
+            foreach (var part in qs.Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var kv = part.Split('=', 2);
+                if (kv.Length == 2)
+                {
+                    if (kv[0].Equals("theme", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isLight = kv[1].Equals("light", StringComparison.OrdinalIgnoreCase);
+                    }
+                    else if (kv[0].Equals("accent", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var decoded = Uri.UnescapeDataString(kv[1]);
+                        if (!string.IsNullOrWhiteSpace(decoded)) accent = decoded;
+                    }
+                }
+            }
+        }
+
+        var (h, s, l) = ThemeManager.HexToHsl(accent);
+        double lum = ThemeManager.GetLuminance(accent);
+        string accentText = lum > 0.62 ? "#0a0f14" : "#ffffff";
+
+        if (isLight)
+        {
+            return new LanThemeTokens(
+                BgApp: $"hsl({h}, 22%, 95.5%)",
+                BgCard: "#ffffff",
+                BorderSubtle: $"hsl({h}, 25%, 83%)",
+                TextMain: $"hsl({h}, 28%, 11%)",
+                TextMuted: $"hsl({h}, 16%, 36%)",
+                TextDim: $"hsl({h}, 10%, 52%)",
+                Accent: accent,
+                AccentText: accentText,
+                BtnOpenBg: "#ffffff",
+                BtnOpenText: $"hsl({h}, 28%, 11%)",
+                Shadow: "0 10px 25px rgba(0,0,0,0.08)"
+            );
+        }
+        else
+        {
+            return new LanThemeTokens(
+                BgApp: $"hsl({h}, 22%, 5.5%)",
+                BgCard: $"hsl({h}, 26%, 12.5%)",
+                BorderSubtle: $"hsl({h}, 24%, 19%)",
+                TextMain: "#f8fafc",
+                TextMuted: $"hsl({h}, 12%, 68%)",
+                TextDim: $"hsl({h}, 10%, 48%)",
+                Accent: accent,
+                AccentText: "#ffffff",
+                BtnOpenBg: $"hsl({h}, 26%, 16%)",
+                BtnOpenText: "#f8fafc",
+                Shadow: "0 10px 25px rgba(0,0,0,0.5)"
+            );
+        }
+    }
+
+    private static async Task SendOfflinePageAsync(Stream stream, string? requestPath = null)
+    {
+        var t = GetLanThemeTokens(requestPath);
+        string html = $$"""
             <!DOCTYPE html>
             <html lang="en">
             <head>
@@ -540,23 +706,36 @@ public class LanProxyService : IDisposable
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
               <title>Agents Hub - Engine Offline</title>
               <style>
+                :root {
+                  --bg-app: {{t.BgApp}};
+                  --bg-card: {{t.BgCard}};
+                  --border-subtle: {{t.BorderSubtle}};
+                  --text-main: {{t.TextMain}};
+                  --text-muted: {{t.TextMuted}};
+                  --text-dim: {{t.TextDim}};
+                  --accent: {{t.Accent}};
+                  --accent-text: {{t.AccentText}};
+                  --btn-open-bg: {{t.BtnOpenBg}};
+                  --btn-open-text: {{t.BtnOpenText}};
+                  --shadow: {{t.Shadow}};
+                }
                 * { box-sizing: border-box; }
-                body { background: #09090b; color: #fafafa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
-                .card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 36px 28px; max-width: 460px; width: 100%; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+                body { background: var(--bg-app); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; transition: background 0.2s ease, color 0.2s ease; }
+                .card { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 36px 28px; max-width: 460px; width: 100%; text-align: center; box-shadow: var(--shadow); transition: background 0.2s ease, border-color 0.2s ease; }
                 .badge { display: inline-block; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
-                h1 { font-size: 1.4rem; font-weight: 700; margin: 0 0 10px 0; color: #fafafa; }
-                p { color: #a1a1aa; font-size: 0.95rem; line-height: 1.5; margin: 0 0 24px 0; }
+                h1 { font-size: 1.4rem; font-weight: 700; margin: 0 0 10px 0; color: var(--text-main); }
+                p { color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; margin: 0 0 24px 0; }
                 .btn-group { display: flex; flex-direction: column; gap: 10px; }
                 .btn { display: block; width: 100%; padding: 12px 18px; border-radius: 8px; font-size: 0.95rem; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 0.2s ease; border: none; text-align: center; }
-                .btn-start { background: #10b981; color: #09090b; }
-                .btn-start:hover { background: #059669; }
-                .btn-open { background: #27272a; color: #fafafa; border: 1px solid #3f3f46; }
-                .btn-open:hover { background: #3f3f46; }
-                .progress { display: none; margin-top: 20px; padding: 16px; background: #09090b; border: 1px solid #27272a; border-radius: 8px; }
-                .spinner { width: 28px; height: 28px; border: 3px solid rgba(16, 185, 129, 0.2); border-top-color: #10b981; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px auto; }
+                .btn-start { background: var(--accent); color: var(--accent-text); }
+                .btn-start:hover { filter: brightness(1.08); transform: translateY(-1px); }
+                .btn-open { background: var(--btn-open-bg); color: var(--btn-open-text); border: 1px solid var(--border-subtle); }
+                .btn-open:hover { filter: brightness(0.96); }
+                .progress { display: none; margin-top: 20px; padding: 16px; background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 8px; }
+                .spinner { width: 28px; height: 28px; border: 3px solid rgba(64, 73, 185, 0.2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px auto; }
                 @keyframes spin { to { transform: rotate(360deg); } }
-                .status-msg { font-size: 0.9rem; color: #10b981; font-weight: 600; margin: 0 0 4px 0; }
-                .status-sub { font-size: 0.8rem; color: #71717a; margin: 0; }
+                .status-msg { font-size: 0.9rem; color: var(--accent); font-weight: 600; margin: 0 0 4px 0; }
+                .status-sub { font-size: 0.8rem; color: var(--text-dim); margin: 0; }
               </style>
             </head>
             <body>
@@ -575,6 +754,60 @@ public class LanProxyService : IDisposable
                 </div>
               </div>
               <script>
+                function hexToHsl(hex) {
+                  hex = (hex || '').replace(/^#/, '').trim();
+                  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+                  if (hex.length !== 6) return { h: 236, s: 49, l: 49 };
+                  const r = parseInt(hex.substring(0, 2), 16) / 255;
+                  const g = parseInt(hex.substring(2, 4), 16) / 255;
+                  const b = parseInt(hex.substring(4, 6), 16) / 255;
+                  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                  let h = 0, s = 0, l = (max + min) / 2;
+                  if (max !== min) {
+                    const d = max - min;
+                    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                    switch (max) {
+                      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                      case g: h = (b - r) / d + 2; break;
+                      case b: h = (r - g) / d + 4; break;
+                    }
+                    h = Math.round(h * 60);
+                  }
+                  return { h, s: Math.round(s * 100), l: Math.round(l * 100) };
+                }
+                function applyLanTheme(themeName, accentHex) {
+                  const isLight = themeName === 'light';
+                  const hex = accentHex || '#4049B9';
+                  const hsl = hexToHsl(hex);
+                  const h = hsl.h, s = hsl.s, l = hsl.l;
+                  const root = document.documentElement.style;
+                  if (isLight) {
+                    root.setProperty('--bg-app', 'hsl(' + h + ', 22%, 95.5%)');
+                    root.setProperty('--bg-card', '#ffffff');
+                    root.setProperty('--border-subtle', 'hsl(' + h + ', 25%, 83%)');
+                    root.setProperty('--text-main', 'hsl(' + h + ', 28%, 11%)');
+                    root.setProperty('--text-muted', 'hsl(' + h + ', 16%, 36%)');
+                    root.setProperty('--text-dim', 'hsl(' + h + ', 10%, 52%)');
+                    root.setProperty('--accent', hex);
+                    root.setProperty('--accent-text', l > 55 ? '#0a0f14' : '#ffffff');
+                    root.setProperty('--btn-open-bg', '#ffffff');
+                    root.setProperty('--btn-open-text', 'hsl(' + h + ', 28%, 11%)');
+                    root.setProperty('--shadow', '0 10px 25px rgba(0,0,0,0.08)');
+                  } else {
+                    root.setProperty('--bg-app', 'hsl(' + h + ', 22%, 5.5%)');
+                    root.setProperty('--bg-card', 'hsl(' + h + ', 26%, 12.5%)');
+                    root.setProperty('--border-subtle', 'hsl(' + h + ', 24%, 19%)');
+                    root.setProperty('--text-main', '#f8fafc');
+                    root.setProperty('--text-muted', 'hsl(' + h + ', 12%, 68%)');
+                    root.setProperty('--text-dim', 'hsl(' + h + ', 10%, 48%)');
+                    root.setProperty('--accent', hex);
+                    root.setProperty('--accent-text', '#ffffff');
+                    root.setProperty('--btn-open-bg', 'hsl(' + h + ', 26%, 16%)');
+                    root.setProperty('--btn-open-text', '#f8fafc');
+                    root.setProperty('--shadow', '0 10px 25px rgba(0,0,0,0.5)');
+                  }
+                }
+
                 let isPolling = false;
                 function triggerStart() {
                   document.getElementById('actions').style.display = 'none';
@@ -590,6 +823,7 @@ public class LanProxyService : IDisposable
                       const res = await fetch('/__hermes/status');
                       if (res.ok) {
                         const data = await res.json();
+                        if (data.theme) applyLanTheme(data.theme, data.accent);
                         if (data.online) {
                           clearInterval(interval);
                           document.getElementById('statusMsg').innerText = 'Hermes Online! Loading...';
@@ -599,13 +833,13 @@ public class LanProxyService : IDisposable
                     } catch (e) {}
                   }, 1200);
                 }
-                // Background check in case Hermes was started elsewhere
                 setInterval(async () => {
                   if (isPolling) return;
                   try {
                     const res = await fetch('/__hermes/status');
                     if (res.ok) {
                       const data = await res.json();
+                      if (data.theme) applyLanTheme(data.theme, data.accent);
                       if (data.online) {
                         window.location.href = '/';
                       }
@@ -618,7 +852,7 @@ public class LanProxyService : IDisposable
             """;
 
         var bodyBytes = Encoding.UTF8.GetBytes(html);
-        var header = $"HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n";
+        var header = $"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n";
         var headerBytes = Encoding.ASCII.GetBytes(header);
 
         await stream.WriteAsync(headerBytes.AsMemory());
@@ -626,9 +860,10 @@ public class LanProxyService : IDisposable
         await stream.FlushAsync();
     }
 
-    private static async Task SendStartingPageAsync(Stream stream)
+    private static async Task SendStartingPageAsync(Stream stream, string? requestPath = null)
     {
-        const string html = """
+        var t = GetLanThemeTokens(requestPath);
+        string html = $$"""
             <!DOCTYPE html>
             <html lang="en">
             <head>
@@ -636,15 +871,28 @@ public class LanProxyService : IDisposable
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
               <title>Starting Hermes Engine</title>
               <style>
+                :root {
+                  --bg-app: {{t.BgApp}};
+                  --bg-card: {{t.BgCard}};
+                  --border-subtle: {{t.BorderSubtle}};
+                  --text-main: {{t.TextMain}};
+                  --text-muted: {{t.TextMuted}};
+                  --text-dim: {{t.TextDim}};
+                  --accent: {{t.Accent}};
+                  --accent-text: {{t.AccentText}};
+                  --btn-open-bg: {{t.BtnOpenBg}};
+                  --btn-open-text: {{t.BtnOpenText}};
+                  --shadow: {{t.Shadow}};
+                }
                 * { box-sizing: border-box; }
-                body { background: #09090b; color: #fafafa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; }
-                .card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 36px 28px; max-width: 460px; width: 100%; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-                .spinner { width: 34px; height: 34px; border: 3px solid rgba(16, 185, 129, 0.2); border-top-color: #10b981; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px auto; }
+                body { background: var(--bg-app); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 16px; transition: background 0.2s ease, color 0.2s ease; }
+                .card { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 36px 28px; max-width: 460px; width: 100%; text-align: center; box-shadow: var(--shadow); transition: background 0.2s ease, border-color 0.2s ease; }
+                .spinner { width: 34px; height: 34px; border: 3px solid rgba(64, 73, 185, 0.2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px auto; }
                 @keyframes spin { to { transform: rotate(360deg); } }
-                h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 10px 0; color: #10b981; }
-                p { color: #a1a1aa; font-size: 0.95rem; line-height: 1.5; margin: 0 0 20px 0; }
-                .btn { display: inline-block; padding: 10px 20px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; text-decoration: none; background: #27272a; color: #fafafa; border: 1px solid #3f3f46; }
-                .btn:hover { background: #3f3f46; }
+                h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 10px 0; color: var(--accent); }
+                p { color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; margin: 0 0 20px 0; }
+                .btn { display: inline-block; padding: 10px 20px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; text-decoration: none; background: var(--btn-open-bg); color: var(--btn-open-text); border: 1px solid var(--border-subtle); }
+                .btn:hover { filter: brightness(0.96); }
               </style>
             </head>
             <body>
@@ -655,11 +903,65 @@ public class LanProxyService : IDisposable
                 <a href="/" class="btn">Open Hermes Dashboard</a>
               </div>
               <script>
+                function hexToHsl(hex) {
+                  hex = (hex || '').replace(/^#/, '').trim();
+                  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+                  if (hex.length !== 6) return { h: 236, s: 49, l: 49 };
+                  const r = parseInt(hex.substring(0, 2), 16) / 255;
+                  const g = parseInt(hex.substring(2, 4), 16) / 255;
+                  const b = parseInt(hex.substring(4, 6), 16) / 255;
+                  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                  let h = 0, s = 0, l = (max + min) / 2;
+                  if (max !== min) {
+                    const d = max - min;
+                    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                    switch (max) {
+                      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                      case g: h = (b - r) / d + 2; break;
+                      case b: h = (r - g) / d + 4; break;
+                    }
+                    h = Math.round(h * 60);
+                  }
+                  return { h, s: Math.round(s * 100), l: Math.round(l * 100) };
+                }
+                function applyLanTheme(themeName, accentHex) {
+                  const isLight = themeName === 'light';
+                  const hex = accentHex || '#4049B9';
+                  const hsl = hexToHsl(hex);
+                  const h = hsl.h, s = hsl.s, l = hsl.l;
+                  const root = document.documentElement.style;
+                  if (isLight) {
+                    root.setProperty('--bg-app', 'hsl(' + h + ', 22%, 95.5%)');
+                    root.setProperty('--bg-card', '#ffffff');
+                    root.setProperty('--border-subtle', 'hsl(' + h + ', 25%, 83%)');
+                    root.setProperty('--text-main', 'hsl(' + h + ', 28%, 11%)');
+                    root.setProperty('--text-muted', 'hsl(' + h + ', 16%, 36%)');
+                    root.setProperty('--text-dim', 'hsl(' + h + ', 10%, 52%)');
+                    root.setProperty('--accent', hex);
+                    root.setProperty('--accent-text', l > 55 ? '#0a0f14' : '#ffffff');
+                    root.setProperty('--btn-open-bg', '#ffffff');
+                    root.setProperty('--btn-open-text', 'hsl(' + h + ', 28%, 11%)');
+                    root.setProperty('--shadow', '0 10px 25px rgba(0,0,0,0.08)');
+                  } else {
+                    root.setProperty('--bg-app', 'hsl(' + h + ', 22%, 5.5%)');
+                    root.setProperty('--bg-card', 'hsl(' + h + ', 26%, 12.5%)');
+                    root.setProperty('--border-subtle', 'hsl(' + h + ', 24%, 19%)');
+                    root.setProperty('--text-main', '#f8fafc');
+                    root.setProperty('--text-muted', 'hsl(' + h + ', 12%, 68%)');
+                    root.setProperty('--text-dim', 'hsl(' + h + ', 10%, 48%)');
+                    root.setProperty('--accent', hex);
+                    root.setProperty('--accent-text', '#ffffff');
+                    root.setProperty('--btn-open-bg', 'hsl(' + h + ', 26%, 16%)');
+                    root.setProperty('--btn-open-text', '#f8fafc');
+                    root.setProperty('--shadow', '0 10px 25px rgba(0,0,0,0.5)');
+                  }
+                }
                 const interval = setInterval(async () => {
                   try {
                     const res = await fetch('/__hermes/status');
                     if (res.ok) {
                       const data = await res.json();
+                      if (data.theme) applyLanTheme(data.theme, data.accent);
                       if (data.online) {
                         clearInterval(interval);
                         setTimeout(() => { window.location.href = '/'; }, 500);
@@ -683,7 +985,9 @@ public class LanProxyService : IDisposable
 
     private static async Task SendStatusJsonAsync(Stream stream, bool isAlive)
     {
-        var json = $"{{\"online\": {(isAlive ? "true" : "false")}}}";
+        string theme = ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark";
+        string accent = ThemeManager.AccentHex;
+        var json = $"{{\"online\": {(isAlive ? "true" : "false")}, \"theme\": \"{theme}\", \"accent\": \"{accent}\"}}";
         var bodyBytes = Encoding.UTF8.GetBytes(json);
         var header = $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n";
         var headerBytes = Encoding.ASCII.GetBytes(header);
