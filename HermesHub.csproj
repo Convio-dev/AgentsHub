@@ -43,7 +43,7 @@
     <OptimizationPreference>Size</OptimizationPreference>
     <IlcTrimReflection>true</IlcTrimReflection>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
-    <NoWarn>$(NoWarn);MSB3277;IL2104;NETSDK1175</NoWarn>
+    <NoWarn>$(NoWarn);MSB3277;IL2104;NETSDK1175;IL2026;IL3050</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
