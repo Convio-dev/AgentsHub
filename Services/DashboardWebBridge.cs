@@ -388,13 +388,36 @@ public sealed class DashboardWebBridge : IDisposable
                 {
                     string shellName = data.TryGetProperty("shell", out var shEl) ? shEl.GetString() ?? "cmd" : "cmd";
                     bool asAdmin = data.TryGetProperty("asAdmin", out var adEl) && adEl.GetBoolean();
-                    if (shellName.Equals("powershell", StringComparison.OrdinalIgnoreCase))
+                    bool embedShells = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false);
+
+                    if (embedShells && !asAdmin)
                     {
-                        ShellLauncher.OpenPowerShell(asAdmin);
+                        _mainForm.Invoke(() =>
+                        {
+                            if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
+                            {
+                                _cliWebviewForm = new CliWebviewForm(_cliManager);
+                            }
+                            if (shellName.Equals("powershell", StringComparison.OrdinalIgnoreCase))
+                            {
+                                _cliWebviewForm.OpenEmbeddedShell("powershell", "PowerShell", "powershell.exe");
+                            }
+                            else
+                            {
+                                _cliWebviewForm.OpenEmbeddedShell("cmd", "Command Prompt", "cmd.exe");
+                            }
+                        });
                     }
                     else
                     {
-                        ShellLauncher.OpenCommandPrompt(asAdmin);
+                        if (shellName.Equals("powershell", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ShellLauncher.OpenPowerShell(asAdmin);
+                        }
+                        else
+                        {
+                            ShellLauncher.OpenCommandPrompt(asAdmin);
+                        }
                     }
                     SendResponse(requestId, true, new { success = true });
                 }
@@ -443,6 +466,10 @@ public sealed class DashboardWebBridge : IDisposable
                     if (stProp.TryGetProperty("maskShortcutPaths", out var maskPathsEl))
                     {
                         StartupHelper.SetPreference("MaskShortcutPaths", maskPathsEl.GetBoolean());
+                    }
+                    if (stProp.TryGetProperty("embedShellsInTerminalWorkspace", out var embedEl))
+                    {
+                        StartupHelper.SetPreference("EmbedShellsInTerminalWorkspace", embedEl.GetBoolean());
                     }
                     string? themeStr = null;
                     if (stProp.TryGetProperty("theme", out var themeEl))
@@ -732,6 +759,7 @@ public sealed class DashboardWebBridge : IDisposable
                 notifications = StartupHelper.GetPreference("WindowsNotifications", true),
                 maskPublicIp = StartupHelper.GetPreference("MaskPublicIp", false),
                 maskShortcutPaths = StartupHelper.GetPreference("MaskShortcutPaths", false),
+                embedShellsInTerminalWorkspace = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false),
                 theme = StartupHelper.GetStringPreference("Theme", "dark"),
                 accentColor = StartupHelper.GetStringPreference("AccentColor", "#10b981")
             },

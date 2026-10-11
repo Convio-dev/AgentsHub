@@ -47,6 +47,7 @@ public partial class CliWebviewForm : Form
     private Microsoft.Web.WebView2.WinForms.WebView2 antigravityWebView = null!;
     private readonly Dictionary<string, Microsoft.Web.WebView2.WinForms.WebView2> _customWebViews = new(StringComparer.OrdinalIgnoreCase);
     private CoreWebView2Environment? _webViewEnv;
+    private readonly TaskCompletionSource<bool> _envInitTcs = new();
 
     private ComboBox? _profileComboBox;
     private Button? _addProfileButton;
@@ -246,18 +247,43 @@ public partial class CliWebviewForm : Form
         _shellContextMenu.BackColor = c.CardBackground;
         _shellContextMenu.ForeColor = c.TextPrimary;
 
-        var cmdNormal = new ToolStripMenuItem("Command Prompt (Standard)", null, (_, _) => ShellLauncher.OpenCommandPrompt(false))
+        bool embed = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false);
+
+        var cmdNormal = new ToolStripMenuItem("Command Prompt (Standard)", null, (_, _) =>
+        {
+            if (embed)
+            {
+                OpenEmbeddedShell("cmd", "Command Prompt", "cmd.exe");
+            }
+            else
+            {
+                ShellLauncher.OpenCommandPrompt(false);
+            }
+        })
         {
             ForeColor = c.TextPrimary
         };
+
         var cmdAdmin = new ToolStripMenuItem("Command Prompt (Administrator)", null, (_, _) => ShellLauncher.OpenCommandPrompt(true))
         {
             ForeColor = c.DangerRed
         };
-        var psNormal = new ToolStripMenuItem("PowerShell (Standard)", null, (_, _) => ShellLauncher.OpenPowerShell(false))
+
+        var psNormal = new ToolStripMenuItem("PowerShell (Standard)", null, (_, _) =>
+        {
+            if (embed)
+            {
+                OpenEmbeddedShell("powershell", "PowerShell", "powershell.exe");
+            }
+            else
+            {
+                ShellLauncher.OpenPowerShell(false);
+            }
+        })
         {
             ForeColor = c.TextPrimary
         };
+
         var psAdmin = new ToolStripMenuItem("PowerShell (Administrator)", null, (_, _) => ShellLauncher.OpenPowerShell(true))
         {
             ForeColor = c.DangerRed
@@ -854,9 +880,70 @@ public partial class CliWebviewForm : Form
         TriggerTerminalFit();
     }
 
+    public void OpenEmbeddedShell(string shellId, string name, string command)
+    {
+        if (InvokeRequired)
+        {
+            Invoke(() => OpenEmbeddedShell(shellId, name, command));
+            return;
+        }
+
+        shellId = AiConfigService.NormalizeCliId(shellId);
+
+        var cfg = AiConfigService.Instance.CurrentConfig;
+        var existing = cfg.CliWorkspaces.FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), shellId, StringComparison.OrdinalIgnoreCase));
+        if (existing == null)
+        {
+            cfg.CliWorkspaces.Add(new CliWorkspaceConfig
+            {
+                Id = shellId,
+                Name = name,
+                Command = command,
+                IsWebUi = false,
+                IsDefault = false,
+                IsEnabled = true
+            });
+            AiConfigService.Instance.SaveConfig(cfg);
+        }
+        else if (!existing.IsEnabled)
+        {
+            existing.IsEnabled = true;
+            AiConfigService.Instance.SaveConfig(cfg);
+        }
+
+        RebuildTabs();
+        SwitchTab(shellId);
+
+        if (_cliManager != null)
+        {
+            var info = _cliManager.GetInfo(shellId);
+            if (info.State != CliState.Running && info.State != CliState.Starting)
+            {
+                _cliManager.Start(shellId);
+            }
+        }
+
+        if (WindowState == FormWindowState.Minimized)
+        {
+            WindowState = FormWindowState.Normal;
+        }
+
+        ApplyTheme();
+        Show();
+        BringToFront();
+        Activate();
+    }
+
     private async Task EnsureCustomWebViewAsync(CliWorkspaceConfig ws)
     {
-        if (_customWebViews.ContainsKey(ws.Id) || _webViewEnv == null) return;
+        if (_customWebViews.ContainsKey(ws.Id)) return;
+
+        if (_webViewEnv == null)
+        {
+            await _envInitTcs.Task;
+        }
+
+        if (_webViewEnv == null) return;
 
         try
         {
@@ -911,6 +998,7 @@ public partial class CliWebviewForm : Form
             var newUserFolder = Path.Combine(baseLocalApp, "AgentsHub", "WebView2Data");
             var userDataFolder = Directory.Exists(legacyUserFolder) && !Directory.Exists(newUserFolder) ? legacyUserFolder : newUserFolder;
             _webViewEnv = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+            _envInitTcs.TrySetResult(true);
 
             // Hermes WebView
             await hermesWebView.EnsureCoreWebView2Async(_webViewEnv);

@@ -297,7 +297,11 @@ public class CliManagerService : IDisposable
                     workDir = cfg.WorkingDirectory;
                 }
 
-                if (rawCmd.StartsWith("cmd.exe", StringComparison.OrdinalIgnoreCase) || rawCmd.StartsWith("powershell", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(rawCmd, "cmd", StringComparison.OrdinalIgnoreCase) || rawCmd.StartsWith("cmd.exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    command = rawCmd.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? rawCmd : "cmd.exe";
+                }
+                else if (rawCmd.StartsWith("powershell", StringComparison.OrdinalIgnoreCase))
                 {
                     command = rawCmd;
                 }

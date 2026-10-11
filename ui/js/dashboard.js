@@ -405,6 +405,7 @@
       const minimizeToTray = document.getElementById('setting-tray-minimize-checkbox')?.checked !== false;
       const notifications = document.getElementById('setting-notifications-checkbox')?.checked !== false;
       const maskShortcutPaths = document.getElementById('setting-mask-paths-checkbox')?.checked === true;
+      const embedShells = document.getElementById('setting-embed-shells-checkbox')?.checked === true;
       const theme = document.documentElement.getAttribute('data-theme') || 'dark';
       const accentColor = localStorage.getItem('agents_hub_accent_color') || '#10b981';
       const feedback = document.getElementById('settings-save-feedback');
@@ -414,11 +415,17 @@
       renderDashboardShortcuts();
 
       await callBridge('save_general_settings', {
-        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, theme, accentColor }
+        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, theme, accentColor }
       });
 
       feedback.textContent = 'Preferences saved successfully!';
       setTimeout(() => feedback.textContent = '', 2500);
+    });
+
+    document.getElementById('setting-embed-shells-checkbox')?.addEventListener('change', async (e) => {
+      await callBridge('save_general_settings', {
+        settings: { embedShellsInTerminalWorkspace: e.target.checked }
+      });
     });
   }
 
@@ -1545,6 +1552,8 @@
             : localStorage.getItem('agents_hub_mask_shortcuts') === 'true';
           const maskPathsCheck = document.getElementById('setting-mask-paths-checkbox');
           if (maskPathsCheck) maskPathsCheck.checked = state.isShortcutsMasked;
+          const embedShellsCheck = document.getElementById('setting-embed-shells-checkbox');
+          if (embedShellsCheck) embedShellsCheck.checked = !!res.settings.embedShellsInTerminalWorkspace;
 
           // Apply initial theme & accent color
           const activeTheme = localStorage.getItem('agents_hub_theme') || res.settings.theme || 'dark';
