@@ -667,6 +667,10 @@ public sealed class DashboardWebBridge : IDisposable
                     {
                         StartupHelper.SetPreference("EnableProtonVpnProvider", protonEl.GetBoolean());
                     }
+                    if (stProp.TryGetProperty("enableHardwareMonitor", out var hwEl))
+                    {
+                        StartupHelper.SetPreference("EnableHardwareMonitor", hwEl.GetBoolean());
+                    }
                     string? themeStr = null;
                     if (stProp.TryGetProperty("theme", out var themeEl))
                     {
@@ -1126,6 +1130,7 @@ public sealed class DashboardWebBridge : IDisposable
                 maskShortcutPaths = StartupHelper.GetPreference("MaskShortcutPaths", false),
                 embedShellsInTerminalWorkspace = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false),
                 enableProtonVpnProvider = StartupHelper.GetPreference("EnableProtonVpnProvider", false),
+                enableHardwareMonitor = StartupHelper.GetPreference("EnableHardwareMonitor", false),
                 theme = StartupHelper.GetStringPreference("Theme", "dark"),
                 accentColor = StartupHelper.GetStringPreference("AccentColor", "#10b981")
             },

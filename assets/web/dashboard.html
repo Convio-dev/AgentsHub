@@ -355,7 +355,7 @@
               </div>
 
               <!-- SYSTEM & HARDWARE RESOURCE MONITOR CARD -->
-              <div class="dashboard-card card-hardware-monitor" id="hardware-monitor-card">
+              <div class="dashboard-card card-hardware-monitor" id="hardware-monitor-card" style="display: none;">
                 <div class="card-header" style="margin-bottom: 8px;">
                   <div class="card-title-group">
                     <div class="card-icon" style="color: var(--accent-green);">
@@ -883,6 +883,13 @@
                   <span class="block text-xs text-muted">Show Proton VPN tab in OpenCode Quota card for manual geo-routing.</span>
                 </label>
                 <input type="checkbox" id="pref-enable-proton" class="form-checkbox">
+              </div>
+              <div class="preference-item flex items-center justify-between py-2">
+                <label for="pref-enable-hardware-monitor" class="text-sm font-medium">
+                  Enable System &amp; Hardware Telemetry Monitor
+                  <span class="block text-xs text-muted">Show real-time CPU &amp; RAM resource monitor with charts on Dashboard.</span>
+                </label>
+                <input type="checkbox" id="pref-enable-hardware-monitor" class="form-checkbox">
               </div>
             </div>
             <div style="margin-top: 14px; display: flex; justify-content: flex-end;">

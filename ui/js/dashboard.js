@@ -29,7 +29,7 @@
     antigravity: { activeProfile: '', profiles: [] },
     opencode: { isOnline: false, port: 0, activeSessions: [] },
     aiConfig: { providers: [], toolTargets: {}, shortcuts: [], selectedProviderId: null, selectedModel: null },
-    settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', theme: 'dark', accentColor: '#4049B9' },
+    settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', enableHardwareMonitor: localStorage.getItem('agents_hub_enable_hardware_monitor') === 'true', theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
     activeTerminalCli: 'Hermes',
     selectedProvider: null,
@@ -337,8 +337,21 @@
     renderSmoothSparkline(ramLine, ramArea, ramDot, telemetryState.ramHistory, 240, 56, 100);
   }
 
+  function updateHardwareMonitorVisibility() {
+    const isEnabled = state.settings.enableHardwareMonitor === true;
+    const card = document.getElementById('hardware-monitor-card');
+    if (card) {
+      card.style.display = isEnabled ? 'flex' : 'none';
+    }
+    if (!isEnabled) {
+      pauseHardwareTelemetry();
+    } else if (state.activeView === 'dashboard' && !document.hidden) {
+      resumeHardwareTelemetry();
+    }
+  }
+
   function pollHardwareTelemetry() {
-    if (telemetryState.isPaused || state.activeView !== 'dashboard') return;
+    if (!state.settings.enableHardwareMonitor || telemetryState.isPaused || state.activeView !== 'dashboard') return;
     callBridge('get_system_telemetry').then(data => {
       if (data) handleHardwareMetrics(data);
     }).catch(() => {});
@@ -351,6 +364,7 @@
   }
 
   function resumeHardwareTelemetry() {
+    if (!state.settings.enableHardwareMonitor) return;
     telemetryState.isPaused = false;
     const badge = document.getElementById('sys-telemetry-refresh-badge');
     if (badge) badge.classList.remove('is-paused');
@@ -358,6 +372,8 @@
   }
 
   function setupHardwareTelemetry() {
+    updateHardwareMonitorVisibility();
+
     if (telemetryState.cpuHistory.length === 0) {
       for (let i = 0; i < 6; i++) {
         telemetryState.cpuHistory.push(0);
@@ -365,9 +381,11 @@
       }
     }
 
-    callBridge('get_system_telemetry').then(data => {
-      if (data) handleHardwareMetrics(data);
-    }).catch(() => {});
+    if (state.settings.enableHardwareMonitor) {
+      callBridge('get_system_telemetry').then(data => {
+        if (data) handleHardwareMetrics(data);
+      }).catch(() => {});
+    }
 
     if (telemetryState.pollTimer) clearInterval(telemetryState.pollTimer);
     telemetryState.pollTimer = setInterval(pollHardwareTelemetry, 2000);
@@ -375,7 +393,7 @@
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
         pauseHardwareTelemetry();
-      } else if (state.activeView === 'dashboard') {
+      } else if (state.activeView === 'dashboard' && state.settings.enableHardwareMonitor) {
         resumeHardwareTelemetry();
       }
     });
@@ -677,6 +695,7 @@
       const maskShortcutPaths = document.getElementById('setting-mask-paths-checkbox')?.checked === true;
       const embedShells = document.getElementById('setting-embed-shells-checkbox')?.checked === true;
       const enableProton = (document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox'))?.checked === true;
+      const enableHardwareMonitor = (document.getElementById('pref-enable-hardware-monitor') || document.getElementById('setting-enable-hardware-monitor-checkbox'))?.checked === true;
       const theme = document.documentElement.getAttribute('data-theme') || 'dark';
       const accentColor = localStorage.getItem('agents_hub_accent_color') || '#10b981';
       const feedback = document.getElementById('settings-save-feedback');
@@ -689,12 +708,16 @@
       }
       updateVpnProviderUi();
 
+      state.settings.enableHardwareMonitor = enableHardwareMonitor;
+      localStorage.setItem('agents_hub_enable_hardware_monitor', enableHardwareMonitor);
+      updateHardwareMonitorVisibility();
+
       state.isShortcutsMasked = maskShortcutPaths;
       localStorage.setItem('agents_hub_mask_shortcuts', maskShortcutPaths);
       renderDashboardShortcuts();
 
       await callBridge('save_general_settings', {
-        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, enableProtonVpnProvider: enableProton, theme, accentColor }
+        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, enableProtonVpnProvider: enableProton, enableHardwareMonitor, theme, accentColor }
       });
 
       feedback.textContent = 'Preferences saved successfully!';
@@ -717,6 +740,21 @@
       });
       window.dispatchEvent(new CustomEvent('preference-changed', {
         detail: { key: 'enableProtonVpnProvider', value: isEnabled }
+      }));
+    });
+
+    // Reactive checkbox toggle for System & Hardware Telemetry Monitor
+    const hwToggle = document.getElementById('pref-enable-hardware-monitor') || document.getElementById('setting-enable-hardware-monitor-checkbox');
+    hwToggle?.addEventListener('change', async (e) => {
+      const isEnabled = !!e.target.checked;
+      state.settings.enableHardwareMonitor = isEnabled;
+      localStorage.setItem('agents_hub_enable_hardware_monitor', isEnabled);
+      updateHardwareMonitorVisibility();
+      await callBridge('save_general_settings', {
+        settings: { enableHardwareMonitor: isEnabled }
+      });
+      window.dispatchEvent(new CustomEvent('preference-changed', {
+        detail: { key: 'enableHardwareMonitor', value: isEnabled }
       }));
     });
 
@@ -3185,6 +3223,14 @@
           const prefProtonCheck = document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox');
           if (prefProtonCheck) prefProtonCheck.checked = protonEnabled;
 
+          // Hardware Monitor preference (default false / disabled)
+          const hwEnabled = res.settings.enableHardwareMonitor === true;
+          state.settings.enableHardwareMonitor = hwEnabled;
+          localStorage.setItem('agents_hub_enable_hardware_monitor', hwEnabled);
+          const prefHwCheck = document.getElementById('pref-enable-hardware-monitor') || document.getElementById('setting-enable-hardware-monitor-checkbox');
+          if (prefHwCheck) prefHwCheck.checked = hwEnabled;
+          updateHardwareMonitorVisibility();
+
           // Apply initial theme & accent color
           const activeTheme = localStorage.getItem('agents_hub_theme') || res.settings.theme || 'dark';
           const activeColor = localStorage.getItem('agents_hub_accent_color') || res.settings.accentColor || '#4049B9';
@@ -3291,6 +3337,7 @@
       state,
       callBridge,
       updateVpnProviderUi,
+      updateHardwareMonitorVisibility,
       showToast
     };
 
@@ -3302,6 +3349,10 @@
           localStorage.setItem('agents_hub_vpn_provider', 'warp');
         }
         updateVpnProviderUi();
+      }
+      if (e.detail && e.detail.key === 'enableHardwareMonitor') {
+        state.settings.enableHardwareMonitor = !!e.detail.value;
+        updateHardwareMonitorVisibility();
       }
     });
   });
