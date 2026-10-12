@@ -28,7 +28,7 @@ public class ConPtySession : IDisposable
     public event Action<string>? OutputDataReceived;
     public event Action<int>? Exited;
 
-    public bool Start(string commandLine, string? workingDirectory = null, short cols = 120, short rows = 32)
+    public bool Start(string commandLine, string? workingDirectory = null, short cols = 120, short rows = 32, IDictionary<string, string>? environmentVariables = null)
     {
         lock (_syncLock)
         {
@@ -97,28 +97,46 @@ public class ConPtySession : IDisposable
 
                     var targetDir = string.IsNullOrWhiteSpace(workingDirectory) ? Environment.CurrentDirectory : workingDirectory;
 
-                    bool success = NativePty.CreateProcess(
-                        null,
-                        commandLine,
-                        IntPtr.Zero,
-                        IntPtr.Zero,
-                        false,
-                        NativePty.EXTENDED_STARTUPINFO_PRESENT,
-                        IntPtr.Zero,
-                        targetDir,
-                        ref siex,
-                        out var pi);
-
-                    if (!success)
+                    uint creationFlags = NativePty.EXTENDED_STARTUPINFO_PRESENT;
+                    IntPtr lpEnv = IntPtr.Zero;
+                    if (environmentVariables != null && environmentVariables.Count > 0)
                     {
-                        int err = Marshal.GetLastWin32Error();
-                        throw new InvalidOperationException($"CreateProcess failed for command '{commandLine}'. Win32 Error: {err}");
+                        creationFlags |= NativePty.CREATE_UNICODE_ENVIRONMENT;
+                        lpEnv = CreateUnicodeEnvironmentBlock(environmentVariables);
                     }
 
-                    _hProcess = pi.hProcess;
-                    _hThread = pi.hThread;
-                    _processId = pi.dwProcessId;
-                    _isRunning = true;
+                    try
+                    {
+                        bool success = NativePty.CreateProcess(
+                            null,
+                            commandLine,
+                            IntPtr.Zero,
+                            IntPtr.Zero,
+                            false,
+                            creationFlags,
+                            lpEnv,
+                            targetDir,
+                            ref siex,
+                            out var pi);
+
+                        if (!success)
+                        {
+                            int err = Marshal.GetLastWin32Error();
+                            throw new InvalidOperationException($"CreateProcess failed for command '{commandLine}'. Win32 Error: {err}");
+                        }
+
+                        _hProcess = pi.hProcess;
+                        _hThread = pi.hThread;
+                        _processId = pi.dwProcessId;
+                        _isRunning = true;
+                    }
+                    finally
+                    {
+                        if (lpEnv != IntPtr.Zero)
+                        {
+                            Marshal.FreeHGlobal(lpEnv);
+                        }
+                    }
                 }
                 finally
                 {
@@ -300,6 +318,31 @@ public class ConPtySession : IDisposable
         {
             // Suppress cleanup exceptions
         }
+    }
+
+    private static IntPtr CreateUnicodeEnvironmentBlock(IDictionary<string, string> customVars)
+    {
+        var env = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            var k = entry.Key?.ToString();
+            var v = entry.Value?.ToString();
+            if (!string.IsNullOrEmpty(k) && v != null)
+            {
+                env[k] = v;
+            }
+        }
+        foreach (var kvp in customVars)
+        {
+            env[kvp.Key] = kvp.Value;
+        }
+        var sb = new StringBuilder();
+        foreach (var kvp in env)
+        {
+            sb.Append(kvp.Key).Append('=').Append(kvp.Value).Append('\0');
+        }
+        sb.Append('\0');
+        return Marshal.StringToHGlobalUni(sb.ToString());
     }
 
     public void Dispose()

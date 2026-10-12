@@ -36,6 +36,7 @@ public class CliItemInfo
     public int? Port { get; set; }
     public bool IsWebUi => !string.IsNullOrEmpty(WebUrl) || Type == CliType.Hermes;
     public string? WebUrl { get; set; }
+    public string? ProfileName { get; set; }
 }
 
 public class CliManagerService : IDisposable
@@ -149,9 +150,146 @@ public class CliManagerService : IDisposable
         _webTerminalServer.Start();
     }
 
+    public static bool IsAntigravityProfileId(string id, out string profileName)
+    {
+        id = id?.Trim() ?? string.Empty;
+        if (id.StartsWith("antigravity_cli:", StringComparison.OrdinalIgnoreCase))
+        {
+            profileName = id.Substring("antigravity_cli:".Length).Trim();
+            return !string.IsNullOrEmpty(profileName);
+        }
+        profileName = string.Empty;
+        return false;
+    }
+
+    public static string FormatAntigravityProfileId(string profileName)
+    {
+        return $"antigravity_cli:{profileName.Trim()}";
+    }
+
+    public int AllocatePortForProfile(string profileName)
+    {
+        var profId = FormatAntigravityProfileId(profileName);
+        if (_cliStates.TryGetValue(profId, out var existingInfo) && existingInfo.Port.HasValue && existingInfo.Port.Value >= 9339)
+        {
+            int preferred = existingInfo.Port.Value;
+            if (IsPortAvailable(preferred) && !IsPortUsedByOtherCli(preferred, profId))
+            {
+                return preferred;
+            }
+        }
+
+        int port = 9339;
+        while (!IsPortAvailable(port) || IsPortUsedByOtherCli(port, profId))
+        {
+            port++;
+        }
+        return port;
+    }
+
+    private bool IsPortUsedByOtherCli(int port, string currentId)
+    {
+        foreach (var kvp in _cliStates)
+        {
+            if (string.Equals(kvp.Key, currentId, StringComparison.OrdinalIgnoreCase)) continue;
+            if ((kvp.Value.State == CliState.Running || kvp.Value.State == CliState.Starting) && kvp.Value.Port == port)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsPortAvailable(int port)
+    {
+        try
+        {
+            using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+            listener.Start();
+            listener.Stop();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public void StartAntigravityProfile(string profileName) => Start(FormatAntigravityProfileId(profileName));
+    public Task StopAntigravityProfileAsync(string profileName) => StopAsync(FormatAntigravityProfileId(profileName));
+    public Task RestartAntigravityProfileAsync(string profileName) => RestartAsync(FormatAntigravityProfileId(profileName));
+
+    public bool IsProfileRunning(string profileName)
+    {
+        var id = FormatAntigravityProfileId(profileName);
+        return _cliStates.TryGetValue(id, out var info) && (info.State == CliState.Running || info.State == CliState.Starting);
+    }
+
+    public int? GetPortForProfile(string profileName)
+    {
+        var id = FormatAntigravityProfileId(profileName);
+        if (_cliStates.TryGetValue(id, out var info) && info.Port.HasValue)
+        {
+            return info.Port.Value;
+        }
+        return null;
+    }
+
+    public IReadOnlyList<string> GetRunningAntigravityProfiles()
+    {
+        var list = new List<string>();
+        foreach (var kvp in _cliStates)
+        {
+            if (IsAntigravityProfileId(kvp.Key, out var pName) && (kvp.Value.State == CliState.Running || kvp.Value.State == CliState.Starting))
+            {
+                list.Add(pName);
+            }
+        }
+        return list;
+    }
+
     public CliItemInfo GetInfo(string id)
     {
+        if (IsAntigravityProfileId(id, out var profName))
+        {
+            string profId = FormatAntigravityProfileId(profName);
+            if (_cliStates.TryGetValue(profId, out var existingProfInfo))
+            {
+                return existingProfInfo;
+            }
+
+            int allocPort = AllocatePortForProfile(profName);
+            var createdProf = new CliItemInfo
+            {
+                Id = profId,
+                Type = CliType.AntigravityCli,
+                DisplayName = $"Antigravity ({profName})",
+                ShortName = $"Antigravity ({profName})",
+                CommandDescription = $"agy (Profile: {profName})",
+                State = CliState.Offline,
+                StatusText = "CLI: Offline",
+                Port = allocPort,
+                WebUrl = $"http://127.0.0.1:{allocPort}",
+                ProfileName = profName
+            };
+            _cliStates[profId] = createdProf;
+            return createdProf;
+        }
+
         id = AiConfigService.NormalizeCliId(id);
+        if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        {
+            var activeProf = _profileService.ActiveProfile;
+            if (!string.IsNullOrWhiteSpace(activeProf))
+            {
+                var activeProfId = FormatAntigravityProfileId(activeProf);
+                if (_cliStates.TryGetValue(activeProfId, out var activeInfo))
+                {
+                    return activeInfo;
+                }
+            }
+        }
+
         if (_cliStates.TryGetValue(id, out var info))
         {
             return info;
@@ -199,6 +337,10 @@ public class CliManagerService : IDisposable
         {
             GetInfo(ws.Id);
         }
+        foreach (var prof in _profileService.GetProfiles())
+        {
+            GetInfo(FormatAntigravityProfileId(prof));
+        }
         return [.. _cliStates.Values];
     }
 
@@ -211,11 +353,27 @@ public class CliManagerService : IDisposable
 
     public void Start(string id)
     {
-        id = AiConfigService.NormalizeCliId(id);
-        if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
+        bool isAgyProf = IsAntigravityProfileId(id, out var profileName);
+        if (!isAgyProf)
         {
-            _hermesService.Start();
-            return;
+            id = AiConfigService.NormalizeCliId(id);
+            if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
+            {
+                _hermesService.Start();
+                return;
+            }
+
+            if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+            {
+                var activeProf = _profileService.ActiveProfile;
+                if (string.IsNullOrWhiteSpace(activeProf))
+                {
+                    var allProfs = _profileService.GetProfiles();
+                    activeProf = allProfs.Count > 0 ? allProfs[0] : "Default";
+                }
+                id = FormatAntigravityProfileId(activeProf);
+                isAgyProf = IsAntigravityProfileId(id, out profileName);
+            }
         }
 
         var info = GetInfo(id);
@@ -260,7 +418,17 @@ public class CliManagerService : IDisposable
 
             session.Exited += (exitCode) =>
             {
-                if (string.Equals(id, "AntigravityCli", StringComparison.OrdinalIgnoreCase))
+                if (IsAntigravityProfileId(id, out var exitProf))
+                {
+                    try
+                    {
+                        _profileService.StopVirtualHomeWatcher(exitProf);
+                        _profileService.SyncVirtualHomeToProfile(exitProf);
+                    }
+                    catch { }
+                }
+                else if (string.Equals(id, "AntigravityCli", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {
@@ -278,15 +446,34 @@ public class CliManagerService : IDisposable
 
             string command;
             string workDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            IDictionary<string, string>? envVars = null;
 
-            if (string.Equals(id, "ClaudeCode", StringComparison.OrdinalIgnoreCase))
+            if (isAgyProf)
+            {
+                int port = AllocatePortForProfile(profileName);
+                info.Port = port;
+                info.WebUrl = $"http://127.0.0.1:{port}";
+
+                string virtualHomeDir = _profileService.PrepareVirtualHome(profileName);
+                _profileService.StartVirtualHomeWatcher(profileName);
+
+                envVars = new Dictionary<string, string>
+                {
+                    ["USERPROFILE"] = virtualHomeDir,
+                    ["HOME"] = virtualHomeDir,
+                    ["APPDATA"] = Path.Combine(virtualHomeDir, "AppData", "Roaming"),
+                    ["LOCALAPPDATA"] = Path.Combine(virtualHomeDir, "AppData", "Local"),
+                    ["PORT"] = port.ToString(),
+                    ["ANTIGRAVITY_PORT"] = port.ToString()
+                };
+
+                command = "cmd.exe /c agy";
+                workDir = virtualHomeDir;
+            }
+            else if (string.Equals(id, "ClaudeCode", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase))
             {
                 command = "cmd.exe /c claude";
-            }
-            else if (string.Equals(id, "AntigravityCli", StringComparison.OrdinalIgnoreCase))
-            {
-                command = "cmd.exe /c agy";
-                _profileService.EnsureActiveProfileApplied();
             }
             else
             {
@@ -311,16 +498,16 @@ public class CliManagerService : IDisposable
                 }
             }
 
-            bool started = session.Start(command, workDir, 120, 32);
+            bool started = session.Start(command, workDir, 120, 32, envVars);
             if (started)
             {
                 _terminalSessions[id] = session;
                 info.State = CliState.Running;
                 info.ProcessId = session.ProcessId;
                 info.StartTime = DateTime.UtcNow;
-                info.StatusText = $"Running (PID: {session.ProcessId})";
+                info.StatusText = $"Running (PID: {session.ProcessId}, Port: {info.Port ?? 9339})";
                 FireStatusChanged(id, CliState.Running, info.StatusText);
-                LogMessage?.Invoke(info.ShortName, $"Session active with PID {session.ProcessId}.");
+                LogMessage?.Invoke(info.ShortName, $"Session active with PID {session.ProcessId} on port {info.Port}.");
             }
             else
             {
@@ -343,14 +530,40 @@ public class CliManagerService : IDisposable
 
     public async Task StopAsync(string id)
     {
-        id = AiConfigService.NormalizeCliId(id);
-        if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
+        bool isAgyProf = IsAntigravityProfileId(id, out var profileName);
+        if (!isAgyProf)
         {
-            await _hermesService.StopAsync();
-            return;
+            id = AiConfigService.NormalizeCliId(id);
+            if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
+            {
+                await _hermesService.StopAsync();
+                return;
+            }
+
+            if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+            {
+                var activeProf = _profileService.ActiveProfile;
+                if (!string.IsNullOrWhiteSpace(activeProf))
+                {
+                    id = FormatAntigravityProfileId(activeProf);
+                    isAgyProf = IsAntigravityProfileId(id, out profileName);
+                }
+            }
         }
 
-        if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        if (isAgyProf)
+        {
+            try
+            {
+                _profileService.StopVirtualHomeWatcher(profileName);
+                _profileService.SyncVirtualHomeToProfile(profileName);
+            }
+            catch (Exception ex)
+            {
+                LogMessage?.Invoke("Antigravity Profile", $"Pre-stop sync notice: {ex.Message}");
+            }
+        }
+        else if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
         {
             try
             {
@@ -387,7 +600,10 @@ public class CliManagerService : IDisposable
 
     public async Task RestartAsync(string id)
     {
-        id = AiConfigService.NormalizeCliId(id);
+        if (!IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
         await StopAsync(id);
         await Task.Delay(300);
         Start(id);
@@ -397,7 +613,10 @@ public class CliManagerService : IDisposable
 
     public void SendInput(string id, string data)
     {
-        id = AiConfigService.NormalizeCliId(id);
+        if (!IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
         if (_terminalSessions.TryGetValue(id, out var session) && session.IsRunning)
         {
             session.Write(data);
@@ -408,7 +627,10 @@ public class CliManagerService : IDisposable
 
     public void Resize(string id, short cols, short rows)
     {
-        id = AiConfigService.NormalizeCliId(id);
+        if (!IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
         if (_terminalSessions.TryGetValue(id, out var session) && session.IsRunning)
         {
             session.Resize(cols, rows);
@@ -419,7 +641,10 @@ public class CliManagerService : IDisposable
 
     public string GetTerminalHistory(string id)
     {
-        id = AiConfigService.NormalizeCliId(id);
+        if (!IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
         if (_terminalBuffers.TryGetValue(id, out var buf))
         {
             lock (buf)
@@ -435,7 +660,10 @@ public class CliManagerService : IDisposable
 
     public void ClearTerminalHistory(string id)
     {
-        id = AiConfigService.NormalizeCliId(id);
+        if (!IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
         if (_terminalBuffers.TryGetValue(id, out var buf))
         {
             lock (buf)
@@ -447,7 +675,6 @@ public class CliManagerService : IDisposable
 
     private void FireStatusChanged(string id, CliState state, string message)
     {
-        id = AiConfigService.NormalizeCliId(id);
         StatusChangedId?.Invoke(id, state, message);
         var ct = id switch
         {
@@ -456,6 +683,10 @@ public class CliManagerService : IDisposable
             "hermes" => CliType.Hermes,
             _ => (CliType?)null
         };
+        if (!ct.HasValue && IsAntigravityProfileId(id, out _))
+        {
+            ct = CliType.AntigravityCli;
+        }
         if (ct.HasValue)
         {
             StatusChanged?.Invoke(ct.Value, state, message);
@@ -464,7 +695,6 @@ public class CliManagerService : IDisposable
 
     private void FireTerminalDataReceived(string id, string data)
     {
-        id = AiConfigService.NormalizeCliId(id);
         TerminalDataReceivedId?.Invoke(id, data);
         var ct = id switch
         {
@@ -473,6 +703,10 @@ public class CliManagerService : IDisposable
             "hermes" => CliType.Hermes,
             _ => (CliType?)null
         };
+        if (!ct.HasValue && IsAntigravityProfileId(id, out _))
+        {
+            ct = CliType.AntigravityCli;
+        }
         if (ct.HasValue)
         {
             TerminalDataReceived?.Invoke(ct.Value, data);
@@ -481,32 +715,12 @@ public class CliManagerService : IDisposable
 
     public async Task<bool> SwitchAntigravityProfileAsync(string profileName)
     {
-        LogMessage?.Invoke("Antigravity", $"Switching profile to '{profileName}'...");
-
-        try
-        {
-            _profileService.ExportCurrentSession(_profileService.ActiveProfile);
-        }
-        catch (Exception ex)
-        {
-            LogMessage?.Invoke("Antigravity Profile", $"Pre-switch export notice: {ex.Message}");
-        }
-
-        var wasRunning = _cliStates.TryGetValue("antigravity_cli", out var info) &&
-                         (info.State == CliState.Running || info.State == CliState.Starting);
-
-        if (wasRunning)
-        {
-            await StopAsync("antigravity_cli");
-            await Task.Delay(350);
-        }
+        LogMessage?.Invoke("Antigravity", $"Switching active profile to '{profileName}'...");
 
         bool applied = _profileService.ApplyProfile(profileName);
-
-        if (wasRunning && applied)
+        if (applied)
         {
-            await Task.Delay(200);
-            Start("antigravity_cli");
+            _profileService.PrepareVirtualHome(profileName);
         }
 
         return applied;
@@ -516,30 +730,12 @@ public class CliManagerService : IDisposable
     {
         LogMessage?.Invoke("Antigravity", $"Preparing new onboarding profile '{newProfileName}'...");
 
-        try
-        {
-            _profileService.ExportCurrentSession(_profileService.ActiveProfile);
-        }
-        catch (Exception ex)
-        {
-            LogMessage?.Invoke("Antigravity Profile", $"Pre-create export notice: {ex.Message}");
-        }
-
-        var wasRunning = _cliStates.TryGetValue("antigravity_cli", out var info) &&
-                         (info.State == CliState.Running || info.State == CliState.Starting);
-
-        if (wasRunning)
-        {
-            await StopAsync("antigravity_cli");
-            await Task.Delay(350);
-        }
-
         bool prepared = _profileService.PrepareNewProfile(newProfileName);
-
         if (prepared)
         {
+            _profileService.PrepareVirtualHome(newProfileName);
             await Task.Delay(200);
-            Start("antigravity_cli");
+            StartAntigravityProfile(newProfileName);
         }
 
         return prepared;

@@ -177,6 +177,29 @@
         }
         break;
 
+      case 'antigravity_instance_status_changed':
+        if (payload) {
+          if (state.antigravity && state.antigravity.profiles) {
+            const p = state.antigravity.profiles.find(x => (typeof x === 'object' ? x.name : x).toLowerCase() === (payload.profile || '').toLowerCase());
+            if (p && typeof p === 'object') {
+              p.isRunning = !!payload.isRunning;
+              p.port = payload.port || null;
+            }
+          }
+          renderProfiles();
+          renderQuickProfileSelect();
+          renderRunningPorts();
+          updateHeaderStatus();
+        }
+        break;
+
+      case 'running_ports_updated':
+        if (payload && payload.runningPorts) {
+          state.runningPorts = payload.runningPorts;
+          renderRunningPorts();
+        }
+        break;
+
       case 'hardware_metrics':
         if (payload) {
           handleHardwareMetrics(payload);
@@ -1047,12 +1070,14 @@
     profiles.forEach(p => {
       const name = typeof p === 'object' ? (p.name || '') : p;
       const email = typeof p === 'object' ? (p.email || '') : '';
+      const isRunning = typeof p === 'object' ? !!p.isRunning : false;
+      const port = typeof p === 'object' && p.port ? p.port : null;
       const isActive = name.toLowerCase() === active.toLowerCase();
       const cardId = 'prof-card-' + name.replace(/[^a-z0-9]/gi, '_');
       const card = document.createElement('div');
       card.className = 'dashboard-card';
       card.id = cardId;
-      card.style.borderColor = isActive ? 'var(--accent-green)' : 'var(--border-subtle)';
+      card.style.borderColor = isRunning ? 'var(--accent-green)' : (isActive ? 'var(--accent-green)' : 'var(--border-subtle)');
 
       const emailHtml = email ? `
         <div class="profile-email-row" data-visible="false">
@@ -1066,26 +1091,32 @@
       card.innerHTML = `
         <div class="card-header">
           <div class="card-title-group">
-            <div class="card-icon" style="color: ${isActive ? 'var(--accent-green)' : 'var(--text-muted)'}">
+            <div class="card-icon" style="color: ${isRunning || isActive ? 'var(--accent-green)' : 'var(--text-muted)'}">
               <svg class="icon-svg" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
             <div>
               <div class="card-title">${name}</div>
-              <div class="card-subtitle">${isActive ? 'Active Session' : 'Ready to switch'}</div>
+              <div class="card-subtitle">${isRunning ? `Running (Port: ${port || '9339'})` : (isActive ? 'Active Session (Stopped)' : 'Stopped')}</div>
               ${emailHtml}
             </div>
           </div>
-          <div class="profile-card-actions">
+          <div class="profile-card-actions" style="display: flex; align-items: center; gap: 6px;">
             ${isActive ? '<span class="brand-badge">ACTIVE</span>' : ''}
+            ${isRunning
+              ? `<span class="brand-badge" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid var(--accent-green);">RUNNING${port ? ' :' + port : ''}</span>`
+              : '<span class="brand-badge" style="background: rgba(113, 113, 122, 0.15); color: var(--text-muted); border: 1px solid var(--border-subtle);">STOPPED</span>'}
             <button class="btn-open-folder" data-name="${name}" title="Open profile folder" aria-label="Open profile folder in Explorer">
               <svg viewBox="0 0 24 24" class="icon-folder"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             </button>
           </div>
         </div>
-        <div style="display: flex; gap: 8px; margin-top: 14px;">
-          ${!isActive ? `<button class="btn btn-success btn-switch-prof" data-name="${name}" style="flex: 1;">Switch</button>` : ''}
+        <div style="display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap;">
+          ${isRunning
+            ? `<button class="btn btn-danger btn-stop-prof-instance" data-name="${name}" style="flex: 1;">Stop Instance</button>`
+            : `<button class="btn btn-success btn-start-prof-instance" data-name="${name}" style="flex: 1;">Start Instance</button>`}
+          ${!isActive ? `<button class="btn btn-outline btn-switch-prof" data-name="${name}">Set Active</button>` : ''}
           <button class="btn btn-outline btn-rename-prof" data-name="${name}">Rename</button>
-          ${!isActive ? `<button class="btn btn-danger btn-delete-prof" data-name="${name}">Delete</button>` : ''}
+          ${!isActive && !isRunning ? `<button class="btn btn-danger btn-delete-prof" data-name="${name}">Delete</button>` : ''}
         </div>
       `;
 
@@ -1117,6 +1148,30 @@
       });
 
       container.appendChild(card);
+    });
+
+    container.querySelectorAll('.btn-start-prof-instance').forEach(b => {
+      b.addEventListener('click', async () => {
+        const name = b.dataset.name;
+        b.disabled = true;
+        try {
+          await callBridge('start_antigravity_instance', { profile: name });
+        } finally {
+          b.disabled = false;
+        }
+      });
+    });
+
+    container.querySelectorAll('.btn-stop-prof-instance').forEach(b => {
+      b.addEventListener('click', async () => {
+        const name = b.dataset.name;
+        b.disabled = true;
+        try {
+          await callBridge('stop_antigravity_instance', { profile: name });
+        } finally {
+          b.disabled = false;
+        }
+      });
     });
 
     container.querySelectorAll('.btn-switch-prof').forEach(b => {
@@ -1193,8 +1248,12 @@
       dropdown.innerHTML = '';
       profiles.forEach(p => {
         const opt = document.createElement('option');
+        const pObj = rawProfiles.find(x => (typeof x === 'object' ? x.name : x).toLowerCase() === p.toLowerCase());
+        const isRun = typeof pObj === 'object' && pObj.isRunning;
+        const pPort = typeof pObj === 'object' && pObj.port ? pObj.port : null;
+
         opt.value = p;
-        opt.textContent = p;
+        opt.textContent = isRun ? `${p} [Running : ${pPort || 'Active'}]` : `${p} [Stopped]`;
         if (p.toLowerCase() === active.toLowerCase()) opt.selected = true;
         dropdown.appendChild(opt);
       });
@@ -1223,9 +1282,8 @@
           const c = state.clis['ClaudeCode'] || {};
           return { ...p, state: c.state || 'Running', isRunning: true };
         }
-        if (p.id === 'antigravity_cli') {
-          const a = state.clis['AntigravityCli'] || {};
-          return { ...p, state: a.state || 'Running', isRunning: true };
+        if (p.id === 'antigravity_cli' || p.id.startsWith('antigravity_cli:')) {
+          return { ...p, state: p.isRunning ? 'Running' : 'Offline', isRunning: !!p.isRunning };
         }
         if (p.id === 'lan_proxy') {
           return { ...p, state: state.lanProxyEnabled ? 'Running' : 'Offline', isRunning: !!state.lanProxyEnabled };

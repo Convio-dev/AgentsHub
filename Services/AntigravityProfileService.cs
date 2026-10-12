@@ -58,6 +58,8 @@ public sealed class AntigravityProfileService : IDisposable
     private readonly object _lock = new();
     private FileSystemWatcher? _fileWatcher;
     private System.Threading.Timer? _debounceSyncTimer;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, FileSystemWatcher> _virtualHomeWatchers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.Timer> _virtualHomeDebounceTimers = new(StringComparer.OrdinalIgnoreCase);
     private string _activeProfile = string.Empty;
 
     public string ActiveProfile
@@ -422,6 +424,20 @@ public sealed class AntigravityProfileService : IDisposable
             if (accounts != null && CheckFileHasContentSafe(accounts, 5))
             {
                 return true;
+            }
+
+            // Check VirtualHome\.gemini as well
+            string virtGemini = Path.Combine(dir, "VirtualHome", ".gemini");
+            if (Directory.Exists(virtGemini))
+            {
+                string vCred = Path.Combine(virtGemini, "gemini_credential.json");
+                if (File.Exists(vCred) && CheckFileHasContentSafe(vCred, 10)) return true;
+
+                string? vOAuth = ResolveOAuthCredsPath(virtGemini);
+                if (vOAuth != null && CheckFileHasContentSafe(vOAuth, 10)) return true;
+
+                string? vAcct = ResolveGoogleAccountsPath(virtGemini);
+                if (vAcct != null && CheckFileHasContentSafe(vAcct, 5)) return true;
             }
 
             return false;
@@ -949,7 +965,37 @@ public sealed class AntigravityProfileService : IDisposable
             }
 
             string? acctPath = ResolveGoogleAccountsPath(profileDir);
-            return acctPath != null ? TryExtractAccountEmail(acctPath) : null;
+            if (acctPath != null)
+            {
+                var em = TryExtractAccountEmail(acctPath);
+                if (!string.IsNullOrWhiteSpace(em)) return em;
+            }
+
+            // Check VirtualHome\.gemini
+            string virtGemini = Path.Combine(profileDir, "VirtualHome", ".gemini");
+            if (Directory.Exists(virtGemini))
+            {
+                string vCredPath = Path.Combine(virtGemini, "gemini_credential.json");
+                if (File.Exists(vCredPath))
+                {
+                    try
+                    {
+                        string json = File.ReadAllText(vCredPath);
+                        var em = ExtractEmailFromTokenBlob(json);
+                        if (!string.IsNullOrWhiteSpace(em)) return em;
+                    }
+                    catch { }
+                }
+
+                string? vAcctPath = ResolveGoogleAccountsPath(virtGemini);
+                if (vAcctPath != null)
+                {
+                    var em = TryExtractAccountEmail(vAcctPath);
+                    if (!string.IsNullOrWhiteSpace(em)) return em;
+                }
+            }
+
+            return null;
         }
         catch
         {
@@ -1303,9 +1349,273 @@ public sealed class AntigravityProfileService : IDisposable
         }
     }
 
+    public static string GetVirtualHomeDirectory(string profileName)
+    {
+        return Path.Combine(ProfilesBaseDir, profileName, "VirtualHome");
+    }
+
+    /// <summary>
+    /// Prepares an isolated VirtualHome for the specified profile:
+    /// Profiles\Antigravity\{ProfileName}\VirtualHome\.gemini\
+    /// Seeds oauth_creds.json, google_accounts.json, gemini_credential.json,
+    /// and antigravity-cli cache/settings from the profile root if available.
+    /// Does NOT touch or overwrite host %USERPROFILE%\.gemini.
+    /// </summary>
+    public string PrepareVirtualHome(string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName))
+            throw new ArgumentException("Profile name cannot be empty.", nameof(profileName));
+
+        lock (_lock)
+        {
+            string profileDir = Path.Combine(ProfilesBaseDir, profileName);
+            Directory.CreateDirectory(profileDir);
+
+            string virtualHomeDir = Path.Combine(profileDir, "VirtualHome");
+            string virtualGemini = Path.Combine(virtualHomeDir, ".gemini");
+            string virtualCli = Path.Combine(virtualGemini, "antigravity-cli");
+            string virtualCache = Path.Combine(virtualCli, "cache");
+            string virtualRoaming = Path.Combine(virtualHomeDir, "AppData", "Roaming");
+            string virtualLocal = Path.Combine(virtualHomeDir, "AppData", "Local");
+
+            Directory.CreateDirectory(virtualGemini);
+            Directory.CreateDirectory(virtualCli);
+            Directory.CreateDirectory(virtualCache);
+            Directory.CreateDirectory(virtualRoaming);
+            Directory.CreateDirectory(virtualLocal);
+
+            // Copy credentials and config from profile root to VirtualHome
+            string credSrc = Path.Combine(profileDir, "gemini_credential.json");
+            string credDst = Path.Combine(virtualGemini, "gemini_credential.json");
+            if (File.Exists(credSrc))
+            {
+                RobustCopyFile(credSrc, credDst);
+            }
+
+            string? oauthSrc = ResolveOAuthCredsPath(profileDir);
+            if (oauthSrc != null && File.Exists(oauthSrc))
+            {
+                RobustCopyFile(oauthSrc, Path.Combine(virtualGemini, "oauth_creds.json"));
+            }
+
+            string? acctSrc = ResolveGoogleAccountsPath(profileDir);
+            if (acctSrc != null && File.Exists(acctSrc))
+            {
+                RobustCopyFile(acctSrc, Path.Combine(virtualGemini, "google_accounts.json"));
+            }
+
+            string cacheSrc = Path.Combine(profileDir, "cache");
+            if (Directory.Exists(cacheSrc))
+            {
+                CopyDirectoryRecursive(cacheSrc, virtualCache);
+            }
+
+            string settingsSrc = Path.Combine(profileDir, "cli_settings.json");
+            if (File.Exists(settingsSrc))
+            {
+                RobustCopyFile(settingsSrc, Path.Combine(virtualCli, "settings.json"));
+            }
+
+            Log($"VirtualHome prepared for profile '{profileName}'.");
+            return virtualHomeDir;
+        }
+    }
+
+    /// <summary>
+    /// Synchronizes tokens, cache, and settings from VirtualHome back to the profile's root folder.
+    /// Never touches host %USERPROFILE%\.gemini or antigravity-ide.
+    /// </summary>
+    public void SyncVirtualHomeToProfile(string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return;
+
+        lock (_lock)
+        {
+            try
+            {
+                string profileDir = Path.Combine(ProfilesBaseDir, profileName);
+                string virtualHomeDir = Path.Combine(profileDir, "VirtualHome");
+                string virtualGemini = Path.Combine(virtualHomeDir, ".gemini");
+                string virtualCli = Path.Combine(virtualGemini, "antigravity-cli");
+                string virtualCache = Path.Combine(virtualCli, "cache");
+
+                if (!Directory.Exists(virtualGemini)) return;
+
+                string email = string.Empty;
+
+                // 1. Sync gemini_credential.json
+                string virtCred = Path.Combine(virtualGemini, "gemini_credential.json");
+                if (File.Exists(virtCred) && CheckFileHasContentSafe(virtCred, 10))
+                {
+                    RobustCopyFile(virtCred, Path.Combine(profileDir, "gemini_credential.json"));
+                    string json = File.ReadAllText(virtCred);
+                    var em = ExtractEmailFromTokenBlob(json);
+                    if (!string.IsNullOrWhiteSpace(em)) email = em;
+                }
+
+                // 2. Sync oauth_creds.json
+                string? virtOAuth = ResolveOAuthCredsPath(virtualGemini);
+                if (virtOAuth != null && File.Exists(virtOAuth) && CheckFileHasContentSafe(virtOAuth, 10))
+                {
+                    RobustCopyFile(virtOAuth, Path.Combine(profileDir, "oauth_creds.json"));
+                }
+
+                // 3. Sync google_accounts.json
+                string? virtAcct = ResolveGoogleAccountsPath(virtualGemini);
+                if (virtAcct != null && File.Exists(virtAcct) && CheckFileHasContentSafe(virtAcct, 5))
+                {
+                    RobustCopyFile(virtAcct, Path.Combine(profileDir, "google_accounts.json"));
+                    var em = TryExtractAccountEmail(virtAcct);
+                    if (!string.IsNullOrWhiteSpace(em)) email = em;
+                }
+
+                // 4. Sync cache
+                if (Directory.Exists(virtualCache))
+                {
+                    CopyDirectoryRecursive(virtualCache, Path.Combine(profileDir, "cache"));
+                }
+
+                // 5. Sync cli_settings.json
+                string virtSettings = Path.Combine(virtualCli, "settings.json");
+                if (File.Exists(virtSettings))
+                {
+                    RobustCopyFile(virtSettings, Path.Combine(profileDir, "cli_settings.json"));
+                }
+
+                // 6. Update profile_info.json
+                if (string.IsNullOrWhiteSpace(email))
+                {
+                    email = GetAccountEmail(profileName) ?? string.Empty;
+                }
+
+                var meta = new
+                {
+                    ProfileName = profileName,
+                    AccountEmail = email,
+                    LastExportUtc = DateTime.UtcNow
+                };
+                File.WriteAllText(Path.Combine(profileDir, "profile_info.json"), JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }));
+
+                Log($"VirtualHome synchronized to profile '{profileName}'.");
+                ProfileSaved?.Invoke(profileName);
+            }
+            catch (Exception ex)
+            {
+                Log($"VirtualHome sync notice for '{profileName}': {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Starts a real-time FileSystemWatcher on a profile's VirtualHome\.gemini folder
+    /// to debounce sync token / cache changes back to the profile root folder.
+    /// </summary>
+    public void StartVirtualHomeWatcher(string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return;
+
+        try
+        {
+            string virtualGemini = Path.Combine(ProfilesBaseDir, profileName, "VirtualHome", ".gemini");
+            if (!Directory.Exists(virtualGemini))
+            {
+                Directory.CreateDirectory(virtualGemini);
+            }
+
+            if (_virtualHomeWatchers.ContainsKey(profileName)) return;
+
+            var watcher = new FileSystemWatcher(virtualGemini)
+            {
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                Filter = "*",
+                IncludeSubdirectories = true,
+                EnableRaisingEvents = true
+            };
+
+            void OnChanged(object sender, FileSystemEventArgs e)
+            {
+                if (e.ChangeType == WatcherChangeTypes.Deleted) return;
+                if (e.FullPath.IndexOf("antigravity-ide", StringComparison.OrdinalIgnoreCase) >= 0) return;
+
+                if (_virtualHomeDebounceTimers.TryGetValue(profileName, out var existingTimer))
+                {
+                    existingTimer.Dispose();
+                }
+
+                _virtualHomeDebounceTimers[profileName] = new System.Threading.Timer(_ =>
+                {
+                    try
+                    {
+                        SyncVirtualHomeToProfile(profileName);
+                    }
+                    catch { }
+                }, null, 1500, System.Threading.Timeout.Infinite);
+            }
+
+            watcher.Changed += OnChanged;
+            watcher.Created += OnChanged;
+
+            _virtualHomeWatchers[profileName] = watcher;
+        }
+        catch (Exception ex)
+        {
+            Log($"Failed to start watcher for '{profileName}' VirtualHome: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Stops the VirtualHome watcher and flushes any pending writes back to profile root.
+    /// </summary>
+    public void StopVirtualHomeWatcher(string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return;
+
+        try
+        {
+            if (_virtualHomeWatchers.TryRemove(profileName, out var watcher))
+            {
+                watcher.EnableRaisingEvents = false;
+                watcher.Dispose();
+            }
+
+            if (_virtualHomeDebounceTimers.TryRemove(profileName, out var timer))
+            {
+                timer.Dispose();
+            }
+
+            // Final flush
+            SyncVirtualHomeToProfile(profileName);
+        }
+        catch (Exception ex)
+        {
+            Log($"Error stopping VirtualHome watcher for '{profileName}': {ex.Message}");
+        }
+    }
+
     public void Dispose()
     {
         _debounceSyncTimer?.Dispose();
         _fileWatcher?.Dispose();
+
+        foreach (var watcher in _virtualHomeWatchers.Values)
+        {
+            try
+            {
+                watcher.EnableRaisingEvents = false;
+                watcher.Dispose();
+            }
+            catch { }
+        }
+        _virtualHomeWatchers.Clear();
+
+        foreach (var timer in _virtualHomeDebounceTimers.Values)
+        {
+            try
+            {
+                timer.Dispose();
+            }
+            catch { }
+        }
+        _virtualHomeDebounceTimers.Clear();
     }
 }

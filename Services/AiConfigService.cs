@@ -412,13 +412,18 @@ public class AiConfigService
     public static string NormalizeCliId(string? id)
     {
         if (string.IsNullOrWhiteSpace(id)) return "hermes";
-        var clean = id.Trim().ToLowerInvariant().Replace("_", "").Replace("-", "");
+        id = id.Trim();
+        if (id.StartsWith("antigravity_cli:", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"antigravity_cli:{id.Substring("antigravity_cli:".Length).Trim()}";
+        }
+        var clean = id.ToLowerInvariant().Replace("_", "").Replace("-", "");
         return clean switch
         {
             "hermes" => "hermes",
             "claude" or "claudecode" => "claude_code",
             "antigravity" or "antigravitycli" => "antigravity_cli",
-            _ => id.Trim()
+            _ => id
         };
     }
 

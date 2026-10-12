@@ -95,6 +95,30 @@ public sealed class DashboardWebBridge : IDisposable
             });
         };
 
+        _cliManager.StatusChangedId += (id, state, msg) =>
+        {
+            if (CliManagerService.IsAntigravityProfileId(id, out var profileName))
+            {
+                PostEventToUi("antigravity_instance_status_changed", new
+                {
+                    id,
+                    profile = profileName,
+                    state = state.ToString(),
+                    message = msg,
+                    port = _cliManager.GetPortForProfile(profileName),
+                    isRunning = state == CliState.Running
+                });
+
+                var lanIp = NetworkHelper.GetLocalIPv4();
+                var lanProxyPort = _lanProxyService?.ListenPort ?? 8080;
+                var rPorts = GetRunningWebPorts(lanIp, _cliManager.HermesService.Port, lanProxyPort);
+                PostEventToUi("running_ports_updated", new
+                {
+                    runningPorts = rPorts
+                });
+            }
+        };
+
         _cliManager.TerminalDataReceived += (type, data) =>
         {
             // Append incoming stream data into debounced buffer
@@ -418,7 +442,31 @@ public sealed class DashboardWebBridge : IDisposable
                     if (!string.IsNullOrWhiteSpace(pName))
                     {
                         await _cliManager.SwitchAntigravityProfileAsync(pName);
-                        SendResponse(requestId, true, new { activeProfile = _cliManager.ProfileService.ActiveProfile });
+                        SendResponse(requestId, true, new { activeProfile = _cliManager.ProfileService.ActiveProfile, profiles = GetProfilesWithEmail() });
+                    }
+                }
+                break;
+
+            case "start_antigravity_instance":
+                if (data.TryGetProperty("profile", out var startProfProp))
+                {
+                    var pName = startProfProp.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(pName))
+                    {
+                        _cliManager.StartAntigravityProfile(pName);
+                        SendResponse(requestId, true, new { success = true, profile = pName, port = _cliManager.GetPortForProfile(pName), profiles = GetProfilesWithEmail() });
+                    }
+                }
+                break;
+
+            case "stop_antigravity_instance":
+                if (data.TryGetProperty("profile", out var stopProfProp))
+                {
+                    var pName = stopProfProp.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(pName))
+                    {
+                        await _cliManager.StopAntigravityProfileAsync(pName);
+                        SendResponse(requestId, true, new { success = true, profile = pName, profiles = GetProfilesWithEmail() });
                     }
                 }
                 break;
@@ -1176,30 +1224,58 @@ public sealed class DashboardWebBridge : IDisposable
                 lanUrl = $"http://{lanIp}:9229/{themeParam}",
                 state = "Running",
                 isRunning = true
-            },
-            new
-            {
-                id = "antigravity_cli",
-                name = "Antigravity CLI Web",
-                port = 9339,
-                lanPort = 9339,
-                localUrl = $"http://127.0.0.1:9339/{themeParam}",
-                lanUrl = $"http://{lanIp}:9339/{themeParam}",
-                state = "Running",
-                isRunning = true
-            },
-            new
-            {
-                id = "lan_proxy",
-                name = "LAN Remote Gateway",
-                port = lanProxyPort,
-                lanPort = lanProxyPort,
-                localUrl = $"http://127.0.0.1:{lanProxyPort}/{themeParam}",
-                lanUrl = $"http://{lanIp}:{lanProxyPort}/{themeParam}",
-                state = (_lanProxyService?.IsRunning ?? false) ? "Running" : "Offline",
-                isRunning = _lanProxyService?.IsRunning ?? false
             }
         };
+
+        var runningProfiles = _cliManager.GetRunningAntigravityProfiles();
+        if (runningProfiles.Count > 0)
+        {
+            foreach (var prof in runningProfiles)
+            {
+                int pPort = _cliManager.GetPortForProfile(prof) ?? 9339;
+                list.Add(new
+                {
+                    id = CliManagerService.FormatAntigravityProfileId(prof),
+                    name = $"Antigravity CLI ({prof})",
+                    port = pPort,
+                    lanPort = pPort,
+                    localUrl = $"http://127.0.0.1:{pPort}/{themeParam}",
+                    lanUrl = $"http://{lanIp}:{pPort}/{themeParam}",
+                    state = "Running",
+                    isRunning = true
+                });
+            }
+        }
+        else
+        {
+            var activeProf = _cliManager.ProfileService.ActiveProfile ?? "Default";
+            var activeInfo = _cliManager.GetInfo(CliType.AntigravityCli);
+            int basePort = activeInfo.Port ?? 9339;
+            bool isRunning = activeInfo.State == CliState.Running;
+            list.Add(new
+            {
+                id = "antigravity_cli",
+                name = $"Antigravity CLI ({activeProf})",
+                port = basePort,
+                lanPort = basePort,
+                localUrl = $"http://127.0.0.1:{basePort}/{themeParam}",
+                lanUrl = $"http://{lanIp}:{basePort}/{themeParam}",
+                state = isRunning ? "Running" : "Offline",
+                isRunning = isRunning
+            });
+        }
+
+        list.Add(new
+        {
+            id = "lan_proxy",
+            name = "LAN Remote Gateway",
+            port = lanProxyPort,
+            lanPort = lanProxyPort,
+            localUrl = $"http://127.0.0.1:{lanProxyPort}/{themeParam}",
+            lanUrl = $"http://{lanIp}:{lanProxyPort}/{themeParam}",
+            state = (_lanProxyService?.IsRunning ?? false) ? "Running" : "Offline",
+            isRunning = _lanProxyService?.IsRunning ?? false
+        });
 
         var customWs = AiConfigService.Instance.CurrentConfig.CliWorkspaces;
         foreach (var ws in customWs)
@@ -1724,7 +1800,9 @@ public sealed class DashboardWebBridge : IDisposable
             .Select(name => (object)new
             {
                 name,
-                email = _cliManager.ProfileService.GetAccountEmail(name) ?? string.Empty
+                email = _cliManager.ProfileService.GetAccountEmail(name) ?? string.Empty,
+                isRunning = _cliManager.IsProfileRunning(name),
+                port = _cliManager.GetPortForProfile(name)
             })
             .ToArray();
     }

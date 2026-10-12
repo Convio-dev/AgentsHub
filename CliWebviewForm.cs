@@ -111,6 +111,13 @@ public partial class CliWebviewForm : Form
                string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsAntigravityTab(string id)
+    {
+        string norm = AiConfigService.NormalizeCliId(id);
+        return string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase) ||
+               CliManagerService.IsAntigravityProfileId(norm, out _);
+    }
+
     private void SetupStyles()
     {
         _profileComboBox = new ComboBox
@@ -320,13 +327,16 @@ public partial class CliWebviewForm : Form
         var c = ThemeManager.Colors;
         bool isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
         var bg = isSelected ? c.ButtonHover : c.WellBackground;
-        var fg = isSelected ? c.AccentGreen : c.TextPrimary;
 
         using var brush = new SolidBrush(bg);
         e.Graphics.FillRectangle(brush, e.Bounds);
 
         var item = _profileComboBox.Items[e.Index] as ProfileItem;
         string text = item?.DisplayText ?? _profileComboBox.Items[e.Index]?.ToString() ?? "";
+
+        var fg = item != null && item.IsRunning
+            ? c.AccentGreen
+            : (isSelected ? c.TextPrimary : c.TextSecondary);
 
         TextRenderer.DrawText(
             e.Graphics,
@@ -497,29 +507,35 @@ public partial class CliWebviewForm : Form
         foreach (var ws in enabledWorkspaces)
         {
             string normId = AiConfigService.NormalizeCliId(ws.Id);
-            var btn = new Button
+            if (string.Equals(normId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
             {
-                Tag = normId,
-                Height = 34,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI", 8.75F, FontStyle.Bold),
-                Cursor = Cursors.Hand,
-                Margin = Padding.Empty
-            };
-            btn.FlatAppearance.BorderSize = 1;
+                var runningProfiles = _cliManager?.GetRunningAntigravityProfiles() ?? Array.Empty<string>();
+                var activeProfile = _cliManager?.ProfileService.ActiveProfile ?? "Default";
 
-            string wsName = ws.Name;
-            int estimatedWidth = Math.Max(95, TextRenderer.MeasureText(wsName, btn.Font).Width + 36);
-            btn.Size = new Size(estimatedWidth, 34);
-            btn.Location = new Point(curX, 6);
-            curX += estimatedWidth + 6;
+                var profileTabsToShow = new List<string>(runningProfiles);
+                if (!profileTabsToShow.Contains(activeProfile, StringComparer.OrdinalIgnoreCase))
+                {
+                    profileTabsToShow.Add(activeProfile);
+                }
 
-            string idToSwitch = normId;
-            btn.Click += (_, _) => SwitchTab(idToSwitch);
-            SetupTabHover(btn, normId);
+                if (profileTabsToShow.Count == 0)
+                {
+                    profileTabsToShow.Add("Default");
+                }
 
-            _dynamicTabButtons.Add(btn);
-            tabsPanel.Controls.Add(btn);
+                foreach (var profName in profileTabsToShow)
+                {
+                    string profTabId = CliManagerService.FormatAntigravityProfileId(profName);
+                    string displayName = profileTabsToShow.Count > 1 || runningProfiles.Count > 0
+                        ? $"Antigravity ({profName})"
+                        : ws.Name;
+
+                    AddTabButton(profTabId, displayName, ref curX);
+                }
+                continue;
+            }
+
+            AddTabButton(normId, ws.Name, ref curX);
         }
 
         _manageClisButton = new Button
@@ -543,14 +559,42 @@ public partial class CliWebviewForm : Form
         tabsPanel.Width = curX;
         tabsPanel.ResumeLayout();
 
-        if (!enabledWorkspaces.Any(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), _activeTabId, StringComparison.OrdinalIgnoreCase)))
+        if (!_dynamicTabButtons.Any(b => string.Equals(b.Tag as string, _activeTabId, StringComparison.OrdinalIgnoreCase)))
         {
-            _activeTabId = AiConfigService.NormalizeCliId(enabledWorkspaces[0].Id);
+            if (_dynamicTabButtons.Count > 0 && _dynamicTabButtons[0].Tag is string firstId)
+            {
+                _activeTabId = firstId;
+            }
         }
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
         LayoutToolbar();
+    }
+
+    private void AddTabButton(string tabId, string displayName, ref int curX)
+    {
+        var btn = new Button
+        {
+            Tag = tabId,
+            Height = 34,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8.75F, FontStyle.Bold),
+            Cursor = Cursors.Hand,
+            Margin = Padding.Empty
+        };
+        btn.FlatAppearance.BorderSize = 1;
+
+        int estimatedWidth = Math.Max(95, TextRenderer.MeasureText(displayName, btn.Font).Width + 36);
+        btn.Size = new Size(estimatedWidth, 34);
+        btn.Location = new Point(curX, 6);
+        curX += estimatedWidth + 6;
+
+        btn.Click += (_, _) => SwitchTab(tabId);
+        SetupTabHover(btn, tabId);
+
+        _dynamicTabButtons.Add(btn);
+        tabsPanel.Controls.Add(btn);
     }
 
     private void OpenManageClisDialog()
@@ -591,8 +635,8 @@ public partial class CliWebviewForm : Form
             right = _shellLauncherButton.Left - 10;
         }
 
-        // Antigravity account switcher controls - only show when user is on the Antigravity CLI tab
-        bool isAntigravityActive = string.Equals(AiConfigService.NormalizeCliId(_activeTabId), "antigravity_cli", StringComparison.OrdinalIgnoreCase);
+        // Antigravity account switcher controls - show when user is on any Antigravity CLI tab
+        bool isAntigravityActive = IsAntigravityTab(_activeTabId);
         if (isAntigravityActive && _profileComboBox != null && _addProfileButton != null)
         {
             _profileComboBox.Visible = true;
@@ -757,6 +801,9 @@ public partial class CliWebviewForm : Form
                 if (_isUpdatingProfileCombo || _cliManager == null) return;
                 if (_profileComboBox.SelectedItem is ProfileItem item)
                 {
+                    string targetTabId = CliManagerService.FormatAntigravityProfileId(item.ProfileName);
+                    SwitchTab(targetTabId);
+
                     if (!string.Equals(item.ProfileName, _cliManager.ProfileService.ActiveProfile, StringComparison.OrdinalIgnoreCase))
                     {
                         _profileComboBox.Enabled = false;
@@ -770,6 +817,7 @@ public partial class CliWebviewForm : Form
                             _profileComboBox.Enabled = true;
                             if (_addProfileButton != null) _addProfileButton.Enabled = true;
                             RefreshProfileCombo();
+                            RebuildTabs();
                         }
                     }
                 }
@@ -792,6 +840,9 @@ public partial class CliWebviewForm : Form
                         return;
                     }
                     await _cliManager.CreateAndSwitchNewProfileAsync(name);
+                    string targetTabId = CliManagerService.FormatAntigravityProfileId(name);
+                    RebuildTabs();
+                    SwitchTab(targetTabId);
                     RefreshProfileCombo();
                 }
             };
@@ -850,34 +901,47 @@ public partial class CliWebviewForm : Form
 
     public void SwitchTab(string id)
     {
-        _activeTabId = AiConfigService.NormalizeCliId(id);
-        id = _activeTabId;
+        if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        {
+            var activeProf = _cliManager?.ProfileService.ActiveProfile ?? "Default";
+            id = CliManagerService.FormatAntigravityProfileId(activeProf);
+        }
+        else if (!CliManagerService.IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
+
+        _activeTabId = id;
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
         LayoutToolbar();
 
-        if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        if (IsAntigravityTab(_activeTabId))
         {
             RefreshProfileCombo();
         }
 
-        if (hermesWebView != null) hermesWebView.Visible = string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase);
-        if (claudeWebView != null) claudeWebView.Visible = string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase);
-        if (antigravityWebView != null) antigravityWebView.Visible = string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
+        if (hermesWebView != null) hermesWebView.Visible = string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase);
+        if (claudeWebView != null) claudeWebView.Visible = string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
+        if (antigravityWebView != null) antigravityWebView.Visible = string.Equals(_activeTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
 
         foreach (var kvp in _customWebViews)
         {
-            kvp.Value.Visible = string.Equals(AiConfigService.NormalizeCliId(kvp.Key), id, StringComparison.OrdinalIgnoreCase);
+            kvp.Value.Visible = string.Equals(kvp.Key, _activeTabId, StringComparison.OrdinalIgnoreCase);
         }
 
-        if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase) && _hermesInitialized)
+        if (string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase) && _hermesInitialized)
         {
             RefreshHermesNavigation();
         }
-        else if (!IsBuiltInCli(id))
+        else if (CliManagerService.IsAntigravityProfileId(_activeTabId, out _))
         {
-            var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), id, StringComparison.OrdinalIgnoreCase));
+            _ = EnsureProfileWebViewAsync(_activeTabId);
+        }
+        else if (!IsBuiltInCli(_activeTabId))
+        {
+            var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), _activeTabId, StringComparison.OrdinalIgnoreCase));
             if (ws != null)
             {
                 _ = EnsureCustomWebViewAsync(ws);
@@ -885,6 +949,42 @@ public partial class CliWebviewForm : Form
         }
 
         TriggerTerminalFit();
+    }
+
+    private async Task EnsureProfileWebViewAsync(string profileId)
+    {
+        if (_customWebViews.ContainsKey(profileId)) return;
+
+        if (_webViewEnv == null)
+        {
+            await _envInitTcs.Task;
+        }
+
+        if (_webViewEnv == null) return;
+
+        try
+        {
+            var wv = CreateHostedWebView();
+            wv.Visible = string.Equals(_activeTabId, profileId, StringComparison.OrdinalIgnoreCase);
+            contentPanel.Controls.Add(wv);
+            _customWebViews[profileId] = wv;
+
+            await wv.EnsureCoreWebView2Async(_webViewEnv);
+            ConfigureWebViewSettings(wv.CoreWebView2);
+            wv.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived(profileId, e);
+            wv.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
+
+            if (File.Exists(_terminalHtmlPath))
+            {
+                wv.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
+            }
+
+            NotifyWebViewsTheme();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CliWebviewForm] Failed to create WebView for profile '{profileId}': {ex.Message}");
+        }
     }
 
     public void OpenEmbeddedShell(string shellId, string name, string command)
@@ -1164,7 +1264,15 @@ public partial class CliWebviewForm : Form
     {
         if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase)) return hermesWebView;
         if (string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase)) return claudeWebView;
-        if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase)) return antigravityWebView;
+        if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_cliManager != null)
+            {
+                var activeId = CliManagerService.FormatAntigravityProfileId(_cliManager.ProfileService.ActiveProfile);
+                if (_customWebViews.TryGetValue(activeId, out var activeWv)) return activeWv;
+            }
+            return antigravityWebView;
+        }
         if (_customWebViews.TryGetValue(id, out var wv)) return wv;
         return null;
     }
@@ -1194,7 +1302,15 @@ public partial class CliWebviewForm : Form
 
     private void OnCliStatusChanged(string cliId, CliState state, string message)
     {
-        UpdateTabButtonsUi();
+        if (CliManagerService.IsAntigravityProfileId(cliId, out _) || string.Equals(cliId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        {
+            RebuildTabs();
+            RefreshProfileCombo();
+        }
+        else
+        {
+            UpdateTabButtonsUi();
+        }
 
         if (string.Equals(cliId, _activeTabId, StringComparison.OrdinalIgnoreCase))
         {
@@ -1337,9 +1453,14 @@ public partial class CliWebviewForm : Form
         {
             return 9229;
         }
+        if (CliManagerService.IsAntigravityProfileId(_activeTabId, out var prof))
+        {
+            return _cliManager?.GetPortForProfile(prof) ?? 0;
+        }
         if (string.Equals(_activeTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
         {
-            return 9339;
+            var activeProf = _cliManager?.ProfileService.ActiveProfile ?? string.Empty;
+            return _cliManager?.GetPortForProfile(activeProf) ?? 0;
         }
 
         var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w => string.Equals(w.Id, _activeTabId, StringComparison.OrdinalIgnoreCase));
@@ -1503,17 +1624,35 @@ public partial class CliWebviewForm : Form
             _profileComboBox.Items.Clear();
 
             var profiles = _cliManager.ProfileService.GetProfiles();
-            var active = _cliManager.ProfileService.ActiveProfile;
+            string currentProfile = CliManagerService.IsAntigravityProfileId(_activeTabId, out var tabProf)
+                ? tabProf
+                : (_cliManager.ProfileService.ActiveProfile ?? "Default");
+
             ProfileItem? selectedItem = null;
 
             foreach (var p in profiles)
             {
                 string? email = _cliManager.ProfileService.GetAccountEmail(p);
-                string display = !string.IsNullOrWhiteSpace(email) ? $"{p} ({email})" : p;
-                var item = new ProfileItem { ProfileName = p, DisplayText = display };
+                bool isRunning = _cliManager.IsProfileRunning(p);
+                int? port = isRunning ? _cliManager.GetPortForProfile(p) : null;
+
+                string statusBadge = isRunning
+                    ? (port.HasValue ? $"[Running : {port.Value}]" : "[Running]")
+                    : "[Stopped]";
+
+                string emailText = !string.IsNullOrWhiteSpace(email) ? $" ({email})" : "";
+                string display = $"{p}{emailText} {statusBadge}";
+
+                var item = new ProfileItem
+                {
+                    ProfileName = p,
+                    DisplayText = display,
+                    IsRunning = isRunning,
+                    Port = port
+                };
                 _profileComboBox.Items.Add(item);
 
-                if (string.Equals(p, active, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(p, currentProfile, StringComparison.OrdinalIgnoreCase))
                 {
                     selectedItem = item;
                 }
@@ -1604,6 +1743,8 @@ public partial class CliWebviewForm : Form
     {
         public string ProfileName { get; set; } = "";
         public string DisplayText { get; set; } = "";
+        public bool IsRunning { get; set; }
+        public int? Port { get; set; }
         public override string ToString() => DisplayText;
     }
 }
