@@ -89,6 +89,21 @@ public class ClaudeGatewayProvider
     public bool IsPreset { get; set; } = false;
 }
 
+public class PromptEnhancerPreset
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("systemPrompt")]
+    public string SystemPrompt { get; set; } = "";
+
+    [JsonPropertyName("isBuiltIn")]
+    public bool IsBuiltIn { get; set; } = false;
+}
+
 public class AiConfig
 {
     [JsonPropertyName("devTools")]
@@ -110,6 +125,15 @@ public class AiConfig
     public bool ClaudeInjectionEnabled { get; set; } = true;
     public string ClaudeSelectedGatewayId { get; set; } = "preset_local_proxy";
     public List<ClaudeGatewayProvider> ClaudeGatewayProviders { get; set; } = new();
+
+    [JsonPropertyName("promptEnhancerTemperature")]
+    public double PromptEnhancerTemperature { get; set; } = 0.6;
+
+    [JsonPropertyName("activePromptPresetId")]
+    public string ActivePromptPresetId { get; set; } = "preset_general";
+
+    [JsonPropertyName("promptPresets")]
+    public List<PromptEnhancerPreset> PromptPresets { get; set; } = new();
 }
 
 public class AiConfigService
@@ -198,6 +222,7 @@ public class AiConfigService
     {
         lock (_lock)
         {
+            EnsurePromptPresets(newConfig);
             SyncToolTargets(newConfig);
             _config = newConfig;
             try
@@ -354,8 +379,89 @@ public class AiConfigService
         return dict;
     }
 
-    public void SyncToolTargets(AiConfig config)
+    public static List<PromptEnhancerPreset> BuildDefaultPromptPresets()
     {
+        return new List<PromptEnhancerPreset>
+        {
+            new()
+            {
+                Id = "preset_general",
+                Name = "General & Balanced",
+                IsBuiltIn = true,
+                SystemPrompt = "You are an elite prompt engineer. Analyze the user's raw prompt and rewrite it to be clear, effective, and structured so advanced AI models produce their best response. Flesh out context, clarify objectives, define constraints, and specify format. Return ONLY the enhanced prompt without preamble or conversational remarks."
+            },
+            new()
+            {
+                Id = "preset_code",
+                Name = "Code & Architecture",
+                IsBuiltIn = true,
+                SystemPrompt = "You are a principal software engineer and expert prompt craftsman. Rewrite the user's prompt to be highly rigorous, specifying programming language, modular architecture, interfaces, type safety, error handling, performance considerations, edge cases, and concrete deliverables. Return ONLY the enhanced prompt without meta-commentary."
+            },
+            new()
+            {
+                Id = "preset_concise",
+                Name = "Direct & Concise",
+                IsBuiltIn = true,
+                SystemPrompt = "You are an expert prompt engineer. Refine the user's prompt into an unambiguous, concise, and focused set of instructions. Strip redundant words while making instructions and output formats 100% explicit. Return ONLY the enhanced prompt without meta-commentary."
+            },
+            new()
+            {
+                Id = "preset_structured",
+                Name = "Comprehensive & Structured",
+                IsBuiltIn = true,
+                SystemPrompt = "You are an expert prompt engineer. Transform the user's prompt into a complete, structured master prompt with clear sections: Role, Context, Primary Objective, Detailed Instructions, Constraints, and Expected Output Format. Return ONLY the enhanced prompt without meta-commentary."
+            }
+        };
+    }
+
+    /// <summary>
+    /// Guarantees the preset list is usable: seeds built-ins when missing, restores any
+    /// built-in that was dropped, and keeps the active preset pointing at something real.
+    /// User edits to a built-in's text are preserved (only blank text is refilled).
+    /// </summary>
+    public static void EnsurePromptPresets(AiConfig? config)
+    {
+        if (config == null) return;
+
+        if (config.PromptPresets == null || config.PromptPresets.Count == 0)
+        {
+            config.PromptPresets = BuildDefaultPromptPresets();
+        }
+        else
+        {
+            foreach (var builtIn in BuildDefaultPromptPresets())
+            {
+                var existing = config.PromptPresets.FirstOrDefault(p =>
+                    string.Equals(p.Id, builtIn.Id, StringComparison.OrdinalIgnoreCase));
+
+                if (existing == null)
+                {
+                    config.PromptPresets.Insert(0, builtIn);
+                }
+                else
+                {
+                    existing.IsBuiltIn = true;
+                    if (string.IsNullOrWhiteSpace(existing.Name)) existing.Name = builtIn.Name;
+                    if (string.IsNullOrWhiteSpace(existing.SystemPrompt)) existing.SystemPrompt = builtIn.SystemPrompt;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(config.ActivePromptPresetId) ||
+            !config.PromptPresets.Any(p => string.Equals(p.Id, config.ActivePromptPresetId, StringComparison.OrdinalIgnoreCase)))
+        {
+            config.ActivePromptPresetId = "preset_general";
+        }
+
+        if (double.IsNaN(config.PromptEnhancerTemperature) ||
+            config.PromptEnhancerTemperature < 0.0 ||
+            config.PromptEnhancerTemperature > 1.5)
+        {
+            config.PromptEnhancerTemperature = 0.6;
+        }
+    }
+
+    public void SyncToolTargets(AiConfig config)    {
         if (config == null) return;
         if (config.ToolTargets == null)
         {

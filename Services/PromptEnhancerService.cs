@@ -20,11 +20,17 @@ public class PromptEnhancerService
         };
     }
 
+    public const double MinTemperature = 0.0;
+    public const double MaxTemperature = 1.5;
+    public const double DefaultTemperature = 0.6;
+
     public async Task<string> EnhancePromptAsync(
         AiProvider provider,
         string model,
         string rawPrompt,
         string enhancementStyle = "General & Balanced",
+        string? customSystemPrompt = null,
+        double? temperature = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(rawPrompt))
@@ -62,7 +68,16 @@ public class PromptEnhancerService
             request.Headers.TryAddWithoutValidation("X-Title", "Agents Hub");
         }
 
-        var systemPrompt = GetSystemPromptForStyle(enhancementStyle);
+        // A user-supplied system prompt always wins; the built-in style switch is the fallback.
+        var systemPrompt = !string.IsNullOrWhiteSpace(customSystemPrompt)
+            ? customSystemPrompt.Trim()
+            : GetSystemPromptForStyle(enhancementStyle);
+
+        var effectiveTemperature = DefaultTemperature;
+        if (temperature.HasValue && !double.IsNaN(temperature.Value))
+        {
+            effectiveTemperature = Math.Clamp(temperature.Value, MinTemperature, MaxTemperature);
+        }
 
         var requestData = new
         {
@@ -72,7 +87,7 @@ public class PromptEnhancerService
                 new { role = "system", content = systemPrompt },
                 new { role = "user", content = $"Original Prompt to Enhance:\n\n{rawPrompt.Trim()}" }
             },
-            temperature = 0.6
+            temperature = effectiveTemperature
         };
 
         var requestJson = JsonSerializer.Serialize(requestData);

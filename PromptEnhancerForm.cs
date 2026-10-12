@@ -501,7 +501,9 @@ public class PromptEnhancerForm : Form
                 model,
                 rawPrompt,
                 style,
-                _enhancementCts.Token
+                customSystemPrompt: null,
+                temperature: null,
+                cancellationToken: _enhancementCts.Token
             );
 
             sw.Stop();

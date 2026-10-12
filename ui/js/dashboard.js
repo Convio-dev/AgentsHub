@@ -28,7 +28,7 @@
     clis: {},
     antigravity: { activeProfile: '', profiles: [] },
     opencode: { isOnline: false, port: 0, activeSessions: [] },
-    aiConfig: { providers: [], toolTargets: {}, devTools: [], shortcuts: [], selectedProviderId: null, selectedModel: null },
+    aiConfig: { providers: [], toolTargets: {}, devTools: [], shortcuts: [], selectedProviderId: null, selectedModel: null, promptPresets: [], builtInPromptPresets: [], activePromptPresetId: 'preset_general', promptEnhancerTemperature: 0.6 },
     settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', enableHardwareMonitor: localStorage.getItem('agents_hub_enable_hardware_monitor') === 'true', theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
     activeTerminalCli: 'Hermes',
@@ -210,6 +210,7 @@
         if (payload) {
           state.aiConfig = payload;
           renderPromptModelsDropdown();
+          renderPromptPresets();
           renderProvidersList();
           renderDevToolsList();
         }
@@ -977,6 +978,69 @@
     });
   }
 
+  // Prompt Enhancer - Preset & System Instruction Helpers
+  function getPromptPresets() {
+    if (!state.aiConfig) state.aiConfig = {};
+    if (!Array.isArray(state.aiConfig.promptPresets)) state.aiConfig.promptPresets = [];
+    return state.aiConfig.promptPresets;
+  }
+
+  function getActivePromptPreset() {
+    const presets = getPromptPresets();
+    const activeId = state.aiConfig.activePromptPresetId || 'preset_general';
+    return presets.find(p => p.id === activeId) || presets[0] || null;
+  }
+
+  function getBuiltInPromptPreset(id) {
+    const builtIns = Array.isArray(state.aiConfig.builtInPromptPresets) ? state.aiConfig.builtInPromptPresets : [];
+    return builtIns.find(p => p.id === id) || null;
+  }
+
+  function loadPresetIntoDrawer(presetId) {
+    const preset = getPromptPresets().find(p => p.id === presetId);
+    const textarea = document.getElementById('prompt-system-instructions-input');
+    const meta = document.getElementById('prompt-preset-meta');
+    const deleteBtn = document.getElementById('btn-delete-preset-prompt');
+    const slider = document.getElementById('prompt-temp-slider');
+    const sliderVal = document.getElementById('prompt-temp-val');
+
+    if (textarea) textarea.value = preset ? (preset.systemPrompt || '') : '';
+
+    if (meta) {
+      meta.textContent = preset
+        ? (preset.isBuiltIn ? 'Built-in preset - editable, restorable via Reset' : 'Custom preset')
+        : 'No preset selected';
+    }
+
+    if (deleteBtn) deleteBtn.classList.toggle('hidden', !preset || !!preset.isBuiltIn);
+
+    const temp = Number.isFinite(state.aiConfig.promptEnhancerTemperature)
+      ? state.aiConfig.promptEnhancerTemperature
+      : 0.6;
+    if (slider) slider.value = temp;
+    if (sliderVal) sliderVal.textContent = temp.toFixed(1);
+  }
+
+  function renderPromptPresets() {
+    const select = document.getElementById('enhance-style-select');
+    if (!select) return;
+
+    const presets = getPromptPresets();
+    if (presets.length === 0) return;
+
+    const activeId = state.aiConfig.activePromptPresetId || 'preset_general';
+    select.innerHTML = '';
+    presets.forEach(preset => {
+      const opt = document.createElement('option');
+      opt.value = preset.id;
+      opt.textContent = preset.isBuiltIn ? preset.name : `${preset.name} (custom)`;
+      if (preset.id === activeId) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    loadPresetIntoDrawer(activeId);
+  }
+
   function setupPromptEnhancer() {
     const input = document.getElementById('prompt-input');
     const output = document.getElementById('prompt-output');
@@ -985,10 +1049,30 @@
     const btnExec = document.getElementById('btn-enhance-exec');
     const statusLbl = document.getElementById('prompt-enhance-status');
 
+    const styleSelect = document.getElementById('enhance-style-select');
+    const drawer = document.getElementById('prompt-instructions-drawer');
+    const drawerToggle = document.getElementById('btn-toggle-prompt-instructions');
+    const instructionsInput = document.getElementById('prompt-system-instructions-input');
+    const tempSlider = document.getElementById('prompt-temp-slider');
+    const tempVal = document.getElementById('prompt-temp-val');
+    const saveStatus = document.getElementById('prompt-preset-save-status');
+
     const updateCounts = (text, targetEl) => {
+      if (!targetEl) return;
       const chars = text.length;
       const words = text.trim() ? text.trim().split(/\s+/).length : 0;
       targetEl.textContent = `${chars} chars | ${words} words`;
+    };
+
+    const flashSaveStatus = (message, color) => {
+      if (!saveStatus) return;
+      saveStatus.textContent = message;
+      saveStatus.style.color = color;
+      setTimeout(() => { if (saveStatus.textContent === message) saveStatus.textContent = ''; }, 2500);
+    };
+
+    const persistConfig = async () => {
+      await callBridge('save_ai_config', { config: state.aiConfig });
     };
 
     input?.addEventListener('input', () => updateCounts(input.value, inCount));
@@ -1019,6 +1103,124 @@
       }
     });
 
+    // Iterative refinement: push the enhanced result back into the raw input.
+    document.getElementById('btn-refine-prompt')?.addEventListener('click', () => {
+      if (!output.value) {
+        statusLbl.textContent = 'Nothing to refine yet.';
+        statusLbl.style.color = 'var(--accent-amber)';
+        return;
+      }
+      input.value = output.value;
+      updateCounts(input.value, inCount);
+      input.focus();
+      statusLbl.textContent = 'Sent back to the raw prompt - refine and enhance again.';
+      statusLbl.style.color = 'var(--accent-green)';
+    });
+
+    // Collapsible instructions drawer
+    drawerToggle?.addEventListener('click', () => {
+      if (!drawer) return;
+      const wasHidden = drawer.classList.contains('hidden');
+      drawer.classList.toggle('hidden', !wasHidden);
+      drawerToggle.classList.toggle('btn-success', wasHidden);
+      drawerToggle.classList.toggle('btn-outline', !wasHidden);
+      if (wasHidden) {
+        loadPresetIntoDrawer(styleSelect ? styleSelect.value : state.aiConfig.activePromptPresetId);
+      }
+    });
+
+    // Preset selection loads its instructions
+    styleSelect?.addEventListener('change', () => {
+      state.aiConfig.activePromptPresetId = styleSelect.value;
+      loadPresetIntoDrawer(styleSelect.value);
+    });
+
+    tempSlider?.addEventListener('input', () => {
+      const val = parseFloat(tempSlider.value);
+      if (tempVal) tempVal.textContent = val.toFixed(1);
+    });
+
+    // Persist edits to the active preset
+    document.getElementById('btn-save-preset-prompt')?.addEventListener('click', async () => {
+      const preset = getActivePromptPreset();
+      if (!preset) return;
+
+      preset.systemPrompt = instructionsInput ? instructionsInput.value : preset.systemPrompt;
+      state.aiConfig.promptEnhancerTemperature = parseFloat(tempSlider ? tempSlider.value : '0.6');
+      state.aiConfig.activePromptPresetId = preset.id;
+
+      try {
+        await persistConfig();
+        flashSaveStatus('Saved.', 'var(--accent-green)');
+      } catch (err) {
+        flashSaveStatus('Save failed: ' + err.message, 'var(--accent-red)');
+      }
+    });
+
+    // Restore a built-in preset's shipped instructions
+    document.getElementById('btn-reset-preset-prompt')?.addEventListener('click', async () => {
+      const preset = getActivePromptPreset();
+      if (!preset) return;
+
+      const builtIn = getBuiltInPromptPreset(preset.id);
+      if (!builtIn) {
+        flashSaveStatus('No shipped default for this preset.', 'var(--accent-amber)');
+        return;
+      }
+
+      preset.systemPrompt = builtIn.systemPrompt;
+      if (instructionsInput) instructionsInput.value = builtIn.systemPrompt;
+
+      try {
+        await persistConfig();
+        flashSaveStatus('Restored default instructions.', 'var(--accent-green)');
+      } catch (err) {
+        flashSaveStatus('Reset failed: ' + err.message, 'var(--accent-red)');
+      }
+    });
+
+    // Create a custom preset from the current instructions
+    document.getElementById('btn-new-preset-prompt')?.addEventListener('click', async () => {
+      const name = window.prompt('Name for the new preset:', 'My Preset');
+      if (!name || !name.trim()) return;
+
+      const preset = {
+        id: 'preset_custom_' + Date.now().toString(36),
+        name: name.trim(),
+        systemPrompt: instructionsInput ? instructionsInput.value : '',
+        isBuiltIn: false
+      };
+
+      getPromptPresets().push(preset);
+      state.aiConfig.activePromptPresetId = preset.id;
+
+      try {
+        await persistConfig();
+        renderPromptPresets();
+        flashSaveStatus(`Created "${preset.name}".`, 'var(--accent-green)');
+      } catch (err) {
+        flashSaveStatus('Create failed: ' + err.message, 'var(--accent-red)');
+      }
+    });
+
+    // Delete a custom preset (built-ins are protected)
+    document.getElementById('btn-delete-preset-prompt')?.addEventListener('click', async () => {
+      const preset = getActivePromptPreset();
+      if (!preset || preset.isBuiltIn) return;
+      if (!window.confirm(`Delete preset "${preset.name}"?`)) return;
+
+      state.aiConfig.promptPresets = getPromptPresets().filter(p => p.id !== preset.id);
+      state.aiConfig.activePromptPresetId = 'preset_general';
+
+      try {
+        await persistConfig();
+        renderPromptPresets();
+        flashSaveStatus('Preset deleted.', 'var(--accent-green)');
+      } catch (err) {
+        flashSaveStatus('Delete failed: ' + err.message, 'var(--accent-red)');
+      }
+    });
+
     async function execEnhance() {
       const raw = input.value.trim();
       if (!raw) {
@@ -1035,7 +1237,11 @@
       }
 
       const [providerId, model] = modelVal.split('::');
-      const style = document.getElementById('enhance-style-select').value;
+      const style = styleSelect ? styleSelect.value : 'preset_general';
+
+      // Send the instructions the user currently sees, so unsaved edits still apply.
+      const systemPrompt = instructionsInput ? instructionsInput.value.trim() : '';
+      const temperature = tempSlider ? parseFloat(tempSlider.value) : 0.6;
 
       btnExec.disabled = true;
       statusLbl.textContent = 'Enhancing prompt...';
@@ -1047,7 +1253,9 @@
           providerId,
           model,
           prompt: raw,
-          style
+          style,
+          systemPrompt,
+          temperature
         });
         output.value = res.enhancedText || '';
         updateCounts(output.value, outCount);
@@ -3565,6 +3773,7 @@
         renderQuickProfileSelect();
         renderProfiles();
         renderPromptModelsDropdown();
+        renderPromptPresets();
         renderProvidersList();
         renderDevToolsList();
         renderRunningPorts();

@@ -1411,6 +1411,15 @@ public sealed class DashboardWebBridge : IDisposable
         var modelName = data.TryGetProperty("model", out var mName) ? mName.GetString() : null;
         var rawPrompt = data.TryGetProperty("prompt", out var rPrompt) ? rPrompt.GetString() : string.Empty;
         var style = data.TryGetProperty("style", out var sProp) ? sProp.GetString() : "General & Balanced";
+        var systemPrompt = data.TryGetProperty("systemPrompt", out var spProp) ? spProp.GetString() : null;
+
+        double? temperature = null;
+        if (data.TryGetProperty("temperature", out var tProp) &&
+            tProp.ValueKind == JsonValueKind.Number &&
+            tProp.TryGetDouble(out var tVal))
+        {
+            temperature = tVal;
+        }
 
         if (string.IsNullOrWhiteSpace(rawPrompt))
         {
@@ -1436,6 +1445,8 @@ public sealed class DashboardWebBridge : IDisposable
                 modelName ?? provider.Models.FirstOrDefault() ?? "gpt-4o-mini",
                 rawPrompt,
                 style ?? "General & Balanced",
+                systemPrompt,
+                temperature,
                 _promptEnhanceCts.Token
             );
 
@@ -1752,6 +1763,22 @@ public sealed class DashboardWebBridge : IDisposable
                 apiKey = p.ApiKey,
                 isEnabled = p.IsEnabled,
                 models = p.Models
+            }).ToList(),
+            promptEnhancerTemperature = cfg.PromptEnhancerTemperature,
+            activePromptPresetId = cfg.ActivePromptPresetId,
+            promptPresets = (cfg.PromptPresets ?? new List<PromptEnhancerPreset>()).Select(p => new
+            {
+                id = p.Id,
+                name = p.Name,
+                systemPrompt = p.SystemPrompt,
+                isBuiltIn = p.IsBuiltIn
+            }).ToList(),
+            // Shipped defaults, so the UI can offer a true "Reset" without duplicating the text.
+            builtInPromptPresets = AiConfigService.BuildDefaultPromptPresets().Select(p => new
+            {
+                id = p.Id,
+                name = p.Name,
+                systemPrompt = p.SystemPrompt
             }).ToList()
         };
     }

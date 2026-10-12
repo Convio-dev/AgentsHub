@@ -568,19 +568,60 @@
 
         <!-- VIEW 3: Prompt Enhancer -->
         <div id="view-prompt-enhancer" class="view-pane">
-          <div style="display: flex; gap: 12px; margin-bottom: 14px; align-items: center;">
+          <div style="display: flex; gap: 12px; margin-bottom: 14px; align-items: flex-end;">
             <div style="flex: 1;">
               <label class="form-label">Active AI Model:</label>
               <select id="enhance-model-select" class="select-box"></select>
             </div>
-            <div style="width: 240px;">
+            <div style="width: 330px;">
               <label class="form-label">Enhancement Preset:</label>
-              <select id="enhance-style-select" class="select-box">
-                <option value="General & Balanced">General & Balanced</option>
-                <option value="Code & Architecture">Code & Architecture</option>
-                <option value="Direct & Concise">Direct & Concise</option>
-                <option value="Comprehensive & Structured">Comprehensive & Structured</option>
-              </select>
+              <div style="display: flex; gap: 6px;">
+                <select id="enhance-style-select" class="select-box" style="flex: 1;">
+                  <option value="preset_general">General &amp; Balanced</option>
+                  <option value="preset_code">Code &amp; Architecture</option>
+                  <option value="preset_concise">Direct &amp; Concise</option>
+                  <option value="preset_structured">Comprehensive &amp; Structured</option>
+                </select>
+                <button class="btn btn-outline" id="btn-toggle-prompt-instructions" title="View and edit the system instructions sent to the model" style="padding: 4px 9px; font-size: 11px; white-space: nowrap;">
+                  <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  <span>Edit Instructions</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Collapsible System Instructions & Model Controls -->
+          <div id="prompt-instructions-drawer" class="dashboard-card hidden" style="padding: 12px 14px; margin-bottom: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+              <span style="font-size: 12px; font-weight: 600; color: var(--text-main);">System Prompt &amp; Instructions for Active Preset</span>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <label style="font-size: 11.5px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                  <span>Creativity (Temp):</span>
+                  <input type="range" id="prompt-temp-slider" min="0" max="1.2" step="0.1" value="0.6" style="width: 84px; accent-color: var(--accent-green);">
+                  <span id="prompt-temp-val" style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-main);">0.6</span>
+                </label>
+                <button class="btn btn-outline" id="btn-new-preset-prompt" title="Create a custom preset from the current instructions" style="padding: 3px 8px; font-size: 11px;">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                  <span>New</span>
+                </button>
+                <button class="btn btn-danger hidden" id="btn-delete-preset-prompt" title="Delete this custom preset" style="padding: 3px 8px; font-size: 11px;">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                  <span>Delete</span>
+                </button>
+                <button class="btn btn-outline" id="btn-reset-preset-prompt" title="Restore the shipped default instructions for this preset" style="padding: 3px 8px; font-size: 11px;">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                  <span>Reset</span>
+                </button>
+                <button class="btn btn-success" id="btn-save-preset-prompt" style="padding: 3px 8px; font-size: 11px;">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </div>
+            <textarea id="prompt-system-instructions-input" class="input-text" style="font-family: var(--font-mono); font-size: 12px; line-height: 1.5; width: 100%; height: 96px; resize: vertical;" placeholder="Enter custom system instructions for the AI model..."></textarea>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; gap: 10px;">
+              <span id="prompt-preset-meta" style="font-size: 11px; color: var(--text-dim);">Built-in preset</span>
+              <span id="prompt-preset-save-status" style="font-size: 11px; color: var(--text-muted);"></span>
             </div>
           </div>
 
@@ -606,10 +647,16 @@
             <div class="prompt-pane">
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <b style="font-size: 12.5px; color: var(--accent-green);">OPTIMIZED ENHANCED PROMPT</b>
-                <button class="btn btn-outline" id="btn-copy-enhanced" style="padding: 3px 8px; font-size: 11px;">
-                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
-                  <span>Copy</span>
-                </button>
+                <div style="display: flex; gap: 6px;">
+                  <button class="btn btn-outline" id="btn-refine-prompt" title="Replace the raw prompt with this result for another refinement pass" style="padding: 3px 8px; font-size: 11px;">
+                    <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+                    <span>Refine Raw</span>
+                  </button>
+                  <button class="btn btn-outline" id="btn-copy-enhanced" style="padding: 3px 8px; font-size: 11px;">
+                    <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                    <span>Copy</span>
+                  </button>
+                </div>
               </div>
               <textarea id="prompt-output" class="prompt-textarea" readonly placeholder="Enhanced prompt will appear here..."></textarea>
               <div class="prompt-status-bar">
