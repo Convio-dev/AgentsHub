@@ -3325,7 +3325,6 @@
       await callBridge('toggle_cli', { cli: 'AntigravityCli' });
     });
 
-    document.getElementById('btn-minimize-tray')?.addEventListener('click', () => callBridge('minimize_to_tray'));
     document.getElementById('btn-refresh-state')?.addEventListener('click', loadInitialState);
 
     document.getElementById('btn-copy-lan-url')?.addEventListener('click', () => {

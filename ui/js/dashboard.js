@@ -223,9 +223,7 @@
   // ==========================================
   const TELEMETRY_HISTORY_LENGTH = 20;
   const telemetryState = {
-    cpuHistory: [],
     ramHistory: [],
-    maxCpuSeen: 0,
     pollTimer: null,
     isPaused: false
   };
@@ -285,42 +283,39 @@
     }
   }
 
+  function formatNetworkRate(kbps) {
+    const value = Number.isFinite(kbps) && kbps > 0 ? kbps : 0;
+    if (value >= 1024) return `${(value / 1024).toFixed(1)} MB/s`;
+    return `${Math.round(value)} KB/s`;
+  }
+
   function handleHardwareMetrics(payload) {
     if (!payload) return;
 
-    const cpuPercent = typeof payload.cpu === 'number' ? payload.cpu : (typeof payload.cpuPercent === 'number' ? payload.cpuPercent : 0);
+    const netKbps = typeof payload.netKbps === 'number' && Number.isFinite(payload.netKbps)
+      ? Math.max(0, payload.netKbps)
+      : 0;
+
     const ramMb = typeof payload.ramMb === 'number' ? payload.ramMb : 0;
     const totalRamMb = typeof payload.totalRamMb === 'number' ? payload.totalRamMb : 16384;
     const hermesMemMb = typeof payload.hermesMemMb === 'number' ? payload.hermesMemMb : 0;
 
     // Header bar badges
-    const cpuEl = document.getElementById('metric-cpu');
+    const netEl = document.getElementById('metric-net');
     const ramEl = document.getElementById('metric-ram');
-    if (cpuEl) cpuEl.textContent = `CPU ${Math.round(cpuPercent)}%`;
+    if (netEl) netEl.textContent = `NET ${formatNetworkRate(netKbps)}`;
     if (ramEl) ramEl.textContent = `RAM ${ramMb} MB`;
 
-    // Ring buffers (last 20 points)
-    telemetryState.cpuHistory.push(cpuPercent);
-    if (telemetryState.cpuHistory.length > TELEMETRY_HISTORY_LENGTH) {
-      telemetryState.cpuHistory.shift();
-    }
-
+    // Ring buffer (last 20 points)
     const ramPercent = totalRamMb > 0 ? (ramMb / totalRamMb) * 100 : 0;
     telemetryState.ramHistory.push(ramPercent);
     if (telemetryState.ramHistory.length > TELEMETRY_HISTORY_LENGTH) {
       telemetryState.ramHistory.shift();
     }
 
-    if (cpuPercent > telemetryState.maxCpuSeen) {
-      telemetryState.maxCpuSeen = cpuPercent;
-    }
-
     // Update telemetry card numeric displays
-    const cpuUsageVal = document.getElementById('cpu-usage-val');
-    if (cpuUsageVal) cpuUsageVal.textContent = `${cpuPercent.toFixed(1)}%`;
-
-    const cpuStatsSub = document.getElementById('cpu-stats-sub');
-    if (cpuStatsSub) cpuStatsSub.textContent = `Peak: ${telemetryState.maxCpuSeen.toFixed(1)}%`;
+    const netLoadVal = document.getElementById('net-load-val');
+    if (netLoadVal) netLoadVal.textContent = formatNetworkRate(netKbps);
 
     const ramUsageVal = document.getElementById('ram-usage-val');
     const usedGb = (ramMb / 1024).toFixed(1);
@@ -340,7 +335,7 @@
 
     const sysStatusVal = document.getElementById('sys-status-val');
     if (sysStatusVal) {
-      if (cpuPercent > 90 || ramPercent > 90) {
+      if (ramPercent > 90) {
         sysStatusVal.textContent = 'High Load';
         sysStatusVal.style.color = 'var(--accent-red)';
       } else {
@@ -349,12 +344,7 @@
       }
     }
 
-    // Smooth Bézier sparklines
-    const cpuLine = document.getElementById('cpu-sparkline-line');
-    const cpuArea = document.getElementById('cpu-sparkline-area');
-    const cpuDot = document.getElementById('cpu-sparkline-dot');
-    renderSmoothSparkline(cpuLine, cpuArea, cpuDot, telemetryState.cpuHistory, 240, 56, 100);
-
+    // Smooth Bézier sparkline
     const ramLine = document.getElementById('ram-sparkline-line');
     const ramArea = document.getElementById('ram-sparkline-area');
     const ramDot = document.getElementById('ram-sparkline-dot');
@@ -398,9 +388,8 @@
   function setupHardwareTelemetry() {
     updateHardwareMonitorVisibility();
 
-    if (telemetryState.cpuHistory.length === 0) {
+    if (telemetryState.ramHistory.length === 0) {
       for (let i = 0; i < 6; i++) {
-        telemetryState.cpuHistory.push(0);
         telemetryState.ramHistory.push(0);
       }
     }
@@ -3590,7 +3579,6 @@
       await callBridge('toggle_cli', { cli: 'AntigravityCli' });
     });
 
-    document.getElementById('btn-minimize-tray')?.addEventListener('click', () => callBridge('minimize_to_tray'));
     document.getElementById('btn-refresh-state')?.addEventListener('click', loadInitialState);
 
     document.getElementById('btn-copy-lan-url')?.addEventListener('click', () => {

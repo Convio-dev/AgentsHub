@@ -30,7 +30,6 @@ public sealed class DashboardWebBridge : IDisposable
     private readonly System.Windows.Forms.Timer _streamFlushTimer;
     private readonly System.Windows.Forms.Timer _metricsTimer;
 
-    private readonly PerformanceCounter? _cpuCounter;
     private CancellationTokenSource? _promptEnhanceCts;
 
     // Smart Cooldown rate limiter for VPN quota reset (backend guard)
@@ -55,16 +54,6 @@ public sealed class DashboardWebBridge : IDisposable
         _metricsTimer = new System.Windows.Forms.Timer { Interval = 2500 };
         _metricsTimer.Tick += OnMetricsTimerTick;
         _metricsTimer.Start();
-
-        try
-        {
-            _cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total", true);
-            _cpuCounter.NextValue(); // First value is always 0
-        }
-        catch
-        {
-            // Performance counters may require elevated permissions on some systems
-        }
 
         HookBackendEvents();
     }
@@ -237,51 +226,16 @@ public sealed class DashboardWebBridge : IDisposable
     {
         if (_coreWebView == null) return;
 
-        float cpuPercent = 0f;
-        try
-        {
-            if (_cpuCounter != null)
-            {
-                cpuPercent = _cpuCounter.NextValue();
-            }
-        }
-        catch { }
-
-        long totalRamMb = 16384;
-        long usedRamMb = 4096;
-        long hermesMemMb = 0;
-        try
-        {
-            var mem = new MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(MEMORYSTATUSEX)) };
-            if (GlobalMemoryStatusEx(ref mem))
-            {
-                totalRamMb = (long)(mem.ullTotalPhys / (1024 * 1024));
-                long availMb = (long)(mem.ullAvailPhys / (1024 * 1024));
-                usedRamMb = totalRamMb - availMb;
-            }
-        }
-        catch { }
-        try
-        {
-            using var proc = Process.GetCurrentProcess();
-            hermesMemMb = proc.WorkingSet64 / (1024 * 1024);
-        }
-        catch { }
-
+        // Sampling lives entirely inside GetSystemTelemetryDto, which owns the CPU counter.
+        // Reading the counter here as well would re-read the delta back-to-back and pin it at 100%.
         PostEventToUi("hardware_metrics", GetSystemTelemetryDto());
     }
 
     private object GetSystemTelemetryDto()
     {
-        float cpuPercent = 0f;
-        try
-        {
-            if (_cpuCounter != null)
-            {
-                cpuPercent = _cpuCounter.NextValue();
-            }
-        }
-        catch { }
+        // Sampling runs on NetworkTelemetryService's own thread; this read is cached and cheap.
+        NetworkTelemetryService.EnsureStarted();
+        double netKiloBytesPerSec = NetworkTelemetryService.NetworkKiloBytesPerSec;
 
         long totalRamMb = 16384;
         long usedRamMb = 4096;
@@ -309,8 +263,8 @@ public sealed class DashboardWebBridge : IDisposable
 
         return new
         {
-            cpu = Math.Round(cpuPercent, 1),
-            cpuPercent = Math.Round(cpuPercent, 1),
+            netKbps = Math.Round(netKiloBytesPerSec, 1),
+            netMbps = Math.Round(netKiloBytesPerSec / 1024.0, 3),
             ramMb = usedRamMb,
             totalRamMb = totalRamMb,
             memoryUsedGb = memUsedGb,
@@ -2319,7 +2273,7 @@ public sealed class DashboardWebBridge : IDisposable
         _streamFlushTimer.Dispose();
         _metricsTimer.Stop();
         _metricsTimer.Dispose();
-        _cpuCounter?.Dispose();
+        // NetworkTelemetryService owns its own process-wide sampler and outlives this bridge.
         _promptEnhanceCts?.Dispose();
     }
 }

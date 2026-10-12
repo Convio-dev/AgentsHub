@@ -33,5 +33,10 @@ Windows .NET 10 WinForms + WebView2 desktop hub for multiple AI coding CLIs. Ass
 ## Terminal HTML duplication
 `ui/terminal.html` and `assets/web/terminal.html` are kept in sync by hand; they differ only in asset paths (`./css/`, `./js/` vs flat). Only `ui/` is loaded at runtime — `assets/web/` is a fallback. Remember to update both when touching terminal styling.
 
+## Hardware telemetry
+CPU **and** GPU telemetry were both removed. The telemetry card now shows a RAM tile plus a small network readout (`metric-net` badge, `net-load-val` chip, `ram-*` tile). `Services/NetworkTelemetryService.cs` owns the only sampling: a background 2s timer publishes cached `NetworkKiloBytesPerSec` (sum of `Network Interface` / `Bytes Total/sec`, virtual adapters filtered). The DTO exposes `netKbps`, `netMbps`, `ramMb`, `totalRamMb`, `memoryUsedGb`, `memoryTotalGb`, `hermesMemMb`.
+
+**Never sample perf counters on the UI thread.** `Bytes Total/sec` is a delta counter, so the counter set is cached and *reused* across the 30s refresh — creating counters per poll, or reading one twice in a row (the DTO has two callers: the 2.5s timer push and the 2s UI poll), returns meaningless values. The service publishes a plain `int` snapshot via `Volatile.Write` so readers never take the sample lock. The first `Network Interface` enumeration in a cold process can take several seconds (Windows perflib cold start), so the network badge may read 0 briefly after launch.
+
 ## Tooling
 - antislop skills are installed at `.agents/skills/`; `AGENTS.md` routes UI/copy/layout work there. No global antislop mode is saved (`%APPDATA%\antislop\settings.json` absent), so the mode question must be asked per session.

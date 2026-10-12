@@ -1987,7 +1987,9 @@ html[data-theme="light"] .ip-matrix-val .ip-new {
 
 .telemetry-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* auto-fit collapses unused tracks, so a single tile fills the row and extra tiles would
+     still pair up side by side. */
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 10px;
   margin: 6px 0 10px 0;
   flex: 1;
