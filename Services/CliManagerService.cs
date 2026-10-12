@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using HermesHub.Services.ConPty;
 
 namespace HermesHub.Services;
@@ -48,6 +50,7 @@ public class CliManagerService : IDisposable
     private readonly ConcurrentDictionary<string, StringBuilder> _terminalBuffers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CliItemInfo> _cliStates = new(StringComparer.OrdinalIgnoreCase);
     private const int MaxBufferSize = 150_000;
+    private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
 
     public HermesProcessService HermesService => _hermesService;
     public CliWebTerminalServer WebTerminalServer => _webTerminalServer;
@@ -155,7 +158,7 @@ public class CliManagerService : IDisposable
         id = id?.Trim() ?? string.Empty;
         if (id.StartsWith("antigravity_cli:", StringComparison.OrdinalIgnoreCase))
         {
-            profileName = id.Substring("antigravity_cli:".Length).Trim();
+            profileName = id["antigravity_cli:".Length..].Trim();
             return !string.IsNullOrEmpty(profileName);
         }
         profileName = string.Empty;
@@ -474,6 +477,51 @@ public class CliManagerService : IDisposable
                      string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase))
             {
                 command = "cmd.exe /c claude";
+                bool injectionEnabled = AiConfigService.Instance.GetClaudeInjectionEnabled();
+                if (injectionEnabled)
+                {
+                    var activeProvider = AiConfigService.Instance.GetActiveClaudeGatewayProvider();
+                    string selectedClaudeModel = AiConfigService.Instance.GetClaudeSelectedModel();
+
+                    // If active provider is local proxy (or port 9230), ensure local proxy is running
+                    if (string.Equals(activeProvider.Id, "preset_local_proxy", StringComparison.OrdinalIgnoreCase) ||
+                        activeProvider.BaseUrl.Contains(":9230"))
+                    {
+                        ClaudeOpenRouterProxyService.Instance.Start(9230);
+                    }
+
+                    // Pre-emptively suppress "Both ANTHROPIC_AUTH_TOKEN and /login managed key set" conflict
+                    EnsureClaudeOpenRouterTokenPrecedence();
+
+                    // Synchronize %USERPROFILE%\.claude\settings.json with provider env and strip ANTHROPIC_API_KEY
+                    SyncClaudeGatewaySettingsJson(activeProvider.ApiKey, selectedClaudeModel, activeProvider.BaseUrl);
+
+                    // Strictly inject ONLY ANTHROPIC_AUTH_TOKEN and explicitly remove ANTHROPIC_API_KEY
+                    envVars = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["ANTHROPIC_BASE_URL"] = string.IsNullOrWhiteSpace(activeProvider.BaseUrl) ? "http://127.0.0.1:9230" : activeProvider.BaseUrl,
+                        ["ANTHROPIC_AUTH_TOKEN"] = activeProvider.ApiKey,
+                        ["ANTHROPIC_API_KEY"] = "", // Empty signals ConPtySession to remove from child environment
+                        ["ANTHROPIC_MODEL"] = selectedClaudeModel,
+                        ["ANTHROPIC_DEFAULT_OPUS_MODEL"] = "deepseek/deepseek-r1:free"
+                    };
+
+                    try { Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", null); } catch { }
+
+                    if (string.IsNullOrWhiteSpace(activeProvider.ApiKey))
+                    {
+                        LogMessage?.Invoke(info.ShortName, $"Notice: API Key for '{activeProvider.Name}' is empty. Configure key in Gateway Engine.");
+                    }
+                    else
+                    {
+                        LogMessage?.Invoke(info.ShortName, $"Gateway active: [{activeProvider.Name}] Model: {selectedClaudeModel} via {activeProvider.BaseUrl}");
+                    }
+                }
+                else
+                {
+                    RestoreClaudeOfficialLoginIfBackedUp();
+                    LogMessage?.Invoke(info.ShortName, "Official Anthropic API mode active (Environment injection disabled).");
+                }
             }
             else
             {
@@ -505,9 +553,12 @@ public class CliManagerService : IDisposable
                 info.State = CliState.Running;
                 info.ProcessId = session.ProcessId;
                 info.StartTime = DateTime.UtcNow;
-                info.StatusText = $"Running (PID: {session.ProcessId}, Port: {info.Port ?? 9339})";
+                string statusDetail = string.Equals(id, "ClaudeCode", StringComparison.OrdinalIgnoreCase) || string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase)
+                    ? (AiConfigService.Instance.GetClaudeInjectionEnabled() ? $", {AiConfigService.Instance.GetActiveClaudeGatewayProvider().Name}" : ", Official")
+                    : (info.Port != null ? $", Port: {info.Port}" : "");
+                info.StatusText = $"Running (PID: {session.ProcessId}{statusDetail})";
                 FireStatusChanged(id, CliState.Running, info.StatusText);
-                LogMessage?.Invoke(info.ShortName, $"Session active with PID {session.ProcessId} on port {info.Port}.");
+                LogMessage?.Invoke(info.ShortName, $"Session active with PID {session.ProcessId}{statusDetail}.");
             }
             else
             {
@@ -723,6 +774,7 @@ public class CliManagerService : IDisposable
             _profileService.PrepareVirtualHome(profileName);
         }
 
+        await Task.CompletedTask;
         return applied;
     }
 
@@ -740,6 +792,313 @@ public class CliManagerService : IDisposable
 
         return prepared;
     }
+
+    public async Task<bool> ClaudeLogoutAsync()
+    {
+        try
+        {
+            var info = GetInfo("claude_code");
+            if (info.State == CliState.Running || info.State == CliState.Starting)
+            {
+                await StopAsync("claude_code");
+            }
+
+            try
+            {
+                using var p = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = "/c claude logout",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
+                };
+                p.Start();
+                await p.WaitForExitAsync();
+            }
+            catch { }
+
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var claudeJsonPath = Path.Combine(userProfile, ".claude.json");
+            var backupPath = Path.Combine(userProfile, ".claude.json.authbak");
+            if (File.Exists(backupPath))
+            {
+                try { File.Delete(backupPath); } catch { }
+            }
+
+            if (File.Exists(claudeJsonPath))
+            {
+                try
+                {
+                    var content = await File.ReadAllTextAsync(claudeJsonPath);
+                    using var doc = JsonDocument.Parse(content);
+                    var dict = new Dictionary<string, object?>();
+
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        if (string.Equals(prop.Name, "oauthAccount", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(prop.Name, "primaryApiKey", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(prop.Name, "sessionKey", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        dict[prop.Name] = JsonElementToValue(prop.Value);
+                    }
+
+                    var newJson = JsonSerializer.Serialize(dict, IndentedJsonOptions);
+                    await File.WriteAllTextAsync(claudeJsonPath, newJson);
+                }
+                catch { }
+            }
+
+            var credsPath = Path.Combine(userProfile, ".claude", ".credentials.json");
+            if (File.Exists(credsPath))
+            {
+                try { await File.WriteAllTextAsync(credsPath, "{}"); } catch { }
+            }
+
+            var settingsJsonPath = Path.Combine(userProfile, ".claude", "settings.json");
+            if (File.Exists(settingsJsonPath))
+            {
+                try
+                {
+                    var content = await File.ReadAllTextAsync(settingsJsonPath);
+                    if (!string.IsNullOrWhiteSpace(content))
+                    {
+                        using var doc = JsonDocument.Parse(content);
+                        if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                        {
+                            var rootDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var prop in doc.RootElement.EnumerateObject())
+                            {
+                                if (string.Equals(prop.Name, "env", StringComparison.OrdinalIgnoreCase) && prop.Value.ValueKind == JsonValueKind.Object)
+                                {
+                                    var envDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                                    foreach (var ep in prop.Value.EnumerateObject())
+                                    {
+                                        if (string.Equals(ep.Name, "ANTHROPIC_API_KEY", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            continue;
+                                        }
+                                        envDict[ep.Name] = JsonElementToValue(ep.Value);
+                                    }
+                                    rootDict["env"] = envDict;
+                                }
+                                else
+                                {
+                                    rootDict[prop.Name] = JsonElementToValue(prop.Value);
+                                }
+                            }
+                            var newJson = JsonSerializer.Serialize(rootDict, IndentedJsonOptions);
+                            await File.WriteAllTextAsync(settingsJsonPath, newJson);
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            LogMessage?.Invoke("Claude Code", "Claude login credentials logged out. Token conflict resolved.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogMessage?.Invoke("Claude Code", $"Error during Claude logout: {ex.Message}");
+            return false;
+        }
+    }
+
+    public static void SyncClaudeGatewaySettingsJson(string apiKey, string selectedClaudeModel, string gatewayUrl)
+    {
+        SyncClaudeOpenRouterSettingsJson(apiKey, selectedClaudeModel, gatewayUrl);
+    }
+
+    public static void SyncClaudeOpenRouterSettingsJson(string openRouterApiKey, string selectedClaudeModel, string gatewayUrl)
+    {
+        try
+        {
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var claudeDir = Path.Combine(userProfile, ".claude");
+            var settingsJsonPath = Path.Combine(claudeDir, "settings.json");
+
+            var rootDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+
+            if (File.Exists(settingsJsonPath))
+            {
+                var content = File.ReadAllText(settingsJsonPath);
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    using var doc = JsonDocument.Parse(content);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var prop in doc.RootElement.EnumerateObject())
+                        {
+                            rootDict[prop.Name] = JsonElementToValue(prop.Value);
+                        }
+                    }
+                }
+            }
+            else if (!Directory.Exists(claudeDir))
+            {
+                Directory.CreateDirectory(claudeDir);
+            }
+
+            var envDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            if (rootDict.TryGetValue("env", out var existingEnvObj))
+            {
+                if (existingEnvObj is JsonElement envElem && envElem.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in envElem.EnumerateObject())
+                    {
+                        if (string.Equals(prop.Name, "ANTHROPIC_API_KEY", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        envDict[prop.Name] = JsonElementToValue(prop.Value);
+                    }
+                }
+                else if (existingEnvObj is Dictionary<string, object?> existingEnvMap)
+                {
+                    foreach (var kvp in existingEnvMap)
+                    {
+                        if (string.Equals(kvp.Key, "ANTHROPIC_API_KEY", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        envDict[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            var effectiveGateway = string.IsNullOrWhiteSpace(gatewayUrl) ? "https://openrouter.ai/api/v1" : gatewayUrl;
+            var effectiveModel = string.IsNullOrWhiteSpace(selectedClaudeModel) ? "qwen/qwen-2.5-coder-32b-instruct:free" : selectedClaudeModel;
+
+            envDict["ANTHROPIC_BASE_URL"] = effectiveGateway;
+            envDict["ANTHROPIC_AUTH_TOKEN"] = openRouterApiKey;
+            envDict.Remove("ANTHROPIC_API_KEY");
+            envDict["ANTHROPIC_MODEL"] = effectiveModel;
+            envDict["ANTHROPIC_DEFAULT_OPUS_MODEL"] = "deepseek/deepseek-r1:free";
+
+            rootDict["env"] = envDict;
+
+            var newJson = JsonSerializer.Serialize(rootDict, IndentedJsonOptions);
+            File.WriteAllText(settingsJsonPath, newJson);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CliManagerService] Error syncing Claude settings.json: {ex.Message}");
+        }
+    }
+
+    private static void EnsureClaudeOpenRouterTokenPrecedence()
+    {
+        try
+        {
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var claudeJsonPath = Path.Combine(userProfile, ".claude.json");
+            var backupPath = Path.Combine(userProfile, ".claude.json.authbak");
+
+            if (File.Exists(claudeJsonPath))
+            {
+                var content = File.ReadAllText(claudeJsonPath);
+                using var doc = JsonDocument.Parse(content);
+                bool hasAuthTokens = doc.RootElement.TryGetProperty("oauthAccount", out _) ||
+                                     doc.RootElement.TryGetProperty("primaryApiKey", out _) ||
+                                     doc.RootElement.TryGetProperty("sessionKey", out _);
+
+                if (hasAuthTokens)
+                {
+                    File.Copy(claudeJsonPath, backupPath, overwrite: true);
+
+                    var dict = new Dictionary<string, object?>();
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                    {
+                        if (string.Equals(prop.Name, "oauthAccount", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(prop.Name, "primaryApiKey", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(prop.Name, "sessionKey", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        dict[prop.Name] = JsonElementToValue(prop.Value);
+                    }
+
+                    var newJson = JsonSerializer.Serialize(dict, IndentedJsonOptions);
+                    File.WriteAllText(claudeJsonPath, newJson);
+                }
+            }
+        }
+        catch { }
+    }
+
+    public static void RestoreClaudeOfficialLoginIfBackedUp()
+    {
+        try
+        {
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var claudeJsonPath = Path.Combine(userProfile, ".claude.json");
+            var backupPath = Path.Combine(userProfile, ".claude.json.authbak");
+
+            if (File.Exists(backupPath))
+            {
+                File.Copy(backupPath, claudeJsonPath, overwrite: true);
+                File.Delete(backupPath);
+            }
+
+            var settingsJsonPath = Path.Combine(userProfile, ".claude", "settings.json");
+            if (File.Exists(settingsJsonPath))
+            {
+                var content = File.ReadAllText(settingsJsonPath);
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    using var doc = JsonDocument.Parse(content);
+                    if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                    {
+                        var rootDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var prop in doc.RootElement.EnumerateObject())
+                        {
+                            if (string.Equals(prop.Name, "env", StringComparison.OrdinalIgnoreCase) && prop.Value.ValueKind == JsonValueKind.Object)
+                            {
+                                var envDict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                                foreach (var ep in prop.Value.EnumerateObject())
+                                {
+                                    if (string.Equals(ep.Name, "ANTHROPIC_BASE_URL", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ep.Name, "ANTHROPIC_AUTH_TOKEN", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ep.Name, "ANTHROPIC_MODEL", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(ep.Name, "ANTHROPIC_DEFAULT_OPUS_MODEL", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        continue;
+                                    }
+                                    envDict[ep.Name] = JsonElementToValue(ep.Value);
+                                }
+                                if (envDict.Count > 0)
+                                {
+                                    rootDict["env"] = envDict;
+                                }
+                            }
+                            else
+                            {
+                                rootDict[prop.Name] = JsonElementToValue(prop.Value);
+                            }
+                        }
+                        var newJson = JsonSerializer.Serialize(rootDict, IndentedJsonOptions);
+                        File.WriteAllText(settingsJsonPath, newJson);
+                    }
+                }
+            }
+        }
+        catch { }
+    }
+
+    private static object? JsonElementToValue(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.String => el.GetString(),
+        JsonValueKind.Number => el.TryGetInt64(out var l) ? l : el.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Null => null,
+        _ => JsonDocument.Parse(el.GetRawText()).RootElement.Clone()
+    };
 
     public void Dispose()
     {

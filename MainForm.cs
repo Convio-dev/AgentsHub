@@ -71,6 +71,12 @@ public partial class MainForm : Form
             _lanProxyService.Start(savedLanPort, savedEnginePort);
         }
 
+        try
+        {
+            ClaudeOpenRouterProxyService.Instance.Start(9230);
+        }
+        catch { }
+
         // App Icon
         try
         {
@@ -234,6 +240,7 @@ public partial class MainForm : Form
 
         _openCodeWatcher?.Dispose();
         _dashboardWebBridge?.Dispose();
+        try { ClaudeOpenRouterProxyService.Instance.Stop(); } catch { }
 
         Application.Exit();
     }

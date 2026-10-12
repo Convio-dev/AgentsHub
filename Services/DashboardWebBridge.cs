@@ -542,6 +542,332 @@ public sealed class DashboardWebBridge : IDisposable
                 await HandleFetchModelsAsync(data, requestId);
                 break;
 
+            case "get_claude_gateway_config":
+                {
+                    var cfg = AiConfigService.Instance;
+                    var providers = cfg.GetClaudeGatewayProviders();
+                    var active = cfg.GetActiveClaudeGatewayProvider();
+                    SendResponse(requestId, true, new
+                    {
+                        injectionEnabled = cfg.GetClaudeInjectionEnabled(),
+                        selectedGatewayId = cfg.GetClaudeSelectedGatewayId(),
+                        selectedModel = cfg.GetClaudeSelectedModel(),
+                        providers = providers.Select(p => new
+                        {
+                            id = p.Id,
+                            name = p.Name,
+                            baseUrl = p.BaseUrl,
+                            apiKey = p.ApiKey,
+                            isPreset = p.IsPreset
+                        }),
+                        activeProvider = new
+                        {
+                            id = active.Id,
+                            name = active.Name,
+                            baseUrl = active.BaseUrl,
+                            apiKey = active.ApiKey,
+                            isPreset = active.IsPreset
+                        }
+                    });
+                }
+                break;
+
+            case "save_claude_gateway_config":
+                {
+                    string provId = data.TryGetProperty("providerId", out var pIdEl) ? (pIdEl.GetString() ?? "") : "";
+                    string baseUrl = data.TryGetProperty("baseUrl", out var bEl) ? (bEl.GetString() ?? "") : "";
+                    string apiKey = data.TryGetProperty("apiKey", out var kEl) ? (kEl.GetString()?.Trim() ?? "") : "";
+                    string name = data.TryGetProperty("name", out var nEl) ? (nEl.GetString() ?? "") : "";
+
+                    var provider = new ClaudeGatewayProvider
+                    {
+                        Id = string.IsNullOrWhiteSpace(provId) ? "preset_local_proxy" : provId,
+                        Name = name,
+                        BaseUrl = baseUrl,
+                        ApiKey = apiKey,
+                        IsPreset = provId.StartsWith("preset_", StringComparison.OrdinalIgnoreCase)
+                    };
+                    AiConfigService.Instance.SaveClaudeGatewayProvider(provider);
+
+                    if (string.Equals(AiConfigService.Instance.GetClaudeSelectedGatewayId(), provider.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        CliManagerService.SyncClaudeGatewaySettingsJson(apiKey, AiConfigService.Instance.GetClaudeSelectedModel(), baseUrl);
+                    }
+
+                    var info = _cliManager.GetInfo("claude_code");
+                    if (info.State == CliState.Running || info.State == CliState.Starting)
+                    {
+                        await _cliManager.RestartAsync("claude_code");
+                    }
+
+                    SendResponse(requestId, true, new
+                    {
+                        success = true,
+                        provider = new
+                        {
+                            id = provider.Id,
+                            name = provider.Name,
+                            baseUrl = provider.BaseUrl,
+                            apiKey = provider.ApiKey,
+                            isPreset = provider.IsPreset
+                        }
+                    });
+                }
+                break;
+
+            case "add_claude_gateway_provider":
+                {
+                    string name = data.TryGetProperty("name", out var nEl) ? (nEl.GetString()?.Trim() ?? "Custom Provider") : "Custom Provider";
+                    string baseUrl = data.TryGetProperty("baseUrl", out var bEl) ? (bEl.GetString()?.Trim() ?? "https://openrouter.ai/api/v1") : "https://openrouter.ai/api/v1";
+                    string apiKey = data.TryGetProperty("apiKey", out var kEl) ? (kEl.GetString()?.Trim() ?? "") : "";
+
+                    var newProv = new ClaudeGatewayProvider
+                    {
+                        Id = "custom_" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        Name = string.IsNullOrWhiteSpace(name) ? "Custom Gateway" : name,
+                        BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "https://openrouter.ai/api/v1" : baseUrl,
+                        ApiKey = apiKey,
+                        IsPreset = false
+                    };
+                    AiConfigService.Instance.SaveClaudeGatewayProvider(newProv);
+                    AiConfigService.Instance.SetClaudeSelectedGatewayId(newProv.Id);
+                    SendResponse(requestId, true, new
+                    {
+                        success = true,
+                        provider = new
+                        {
+                            id = newProv.Id,
+                            name = newProv.Name,
+                            baseUrl = newProv.BaseUrl,
+                            apiKey = newProv.ApiKey,
+                            isPreset = newProv.IsPreset
+                        }
+                    });
+                }
+                break;
+
+            case "delete_claude_gateway_provider":
+                {
+                    string provId = data.TryGetProperty("providerId", out var pIdEl) ? (pIdEl.GetString() ?? "") : "";
+                    bool deleted = AiConfigService.Instance.DeleteClaudeGatewayProvider(provId);
+                    SendResponse(requestId, deleted, new { success = deleted, selectedGatewayId = AiConfigService.Instance.GetClaudeSelectedGatewayId() });
+                }
+                break;
+
+            case "toggle_claude_injection":
+                {
+                    bool enabled = data.TryGetProperty("enabled", out var enProp) ? enProp.GetBoolean() : !AiConfigService.Instance.GetClaudeInjectionEnabled();
+                    AiConfigService.Instance.SetClaudeInjectionEnabled(enabled);
+
+                    if (!enabled)
+                    {
+                        CliManagerService.RestoreClaudeOfficialLoginIfBackedUp();
+                    }
+                    else
+                    {
+                        var act = AiConfigService.Instance.GetActiveClaudeGatewayProvider();
+                        CliManagerService.SyncClaudeGatewaySettingsJson(act.ApiKey, AiConfigService.Instance.GetClaudeSelectedModel(), act.BaseUrl);
+                    }
+
+                    var info = _cliManager.GetInfo("claude_code");
+                    if (info.State == CliState.Running || info.State == CliState.Starting)
+                    {
+                        await _cliManager.RestartAsync("claude_code");
+                    }
+
+                    SendResponse(requestId, true, new { enabled, success = true });
+                }
+                break;
+
+            case "select_claude_gateway_provider":
+                {
+                    string provId = data.TryGetProperty("providerId", out var pIdEl) ? (pIdEl.GetString() ?? "") : "";
+                    if (!string.IsNullOrWhiteSpace(provId))
+                    {
+                        AiConfigService.Instance.SetClaudeSelectedGatewayId(provId);
+                        var act = AiConfigService.Instance.GetActiveClaudeGatewayProvider();
+                        if (AiConfigService.Instance.GetClaudeInjectionEnabled())
+                        {
+                            CliManagerService.SyncClaudeGatewaySettingsJson(act.ApiKey, AiConfigService.Instance.GetClaudeSelectedModel(), act.BaseUrl);
+                            if (string.Equals(act.Id, "preset_local_proxy", StringComparison.OrdinalIgnoreCase) || act.BaseUrl.Contains(":9230"))
+                            {
+                                ClaudeOpenRouterProxyService.Instance.Start(9230);
+                            }
+                        }
+                    }
+                    var activeAct = AiConfigService.Instance.GetActiveClaudeGatewayProvider();
+                    SendResponse(requestId, true, new
+                    {
+                        selectedGatewayId = AiConfigService.Instance.GetClaudeSelectedGatewayId(),
+                        provider = new
+                        {
+                            id = activeAct.Id,
+                            name = activeAct.Name,
+                            baseUrl = activeAct.BaseUrl,
+                            apiKey = activeAct.ApiKey,
+                            isPreset = activeAct.IsPreset
+                        }
+                    });
+                }
+                break;
+
+            case "get_claude_settings":
+                {
+                    var cfg = AiConfigService.Instance;
+                    var apiKey = cfg.GetOpenRouterApiKey();
+                    SendResponse(requestId, true, new
+                    {
+                        mode = cfg.GetClaudeEngineMode(),
+                        model = cfg.GetClaudeSelectedModel(),
+                        gatewayUrl = cfg.GetClaudeCustomGatewayUrl(),
+                        hasApiKey = !string.IsNullOrWhiteSpace(apiKey),
+                        apiKey = apiKey
+                    });
+                }
+                break;
+
+            case "save_claude_settings":
+                {
+                    var cfg = AiConfigService.Instance;
+                    if (data.TryGetProperty("mode", out var modeProp))
+                    {
+                        var m = modeProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(m)) cfg.SetClaudeEngineMode(m);
+                    }
+                    if (data.TryGetProperty("model", out var modelProp))
+                    {
+                        var mdl = modelProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(mdl)) cfg.SetClaudeSelectedModel(mdl);
+                    }
+                    if (data.TryGetProperty("gatewayUrl", out var gwProp))
+                    {
+                        var gw = gwProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(gw)) cfg.SetClaudeCustomGatewayUrl(gw);
+                    }
+                    if (data.TryGetProperty("apiKey", out var keyProp))
+                    {
+                        var k = keyProp.GetString()?.Trim();
+                        if (k != null) cfg.SetClaudeGatewayApiKey(k);
+                    }
+                    var apiKey = cfg.GetOpenRouterApiKey();
+                    var mode = cfg.GetClaudeEngineMode();
+                    if (string.Equals(mode, "OpenRouter", StringComparison.OrdinalIgnoreCase))
+                    {
+                        CliManagerService.SyncClaudeOpenRouterSettingsJson(apiKey, cfg.GetClaudeSelectedModel(), cfg.GetClaudeCustomGatewayUrl());
+                    }
+
+                    var info = _cliManager.GetInfo("claude_code");
+                    if (info.State == CliState.Running || info.State == CliState.Starting)
+                    {
+                        await _cliManager.RestartAsync("claude_code");
+                    }
+
+                    SendResponse(requestId, true, new
+                    {
+                        success = true,
+                        mode = cfg.GetClaudeEngineMode(),
+                        model = cfg.GetClaudeSelectedModel(),
+                        gatewayUrl = cfg.GetClaudeCustomGatewayUrl(),
+                        hasApiKey = !string.IsNullOrWhiteSpace(apiKey),
+                        apiKey = apiKey
+                    });
+                }
+                break;
+
+            case "get_openrouter_free_models":
+                {
+                    bool force = data.TryGetProperty("force", out var fProp) && fProp.GetBoolean();
+                    var models = await AiConfigService.Instance.FetchOpenRouterFreeModelsAsync(force);
+                    SendResponse(requestId, true, new { models, count = models.Count });
+                }
+                break;
+
+            case "refresh_openrouter_free_models":
+                {
+                    var models = await AiConfigService.Instance.FetchOpenRouterFreeModelsAsync(true);
+                    SendResponse(requestId, true, new { models, count = models.Count });
+                }
+                break;
+
+            case "save_openrouter_key":
+                {
+                    var key = data.TryGetProperty("apiKey", out var kProp) ? (kProp.GetString()?.Trim() ?? string.Empty) : string.Empty;
+                    AiConfigService.Instance.SetClaudeGatewayApiKey(key);
+
+                    var engineMode = AiConfigService.Instance.GetClaudeEngineMode();
+                    if (string.Equals(engineMode, "OpenRouter", StringComparison.OrdinalIgnoreCase))
+                    {
+                        CliManagerService.SyncClaudeOpenRouterSettingsJson(
+                            key,
+                            AiConfigService.Instance.GetClaudeSelectedModel(),
+                            AiConfigService.Instance.GetClaudeCustomGatewayUrl());
+                    }
+
+                    var info = _cliManager.GetInfo("claude_code");
+                    if (info.State == CliState.Running || info.State == CliState.Starting)
+                    {
+                        await _cliManager.RestartAsync("claude_code");
+                    }
+
+                    SendResponse(requestId, true, new { success = true, hasApiKey = !string.IsNullOrWhiteSpace(key) });
+                }
+                break;
+
+            case "check_openrouter_key":
+                {
+                    var key = data.TryGetProperty("apiKey", out var kProp) ? kProp.GetString()?.Trim() : null;
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        key = AiConfigService.Instance.GetOpenRouterApiKey();
+                    }
+                    if (string.IsNullOrWhiteSpace(key))
+                    {
+                        SendResponse(requestId, true, new { valid = false, message = "No API key provided" });
+                        break;
+                    }
+
+                    try
+                    {
+                        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(6) };
+                        http.DefaultRequestHeaders.Add("Authorization", $"Bearer {key}");
+                        var resp = await http.GetAsync("https://openrouter.ai/api/v1/auth/key");
+                        if (resp.IsSuccessStatusCode)
+                        {
+                            var body = await resp.Content.ReadAsStringAsync();
+                            using var kDoc = JsonDocument.Parse(body);
+                            var dataObj = kDoc.RootElement.TryGetProperty("data", out var dEl) ? dEl : default;
+                            double usage = dataObj.ValueKind == JsonValueKind.Object && dataObj.TryGetProperty("usage", out var uEl) ? uEl.GetDouble() : 0;
+                            double? limit = dataObj.ValueKind == JsonValueKind.Object && dataObj.TryGetProperty("limit", out var lEl) && lEl.ValueKind == JsonValueKind.Number ? lEl.GetDouble() : null;
+                            var label = dataObj.ValueKind == JsonValueKind.Object && dataObj.TryGetProperty("label", out var lbEl) ? lbEl.GetString() : "OpenRouter Key";
+                            SendResponse(requestId, true, new
+                            {
+                                valid = true,
+                                usage = Math.Round(usage, 4),
+                                limit = limit,
+                                label = label,
+                                message = limit.HasValue ? $"Limit: ${limit.Value:F2} | Usage: ${usage:F4}" : $"Usage: ${usage:F4}"
+                            });
+                        }
+                        else
+                        {
+                            SendResponse(requestId, true, new { valid = false, message = $"Invalid key (HTTP {(int)resp.StatusCode})" });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        SendResponse(requestId, true, new { valid = false, message = $"Check failed: {ex.Message}" });
+                    }
+                }
+                break;
+
+            case "run_claude_logout":
+            case "claude_logout":
+                {
+                    bool ok = await _cliManager.ClaudeLogoutAsync();
+                    SendResponse(requestId, ok, new { success = ok, message = ok ? "Claude credentials logged out." : "Logout failed." });
+                }
+                break;
+
             case "save_ai_config":
                 if (data.TryGetProperty("config", out var cfgProp))
                 {

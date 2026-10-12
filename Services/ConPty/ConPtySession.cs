@@ -334,7 +334,14 @@ public class ConPtySession : IDisposable
         }
         foreach (var kvp in customVars)
         {
-            env[kvp.Key] = kvp.Value;
+            if (string.IsNullOrEmpty(kvp.Value))
+            {
+                env.Remove(kvp.Key);
+            }
+            else
+            {
+                env[kvp.Key] = kvp.Value;
+            }
         }
         var sb = new StringBuilder();
         foreach (var kvp in env)

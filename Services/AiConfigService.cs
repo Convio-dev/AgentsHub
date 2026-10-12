@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using HermesHub.Helpers;
 
 namespace HermesHub.Services;
 
@@ -61,6 +62,15 @@ public class CliWorkspaceConfig
     public bool IsEnabled { get; set; } = true;
 }
 
+public class ClaudeGatewayProvider
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "";
+    public string BaseUrl { get; set; } = "";
+    public string ApiKey { get; set; } = "";
+    public bool IsPreset { get; set; } = false;
+}
+
 public class AiConfig
 {
     public Dictionary<string, string> ToolTargets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -69,6 +79,14 @@ public class AiConfig
     public string? SelectedModel { get; set; }
     public List<DashboardShortcut> Shortcuts { get; set; } = new();
     public List<CliWorkspaceConfig> CliWorkspaces { get; set; } = new();
+
+    public string ClaudeEngineMode { get; set; } = "OpenRouter";
+    public string ClaudeSelectedModel { get; set; } = "qwen/qwen-2.5-coder-32b-instruct:free";
+    public string ClaudeCustomGatewayUrl { get; set; } = "https://openrouter.ai/api/v1";
+
+    public bool ClaudeInjectionEnabled { get; set; } = true;
+    public string ClaudeSelectedGatewayId { get; set; } = "preset_local_proxy";
+    public List<ClaudeGatewayProvider> ClaudeGatewayProviders { get; set; } = new();
 }
 
 public class AiConfigService
@@ -406,6 +424,69 @@ public class AiConfigService
         }
         _config.CliWorkspaces = uniqueWorkspaces;
 
+        if (string.IsNullOrWhiteSpace(_config.ClaudeEngineMode))
+        {
+            _config.ClaudeEngineMode = "OpenRouter";
+        }
+        if (string.IsNullOrWhiteSpace(_config.ClaudeSelectedModel))
+        {
+            _config.ClaudeSelectedModel = "qwen/qwen-2.5-coder-32b-instruct:free";
+        }
+        if (string.IsNullOrWhiteSpace(_config.ClaudeCustomGatewayUrl))
+        {
+            _config.ClaudeCustomGatewayUrl = "https://openrouter.ai/api/v1";
+        }
+
+        if (_config.ClaudeGatewayProviders == null)
+        {
+            _config.ClaudeGatewayProviders = new List<ClaudeGatewayProvider>();
+        }
+
+        var existingKey = GetOpenRouterApiKey();
+
+        var localProxyPreset = _config.ClaudeGatewayProviders.FirstOrDefault(p => string.Equals(p.Id, "preset_local_proxy", StringComparison.OrdinalIgnoreCase));
+        if (localProxyPreset == null)
+        {
+            _config.ClaudeGatewayProviders.Insert(0, new ClaudeGatewayProvider
+            {
+                Id = "preset_local_proxy",
+                Name = "Local Proxy (127.0.0.1:9230)",
+                BaseUrl = "http://127.0.0.1:9230",
+                ApiKey = existingKey,
+                IsPreset = true
+            });
+        }
+        else
+        {
+            localProxyPreset.IsPreset = true;
+            if (string.IsNullOrWhiteSpace(localProxyPreset.BaseUrl)) localProxyPreset.BaseUrl = "http://127.0.0.1:9230";
+            if (string.IsNullOrWhiteSpace(localProxyPreset.ApiKey) && !string.IsNullOrWhiteSpace(existingKey)) localProxyPreset.ApiKey = existingKey;
+        }
+
+        var openRouterPreset = _config.ClaudeGatewayProviders.FirstOrDefault(p => string.Equals(p.Id, "preset_openrouter", StringComparison.OrdinalIgnoreCase));
+        if (openRouterPreset == null)
+        {
+            _config.ClaudeGatewayProviders.Add(new ClaudeGatewayProvider
+            {
+                Id = "preset_openrouter",
+                Name = "OpenRouter Direct",
+                BaseUrl = "https://openrouter.ai/api/v1",
+                ApiKey = existingKey,
+                IsPreset = true
+            });
+        }
+        else
+        {
+            openRouterPreset.IsPreset = true;
+            if (string.IsNullOrWhiteSpace(openRouterPreset.BaseUrl)) openRouterPreset.BaseUrl = "https://openrouter.ai/api/v1";
+            if (string.IsNullOrWhiteSpace(openRouterPreset.ApiKey) && !string.IsNullOrWhiteSpace(existingKey)) openRouterPreset.ApiKey = existingKey;
+        }
+
+        if (string.IsNullOrWhiteSpace(_config.ClaudeSelectedGatewayId))
+        {
+            _config.ClaudeSelectedGatewayId = "preset_local_proxy";
+        }
+
         SaveConfig(_config);
     }
 
@@ -480,5 +561,329 @@ public class AiConfigService
             }
         }
         SaveConfig(_config);
+    }
+
+    public string GetClaudeEngineMode()
+    {
+        lock (_lock)
+        {
+            return string.IsNullOrWhiteSpace(_config.ClaudeEngineMode) ? "OpenRouter" : _config.ClaudeEngineMode;
+        }
+    }
+
+    public void SetClaudeEngineMode(string mode)
+    {
+        lock (_lock)
+        {
+            _config.ClaudeEngineMode = mode;
+            SaveConfig(_config);
+        }
+    }
+
+    public string GetClaudeSelectedModel()
+    {
+        lock (_lock)
+        {
+            return string.IsNullOrWhiteSpace(_config.ClaudeSelectedModel) ? "qwen/qwen-2.5-coder-32b-instruct:free" : _config.ClaudeSelectedModel;
+        }
+    }
+
+    public void SetClaudeSelectedModel(string model)
+    {
+        lock (_lock)
+        {
+            _config.ClaudeSelectedModel = model;
+            SaveConfig(_config);
+        }
+    }
+
+    public string GetClaudeCustomGatewayUrl()
+    {
+        lock (_lock)
+        {
+            return string.IsNullOrWhiteSpace(_config.ClaudeCustomGatewayUrl) ? "https://openrouter.ai/api/v1" : _config.ClaudeCustomGatewayUrl;
+        }
+    }
+
+    public void SetClaudeCustomGatewayUrl(string url)
+    {
+        lock (_lock)
+        {
+            _config.ClaudeCustomGatewayUrl = url;
+            SaveConfig(_config);
+        }
+    }
+
+    public string GetOpenRouterApiKey()
+    {
+        lock (_lock)
+        {
+            var provider = _config.Providers.FirstOrDefault(p => string.Equals(p.Id, "openrouter", StringComparison.OrdinalIgnoreCase));
+            if (provider != null && !string.IsNullOrWhiteSpace(provider.ApiKey))
+            {
+                return provider.ApiKey.Trim();
+            }
+            return StartupHelper.GetStringPreference("ClaudeGatewayApiKey", string.Empty).Trim();
+        }
+    }
+
+    public void SetClaudeGatewayApiKey(string apiKey)
+    {
+        lock (_lock)
+        {
+            var provider = _config.Providers.FirstOrDefault(p => string.Equals(p.Id, "openrouter", StringComparison.OrdinalIgnoreCase));
+            if (provider != null)
+            {
+                provider.ApiKey = apiKey.Trim();
+            }
+            StartupHelper.SetStringPreference("ClaudeGatewayApiKey", apiKey.Trim());
+
+            // Also synchronize active preset's API key
+            var activeProv = GetActiveClaudeGatewayProvider();
+            if (activeProv != null)
+            {
+                activeProv.ApiKey = apiKey.Trim();
+            }
+            SaveConfig(_config);
+        }
+    }
+
+    public bool GetClaudeInjectionEnabled()
+    {
+        lock (_lock)
+        {
+            return _config.ClaudeInjectionEnabled;
+        }
+    }
+
+    public void SetClaudeInjectionEnabled(bool enabled)
+    {
+        lock (_lock)
+        {
+            _config.ClaudeInjectionEnabled = enabled;
+            SaveConfig(_config);
+        }
+    }
+
+    public string GetClaudeSelectedGatewayId()
+    {
+        lock (_lock)
+        {
+            return string.IsNullOrWhiteSpace(_config.ClaudeSelectedGatewayId) ? "preset_local_proxy" : _config.ClaudeSelectedGatewayId;
+        }
+    }
+
+    public void SetClaudeSelectedGatewayId(string id)
+    {
+        lock (_lock)
+        {
+            _config.ClaudeSelectedGatewayId = string.IsNullOrWhiteSpace(id) ? "preset_local_proxy" : id.Trim();
+            SaveConfig(_config);
+        }
+    }
+
+    public List<ClaudeGatewayProvider> GetClaudeGatewayProviders()
+    {
+        lock (_lock)
+        {
+            if (_config.ClaudeGatewayProviders == null || _config.ClaudeGatewayProviders.Count == 0)
+            {
+                EnsureDefaults();
+            }
+            var list = _config.ClaudeGatewayProviders ?? new List<ClaudeGatewayProvider>();
+            return list.Select(p => new ClaudeGatewayProvider
+            {
+                Id = p.Id,
+                Name = p.Name,
+                BaseUrl = p.BaseUrl,
+                ApiKey = p.ApiKey,
+                IsPreset = p.IsPreset
+            }).ToList();
+        }
+    }
+
+    public ClaudeGatewayProvider GetActiveClaudeGatewayProvider()
+    {
+        lock (_lock)
+        {
+            if (_config.ClaudeGatewayProviders == null || _config.ClaudeGatewayProviders.Count == 0)
+            {
+                EnsureDefaults();
+            }
+
+            var providers = _config.ClaudeGatewayProviders ?? new List<ClaudeGatewayProvider>();
+            var selectedId = GetClaudeSelectedGatewayId();
+            var found = providers.FirstOrDefault(p => string.Equals(p.Id, selectedId, StringComparison.OrdinalIgnoreCase));
+            if (found != null)
+            {
+                return found;
+            }
+
+            var localPreset = providers.FirstOrDefault(p => string.Equals(p.Id, "preset_local_proxy", StringComparison.OrdinalIgnoreCase));
+            if (localPreset != null)
+            {
+                return localPreset;
+            }
+
+            return providers.FirstOrDefault() ?? new ClaudeGatewayProvider
+            {
+                Id = "preset_local_proxy",
+                Name = "Local Proxy (127.0.0.1:9230)",
+                BaseUrl = "http://127.0.0.1:9230",
+                IsPreset = true
+            };
+        }
+    }
+
+    public void SaveClaudeGatewayProvider(ClaudeGatewayProvider provider)
+    {
+        lock (_lock)
+        {
+            if (_config.ClaudeGatewayProviders == null)
+            {
+                _config.ClaudeGatewayProviders = new List<ClaudeGatewayProvider>();
+            }
+
+            var idx = _config.ClaudeGatewayProviders.FindIndex(p => string.Equals(p.Id, provider.Id, StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0)
+            {
+                var existing = _config.ClaudeGatewayProviders[idx];
+                existing.Name = provider.Name;
+                existing.BaseUrl = provider.BaseUrl;
+                existing.ApiKey = provider.ApiKey;
+            }
+            else
+            {
+                _config.ClaudeGatewayProviders.Add(provider);
+            }
+
+            SaveConfig(_config);
+        }
+    }
+
+    public bool DeleteClaudeGatewayProvider(string id)
+    {
+        lock (_lock)
+        {
+            if (_config.ClaudeGatewayProviders == null) return false;
+
+            var item = _config.ClaudeGatewayProviders.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (item == null || item.IsPreset)
+            {
+                return false;
+            }
+
+            _config.ClaudeGatewayProviders.Remove(item);
+            if (string.Equals(_config.ClaudeSelectedGatewayId, id, StringComparison.OrdinalIgnoreCase))
+            {
+                _config.ClaudeSelectedGatewayId = "preset_local_proxy";
+            }
+
+            SaveConfig(_config);
+            return true;
+        }
+    }
+
+    public static readonly string[] DefaultFallbackFreeModels =
+    [
+        "qwen/qwen-2.5-coder-32b-instruct:free",
+        "deepseek/deepseek-r1:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
+        "google/gemini-2.0-flash-thinking-exp:free",
+        "minimax/minimax-01:free",
+        "mistralai/mistral-small-24b-instruct-2501:free",
+        "nousresearch/hermes-3-llama-3.1-405b:free",
+        "microsoft/phi-3-medium-128k-instruct:free",
+        "huggingfaceh4/zephyr-7b-beta:free"
+    ];
+
+    private readonly List<string> _cachedFreeModels = new();
+    private DateTime _lastFreeModelsFetch = DateTime.MinValue;
+
+    public IReadOnlyList<string> GetCachedOpenRouterFreeModels()
+    {
+        lock (_lock)
+        {
+            if (_cachedFreeModels.Count > 0)
+            {
+                return _cachedFreeModels.ToList();
+            }
+            return DefaultFallbackFreeModels;
+        }
+    }
+
+    public async Task<List<string>> FetchOpenRouterFreeModelsAsync(bool forceRefresh = false)
+    {
+        lock (_lock)
+        {
+            if (!forceRefresh && _cachedFreeModels.Count > 0 && (DateTime.UtcNow - _lastFreeModelsFetch).TotalHours < 2)
+            {
+                return _cachedFreeModels.ToList();
+            }
+        }
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var response = await client.GetStringAsync("https://openrouter.ai/api/v1/models");
+            using var doc = JsonDocument.Parse(response);
+
+            if (doc.RootElement.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.Array)
+            {
+                var discovered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var item in dataEl.EnumerateArray())
+                {
+                    if (item.TryGetProperty("id", out var idProp))
+                    {
+                        var id = idProp.GetString()?.Trim();
+                        if (string.IsNullOrWhiteSpace(id)) continue;
+
+                        bool isFree = id.EndsWith(":free", StringComparison.OrdinalIgnoreCase);
+
+                        if (!isFree && item.TryGetProperty("pricing", out var pricingEl))
+                        {
+                            var prompt = pricingEl.TryGetProperty("prompt", out var pEl) ? pEl.GetString() : null;
+                            var completion = pricingEl.TryGetProperty("completion", out var cEl) ? cEl.GetString() : null;
+                            if ((prompt == "0" || prompt == "0.0") && (completion == "0" || completion == "0.0"))
+                            {
+                                isFree = true;
+                            }
+                        }
+
+                        if (isFree)
+                        {
+                            discovered.Add(id);
+                        }
+                    }
+                }
+
+                if (discovered.Count > 0)
+                {
+                    var sorted = discovered.OrderBy(m => m, StringComparer.OrdinalIgnoreCase).ToList();
+                    lock (_lock)
+                    {
+                        _cachedFreeModels.Clear();
+                        _cachedFreeModels.AddRange(sorted);
+                        _lastFreeModelsFetch = DateTime.UtcNow;
+                    }
+                    return sorted;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[AiConfigService] Error fetching OpenRouter models: {ex.Message}");
+        }
+
+        lock (_lock)
+        {
+            if (_cachedFreeModels.Count == 0)
+            {
+                _cachedFreeModels.AddRange(DefaultFallbackFreeModels);
+            }
+            return _cachedFreeModels.ToList();
+        }
     }
 }

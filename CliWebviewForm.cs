@@ -51,12 +51,15 @@ public partial class CliWebviewForm : Form
 
     private ComboBox? _profileComboBox;
     private Button? _addProfileButton;
+    private ComboBox? _claudeEngineComboBox;
+    private ComboBox? _claudeModelComboBox;
     private Button? _manageClisButton;
     private Button? _shellLauncherButton;
     private ContextMenuStrip? _shellContextMenu;
     private readonly List<Button> _dynamicTabButtons = new();
     private readonly ToolTip _actionToolTip = new() { ShowAlways = true };
     private bool _isUpdatingProfileCombo;
+    private bool _isUpdatingClaudeControls;
     private bool _isLayoutRunning;
 
     public CliWebviewForm()
@@ -148,6 +151,82 @@ public partial class CliWebviewForm : Form
 
         toolsPanel.Controls.Add(_profileComboBox);
         toolsPanel.Controls.Add(_addProfileButton);
+
+        _claudeEngineComboBox = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 22,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            Size = new Size(140, 28),
+            Cursor = Cursors.Hand,
+            Visible = false
+        };
+        _claudeEngineComboBox.Items.AddRange(["OpenRouter (Free)", "Official Anthropic"]);
+        _claudeEngineComboBox.DrawItem += ClaudeComboBox_DrawItem;
+        _actionToolTip.SetToolTip(_claudeEngineComboBox, "Select Claude Engine: OpenRouter (Free) or Official Anthropic");
+
+        _claudeModelComboBox = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 22,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8.25F),
+            Size = new Size(185, 28),
+            Cursor = Cursors.Hand,
+            Visible = false
+        };
+        var cachedModels = AiConfigService.Instance.GetCachedOpenRouterFreeModels();
+        foreach (var m in cachedModels)
+        {
+            _claudeModelComboBox.Items.Add(m);
+        }
+        _claudeModelComboBox.DrawItem += ClaudeComboBox_DrawItem;
+        _actionToolTip.SetToolTip(_claudeModelComboBox, "Select Free OpenRouter Model for Claude Code");
+
+        toolsPanel.Controls.Add(_claudeEngineComboBox);
+        toolsPanel.Controls.Add(_claudeModelComboBox);
+
+        UpdateClaudeControlsUi();
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var liveModels = await AiConfigService.Instance.FetchOpenRouterFreeModelsAsync(forceRefresh: false);
+                if (liveModels.Count > 0)
+                {
+                    if (IsHandleCreated && !IsDisposed)
+                    {
+                        BeginInvoke(() =>
+                        {
+                            if (_claudeModelComboBox != null && !_isUpdatingClaudeControls)
+                            {
+                                var currentSelected = _claudeModelComboBox.SelectedItem as string ?? AiConfigService.Instance.GetClaudeSelectedModel();
+                                _claudeModelComboBox.BeginUpdate();
+                                _claudeModelComboBox.Items.Clear();
+                                foreach (var m in liveModels)
+                                {
+                                    _claudeModelComboBox.Items.Add(m);
+                                }
+                                if (!string.IsNullOrWhiteSpace(currentSelected) && _claudeModelComboBox.Items.Contains(currentSelected))
+                                {
+                                    _claudeModelComboBox.SelectedItem = currentSelected;
+                                }
+                                else if (_claudeModelComboBox.Items.Count > 0)
+                                {
+                                    _claudeModelComboBox.SelectedIndex = 0;
+                                }
+                                _claudeModelComboBox.EndUpdate();
+                            }
+                        });
+                    }
+                }
+            }
+            catch { }
+        });
 
         SetupButtonHover(_addProfileButton);
 
@@ -349,6 +428,62 @@ public partial class CliWebviewForm : Form
             new Rectangle(e.Bounds.X + 4, e.Bounds.Y + 2, e.Bounds.Width - 8, e.Bounds.Height - 4),
             fg,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
+    private void ClaudeComboBox_DrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || sender is not ComboBox cb) return;
+
+        var c = ThemeManager.Colors;
+        bool isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        var bg = isSelected ? c.ButtonHover : c.WellBackground;
+
+        using var brush = new SolidBrush(bg);
+        e.Graphics.FillRectangle(brush, e.Bounds);
+
+        string text = cb.Items[e.Index]?.ToString() ?? "";
+        var fg = isSelected ? c.TextPrimary : c.TextSecondary;
+
+        TextRenderer.DrawText(
+            e.Graphics,
+            text,
+            e.Font ?? cb.Font,
+            new Rectangle(e.Bounds.X + 4, e.Bounds.Y + 2, e.Bounds.Width - 8, e.Bounds.Height - 4),
+            fg,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
+    private void UpdateClaudeControlsUi()
+    {
+        if (_claudeEngineComboBox == null || _claudeModelComboBox == null) return;
+
+        try
+        {
+            _isUpdatingClaudeControls = true;
+
+            string mode = AiConfigService.Instance.GetClaudeEngineMode();
+            bool isOfficial = string.Equals(mode, "Official", StringComparison.OrdinalIgnoreCase);
+
+            _claudeEngineComboBox.SelectedIndex = isOfficial ? 1 : 0;
+
+            string selectedModel = AiConfigService.Instance.GetClaudeSelectedModel();
+            int modelIdx = _claudeModelComboBox.Items.IndexOf(selectedModel);
+            if (modelIdx >= 0)
+            {
+                _claudeModelComboBox.SelectedIndex = modelIdx;
+            }
+            else
+            {
+                _claudeModelComboBox.Items.Insert(0, selectedModel);
+                _claudeModelComboBox.SelectedIndex = 0;
+            }
+
+            _claudeModelComboBox.Visible = !isOfficial && string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            _isUpdatingClaudeControls = false;
+        }
     }
 
     private void DrawToggleRunIcon(object? sender, PaintEventArgs e)
@@ -560,11 +695,14 @@ public partial class CliWebviewForm : Form
         _manageClisButton = new Button
         {
             Size = new Size(32, 34),
+            MinimumSize = new Size(32, 34),
+            MaximumSize = new Size(32, 34),
             Location = new Point(curX, 6),
             FlatStyle = FlatStyle.Flat,
             Cursor = Cursors.Hand,
             Text = "",
-            Margin = Padding.Empty
+            Margin = new Padding(2, 0, 4, 0),
+            Padding = Padding.Empty
         };
         _manageClisButton.FlatAppearance.BorderSize = 1;
         _manageClisButton.Paint += DrawManageClisIcon;
@@ -576,6 +714,7 @@ public partial class CliWebviewForm : Form
         tabsPanel.Controls.Add(_manageClisButton);
 
         tabsPanel.Tag = curX;
+        tabsPanel.AutoScroll = true;
         tabsPanel.Width = curX;
         tabsPanel.ResumeLayout();
 
@@ -601,14 +740,25 @@ public partial class CliWebviewForm : Form
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 8.75F, FontStyle.Bold),
             Cursor = Cursors.Hand,
-            Margin = Padding.Empty
+            Margin = Padding.Empty,
+            AutoEllipsis = true
         };
         btn.FlatAppearance.BorderSize = 1;
 
-        int estimatedWidth = Math.Max(80, TextRenderer.MeasureText($"● {displayName}", btn.Font).Width + 24);
-        btn.Size = new Size(estimatedWidth, 34);
+        int measuredWidth = TextRenderer.MeasureText($"● {displayName}", btn.Font).Width + 20;
+        int targetWidth;
+        if (displayName.StartsWith("agy: ", StringComparison.OrdinalIgnoreCase))
+        {
+            targetWidth = Math.Clamp(measuredWidth, 70, 110);
+        }
+        else
+        {
+            targetWidth = Math.Clamp(measuredWidth, 75, 130);
+        }
+
+        btn.Size = new Size(targetWidth, 34);
         btn.Location = new Point(curX, 6);
-        curX += estimatedWidth + 6;
+        curX += targetWidth + 4;
 
         btn.Click += (_, _) => SwitchTab(tabId);
         SetupTabHover(btn, tabId);
@@ -634,6 +784,8 @@ public partial class CliWebviewForm : Form
             _isLayoutRunning = true;
 
             bool isAntigravityActive = IsAntigravityTab(_activeTabId);
+            bool isClaudeActive = string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
+            bool isClaudeOpenRouter = isClaudeActive && string.Equals(AiConfigService.Instance.GetClaudeEngineMode(), "OpenRouter", StringComparison.OrdinalIgnoreCase);
 
             // Hide profile dropdown in multi-instance tab mode to prevent crowding
             if (_profileComboBox != null)
@@ -641,42 +793,55 @@ public partial class CliWebviewForm : Form
                 _profileComboBox.Visible = false;
             }
 
-            // Calculate minimum toolsPanel width needed so action buttons never overflow
-            int rightControlsWidth = 10;
-            if (openBrowserButton.Visible) rightControlsWidth += openBrowserButton.Width + 6;
-            rightControlsWidth += clearTerminalButton.Width + 6;
-            rightControlsWidth += restartCliButton.Width + 6;
-            rightControlsWidth += toggleRunButton.Width + 6;
-            if (_shellLauncherButton != null) rightControlsWidth += _shellLauncherButton.Width + 10;
-            if (isAntigravityActive && _addProfileButton != null) rightControlsWidth += _addProfileButton.Width + 8;
-            int minToolsWidth = rightControlsWidth + 30;
+            // 1. Compute Minimum Action Bar Width
+            int actionControlsWidth = 10;
+            if (openBrowserButton.Visible) actionControlsWidth += openBrowserButton.Width + 6;
+            actionControlsWidth += clearTerminalButton.Width + 6;
+            actionControlsWidth += restartCliButton.Width + 6;
+            actionControlsWidth += toggleRunButton.Width + 6;
+            if (_shellLauncherButton != null) actionControlsWidth += _shellLauncherButton.Width + 10;
 
-            // Restrict tabsPanel so action buttons always fit comfortably
+            if (isClaudeActive)
+            {
+                actionControlsWidth += 110 + 8; // _claudeEngineComboBox (min 110px)
+                if (isClaudeOpenRouter)
+                {
+                    actionControlsWidth += 130 + 6; // _claudeModelComboBox (min 130px)
+                }
+            }
+            else if (isAntigravityActive && _addProfileButton != null)
+            {
+                actionControlsWidth += 52 + 8;
+            }
+
+            // 2. Clamp tabsPanel.Width
             int preferredTabsWidth = tabsPanel.Tag is int w ? w : tabsPanel.Width;
-            int maxTabsWidth = Math.Max(80, topToolbar.ClientSize.Width - minToolsWidth);
-            tabsPanel.Width = Math.Min(preferredTabsWidth, maxTabsWidth);
+            int maxAllowedTabsWidth = Math.Max(120, topToolbar.ClientSize.Width - actionControlsWidth - 40);
+            tabsPanel.Width = Math.Min(preferredTabsWidth, maxAllowedTabsWidth);
+            tabsPanel.AutoScroll = true;
 
+            // 3. Responsive Claude Dropdowns & Controls Layout in toolsPanel
             int right = toolsPanel.ClientSize.Width - 10;
 
-            // Action buttons laid out from right to left (each 32x32)
+            // Action buttons laid out from right to left
             if (openBrowserButton.Visible)
             {
-                openBrowserButton.Location = new Point(right - openBrowserButton.Width, 7);
+                openBrowserButton.Location = new Point(Math.Max(0, right - openBrowserButton.Width), 7);
                 right = openBrowserButton.Left - 6;
             }
 
-            clearTerminalButton.Location = new Point(right - clearTerminalButton.Width, 7);
+            clearTerminalButton.Location = new Point(Math.Max(0, right - clearTerminalButton.Width), 7);
             right = clearTerminalButton.Left - 6;
 
-            restartCliButton.Location = new Point(right - restartCliButton.Width, 7);
+            restartCliButton.Location = new Point(Math.Max(0, right - restartCliButton.Width), 7);
             right = restartCliButton.Left - 6;
 
-            toggleRunButton.Location = new Point(right - toggleRunButton.Width, 7);
+            toggleRunButton.Location = new Point(Math.Max(0, right - toggleRunButton.Width), 7);
             right = toggleRunButton.Left - 6;
 
             if (_shellLauncherButton != null)
             {
-                _shellLauncherButton.Location = new Point(right - _shellLauncherButton.Width, 7);
+                _shellLauncherButton.Location = new Point(Math.Max(0, right - _shellLauncherButton.Width), 7);
                 right = _shellLauncherButton.Left - 10;
             }
 
@@ -684,7 +849,7 @@ public partial class CliWebviewForm : Form
             if (isAntigravityActive && _addProfileButton != null)
             {
                 _addProfileButton.Visible = true;
-                _addProfileButton.Location = new Point(right - _addProfileButton.Width, 7);
+                _addProfileButton.Location = new Point(Math.Max(0, right - _addProfileButton.Width), 7);
                 right = _addProfileButton.Left - 8;
             }
             else if (_addProfileButton != null)
@@ -692,14 +857,61 @@ public partial class CliWebviewForm : Form
                 _addProfileButton.Visible = false;
             }
 
-            // Status label strictly left-aligned and bounded to never overlap right controls
+            // Claude Engine & Model controls
+            if (isClaudeActive && _claudeEngineComboBox != null)
+            {
+                _claudeEngineComboBox.Visible = true;
+                if (isClaudeOpenRouter && _claudeModelComboBox != null)
+                {
+                    _claudeModelComboBox.Visible = true;
+
+                    // Dynamically scale dropdown widths based on remaining room
+                    int availableForClaude = Math.Max(0, right - 12);
+                    int minRequired = 105 + 120 + 8; // 233px minimum sum
+
+                    if (availableForClaude >= minRequired)
+                    {
+                        int extra = availableForClaude - minRequired;
+                        _claudeEngineComboBox.Width = Math.Clamp(105 + (extra * 30 / 100), 105, 135);
+                        _claudeModelComboBox.Width = Math.Clamp(120 + (extra * 70 / 100), 120, 190);
+                    }
+                    else
+                    {
+                        _claudeEngineComboBox.Width = 105;
+                        _claudeModelComboBox.Width = Math.Max(95, availableForClaude - 105 - 8);
+                    }
+
+                    int modelX = Math.Max(0, right - _claudeModelComboBox.Width);
+                    _claudeModelComboBox.Location = new Point(modelX, 9);
+                    right = modelX - 6;
+
+                    int engineX = Math.Max(0, right - _claudeEngineComboBox.Width);
+                    _claudeEngineComboBox.Location = new Point(engineX, 9);
+                    right = engineX - 8;
+                }
+                else
+                {
+                    if (_claudeModelComboBox != null) _claudeModelComboBox.Visible = false;
+                    _claudeEngineComboBox.Width = Math.Clamp(Math.Min(135, right - 12), 105, 135);
+                    int engineX = Math.Max(0, right - _claudeEngineComboBox.Width);
+                    _claudeEngineComboBox.Location = new Point(engineX, 9);
+                    right = engineX - 8;
+                }
+            }
+            else
+            {
+                if (_claudeEngineComboBox != null) _claudeEngineComboBox.Visible = false;
+                if (_claudeModelComboBox != null) _claudeModelComboBox.Visible = false;
+            }
+
+            // 4. Status label handling: hide when narrow (< 780px) or space constrained, ellipsis otherwise
             int leftMargin = 12;
-            activeStatusLabel.Location = new Point(leftMargin, 14);
-            int availableWidth = right - leftMargin - 6;
-            if (availableWidth >= 30)
+            int availableForStatus = right - leftMargin - 6;
+            if (topToolbar.ClientSize.Width >= 780 && availableForStatus >= 50)
             {
                 activeStatusLabel.Visible = true;
-                activeStatusLabel.MaximumSize = new Size(availableWidth, 24);
+                activeStatusLabel.Location = new Point(leftMargin, 14);
+                activeStatusLabel.MaximumSize = new Size(availableForStatus, 24);
                 activeStatusLabel.AutoEllipsis = true;
             }
             else
@@ -770,6 +982,20 @@ public partial class CliWebviewForm : Form
             _addProfileButton.BackColor = c.ButtonBg;
             _addProfileButton.ForeColor = c.AccentGreen;
             _addProfileButton.FlatAppearance.BorderColor = c.AccentGreen;
+        }
+
+        if (_claudeEngineComboBox != null)
+        {
+            _claudeEngineComboBox.BackColor = c.WellBackground;
+            _claudeEngineComboBox.ForeColor = c.TextPrimary;
+            _claudeEngineComboBox.Invalidate();
+        }
+
+        if (_claudeModelComboBox != null)
+        {
+            _claudeModelComboBox.BackColor = c.WellBackground;
+            _claudeModelComboBox.ForeColor = c.TextPrimary;
+            _claudeModelComboBox.Invalidate();
         }
 
         UpdateTabButtonsUi();
@@ -901,6 +1127,79 @@ public partial class CliWebviewForm : Form
             };
         }
 
+        if (_claudeEngineComboBox != null)
+        {
+            _claudeEngineComboBox.SelectedIndexChanged += async (_, _) =>
+            {
+                if (_isUpdatingClaudeControls) return;
+                string selected = _claudeEngineComboBox.SelectedIndex == 1 ? "Official" : "OpenRouter";
+                string current = AiConfigService.Instance.GetClaudeEngineMode();
+                if (!string.Equals(selected, current, StringComparison.OrdinalIgnoreCase))
+                {
+                    AiConfigService.Instance.SetClaudeEngineMode(selected);
+                    UpdateClaudeControlsUi();
+                    LayoutToolbar();
+
+                    if (_cliManager != null)
+                    {
+                        var info = _cliManager.GetInfo("claude_code");
+                        if (info.State == CliState.Running)
+                        {
+                            var res = MessageBox.Show(this,
+                                $"Claude engine changed to {selected}. Restart Claude Code session to apply changes?",
+                                "Restart Claude Session",
+                                MessageBoxButtons.YesNo,
+                                MessageBoxIcon.Question);
+                            if (res == DialogResult.Yes)
+                            {
+                                await _cliManager.RestartAsync("claude_code");
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
+        if (_claudeModelComboBox != null)
+        {
+            _claudeModelComboBox.SelectedIndexChanged += async (_, _) =>
+            {
+                if (_isUpdatingClaudeControls) return;
+                if (_claudeModelComboBox.SelectedItem is string selectedModel && !string.IsNullOrWhiteSpace(selectedModel))
+                {
+                    string current = AiConfigService.Instance.GetClaudeSelectedModel();
+                    if (!string.Equals(selectedModel, current, StringComparison.OrdinalIgnoreCase))
+                    {
+                        AiConfigService.Instance.SetClaudeSelectedModel(selectedModel);
+                        if (string.Equals(AiConfigService.Instance.GetClaudeEngineMode(), "OpenRouter", StringComparison.OrdinalIgnoreCase))
+                        {
+                            CliManagerService.SyncClaudeOpenRouterSettingsJson(
+                                AiConfigService.Instance.GetOpenRouterApiKey(),
+                                selectedModel,
+                                AiConfigService.Instance.GetClaudeCustomGatewayUrl());
+                        }
+
+                        if (_cliManager != null)
+                        {
+                            var info = _cliManager.GetInfo("claude_code");
+                            if (info.State == CliState.Running)
+                            {
+                                var res = MessageBox.Show(this,
+                                    $"Claude model changed to {selectedModel}. Restart Claude Code session to apply changes?",
+                                    "Restart Claude Session",
+                                    MessageBoxButtons.YesNo,
+                                    MessageBoxIcon.Question);
+                                if (res == DialogResult.Yes)
+                                {
+                                    await _cliManager.RestartAsync("claude_code");
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+
         if (_cliManager != null)
         {
             _cliManager.ProfileService.ActiveProfileChanged += (_) =>
@@ -968,12 +1267,17 @@ public partial class CliWebviewForm : Form
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
-        LayoutToolbar();
 
         if (IsAntigravityTab(_activeTabId))
         {
             RefreshProfileCombo();
         }
+        else if (string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
+        {
+            UpdateClaudeControlsUi();
+        }
+
+        LayoutToolbar();
 
         if (hermesWebView != null) hermesWebView.Visible = string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase);
         if (claudeWebView != null) claudeWebView.Visible = string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
@@ -1496,6 +1800,11 @@ public partial class CliWebviewForm : Form
         restartCliButton.Invalidate();
         clearTerminalButton.Invalidate();
         openBrowserButton.Invalidate();
+
+        if (string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
+        {
+            UpdateClaudeControlsUi();
+        }
 
         LayoutToolbar();
     }
