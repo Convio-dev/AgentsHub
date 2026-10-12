@@ -264,7 +264,7 @@ public class CliManagerService : IDisposable
                 Id = profId,
                 Type = CliType.AntigravityCli,
                 DisplayName = $"Antigravity ({profName})",
-                ShortName = $"Antigravity ({profName})",
+                ShortName = $"agy: {profName}",
                 CommandDescription = $"agy (Profile: {profName})",
                 State = CliState.Offline,
                 StatusText = "CLI: Offline",

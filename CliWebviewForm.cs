@@ -57,6 +57,7 @@ public partial class CliWebviewForm : Form
     private readonly List<Button> _dynamicTabButtons = new();
     private readonly ToolTip _actionToolTip = new() { ShowAlways = true };
     private bool _isUpdatingProfileCombo;
+    private bool _isLayoutRunning;
 
     public CliWebviewForm()
     {
@@ -190,6 +191,9 @@ public partial class CliWebviewForm : Form
         openBrowserButton.Text = "";
         openBrowserButton.Paint += DrawBrowserIcon;
         SetupButtonHover(openBrowserButton);
+
+        contentPanel.Padding = new Padding(0, 8, 0, 0);
+        contentPanel.BackColor = ThemeManager.Colors.WindowBackground;
 
         topToolbar.Resize += (_, _) => LayoutToolbar();
         toolsPanel.Resize += (_, _) => LayoutToolbar();
@@ -509,13 +513,31 @@ public partial class CliWebviewForm : Form
             string normId = AiConfigService.NormalizeCliId(ws.Id);
             if (string.Equals(normId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
             {
+                var allProfiles = _cliManager?.ProfileService.GetProfiles() ?? Array.Empty<string>();
                 var runningProfiles = _cliManager?.GetRunningAntigravityProfiles() ?? Array.Empty<string>();
                 var activeProfile = _cliManager?.ProfileService.ActiveProfile ?? "Default";
 
-                var profileTabsToShow = new List<string>(runningProfiles);
-                if (!profileTabsToShow.Contains(activeProfile, StringComparer.OrdinalIgnoreCase))
+                var profileTabsToShow = new List<string>();
+                foreach (var prof in runningProfiles)
+                {
+                    if (!profileTabsToShow.Contains(prof, StringComparer.OrdinalIgnoreCase))
+                    {
+                        profileTabsToShow.Add(prof);
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(activeProfile) && !profileTabsToShow.Contains(activeProfile, StringComparer.OrdinalIgnoreCase))
                 {
                     profileTabsToShow.Add(activeProfile);
+                }
+
+                foreach (var prof in allProfiles)
+                {
+                    if (profileTabsToShow.Count >= 5) break;
+                    if (!profileTabsToShow.Contains(prof, StringComparer.OrdinalIgnoreCase))
+                    {
+                        profileTabsToShow.Add(prof);
+                    }
                 }
 
                 if (profileTabsToShow.Count == 0)
@@ -526,10 +548,7 @@ public partial class CliWebviewForm : Form
                 foreach (var profName in profileTabsToShow)
                 {
                     string profTabId = CliManagerService.FormatAntigravityProfileId(profName);
-                    string displayName = profileTabsToShow.Count > 1 || runningProfiles.Count > 0
-                        ? $"Antigravity ({profName})"
-                        : ws.Name;
-
+                    string displayName = $"agy: {profName}";
                     AddTabButton(profTabId, displayName, ref curX);
                 }
                 continue;
@@ -556,6 +575,7 @@ public partial class CliWebviewForm : Form
         curX += _manageClisButton.Width + 8;
         tabsPanel.Controls.Add(_manageClisButton);
 
+        tabsPanel.Tag = curX;
         tabsPanel.Width = curX;
         tabsPanel.ResumeLayout();
 
@@ -585,7 +605,7 @@ public partial class CliWebviewForm : Form
         };
         btn.FlatAppearance.BorderSize = 1;
 
-        int estimatedWidth = Math.Max(95, TextRenderer.MeasureText(displayName, btn.Font).Width + 36);
+        int estimatedWidth = Math.Max(80, TextRenderer.MeasureText($"● {displayName}", btn.Font).Width + 24);
         btn.Size = new Size(estimatedWidth, 34);
         btn.Location = new Point(curX, 6);
         curX += estimatedWidth + 6;
@@ -607,59 +627,90 @@ public partial class CliWebviewForm : Form
 
     private void LayoutToolbar()
     {
-        if (toolsPanel == null || topToolbar == null) return;
+        if (_isLayoutRunning || toolsPanel == null || topToolbar == null) return;
 
-        // toolsPanel is Dock.Fill, so it already gets whatever the tabs leave
-        // over. Never widen it beyond that or the action buttons and the
-        // status label get pushed outside the toolbar when the form is narrow.
-        toolsPanel.Width = Math.Max(0, topToolbar.ClientSize.Width - tabsPanel.Width);
-
-        int right = toolsPanel.ClientSize.Width - 10;
-
-        // Action buttons laid out from right to left (each 32x32)
-        openBrowserButton.Location = new Point(right - openBrowserButton.Width, 7);
-        right = openBrowserButton.Left - 6;
-
-        clearTerminalButton.Location = new Point(right - clearTerminalButton.Width, 7);
-        right = clearTerminalButton.Left - 6;
-
-        restartCliButton.Location = new Point(right - restartCliButton.Width, 7);
-        right = restartCliButton.Left - 6;
-
-        toggleRunButton.Location = new Point(right - toggleRunButton.Width, 7);
-        right = toggleRunButton.Left - 6;
-
-        if (_shellLauncherButton != null)
+        try
         {
-            _shellLauncherButton.Location = new Point(right - _shellLauncherButton.Width, 7);
-            right = _shellLauncherButton.Left - 10;
-        }
+            _isLayoutRunning = true;
 
-        // Antigravity account switcher controls - show when user is on any Antigravity CLI tab
-        bool isAntigravityActive = IsAntigravityTab(_activeTabId);
-        if (isAntigravityActive && _profileComboBox != null && _addProfileButton != null)
+            bool isAntigravityActive = IsAntigravityTab(_activeTabId);
+
+            // Hide profile dropdown in multi-instance tab mode to prevent crowding
+            if (_profileComboBox != null)
+            {
+                _profileComboBox.Visible = false;
+            }
+
+            // Calculate minimum toolsPanel width needed so action buttons never overflow
+            int rightControlsWidth = 10;
+            if (openBrowserButton.Visible) rightControlsWidth += openBrowserButton.Width + 6;
+            rightControlsWidth += clearTerminalButton.Width + 6;
+            rightControlsWidth += restartCliButton.Width + 6;
+            rightControlsWidth += toggleRunButton.Width + 6;
+            if (_shellLauncherButton != null) rightControlsWidth += _shellLauncherButton.Width + 10;
+            if (isAntigravityActive && _addProfileButton != null) rightControlsWidth += _addProfileButton.Width + 8;
+            int minToolsWidth = rightControlsWidth + 30;
+
+            // Restrict tabsPanel so action buttons always fit comfortably
+            int preferredTabsWidth = tabsPanel.Tag is int w ? w : tabsPanel.Width;
+            int maxTabsWidth = Math.Max(80, topToolbar.ClientSize.Width - minToolsWidth);
+            tabsPanel.Width = Math.Min(preferredTabsWidth, maxTabsWidth);
+
+            int right = toolsPanel.ClientSize.Width - 10;
+
+            // Action buttons laid out from right to left (each 32x32)
+            if (openBrowserButton.Visible)
+            {
+                openBrowserButton.Location = new Point(right - openBrowserButton.Width, 7);
+                right = openBrowserButton.Left - 6;
+            }
+
+            clearTerminalButton.Location = new Point(right - clearTerminalButton.Width, 7);
+            right = clearTerminalButton.Left - 6;
+
+            restartCliButton.Location = new Point(right - restartCliButton.Width, 7);
+            right = restartCliButton.Left - 6;
+
+            toggleRunButton.Location = new Point(right - toggleRunButton.Width, 7);
+            right = toggleRunButton.Left - 6;
+
+            if (_shellLauncherButton != null)
+            {
+                _shellLauncherButton.Location = new Point(right - _shellLauncherButton.Width, 7);
+                right = _shellLauncherButton.Left - 10;
+            }
+
+            // Dedicated + Add button for onboarding additional Antigravity accounts
+            if (isAntigravityActive && _addProfileButton != null)
+            {
+                _addProfileButton.Visible = true;
+                _addProfileButton.Location = new Point(right - _addProfileButton.Width, 7);
+                right = _addProfileButton.Left - 8;
+            }
+            else if (_addProfileButton != null)
+            {
+                _addProfileButton.Visible = false;
+            }
+
+            // Status label strictly left-aligned and bounded to never overlap right controls
+            int leftMargin = 12;
+            activeStatusLabel.Location = new Point(leftMargin, 14);
+            int availableWidth = right - leftMargin - 6;
+            if (availableWidth >= 30)
+            {
+                activeStatusLabel.Visible = true;
+                activeStatusLabel.MaximumSize = new Size(availableWidth, 24);
+                activeStatusLabel.AutoEllipsis = true;
+            }
+            else
+            {
+                activeStatusLabel.Visible = false;
+            }
+        }
+        finally
         {
-            _profileComboBox.Visible = true;
-            _addProfileButton.Visible = true;
-
-            _addProfileButton.Location = new Point(right - _addProfileButton.Width, 7);
-            right = _addProfileButton.Left - 6;
-
-            _profileComboBox.Location = new Point(right - _profileComboBox.Width, 9);
-            right = _profileComboBox.Left - 12;
+            _isLayoutRunning = false;
         }
-        else
-        {
-            if (_profileComboBox != null) _profileComboBox.Visible = false;
-            if (_addProfileButton != null) _addProfileButton.Visible = false;
-        }
-
-        // Status label strictly left-aligned and bounded to never overlap right controls
-        int leftMargin = 12;
-        activeStatusLabel.Location = new Point(leftMargin, 14);
-        int availableWidth = Math.Max(30, right - leftMargin - 10);
-        activeStatusLabel.MaximumSize = new Size(availableWidth, 24);
-        activeStatusLabel.AutoEllipsis = true;
     }
 
     public void ApplyTheme()
@@ -677,6 +728,7 @@ public partial class CliWebviewForm : Form
         tabsPanel.BackColor = c.HeaderBackground;
         toolsPanel.BackColor = c.HeaderBackground;
         contentPanel.BackColor = c.WindowBackground;
+        contentPanel.Padding = new Padding(0, 8, 0, 0);
 
         activeStatusLabel.ForeColor = c.TextSecondary;
 
@@ -724,6 +776,7 @@ public partial class CliWebviewForm : Form
         UpdateToolbarUi();
         topToolbar.Invalidate();
         toolsPanel.Invalidate();
+        contentPanel.Invalidate();
 
         NotifyWebViewsTheme();
     }
@@ -1352,7 +1405,11 @@ public partial class CliWebviewForm : Form
                 _ => "○"
             };
 
-            btn.Text = $"{dotColor} {info.ShortName}";
+            string title = CliManagerService.IsAntigravityProfileId(id, out var prof)
+                ? $"agy: {prof}"
+                : info.ShortName;
+
+            btn.Text = $"{dotColor} {title}";
 
             if (isSelected)
             {
