@@ -717,13 +717,26 @@
           <div id="profiles-list-container" class="card-grid"></div>
         </div>
 
-        <!-- VIEW 5: AI Dev Tools (With Browse File Selector) -->
+        <!-- VIEW 5: AI Dev Tools (Dynamic Tools Manager) -->
         <div id="view-devtools" class="view-pane">
-          <div style="margin-bottom: 16px;">
-            <h2 style="font-size: 16px; font-weight: 700; color: var(--text-main);">AI Dev Tools Targets</h2>
-            <div style="font-size: 12px; color: var(--text-dim); margin-top: 2px;">Select and configure executables with the Browse file picker</div>
+          <div class="card p-4 rounded-xl border border-border bg-card shadow-sm mb-4">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h3 class="text-sm font-semibold text-foreground">AI DEV TOOLS & EXTERNAL APPLICATIONS</h3>
+                <p class="text-xs text-muted">Configure executable paths, manage custom launch targets, and launch desktop tools</p>
+              </div>
+              <div class="flex gap-2">
+                <button class="btn btn-primary text-xs px-3 py-1.5" id="btn-add-dev-tool">
+                  + Add Tool
+                </button>
+              </div>
+            </div>
+
+            <!-- Dynamic Tools Container -->
+            <div class="space-y-3" id="tools-list-container">
+              <!-- Rendered dynamically by dashboard.js -->
+            </div>
           </div>
-          <div id="tools-list-container" style="display: flex; flex-direction: column; gap: 12px;"></div>
         </div>
 
         <!-- VIEW 6: AI Providers & Models -->
@@ -1045,6 +1058,39 @@
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
         <button class="btn btn-outline" id="btn-cancel-shortcut-modal">Cancel</button>
         <button class="btn btn-success" id="btn-save-shortcut-modal">Save Shortcut</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add / Edit AI Dev Tool -->
+  <div id="modal-devtool-editor" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 520px;">
+      <h3 id="modal-devtool-title" style="font-size: 15px; font-weight: 700; color: var(--text-main); margin-bottom: 14px;">Add New AI Dev Tool</h3>
+      <input type="hidden" id="modal-devtool-id">
+      <div class="form-group">
+        <label class="form-label">Tool Name:</label>
+        <input type="text" id="modal-devtool-name" class="input-text" placeholder="e.g. FreeBuff Desktop, Cursor, Windsurf">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description:</label>
+        <input type="text" id="modal-devtool-desc" class="input-text" placeholder="e.g. Main executable or desktop client">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Target Executable Path (.exe, .cmd, .bat):</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="modal-devtool-target" class="input-text" placeholder="C:\path\to\tool.exe or shell:AppsFolder\..." style="flex: 1; font-family: var(--font-mono); font-size: 12px;">
+          <button class="btn btn-outline" id="btn-browse-modal-devtool" type="button" style="white-space: nowrap; padding: 6px 12px;">Browse...</button>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top: 10px;">
+        <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="modal-devtool-enabled" checked>
+          <span>Active & Visible</span>
+        </label>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
+        <button class="btn btn-outline" id="btn-cancel-devtool-modal" type="button">Cancel</button>
+        <button class="btn btn-success" id="btn-save-devtool-modal" type="button">Save Tool</button>
       </div>
     </div>
   </div>

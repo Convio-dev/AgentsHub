@@ -28,7 +28,7 @@
     clis: {},
     antigravity: { activeProfile: '', profiles: [] },
     opencode: { isOnline: false, port: 0, activeSessions: [] },
-    aiConfig: { providers: [], toolTargets: {}, shortcuts: [], selectedProviderId: null, selectedModel: null },
+    aiConfig: { providers: [], toolTargets: {}, devTools: [], shortcuts: [], selectedProviderId: null, selectedModel: null },
     settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', enableHardwareMonitor: localStorage.getItem('agents_hub_enable_hardware_monitor') === 'true', theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
     activeTerminalCli: 'Hermes',
@@ -462,6 +462,10 @@
       resumeHardwareTelemetry();
     } else {
       pauseHardwareTelemetry();
+    }
+
+    if (viewName === 'devtools') {
+      renderDevToolsList();
     }
 
     if (viewName === 'terminals') {
@@ -1524,47 +1528,80 @@
     }).catch(() => {});
   }
 
-  // AI Dev Tools View (Browse file selector & edit targets)
+  // AI Dev Tools View (Dynamic Tools Manager)
   function renderDevToolsList() {
     const container = document.getElementById('tools-list-container');
     if (!container) return;
 
     container.innerHTML = '';
-    const targets = state.aiConfig.toolTargets || {};
+    const devTools = (state.aiConfig && Array.isArray(state.aiConfig.devTools))
+      ? state.aiConfig.devTools
+      : [];
 
-    const toolMeta = [
-      { key: 'FreeBuff', name: 'FreeBuff Desktop', desc: 'Main executable for FreeBuff Desktop' },
-      { key: 'Cline', name: 'Cline App', desc: 'Executable path for Cline App' },
-      { key: 'DeepSeek', name: 'DeepSeek Harness', desc: 'DeepSeek Harness executable path' },
-      { key: 'OpenCode', name: 'OpenCode Desktop', desc: 'OpenCode desktop client executable' },
-      { key: 'Antigravity-ide', name: 'Antigravity IDE', desc: 'Path to Antigravity IDE.exe' },
-      { key: 'Claude', name: 'Claude', desc: 'Executable path or shell:AppsFolder package ID' },
-      { key: 'ChatGPT', name: 'ChatGPT', desc: 'Executable path or shell:AppsFolder package ID' }
-    ];
+    if (devTools.length === 0) {
+      const emptyBox = document.createElement('div');
+      emptyBox.className = 'empty-state';
+      emptyBox.style.cssText = 'padding: 32px 16px; text-align: center; border: 1px dashed var(--border-subtle); border-radius: var(--radius-md); color: var(--text-muted);';
+      emptyBox.innerHTML = `
+        <svg class="icon-svg" style="width: 32px; height: 32px; margin: 0 auto 10px; color: var(--text-dim);" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        <div style="font-size: 13.5px; font-weight: 600; color: var(--text-main); margin-bottom: 4px;">No AI Dev Tools Configured</div>
+        <div style="font-size: 12px; margin-bottom: 14px;">Add external desktop AI clients and development tools to launch them directly from Agents Hub.</div>
+        <button class="btn btn-primary text-xs" id="btn-empty-add-devtool" style="padding: 6px 14px;">+ Add First Tool</button>
+      `;
+      container.appendChild(emptyBox);
+      emptyBox.querySelector('#btn-empty-add-devtool')?.addEventListener('click', () => openDevToolModal(null));
+      return;
+    }
 
-    toolMeta.forEach(t => {
-      const targetPath = targets[t.key] || '';
+    devTools.forEach(t => {
+      const isMasked = state.isShortcutsMasked;
+      const targetPath = t.target || '';
+      const isEnabled = t.isEnabled !== false;
+
       const row = document.createElement('div');
-      row.className = 'dashboard-card';
-      row.style.padding = '14px 16px';
+      row.className = `devtool-card dashboard-card ${isEnabled ? '' : 'disabled'}`;
+      row.dataset.id = t.id;
       row.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
           <div>
-            <b style="font-size: 13.5px; color: var(--text-main);">${t.name}</b>
-            <div style="font-size: 11.5px; color: var(--text-dim); margin-top: 2px;">${t.desc}</div>
+            <b style="font-size: 13.5px; color: var(--text-main);">${escapeHtml(t.name)}</b>
+            <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 2px;">${escapeHtml(t.description || 'Custom External Application')}</div>
           </div>
-          <button class="btn btn-success btn-launch-tool" data-tool="${t.key}" style="padding: 5px 14px;">
-            <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            <span>Launch</span>
-          </button>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label class="toggle-switch" title="${isEnabled ? 'Tool is active (click to disable)' : 'Tool is disabled (click to enable)'}">
+              <input type="checkbox" class="devtool-enable-toggle" data-id="${t.id}" ${isEnabled ? 'checked' : ''}>
+              <span class="toggle-slider"></span>
+            </label>
+            <button class="btn btn-success btn-launch-tool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" data-target="${escapeHtml(targetPath)}" style="padding: 5px 12px; display: inline-flex; align-items: center; gap: 4px;" title="Launch Tool">
+              <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <span>Launch</span>
+            </button>
+            <button class="btn btn-outline btn-edit-devtool" data-id="${t.id}" style="padding: 5px 10px; display: inline-flex; align-items: center; gap: 4px;" title="Edit tool details">
+              <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              <span>Edit</span>
+            </button>
+            <button class="btn btn-outline btn-delete-devtool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" style="padding: 5px 10px; color: var(--accent-red); display: inline-flex; align-items: center; gap: 4px;" title="Delete tool">
+              <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              <span>Delete</span>
+            </button>
+          </div>
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
-          <input type="text" class="input-text tool-path-input" data-tool="${t.key}" value="${targetPath}" placeholder="Path to executable..." style="flex: 1; font-family: var(--font-mono); font-size: 12px;">
-          <button class="btn btn-outline btn-browse-tool" data-tool="${t.key}" title="Select file with file browser">
+          <div style="position: relative; flex: 1;">
+            <input type="${isMasked ? 'password' : 'text'}" class="input-text tool-path-input" data-id="${t.id}" value="${escapeHtml(targetPath)}" placeholder="Path to executable (.exe, .cmd, .bat) or shell:AppsFolder..." style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding-right: 32px;">
+            <button type="button" class="btn-toggle-mask-tool" data-id="${t.id}" title="Toggle path visibility" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; background: none; border: none; cursor: pointer; color: var(--text-dim); padding: 0; display: flex; align-items: center; justify-content: center;">
+              <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24">
+                ${isMasked
+                  ? '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>'
+                  : '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'
+                }
+              </svg>
+            </button>
+          </div>
+          <button class="btn btn-outline btn-browse-tool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" title="Select file with file browser" style="white-space: nowrap; padding: 6px 12px;">
             <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             <span>Browse...</span>
           </button>
-          <button class="btn btn-outline btn-reset-tool" data-tool="${t.key}" title="Reset to default path">Reset</button>
         </div>
       `;
       container.appendChild(row);
@@ -1572,44 +1609,228 @@
 
     // Launch buttons
     container.querySelectorAll('.btn-launch-tool').forEach(b => {
-      b.addEventListener('click', () => callBridge('launch_tool', { toolName: b.dataset.tool }));
+      b.addEventListener('click', () => {
+        const id = b.dataset.id;
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
+        const target = (tool && tool.target) || b.dataset.target || '';
+        const name = (tool && tool.name) || b.dataset.name || 'Tool';
+        if (!target || !target.trim()) {
+          if (typeof showToast === 'function') {
+            showToast(`Target path for "${name}" is empty. Click "Browse..." to select an executable first.`, 'warning');
+          } else {
+            alert(`Target path for "${name}" is empty. Please click "Browse..." or "Edit" to select an executable file first.`);
+          }
+          return;
+        }
+        callBridge('launch_tool', { toolId: id, toolName: name, target });
+      });
     });
 
     // Browse file buttons
     container.querySelectorAll('.btn-browse-tool').forEach(b => {
       b.addEventListener('click', async () => {
-        const toolName = b.dataset.tool;
+        const id = b.dataset.id;
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
+        const toolName = tool ? tool.name : b.dataset.name;
         try {
-          const res = await callBridge('browse_tool_target', { toolName });
+          const res = await callBridge('browse_tool_target', { toolId: id, toolName });
           if (res && res.path) {
-            const input = container.querySelector(`.tool-path-input[data-tool="${toolName}"]`);
+            if (tool) tool.target = res.path;
+            if (!state.aiConfig.toolTargets) state.aiConfig.toolTargets = {};
+            if (toolName) state.aiConfig.toolTargets[toolName] = res.path;
+            state.aiConfig.toolTargets[id] = res.path;
+
+            const input = container.querySelector(`.tool-path-input[data-id="${id}"]`);
             if (input) input.value = res.path;
-            state.aiConfig.toolTargets[toolName] = res.path;
+            const launchBtn = container.querySelector(`.btn-launch-tool[data-id="${id}"]`);
+            if (launchBtn) launchBtn.dataset.target = res.path;
+
+            await callBridge('save_ai_config', { config: state.aiConfig });
           }
         } catch { }
       });
     });
 
-    // Reset buttons
-    container.querySelectorAll('.btn-reset-tool').forEach(b => {
+    // Edit tool button
+    container.querySelectorAll('.btn-edit-devtool').forEach(b => {
+      b.addEventListener('click', () => {
+        const id = b.dataset.id;
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
+        if (tool) openDevToolModal(tool);
+      });
+    });
+
+    // Delete tool button
+    container.querySelectorAll('.btn-delete-devtool').forEach(b => {
       b.addEventListener('click', async () => {
-        const toolName = b.dataset.tool;
-        const res = await callBridge('reset_tool_target', { toolName });
-        if (res && res.path) {
-          const input = container.querySelector(`.tool-path-input[data-tool="${toolName}"]`);
-          if (input) input.value = res.path;
-          state.aiConfig.toolTargets[toolName] = res.path;
+        const id = b.dataset.id;
+        const toolName = b.dataset.name || 'Tool';
+        if (confirm(`Remove "${toolName}" from AI Dev Tools?`)) {
+          state.aiConfig.devTools = (state.aiConfig.devTools || []).filter(t => t.id !== id);
+          if (state.aiConfig.toolTargets) {
+            delete state.aiConfig.toolTargets[toolName];
+            delete state.aiConfig.toolTargets[id];
+          }
+          await callBridge('save_ai_config', { config: state.aiConfig });
+          renderDevToolsList();
+          populatePresetDropdown();
+        }
+      });
+    });
+
+    // Enable/disable toggle
+    container.querySelectorAll('.devtool-enable-toggle').forEach(chk => {
+      chk.addEventListener('change', async () => {
+        const id = chk.dataset.id;
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
+        if (tool) {
+          tool.isEnabled = chk.checked;
+          const card = chk.closest('.devtool-card');
+          if (card) {
+            if (tool.isEnabled) card.classList.remove('disabled');
+            else card.classList.add('disabled');
+          }
+          await callBridge('save_ai_config', { config: state.aiConfig });
         }
       });
     });
 
     // Manual path edit
     container.querySelectorAll('.tool-path-input').forEach(inp => {
-      inp.addEventListener('change', () => {
-        const toolName = inp.dataset.tool;
-        state.aiConfig.toolTargets[toolName] = inp.value.trim();
-        callBridge('save_ai_config', { config: state.aiConfig });
+      inp.addEventListener('change', async () => {
+        const id = inp.dataset.id;
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
+        if (tool) {
+          tool.target = inp.value.trim();
+          if (!state.aiConfig.toolTargets) state.aiConfig.toolTargets = {};
+          state.aiConfig.toolTargets[tool.name] = tool.target;
+          state.aiConfig.toolTargets[tool.id] = tool.target;
+          const launchBtn = container.querySelector(`.btn-launch-tool[data-id="${id}"]`);
+          if (launchBtn) launchBtn.dataset.target = tool.target;
+          await callBridge('save_ai_config', { config: state.aiConfig });
+        }
       });
+    });
+
+    // Toggle mask button
+    container.querySelectorAll('.btn-toggle-mask-tool').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const input = container.querySelector(`.tool-path-input[data-id="${id}"]`);
+        if (input) {
+          const isCurrentlyPassword = input.type === 'password';
+          input.type = isCurrentlyPassword ? 'text' : 'password';
+          btn.innerHTML = `<svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24">${
+            !isCurrentlyPassword
+              ? '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>'
+              : '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'
+          }</svg>`;
+        }
+      });
+    });
+  }
+
+  function openDevToolModal(tool = null) {
+    const modal = document.getElementById('modal-devtool-editor');
+    if (!modal) return;
+    const title = document.getElementById('modal-devtool-title');
+    const idInp = document.getElementById('modal-devtool-id');
+    const nameInp = document.getElementById('modal-devtool-name');
+    const descInp = document.getElementById('modal-devtool-desc');
+    const targetInp = document.getElementById('modal-devtool-target');
+    const enabledInp = document.getElementById('modal-devtool-enabled');
+
+    if (tool) {
+      if (title) title.textContent = 'Edit AI Dev Tool';
+      if (idInp) idInp.value = tool.id || '';
+      if (nameInp) nameInp.value = tool.name || '';
+      if (descInp) descInp.value = tool.description || '';
+      if (targetInp) targetInp.value = tool.target || '';
+      if (enabledInp) enabledInp.checked = tool.isEnabled !== false;
+    } else {
+      if (title) title.textContent = 'Add New AI Dev Tool';
+      if (idInp) idInp.value = '';
+      if (nameInp) nameInp.value = '';
+      if (descInp) descInp.value = '';
+      if (targetInp) targetInp.value = '';
+      if (enabledInp) enabledInp.checked = true;
+    }
+
+    modal.classList.add('open');
+    if (nameInp) setTimeout(() => nameInp.focus(), 60);
+  }
+
+  function setupDevToolsEditor() {
+    document.getElementById('btn-add-dev-tool')?.addEventListener('click', () => {
+      openDevToolModal(null);
+    });
+
+    const modal = document.getElementById('modal-devtool-editor');
+    if (!modal) return;
+
+    document.getElementById('btn-cancel-devtool-modal')?.addEventListener('click', () => {
+      modal.classList.remove('open');
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.remove('open');
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.classList.contains('open')) {
+        modal.classList.remove('open');
+      }
+    });
+
+    document.getElementById('btn-browse-modal-devtool')?.addEventListener('click', async () => {
+      const nameInp = document.getElementById('modal-devtool-name');
+      const toolName = nameInp ? nameInp.value.trim() : '';
+      try {
+        const res = await callBridge('browse_tool_target', { toolName });
+        if (res && res.path) {
+          const targetInp = document.getElementById('modal-devtool-target');
+          if (targetInp) targetInp.value = res.path;
+        }
+      } catch { }
+    });
+
+    document.getElementById('btn-save-devtool-modal')?.addEventListener('click', async () => {
+      const idInp = document.getElementById('modal-devtool-id');
+      const nameInp = document.getElementById('modal-devtool-name');
+      const descInp = document.getElementById('modal-devtool-desc');
+      const targetInp = document.getElementById('modal-devtool-target');
+      const enabledInp = document.getElementById('modal-devtool-enabled');
+
+      const name = nameInp ? nameInp.value.trim() : '';
+      if (!name) {
+        alert('Tool Name is required.');
+        nameInp?.focus();
+        return;
+      }
+
+      const id = idInp && idInp.value ? idInp.value : ('tool_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4));
+      const desc = descInp ? descInp.value.trim() : '';
+      const target = targetInp ? targetInp.value.trim() : '';
+      const isEnabled = enabledInp ? enabledInp.checked : true;
+
+      if (!state.aiConfig) state.aiConfig = {};
+      if (!Array.isArray(state.aiConfig.devTools)) state.aiConfig.devTools = [];
+      if (!state.aiConfig.toolTargets) state.aiConfig.toolTargets = {};
+
+      const existingIndex = state.aiConfig.devTools.findIndex(t => t.id === id);
+      if (existingIndex >= 0) {
+        state.aiConfig.devTools[existingIndex] = { id, name, description: desc, target, isEnabled };
+      } else {
+        state.aiConfig.devTools.push({ id, name, description: desc, target, isEnabled });
+      }
+
+      state.aiConfig.toolTargets[name] = target;
+      state.aiConfig.toolTargets[id] = target;
+
+      await callBridge('save_ai_config', { config: state.aiConfig });
+      modal.classList.remove('open');
+      renderDevToolsList();
+      populatePresetDropdown();
     });
   }
 
@@ -1629,17 +1850,22 @@
     const category = sc.category || sc.Category || 'AI Dev Tool';
     const args = sc.arguments || sc.Arguments || '';
 
-    // If target is empty, attempt resolution from toolTargets
-    if (!target && state.aiConfig && state.aiConfig.toolTargets) {
-      const targets = state.aiConfig.toolTargets;
-      if (targets[name]) target = targets[name];
-      else if (name.includes('Antigravity') && targets['Antigravity-ide']) target = targets['Antigravity-ide'];
-      else if (name.includes('Claude') && targets['Claude']) target = targets['Claude'];
-      else if (name.includes('ChatGPT') && targets['ChatGPT']) target = targets['ChatGPT'];
-      else if (name.includes('OpenCode') && targets['OpenCode']) target = targets['OpenCode'];
-      else if (name.includes('Cline') && targets['Cline']) target = targets['Cline'];
-      else if (name.includes('DeepSeek') && targets['DeepSeek']) target = targets['DeepSeek'];
-      else if (name.includes('FreeBuff') && targets['FreeBuff']) target = targets['FreeBuff'];
+    // If target is empty, attempt resolution from devTools / toolTargets
+    if (!target && state.aiConfig) {
+      if (state.aiConfig.devTools && Array.isArray(state.aiConfig.devTools)) {
+        const found = state.aiConfig.devTools.find(dt => dt.name.toLowerCase() === name.toLowerCase() || dt.id.toLowerCase() === name.toLowerCase());
+        if (found && found.target) target = found.target;
+      }
+      if (!target && state.aiConfig.toolTargets) {
+        const targets = state.aiConfig.toolTargets;
+        if (targets[name]) target = targets[name];
+        else if (name.includes('Antigravity') && targets['Antigravity-ide']) target = targets['Antigravity-ide'];
+        else if (name.includes('Claude') && targets['Claude']) target = targets['Claude'];
+        else if (name.includes('ChatGPT') && targets['ChatGPT']) target = targets['ChatGPT'];
+        else if (name.includes('OpenCode') && targets['OpenCode']) target = targets['OpenCode'];
+        else if (name.includes('Cline') && targets['Cline']) target = targets['Cline'];
+        else if (name.includes('FreeBuff') && targets['FreeBuff']) target = targets['FreeBuff'];
+      }
     }
 
     if (!name) name = 'Shortcut ' + (index + 1);
@@ -1755,42 +1981,33 @@
 
     // Group 1: Configured AI Dev Tools
     const toolTargets = state.aiConfig?.toolTargets || {};
+    const devTools = Array.isArray(state.aiConfig?.devTools) ? state.aiConfig.devTools : [];
     const devToolsOptgroup = document.createElement('optgroup');
     devToolsOptgroup.label = 'AI Dev Tools (Configured Paths)';
 
-    const knownTools = [
-      { key: 'Antigravity-ide', name: 'Antigravity IDE' },
-      { key: 'Claude', name: 'Claude Desktop' },
-      { key: 'ChatGPT', name: 'ChatGPT Desktop' },
-      { key: 'OpenCode', name: 'OpenCode Desktop' },
-      { key: 'Cline', name: 'Cline' },
-      { key: 'DeepSeek', name: 'DeepSeek' },
-      { key: 'FreeBuff', name: 'FreeBuff' }
-    ];
-
-    knownTools.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = `tool:${t.key}`;
-      const configuredPath = toolTargets[t.key] || '';
-      opt.textContent = `${t.name} ${configuredPath ? `(${configuredPath})` : '(Not configured)'}`;
-      opt.dataset.name = t.name;
-      opt.dataset.cat = 'AI Dev Tool';
-      opt.dataset.target = configuredPath;
-      devToolsOptgroup.appendChild(opt);
-    });
-
-    // Check if there are other keys in toolTargets not in knownTools
-    Object.keys(toolTargets).forEach(k => {
-      if (!knownTools.some(kt => kt.key.toLowerCase() === k.toLowerCase())) {
+    if (devTools.length > 0) {
+      devTools.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = `tool:${t.id || t.name}`;
+        const configuredPath = t.target || toolTargets[t.name] || '';
+        opt.textContent = `${t.name} ${configuredPath ? `(${configuredPath})` : '(Not configured)'}`;
+        opt.dataset.name = t.name;
+        opt.dataset.cat = 'AI Dev Tool';
+        opt.dataset.target = configuredPath;
+        devToolsOptgroup.appendChild(opt);
+      });
+    } else {
+      Object.keys(toolTargets).forEach(k => {
         const opt = document.createElement('option');
         opt.value = `tool:${k}`;
-        opt.textContent = `${k} (${toolTargets[k]})`;
+        const configuredPath = toolTargets[k] || '';
+        opt.textContent = `${k} ${configuredPath ? `(${configuredPath})` : '(Not configured)'}`;
         opt.dataset.name = k;
         opt.dataset.cat = 'AI Dev Tool';
-        opt.dataset.target = toolTargets[k];
+        opt.dataset.target = configuredPath;
         devToolsOptgroup.appendChild(opt);
-      }
-    });
+      });
+    }
 
     sel.appendChild(devToolsOptgroup);
 
@@ -3707,6 +3924,7 @@
       ['ClaudeConfig', setupClaudeGatewayConfig],
       ['SettingsView', setupSettingsView],
       ['ShortcutEditor', setupShortcutEditor],
+      ['DevToolsEditor', setupDevToolsEditor],
       ['QuotaAndIpWidget', setupQuotaAndIpWidget],
       ['RenderOpenCode', renderOpenCodeCard],
       ['PromptModal', setupPromptModalListeners],

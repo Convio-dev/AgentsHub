@@ -62,6 +62,24 @@ public class CliWorkspaceConfig
     public bool IsEnabled { get; set; } = true;
 }
 
+public class DevToolItem
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = "";
+
+    [JsonPropertyName("target")]
+    public string Target { get; set; } = "";
+
+    [JsonPropertyName("isEnabled")]
+    public bool IsEnabled { get; set; } = true;
+}
+
 public class ClaudeGatewayProvider
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
@@ -73,7 +91,12 @@ public class ClaudeGatewayProvider
 
 public class AiConfig
 {
+    [JsonPropertyName("devTools")]
+    public List<DevToolItem> DevTools { get; set; } = new();
+
+    [JsonPropertyName("toolTargets")]
     public Dictionary<string, string> ToolTargets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     public List<AiProvider> Providers { get; set; } = new();
     public string? SelectedProviderId { get; set; }
     public string? SelectedModel { get; set; }
@@ -175,6 +198,7 @@ public class AiConfigService
     {
         lock (_lock)
         {
+            SyncToolTargets(newConfig);
             _config = newConfig;
             try
             {
@@ -203,6 +227,24 @@ public class AiConfigService
     {
         lock (_lock)
         {
+            if (_config.DevTools != null)
+            {
+                var match = _config.DevTools.FirstOrDefault(d =>
+                    string.Equals(d.Id, toolName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(d.Name, toolName, StringComparison.OrdinalIgnoreCase) ||
+                    (toolName.Contains("Antigravity", StringComparison.OrdinalIgnoreCase) && d.Name.Contains("Antigravity", StringComparison.OrdinalIgnoreCase)) ||
+                    (toolName.Contains("FreeBuff", StringComparison.OrdinalIgnoreCase) && d.Name.Contains("FreeBuff", StringComparison.OrdinalIgnoreCase)) ||
+                    (toolName.Contains("Cline", StringComparison.OrdinalIgnoreCase) && d.Name.Contains("Cline", StringComparison.OrdinalIgnoreCase)) ||
+                    (toolName.Contains("OpenCode", StringComparison.OrdinalIgnoreCase) && d.Name.Contains("OpenCode", StringComparison.OrdinalIgnoreCase)) ||
+                    (toolName.Contains("Claude", StringComparison.OrdinalIgnoreCase) && d.Name.Contains("Claude", StringComparison.OrdinalIgnoreCase)) ||
+                    (toolName.Contains("ChatGPT", StringComparison.OrdinalIgnoreCase) && d.Name.Contains("ChatGPT", StringComparison.OrdinalIgnoreCase)));
+
+                if (match != null && !string.IsNullOrWhiteSpace(match.Target))
+                {
+                    return match.Target;
+                }
+            }
+
             if (_config.ToolTargets.TryGetValue(toolName, out var target) && !string.IsNullOrWhiteSpace(target))
             {
                 return target;
@@ -216,35 +258,208 @@ public class AiConfigService
         lock (_lock)
         {
             _config.ToolTargets[toolName] = target;
+            if (_config.DevTools != null)
+            {
+                var match = _config.DevTools.FirstOrDefault(d =>
+                    string.Equals(d.Id, toolName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(d.Name, toolName, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                {
+                    match.Target = target;
+                }
+            }
         }
         SaveConfig(_config);
     }
 
-    public Dictionary<string, string> GetDefaultToolTargets()
+    public List<DevToolItem> GetDefaultDevTools()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var freebuffPath = Path.Combine(localAppData, @"Programs\@codebufffreebuff-desktop\Freebuff.exe");
+        var clinePath = Path.Combine(localAppData, @"Cline\cline-app.exe");
+        var opencodePath = Path.Combine(localAppData, @"Programs\@opencodedesktop\OpenCode.exe");
+        var antigravityPath = Path.Combine(localAppData, @"Programs\Antigravity IDE\Antigravity IDE.exe");
+
+        return new List<DevToolItem>
         {
-            ["FreeBuff"] = Path.Combine(localAppData, @"Programs\@codebufffreebuff-desktop\Freebuff.exe"),
-            ["Cline"] = Path.Combine(localAppData, @"Cline\cline-app.exe"),
-            ["DeepSeek"] = @"E:\DeepSeek Harness\DeepSeek Harness.exe",
-            ["OpenCode"] = Path.Combine(localAppData, @"Programs\@opencodedesktop\OpenCode.exe"),
-            ["Antigravity-ide"] = Path.Combine(localAppData, @"Programs\Antigravity IDE\Antigravity IDE.exe"),
-            ["Claude"] = @"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude",
-            ["ChatGPT"] = @"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App"
+            new()
+            {
+                Id = "freebuff",
+                Name = "FreeBuff Desktop",
+                Description = "Main executable for FreeBuff Desktop",
+                Target = File.Exists(freebuffPath) ? freebuffPath : string.Empty,
+                IsEnabled = true
+            },
+            new()
+            {
+                Id = "cline",
+                Name = "Cline App",
+                Description = "Executable path for Cline App",
+                Target = File.Exists(clinePath) ? clinePath : string.Empty,
+                IsEnabled = true
+            },
+            new()
+            {
+                Id = "opencode",
+                Name = "OpenCode Desktop",
+                Description = "OpenCode desktop client executable",
+                Target = File.Exists(opencodePath) ? opencodePath : string.Empty,
+                IsEnabled = true
+            },
+            new()
+            {
+                Id = "antigravity_ide",
+                Name = "Antigravity IDE",
+                Description = "Path to Antigravity IDE.exe",
+                Target = File.Exists(antigravityPath) ? antigravityPath : string.Empty,
+                IsEnabled = true
+            },
+            new()
+            {
+                Id = "claude",
+                Name = "Claude",
+                Description = "Claude Desktop application",
+                Target = @"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude",
+                IsEnabled = true
+            },
+            new()
+            {
+                Id = "chatgpt",
+                Name = "ChatGPT",
+                Description = "ChatGPT Desktop application",
+                Target = @"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App",
+                IsEnabled = true
+            }
         };
+    }
+
+    public Dictionary<string, string> GetDefaultToolTargets()
+    {
+        var defaults = GetDefaultDevTools();
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in defaults)
+        {
+            dict[item.Name] = item.Target;
+            dict[item.Id] = item.Target;
+        }
+
+        // Common aliases for backwards compatibility
+        dict["FreeBuff"] = dict.GetValueOrDefault("freebuff", string.Empty);
+        dict["Cline"] = dict.GetValueOrDefault("cline", string.Empty);
+        dict["OpenCode"] = dict.GetValueOrDefault("opencode", string.Empty);
+        dict["Antigravity-ide"] = dict.GetValueOrDefault("antigravity_ide", string.Empty);
+        dict["Claude"] = @"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude";
+        dict["ChatGPT"] = @"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App";
+
+        return dict;
+    }
+
+    public void SyncToolTargets(AiConfig config)
+    {
+        if (config == null) return;
+        if (config.ToolTargets == null)
+        {
+            config.ToolTargets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (config.DevTools != null)
+        {
+            foreach (var tool in config.DevTools)
+            {
+                if (!string.IsNullOrWhiteSpace(tool.Name))
+                {
+                    config.ToolTargets[tool.Name] = tool.Target;
+                }
+                if (!string.IsNullOrWhiteSpace(tool.Id))
+                {
+                    config.ToolTargets[tool.Id] = tool.Target;
+                }
+                if (tool.Name.Contains("Antigravity", StringComparison.OrdinalIgnoreCase))
+                {
+                    config.ToolTargets["Antigravity-ide"] = tool.Target;
+                }
+                if (tool.Name.Contains("FreeBuff", StringComparison.OrdinalIgnoreCase))
+                {
+                    config.ToolTargets["FreeBuff"] = tool.Target;
+                }
+                if (tool.Name.Contains("OpenCode", StringComparison.OrdinalIgnoreCase))
+                {
+                    config.ToolTargets["OpenCode"] = tool.Target;
+                }
+                if (tool.Name.Contains("Cline", StringComparison.OrdinalIgnoreCase))
+                {
+                    config.ToolTargets["Cline"] = tool.Target;
+                }
+            }
+        }
+    }
+
+    private static bool IsCleanPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return true;
+        if (path.StartsWith("shell:", StringComparison.OrdinalIgnoreCase)) return true;
+        if (path.Contains("DeepSeek Harness", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        return true;
     }
 
     private void EnsureDefaults()
     {
+        var defaultDevTools = GetDefaultDevTools();
         var defaults = GetDefaultToolTargets();
-        foreach (var kvp in defaults)
+
+        // 1. Sanitize legacy ToolTargets from hardcoded user paths
+        var keysToRemove = new List<string>();
+        foreach (var kvp in _config.ToolTargets)
         {
-            if (!_config.ToolTargets.ContainsKey(kvp.Key) || string.IsNullOrWhiteSpace(_config.ToolTargets[kvp.Key]))
+            if (!IsCleanPath(kvp.Value) || string.Equals(kvp.Key, "DeepSeek", StringComparison.OrdinalIgnoreCase))
             {
-                _config.ToolTargets[kvp.Key] = kvp.Value;
+                keysToRemove.Add(kvp.Key);
             }
         }
+        foreach (var k in keysToRemove)
+        {
+            _config.ToolTargets.Remove(k);
+        }
+
+        // 2. Ensure DevTools collection
+        if (_config.DevTools == null)
+        {
+            _config.DevTools = new List<DevToolItem>();
+        }
+
+        if (_config.DevTools.Count == 0)
+        {
+            _config.DevTools = defaultDevTools;
+            // Backwards compatibility migration from existing ToolTargets
+            foreach (var tool in _config.DevTools)
+            {
+                if (_config.ToolTargets.TryGetValue(tool.Name, out var target) && !string.IsNullOrWhiteSpace(target) && IsCleanPath(target))
+                {
+                    tool.Target = target;
+                }
+                else if (_config.ToolTargets.TryGetValue(tool.Id, out var targetId) && !string.IsNullOrWhiteSpace(targetId) && IsCleanPath(targetId))
+                {
+                    tool.Target = targetId;
+                }
+            }
+        }
+        else
+        {
+            // Sanitize existing items
+            foreach (var tool in _config.DevTools)
+            {
+                if (!IsCleanPath(tool.Target))
+                {
+                    tool.Target = string.Empty;
+                }
+            }
+        }
+
+        // 3. Keep ToolTargets synchronized
+        SyncToolTargets(_config);
 
         if (_config.Providers.Count == 0)
         {
@@ -326,14 +541,19 @@ public class AiConfigService
                 new() { Name = "ChatGPT Desktop", Target = _config.ToolTargets.GetValueOrDefault("ChatGPT", defaults.GetValueOrDefault("ChatGPT", string.Empty)), Category = "AI Dev Tool" },
                 new() { Name = "OpenCode Desktop", Target = _config.ToolTargets.GetValueOrDefault("OpenCode", defaults.GetValueOrDefault("OpenCode", string.Empty)), Category = "AI Dev Tool" },
                 new() { Name = "Cline", Target = _config.ToolTargets.GetValueOrDefault("Cline", defaults.GetValueOrDefault("Cline", string.Empty)), Category = "AI Dev Tool" },
-                new() { Name = "DeepSeek", Target = _config.ToolTargets.GetValueOrDefault("DeepSeek", defaults.GetValueOrDefault("DeepSeek", string.Empty)), Category = "AI Dev Tool" }
+                new() { Name = "FreeBuff Desktop", Target = _config.ToolTargets.GetValueOrDefault("FreeBuff", defaults.GetValueOrDefault("FreeBuff", string.Empty)), Category = "AI Dev Tool" }
             };
         }
         else
         {
-            // Repair any shortcuts that have missing or empty target
+            // Repair any shortcuts that have missing or empty or tainted target
             foreach (var sc in _config.Shortcuts)
             {
+                if (!IsCleanPath(sc.Target))
+                {
+                    sc.Target = string.Empty;
+                }
+
                 if (string.IsNullOrWhiteSpace(sc.Target))
                 {
                     if (_config.ToolTargets.TryGetValue(sc.Name, out var exactMatch) && !string.IsNullOrWhiteSpace(exactMatch))
@@ -360,9 +580,9 @@ public class AiConfigService
                     {
                         sc.Target = _config.ToolTargets.GetValueOrDefault("Cline", defaults.GetValueOrDefault("Cline", string.Empty));
                     }
-                    else if (sc.Name.Contains("DeepSeek", StringComparison.OrdinalIgnoreCase))
+                    else if (sc.Name.Contains("FreeBuff", StringComparison.OrdinalIgnoreCase))
                     {
-                        sc.Target = _config.ToolTargets.GetValueOrDefault("DeepSeek", defaults.GetValueOrDefault("DeepSeek", string.Empty));
+                        sc.Target = _config.ToolTargets.GetValueOrDefault("FreeBuff", defaults.GetValueOrDefault("FreeBuff", string.Empty));
                     }
                 }
             }

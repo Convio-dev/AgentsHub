@@ -22,6 +22,8 @@ public class SettingsForm : Form
     private readonly Label statusLabel = new();
 
     // Tools Tab Controls
+    private readonly Panel _toolsHeaderPanel = new();
+    private readonly Panel _toolsListContainer = new();
     private readonly Dictionary<string, TextBox> _toolTextBoxes = new(StringComparer.OrdinalIgnoreCase);
 
     // Providers Tab Controls
@@ -61,6 +63,14 @@ public class SettingsForm : Form
             SelectedProviderId = current.SelectedProviderId,
             SelectedModel = current.SelectedModel,
             ToolTargets = new Dictionary<string, string>(current.ToolTargets, StringComparer.OrdinalIgnoreCase),
+            DevTools = (current.DevTools ?? new List<DevToolItem>()).Select(d => new DevToolItem
+            {
+                Id = d.Id,
+                Name = d.Name,
+                Description = d.Description,
+                Target = d.Target,
+                IsEnabled = d.IsEnabled
+            }).ToList(),
             Providers = current.Providers.Select(p => new AiProvider
             {
                 Id = p.Id,
@@ -174,116 +184,257 @@ public class SettingsForm : Form
     private void BuildToolsPanel()
     {
         toolsPanel.Dock = DockStyle.Fill;
-        toolsPanel.AutoScroll = true;
-        toolsPanel.Padding = new Padding(16);
+        toolsPanel.Controls.Clear();
 
-        var toolNames = new[]
-        {
-            ("FreeBuff", "⚡ FreeBuff", "Main executable for FreeBuff Desktop"),
-            ("Cline", "🤖 Cline", "Executable path for Cline App"),
-            ("DeepSeek", "🧠 DeepSeek", "DeepSeek Harness executable path"),
-            ("OpenCode", "💻 OpenCode", "OpenCode desktop client executable"),
-            ("Antigravity-ide", "🪐 Antigravity-ide", "Path to Antigravity IDE.exe"),
-            ("Claude", "✳️ Claude", "Executable path or shell:AppsFolder package ID"),
-            ("ChatGPT", "💬 ChatGPT", "Executable path or shell:AppsFolder package ID")
-        };
+        _toolsHeaderPanel.Controls.Clear();
+        _toolsHeaderPanel.Dock = DockStyle.Top;
+        _toolsHeaderPanel.Height = 54;
+        _toolsHeaderPanel.Padding = new Padding(14, 8, 14, 8);
 
         var headerLabel = new Label
         {
-            Text = "Configure launch targets and paths for AI Dev Tools buttons:",
+            Text = "AI DEV TOOLS & EXTERNAL APPLICATIONS",
             Font = new Font("Segoe UI", 9F, FontStyle.Bold),
             AutoSize = true,
-            Location = new Point(16, 12)
+            Location = new Point(14, 8)
         };
-        toolsPanel.Controls.Add(headerLabel);
 
-        int currentY = 40;
-        foreach (var (key, title, desc) in toolNames)
+        var subLabel = new Label
+        {
+            Text = "Configure executable paths, manage custom launch targets, and launch desktop tools",
+            Font = new Font("Segoe UI", 8F),
+            AutoSize = true,
+            Location = new Point(14, 28)
+        };
+
+        var addToolBtn = new Button
+        {
+            Text = "+ Add Tool",
+            Size = new Size(100, 30),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        addToolBtn.Location = new Point(toolsPanel.Width > 0 ? toolsPanel.Width - 124 : 590, 10);
+        addToolBtn.Click += (_, _) => ShowAddDevToolDialog();
+
+        _toolsHeaderPanel.Controls.Add(headerLabel);
+        _toolsHeaderPanel.Controls.Add(subLabel);
+        _toolsHeaderPanel.Controls.Add(addToolBtn);
+
+        _toolsListContainer.Dock = DockStyle.Fill;
+        _toolsListContainer.AutoScroll = true;
+        _toolsListContainer.Padding = new Padding(14, 8, 14, 14);
+
+        toolsPanel.Controls.Add(_toolsListContainer);
+        toolsPanel.Controls.Add(_toolsHeaderPanel);
+
+        RebuildToolsList();
+    }
+
+    private void ShowAddDevToolDialog()
+    {
+        var c = ThemeManager.Colors;
+        using var dlg = new Form
+        {
+            Text = "Add New AI Dev Tool",
+            Size = new Size(500, 290),
+            StartPosition = FormStartPosition.CenterParent,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            BackColor = c.WindowBackground,
+            ForeColor = c.TextPrimary
+        };
+
+        var lblName = new Label { Text = "Tool Name:", Location = new Point(16, 14), AutoSize = true };
+        var txtName = new TextBox { Location = new Point(16, 34), Width = 450, BackColor = c.WellBackground, ForeColor = c.TextPrimary };
+
+        var lblDesc = new Label { Text = "Description:", Location = new Point(16, 66), AutoSize = true };
+        var txtDesc = new TextBox { Location = new Point(16, 86), Width = 450, BackColor = c.WellBackground, ForeColor = c.TextPrimary };
+
+        var lblTarget = new Label { Text = "Executable Target Path (.exe, .cmd, .bat):", Location = new Point(16, 118), AutoSize = true };
+        var txtTarget = new TextBox { Location = new Point(16, 138), Width = 365, BackColor = c.WellBackground, ForeColor = c.TextPrimary };
+        var btnBrowse = new Button { Text = "Browse...", Location = new Point(388, 137), Size = new Size(78, 25), Cursor = Cursors.Hand };
+        StyleButton(btnBrowse, c.ButtonBg, c.ButtonText, c.ButtonBorder);
+        btnBrowse.Click += (_, _) =>
+        {
+            using var ofd = new OpenFileDialog
+            {
+                Title = "Select Executable Target",
+                Filter = "Executables (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All Files (*.*)|*.*"
+            };
+            if (ofd.ShowDialog(dlg) == DialogResult.OK)
+            {
+                txtTarget.Text = ofd.FileName;
+            }
+        };
+
+        var chkEnabled = new CheckBox { Text = "Active & Visible", Checked = true, Location = new Point(16, 175), AutoSize = true, ForeColor = c.AccentGreen };
+
+        var btnOk = new Button { Text = "Add Tool", DialogResult = DialogResult.OK, Location = new Point(300, 205), Size = new Size(82, 28) };
+        var btnCancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, Location = new Point(388, 205), Size = new Size(78, 28) };
+        StyleButton(btnOk, c.AccentGreen, c.AccentGreenText, c.AccentGreen);
+        StyleButton(btnCancel, c.ButtonBg, c.ButtonText, c.ButtonBorder);
+
+        dlg.Controls.AddRange(new Control[] { lblName, txtName, lblDesc, txtDesc, lblTarget, txtTarget, btnBrowse, chkEnabled, btnOk, btnCancel });
+        dlg.AcceptButton = btnOk;
+        dlg.CancelButton = btnCancel;
+
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+        {
+            var name = txtName.Text.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                MessageBox.Show("Tool name cannot be empty.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var newTool = new DevToolItem
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = name,
+                Description = txtDesc.Text.Trim(),
+                Target = txtTarget.Text.Trim(),
+                IsEnabled = chkEnabled.Checked
+            };
+
+            _workingConfig.DevTools.Add(newTool);
+            _workingConfig.ToolTargets[newTool.Name] = newTool.Target;
+            _workingConfig.ToolTargets[newTool.Id] = newTool.Target;
+            RebuildToolsList();
+        }
+    }
+
+    private void RebuildToolsList()
+    {
+        _toolsListContainer.Controls.Clear();
+        _toolTextBoxes.Clear();
+
+        var c = ThemeManager.Colors;
+        int currentY = 10;
+        var list = _workingConfig.DevTools ?? new List<DevToolItem>();
+
+        foreach (var tool in list)
         {
             var card = new Panel
             {
-                Location = new Point(16, currentY),
-                Width = 700,
-                Height = 64,
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Location = new Point(14, currentY),
+                Width = Math.Max(660, _toolsListContainer.ClientSize.Width - 28),
+                Height = 68,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = c.CardBackground,
+                Padding = new Padding(8)
+            };
+
+            var chk = new CheckBox
+            {
+                Checked = tool.IsEnabled,
+                Location = new Point(8, 8),
+                Size = new Size(18, 18),
+                Cursor = Cursors.Hand
+            };
+            chk.CheckedChanged += (_, _) =>
+            {
+                tool.IsEnabled = chk.Checked;
             };
 
             var nameLbl = new Label
             {
-                Text = title,
-                Font = new Font("Segoe UI", 8.75F, FontStyle.Bold),
-                Location = new Point(6, 6),
-                AutoSize = true
+                Text = tool.Name,
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+                Location = new Point(32, 7),
+                AutoSize = true,
+                ForeColor = c.TextPrimary
             };
 
             var descLbl = new Label
             {
-                Text = desc,
+                Text = tool.Description,
                 Font = new Font("Segoe UI", 7.5F),
-                Location = new Point(140, 7),
-                AutoSize = true
+                Location = new Point(180, 8),
+                AutoSize = true,
+                ForeColor = c.TextMuted
             };
 
             var txt = new TextBox
             {
-                Location = new Point(6, 28),
-                Width = 530,
+                Text = tool.Target,
+                Location = new Point(8, 32),
+                Width = card.Width - 175,
                 Font = new Font("Segoe UI", 8.5F),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = c.WellBackground,
+                ForeColor = c.TextPrimary
             };
-            _toolTextBoxes[key] = txt;
+            _toolTextBoxes[tool.Id] = txt;
+            _toolTextBoxes[tool.Name] = txt;
+
+            txt.TextChanged += (_, _) =>
+            {
+                tool.Target = txt.Text.Trim();
+                _workingConfig.ToolTargets[tool.Name] = tool.Target;
+                _workingConfig.ToolTargets[tool.Id] = tool.Target;
+            };
 
             var browseBtn = new Button
             {
                 Text = "Browse...",
-                Location = new Point(542, 27),
-                Size = new Size(74, 25),
+                Location = new Point(card.Width - 160, 30),
+                Size = new Size(74, 26),
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Segoe UI", 8F),
                 Cursor = Cursors.Hand,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
+            StyleButton(browseBtn, c.ButtonBg, c.ButtonText, c.ButtonBorder);
             browseBtn.Click += (_, _) =>
             {
                 using var ofd = new OpenFileDialog
                 {
-                    Title = $"Select target for {title}",
-                    Filter = "Executables (*.exe)|*.exe|All Files (*.*)|*.*",
+                    Title = $"Select target for {tool.Name}",
+                    Filter = "Executables (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All Files (*.*)|*.*",
                     InitialDirectory = Directory.Exists(Path.GetDirectoryName(txt.Text)) ? Path.GetDirectoryName(txt.Text) : Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
                 };
                 if (ofd.ShowDialog(this) == DialogResult.OK)
                 {
                     txt.Text = ofd.FileName;
+                    tool.Target = ofd.FileName;
                 }
             };
 
-            var resetBtn = new Button
+            var deleteBtn = new Button
             {
-                Text = "Reset",
-                Location = new Point(622, 27),
-                Size = new Size(64, 25),
+                Text = "Delete",
+                Location = new Point(card.Width - 80, 30),
+                Size = new Size(72, 26),
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Segoe UI", 8F),
                 Cursor = Cursors.Hand,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
-            resetBtn.Click += (_, _) =>
+            StyleButton(deleteBtn, c.ButtonBg, c.DangerRed, c.ButtonBorder);
+            deleteBtn.Click += (_, _) =>
             {
-                var defaults = AiConfigService.Instance.GetDefaultToolTargets();
-                if (defaults.TryGetValue(key, out var defVal))
+                if (MessageBox.Show($"Remove '{tool.Name}' from AI Dev Tools?", "Confirm Delete", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                 {
-                    txt.Text = defVal;
+                    _workingConfig.DevTools?.Remove(tool);
+                    _workingConfig.ToolTargets.Remove(tool.Name);
+                    _workingConfig.ToolTargets.Remove(tool.Id);
+                    RebuildToolsList();
                 }
             };
 
+            card.Controls.Add(chk);
             card.Controls.Add(nameLbl);
             card.Controls.Add(descLbl);
             card.Controls.Add(txt);
             card.Controls.Add(browseBtn);
-            card.Controls.Add(resetBtn);
+            card.Controls.Add(deleteBtn);
 
-            toolsPanel.Controls.Add(card);
-            currentY += 70;
+            _toolsListContainer.Controls.Add(card);
+            currentY += 76;
         }
     }
 
@@ -652,10 +803,7 @@ public class SettingsForm : Form
 
     private void LoadDataToUi()
     {
-        foreach (var (key, txt) in _toolTextBoxes)
-        {
-            txt.Text = _workingConfig.ToolTargets.TryGetValue(key, out var val) ? val : string.Empty;
-        }
+        RebuildToolsList();
 
         UpdateProvidersListDisplay();
         if (_workingConfig.Providers.Count > 0)
@@ -880,11 +1028,17 @@ public class SettingsForm : Form
         // Flush provider fields
         CommitCurrentProviderFields();
 
-        // Flush tool targets
-        foreach (var (key, txt) in _toolTextBoxes)
+        // Flush tool targets from dynamic list
+        foreach (var tool in _workingConfig.DevTools)
         {
-            _workingConfig.ToolTargets[key] = txt.Text.Trim();
+            if (_toolTextBoxes.TryGetValue(tool.Id, out var txt))
+            {
+                tool.Target = txt.Text.Trim();
+                _workingConfig.ToolTargets[tool.Name] = tool.Target;
+                _workingConfig.ToolTargets[tool.Id] = tool.Target;
+            }
         }
+        AiConfigService.Instance.SyncToolTargets(_workingConfig);
 
         // Save
         AiConfigService.Instance.SaveConfig(_workingConfig);
@@ -915,6 +1069,8 @@ public class SettingsForm : Form
         contentContainer.BackColor = c.WindowBackground;
 
         toolsPanel.BackColor = c.WindowBackground;
+        _toolsHeaderPanel.BackColor = c.HeaderBackground;
+        _toolsListContainer.BackColor = c.WindowBackground;
         providersPanel.BackColor = c.WindowBackground;
 
         StyleButton(tabToolsButton, c.ButtonBg, c.ButtonText, c.ButtonBorder);
@@ -946,7 +1102,7 @@ public class SettingsForm : Form
         newModelTextBox.BackColor = c.WellBackground;
         newModelTextBox.ForeColor = c.TextPrimary;
 
-        foreach (Control ctl in toolsPanel.Controls)
+        foreach (Control ctl in _toolsListContainer.Controls)
         {
             if (ctl is Panel card)
             {
@@ -960,7 +1116,14 @@ public class SettingsForm : Form
                     }
                     else if (sub is Button btn)
                     {
-                        StyleButton(btn, c.ButtonBg, c.ButtonText, c.ButtonBorder);
+                        if (btn.Text == "Delete")
+                        {
+                            StyleButton(btn, c.ButtonBg, c.DangerRed, c.ButtonBorder);
+                        }
+                        else
+                        {
+                            StyleButton(btn, c.ButtonBg, c.ButtonText, c.ButtonBorder);
+                        }
                     }
                 }
             }

@@ -881,25 +881,65 @@ public sealed class DashboardWebBridge : IDisposable
                 break;
 
             case "launch_tool":
-                if (data.TryGetProperty("toolName", out var toolProp))
                 {
-                    var tool = toolProp.GetString() ?? string.Empty;
-                    LaunchToolApp(tool);
-                    SendResponse(requestId, true, new { success = true });
+                    string? target = null;
+                    string? toolName = null;
+                    if (data.TryGetProperty("target", out var targetProp))
+                    {
+                        target = targetProp.GetString();
+                    }
+                    if (data.TryGetProperty("toolName", out var toolProp))
+                    {
+                        toolName = toolProp.GetString();
+                    }
+                    if (data.TryGetProperty("toolId", out var idProp))
+                    {
+                        var toolId = idProp.GetString();
+                        if (string.IsNullOrWhiteSpace(target) && !string.IsNullOrWhiteSpace(toolId))
+                        {
+                            var cfg = AiConfigService.Instance.CurrentConfig;
+                            var item = cfg.DevTools?.FirstOrDefault(d => string.Equals(d.Id, toolId, StringComparison.OrdinalIgnoreCase));
+                            target = item?.Target;
+                            if (string.IsNullOrWhiteSpace(toolName)) toolName = item?.Name;
+                        }
+                    }
+
+                    if (string.IsNullOrWhiteSpace(target) && !string.IsNullOrWhiteSpace(toolName))
+                    {
+                        target = AiConfigService.Instance.GetToolTarget(toolName, string.Empty);
+                    }
+
+                    if (string.IsNullOrWhiteSpace(target))
+                    {
+                        SendResponse(requestId, false, "Target path is empty. Please click 'Browse' to set an executable path first.");
+                        break;
+                    }
+
+                    bool launched = LaunchExecutableTarget(target, toolName ?? "Tool");
+                    SendResponse(requestId, launched, new { success = launched, target });
                 }
                 break;
 
             case "browse_tool_target":
-                if (data.TryGetProperty("toolName", out var brToolProp))
                 {
-                    var tool = brToolProp.GetString() ?? string.Empty;
+                    string tool = string.Empty;
+                    string? toolId = null;
+                    if (data.TryGetProperty("toolName", out var brToolProp))
+                    {
+                        tool = brToolProp.GetString() ?? string.Empty;
+                    }
+                    if (data.TryGetProperty("toolId", out var brToolIdProp))
+                    {
+                        toolId = brToolIdProp.GetString();
+                    }
+
                     string? selectedPath = null;
                     _mainForm.Invoke(() =>
                     {
                         using var ofd = new OpenFileDialog
                         {
-                            Title = $"Select Target Executable for {tool}",
-                            Filter = "Executables (*.exe)|*.exe|All Files (*.*)|*.*",
+                            Title = string.IsNullOrWhiteSpace(tool) ? "Select Executable Target" : $"Select Target Executable for {tool}",
+                            Filter = "Executables (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All Files (*.*)|*.*",
                             InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
                         };
                         if (ofd.ShowDialog(_mainForm) == DialogResult.OK)
@@ -911,9 +951,23 @@ public sealed class DashboardWebBridge : IDisposable
                     if (!string.IsNullOrWhiteSpace(selectedPath))
                     {
                         var cfg = AiConfigService.Instance.CurrentConfig;
-                        cfg.ToolTargets[tool] = selectedPath;
+                        if (!string.IsNullOrWhiteSpace(toolId) && cfg.DevTools != null)
+                        {
+                            var devTool = cfg.DevTools.FirstOrDefault(d => string.Equals(d.Id, toolId, StringComparison.OrdinalIgnoreCase));
+                            if (devTool != null)
+                            {
+                                devTool.Target = selectedPath;
+                                if (string.IsNullOrWhiteSpace(tool)) tool = devTool.Name;
+                            }
+                        }
+                        if (!string.IsNullOrWhiteSpace(tool))
+                        {
+                            cfg.ToolTargets[tool] = selectedPath;
+                            var devTool = cfg.DevTools?.FirstOrDefault(d => string.Equals(d.Name, tool, StringComparison.OrdinalIgnoreCase));
+                            if (devTool != null) devTool.Target = selectedPath;
+                        }
                         AiConfigService.Instance.SaveConfig(cfg);
-                        SendResponse(requestId, true, new { toolName = tool, path = selectedPath });
+                        SendResponse(requestId, true, new { toolName = tool, toolId = toolId, path = selectedPath });
                     }
                     else
                     {
@@ -923,15 +977,46 @@ public sealed class DashboardWebBridge : IDisposable
                 break;
 
             case "reset_tool_target":
-                if (data.TryGetProperty("toolName", out var rsToolProp))
                 {
-                    var tool = rsToolProp.GetString() ?? string.Empty;
+                    string tool = string.Empty;
+                    string? toolId = null;
+                    if (data.TryGetProperty("toolName", out var rsToolProp))
+                    {
+                        tool = rsToolProp.GetString() ?? string.Empty;
+                    }
+                    if (data.TryGetProperty("toolId", out var rsToolIdProp))
+                    {
+                        toolId = rsToolIdProp.GetString();
+                    }
+
                     var defaults = AiConfigService.Instance.GetDefaultToolTargets();
-                    var defPath = defaults.TryGetValue(tool, out var p) ? p : string.Empty;
+                    var defaultTools = AiConfigService.Instance.GetDefaultDevTools();
+
+                    string defPath = string.Empty;
+                    if (!string.IsNullOrWhiteSpace(toolId))
+                    {
+                        var defItem = defaultTools.FirstOrDefault(d => string.Equals(d.Id, toolId, StringComparison.OrdinalIgnoreCase));
+                        if (defItem != null) defPath = defItem.Target;
+                    }
+                    if (string.IsNullOrWhiteSpace(defPath) && !string.IsNullOrWhiteSpace(tool))
+                    {
+                        if (defaults.TryGetValue(tool, out var p)) defPath = p;
+                    }
+
                     var cfg = AiConfigService.Instance.CurrentConfig;
-                    cfg.ToolTargets[tool] = defPath;
+                    if (!string.IsNullOrWhiteSpace(toolId) && cfg.DevTools != null)
+                    {
+                        var devTool = cfg.DevTools.FirstOrDefault(d => string.Equals(d.Id, toolId, StringComparison.OrdinalIgnoreCase));
+                        if (devTool != null) devTool.Target = defPath;
+                    }
+                    if (!string.IsNullOrWhiteSpace(tool))
+                    {
+                        cfg.ToolTargets[tool] = defPath;
+                        var devTool = cfg.DevTools?.FirstOrDefault(d => string.Equals(d.Name, tool, StringComparison.OrdinalIgnoreCase));
+                        if (devTool != null) devTool.Target = defPath;
+                    }
                     AiConfigService.Instance.SaveConfig(cfg);
-                    SendResponse(requestId, true, new { toolName = tool, path = defPath });
+                    SendResponse(requestId, true, new { toolName = tool, toolId = toolId, path = defPath });
                 }
                 break;
 
@@ -1399,14 +1484,9 @@ public sealed class DashboardWebBridge : IDisposable
         }
     }
 
-    private void LaunchToolApp(string toolName)
+    private bool LaunchExecutableTarget(string target, string toolName)
     {
-        var defaults = AiConfigService.Instance.GetDefaultToolTargets();
-        var def = defaults.TryGetValue(toolName, out var defVal) ? defVal : string.Empty;
-        var target = AiConfigService.Instance.GetToolTarget(toolName, def);
-
-        if (string.IsNullOrWhiteSpace(target)) return;
-
+        if (string.IsNullOrWhiteSpace(target)) return false;
         try
         {
             if (target.StartsWith("shell:AppsFolder\\", StringComparison.OrdinalIgnoreCase))
@@ -1417,11 +1497,25 @@ public sealed class DashboardWebBridge : IDisposable
             {
                 Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
             }
+            return true;
         }
         catch (Exception ex)
         {
             MessageBox.Show($"Failed to launch {toolName}: {ex.Message}", "Launch Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return false;
         }
+    }
+
+    private void LaunchToolApp(string toolName)
+    {
+        var target = AiConfigService.Instance.GetToolTarget(toolName, string.Empty);
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            MessageBox.Show($"Target path for '{toolName}' is not configured. Please click Browse to set its executable path.", "Target Empty", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        LaunchExecutableTarget(target, toolName);
     }
 
     private void LaunchShortcutApp(string target, string arguments)
@@ -1634,6 +1728,14 @@ public sealed class DashboardWebBridge : IDisposable
             selectedProviderId = cfg.SelectedProviderId,
             selectedModel = cfg.SelectedModel,
             toolTargets = cfg.ToolTargets,
+            devTools = (cfg.DevTools ?? new List<DevToolItem>()).Select(d => new
+            {
+                id = d.Id,
+                name = d.Name,
+                description = d.Description,
+                target = d.Target,
+                isEnabled = d.IsEnabled
+            }).ToList(),
             shortcuts = cfg.Shortcuts.Select(s => new
             {
                 id = s.Id,
