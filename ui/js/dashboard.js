@@ -978,6 +978,63 @@
     });
   }
 
+  // Interactive Terminals - Workspace Preset Selector
+  const TERMINAL_PRESET_LABELS = {
+    Preset_Clean: 'Clean Slate',
+    Preset_Duo: 'AI Duo (Claude + agy)',
+    Preset_All: 'Full Suite'
+  };
+
+  function renderTerminalPresetState(activePreset) {
+    // An unknown preset means the enabled tabs are a hand-toggled mix, so nothing is highlighted.
+    const active = TERMINAL_PRESET_LABELS[activePreset] ? activePreset : null;
+
+    document.querySelectorAll('#terminal-presets-group .preset-btn').forEach(btn => {
+      const isActive = active !== null && btn.dataset.preset === active;
+      btn.classList.toggle('active', isActive);
+      btn.classList.toggle('btn-success', isActive);
+      btn.classList.toggle('btn-outline', !isActive);
+    });
+
+    const label = document.getElementById('preset-active-label');
+    if (label) label.textContent = `Active: ${active ? TERMINAL_PRESET_LABELS[active] : 'Custom'}`;
+  }
+
+  async function loadTerminalPreset() {
+    try {
+      const res = await callBridge('get_terminal_preset');
+      renderTerminalPresetState(res && res.preset);
+    } catch (err) {
+      console.warn('Failed to load terminal workspace preset:', err);
+    }
+  }
+
+  function setupTerminalPresets() {
+    const group = document.getElementById('terminal-presets-group');
+    if (!group) return;
+
+    group.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const preset = btn.dataset.preset;
+        if (!preset) return;
+
+        btn.disabled = true;
+        try {
+          const res = await callBridge('apply_terminal_preset', { preset });
+          const applied = (res && res.preset) || preset;
+          renderTerminalPresetState(applied);
+          showToast(`Applied preset: ${TERMINAL_PRESET_LABELS[applied] || TERMINAL_PRESET_LABELS[preset]}`, 'success', 3000);
+        } catch (err) {
+          showToast('Failed to apply preset: ' + err.message, 'error', 4500);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    loadTerminalPreset();
+  }
+
   // Prompt Enhancer - Preset & System Instruction Helpers
   function getPromptPresets() {
     if (!state.aiConfig) state.aiConfig = {};
@@ -4128,6 +4185,7 @@
     const initSteps = [
       ['Navigation', setupNavigation],
       ['Terminal', initTerminal],
+      ['TerminalPresets', setupTerminalPresets],
       ['PromptEnhancer', setupPromptEnhancer],
       ['ProvidersView', setupProvidersView],
       ['ClaudeConfig', setupClaudeGatewayConfig],

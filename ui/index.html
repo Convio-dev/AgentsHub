@@ -536,6 +536,18 @@
         <!-- VIEW 2: Interactive Terminals -->
         <div id="view-terminals" class="view-pane" style="height: 100%;">
           <div id="terminals-view">
+            <!-- Workspace presets -->
+            <div class="terminal-preset-bar">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 11.5px; font-weight: 600; color: var(--text-muted);">Workspace Presets:</span>
+                <div id="terminal-presets-group" style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button class="btn btn-outline preset-btn" data-preset="Preset_Clean" title="Zero tabs by default (clean slate)" style="padding: 4px 10px; font-size: 11.5px;">Clean Slate</button>
+                  <button class="btn btn-outline preset-btn" data-preset="Preset_Duo" title="Claude Code + Antigravity CLI" style="padding: 4px 10px; font-size: 11.5px;">AI Duo (Claude + agy)</button>
+                  <button class="btn btn-outline preset-btn" data-preset="Preset_All" title="All CLIs (Hermes + Claude + agy)" style="padding: 4px 10px; font-size: 11.5px;">Full Suite</button>
+                </div>
+              </div>
+              <span id="preset-active-label" style="font-size: 11.5px; color: var(--text-muted);">Active: AI Duo (Claude + agy)</span>
+            </div>
             <div class="terminal-tabs-bar">
               <div class="terminal-tabs">
                 <button class="term-tab active" data-term="Hermes">

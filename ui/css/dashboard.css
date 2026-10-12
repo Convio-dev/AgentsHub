@@ -758,9 +758,25 @@ html[data-theme="light"] .dashboard-card {
 
 /* Terminals View */
 #terminals-view {
-  height: calc(100vh - 96px);
+  height: calc(100vh - 136px);
   display: flex;
   flex-direction: column;
+}
+
+/* Workspace preset switcher */
+.terminal-preset-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 0 2px 10px;
+}
+
+.preset-btn.active {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+  background: var(--accent-green-bg);
 }
 
 .terminal-tabs-bar {

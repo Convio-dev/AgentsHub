@@ -41,6 +41,17 @@ public class CliItemInfo
     public string? ProfileName { get; set; }
 }
 
+/// <summary>
+/// How to launch a tab's CLI in a real, user-visible console window, with the same
+/// environment the embedded session would receive.
+/// </summary>
+public sealed class ExternalLaunchSpec
+{
+    public string Command { get; init; } = string.Empty;
+    public string WorkingDirectory { get; init; } = string.Empty;
+    public Dictionary<string, string> EnvironmentVariables { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
 public class CliManagerService : IDisposable
 {
     private readonly HermesProcessService _hermesService;
@@ -575,6 +586,101 @@ public class CliManagerService : IDisposable
             FireStatusChanged(id, CliState.Error, info.StatusText);
             LogMessage?.Invoke(info.ShortName, $"Exception during launch: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Builds the command, working directory and environment needed to run a tab's CLI in an
+    /// external console window. Mirrors the rules used when starting an embedded session.
+    /// Returns null when the id is empty.
+    /// </summary>
+    public ExternalLaunchSpec? BuildExternalLaunchSpec(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return null;
+
+        string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        // Antigravity profile tab: run inside the profile's isolated virtual home.
+        if (IsAntigravityProfileId(id, out var profileName))
+        {
+            int port = AllocatePortForProfile(profileName);
+            string virtualHomeDir = _profileService.PrepareVirtualHome(profileName);
+
+            var agyEnv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["USERPROFILE"] = virtualHomeDir,
+                ["HOME"] = virtualHomeDir,
+                ["APPDATA"] = Path.Combine(virtualHomeDir, "AppData", "Roaming"),
+                ["LOCALAPPDATA"] = Path.Combine(virtualHomeDir, "AppData", "Local"),
+                ["PORT"] = port.ToString(),
+                ["ANTIGRAVITY_PORT"] = port.ToString()
+            };
+
+            return new ExternalLaunchSpec
+            {
+                Command = "agy",
+                WorkingDirectory = virtualHomeDir,
+                EnvironmentVariables = agyEnv
+            };
+        }
+
+        string normalized = AiConfigService.NormalizeCliId(id);
+
+        if (string.Equals(normalized, "claude_code", StringComparison.OrdinalIgnoreCase))
+        {
+            var claudeEnv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            if (AiConfigService.Instance.GetClaudeInjectionEnabled())
+            {
+                var activeProvider = AiConfigService.Instance.GetActiveClaudeGatewayProvider();
+
+                // The local translation proxy must be listening before claude talks to it.
+                if (string.Equals(activeProvider.Id, "preset_local_proxy", StringComparison.OrdinalIgnoreCase) ||
+                    activeProvider.BaseUrl.Contains(":9230"))
+                {
+                    ClaudeOpenRouterProxyService.Instance.Start(9230);
+                }
+
+                claudeEnv["ANTHROPIC_BASE_URL"] = string.IsNullOrWhiteSpace(activeProvider.BaseUrl)
+                    ? "http://127.0.0.1:9230"
+                    : activeProvider.BaseUrl;
+                claudeEnv["ANTHROPIC_AUTH_TOKEN"] = activeProvider.ApiKey;
+                claudeEnv["ANTHROPIC_MODEL"] = AiConfigService.Instance.GetClaudeSelectedModel();
+                claudeEnv["ANTHROPIC_DEFAULT_OPUS_MODEL"] = "deepseek/deepseek-r1:free";
+            }
+
+            return new ExternalLaunchSpec
+            {
+                Command = "claude",
+                WorkingDirectory = userProfile,
+                EnvironmentVariables = claudeEnv
+            };
+        }
+
+        if (string.Equals(normalized, "hermes", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ExternalLaunchSpec
+            {
+                Command = $"hermes dashboard --port {_hermesService.Port}",
+                WorkingDirectory = userProfile,
+                EnvironmentVariables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            };
+        }
+
+        // Custom workspace: use its configured command and working directory.
+        var cfg = AiConfigService.Instance.CurrentConfig.CliWorkspaces
+            .FirstOrDefault(c => string.Equals(AiConfigService.NormalizeCliId(c.Id), normalized, StringComparison.OrdinalIgnoreCase));
+
+        string rawCmd = cfg != null && !string.IsNullOrWhiteSpace(cfg.Command) ? cfg.Command.Trim() : id;
+        string workDir = cfg != null && !string.IsNullOrWhiteSpace(cfg.WorkingDirectory) && Directory.Exists(cfg.WorkingDirectory)
+            ? cfg.WorkingDirectory
+            : userProfile;
+
+        return new ExternalLaunchSpec
+        {
+            Command = rawCmd,
+            WorkingDirectory = workDir,
+            EnvironmentVariables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        };
     }
 
     public Task StopAsync(CliType type) => StopAsync(CliTypeToNormalizedId(type));

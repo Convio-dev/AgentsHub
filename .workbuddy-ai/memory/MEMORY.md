@@ -19,9 +19,19 @@ Windows .NET 10 WinForms + WebView2 desktop hub for multiple AI coding CLIs. Ass
 
 ## Known issues (not yet fixed)
 - `build-installer.cmd` invokes `ISCC.exe HermesHub.iss`, but the only Inno Setup script is `AgentsHub.iss` — installer build fails.
+- **`save_ai_config` replaces the entire config**, so any field missing from `GetAiConfigDto()` is silently dropped on every dashboard save. `cliWorkspaces` was fixed; still missing: `ClaudeEngineMode`, `ClaudeSelectedModel`, `ClaudeCustomGatewayUrl`, `ClaudeInjectionEnabled`, `ClaudeSelectedGatewayId`, `ClaudeGatewayProviders`.
 - Dead code: `PromptEnhancerForm.cs` (never instantiated), `SettingsForm.cs` (only reachable from it), `Helpers/FirewallHelper.cs` (zero references), `ui/tabs/*`, `ui/modals/add-profile.html`.
 - README is stale (claims v1.0.2, documents 2 services).
 - Version `1.0.3` hardcoded in ≥6 places.
+
+## Terminal workspace presets
+`AiConfig.TerminalWorkspacePreset` holds `Preset_Clean` / `Preset_Duo` / `Preset_All` / `""` (custom mix). `GetTerminalWorkspacePreset()` returns the stored value; `EnsureDefaults` re-derives it from the enabled flags on every load so the label always matches reality. `CliWebviewForm.RebuildTabs` no longer force-enables Hermes — with no enabled workspace it shows the empty-state panel.
+
+## Tab context menu
+`CliWebviewForm` right-click on a workspace tab → Open in External CMD / Rename / Remove-Close. Env and command resolution lives in `CliManagerService.BuildExternalLaunchSpec(id)` (returns `ExternalLaunchSpec`), so the external console gets the same environment as the embedded session. `Start(id)` is deliberately untouched — do not refactor it to share this path without care.
+
+## Terminal HTML duplication
+`ui/terminal.html` and `assets/web/terminal.html` are kept in sync by hand; they differ only in asset paths (`./css/`, `./js/` vs flat). Only `ui/` is loaded at runtime — `assets/web/` is a fallback. Remember to update both when touching terminal styling.
 
 ## Tooling
 - antislop skills are installed at `.agents/skills/`; `AGENTS.md` routes UI/copy/layout work there. No global antislop mode is saved (`%APPDATA%\antislop\settings.json` absent), so the mode question must be asked per session.

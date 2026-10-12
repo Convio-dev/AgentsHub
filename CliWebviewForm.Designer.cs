@@ -24,6 +24,10 @@ partial class CliWebviewForm
         {
             components.Dispose();
         }
+        if (disposing)
+        {
+            _tabContextMenu?.Dispose();
+        }
         base.Dispose(disposing);
     }
 

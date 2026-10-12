@@ -62,6 +62,18 @@ public partial class CliWebviewForm : Form
     private bool _isUpdatingClaudeControls;
     private bool _isLayoutRunning;
 
+    // Empty-state workspace view, shown when no CLI workspace is enabled.
+    private Panel? _emptyStatePanel;
+    private Panel? _emptyStateCard;
+    private Label? _emptyTitleLabel;
+    private Label? _emptySubtitleLabel;
+    private ComboBox? _emptyAddCombo;
+    private Button? _emptyAddButton;
+    private Label? _emptyHintLabel;
+
+    // Rebuilt on every right-click so a stale tab id can never be actioned.
+    private ContextMenuStrip? _tabContextMenu;
+
     public CliWebviewForm()
     {
         InitializeComponent();
@@ -271,7 +283,7 @@ public partial class CliWebviewForm : Form
         openBrowserButton.Paint += DrawBrowserIcon;
         SetupButtonHover(openBrowserButton);
 
-        contentPanel.Padding = new Padding(0, 8, 0, 0);
+        contentPanel.Padding = new Padding(0, 10, 0, 0);
         contentPanel.BackColor = ThemeManager.Colors.WindowBackground;
 
         topToolbar.Resize += (_, _) => LayoutToolbar();
@@ -634,62 +646,59 @@ public partial class CliWebviewForm : Form
 
         var workspaces = AiConfigService.Instance.GetCliWorkspaces();
         var enabledWorkspaces = workspaces.Where(w => w.IsEnabled).ToList();
-
-        if (enabledWorkspaces.Count == 0)
-        {
-            // Fallback: at least enable Hermes
-            AiConfigService.Instance.ToggleCliWorkspace("hermes", true);
-            enabledWorkspaces = AiConfigService.Instance.GetCliWorkspaces().Where(w => w.IsEnabled).ToList();
-        }
+        bool isEmptyWorkspace = enabledWorkspaces.Count == 0;
 
         int curX = 8;
-        foreach (var ws in enabledWorkspaces)
+        if (!isEmptyWorkspace)
         {
-            string normId = AiConfigService.NormalizeCliId(ws.Id);
-            if (string.Equals(normId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+            foreach (var ws in enabledWorkspaces)
             {
-                var allProfiles = _cliManager?.ProfileService.GetProfiles() ?? Array.Empty<string>();
-                var runningProfiles = _cliManager?.GetRunningAntigravityProfiles() ?? Array.Empty<string>();
-                var activeProfile = _cliManager?.ProfileService.ActiveProfile ?? "Default";
-
-                var profileTabsToShow = new List<string>();
-                foreach (var prof in runningProfiles)
+                string normId = AiConfigService.NormalizeCliId(ws.Id);
+                if (string.Equals(normId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!profileTabsToShow.Contains(prof, StringComparer.OrdinalIgnoreCase))
+                    var allProfiles = _cliManager?.ProfileService.GetProfiles() ?? Array.Empty<string>();
+                    var runningProfiles = _cliManager?.GetRunningAntigravityProfiles() ?? Array.Empty<string>();
+                    var activeProfile = _cliManager?.ProfileService.ActiveProfile ?? "Default";
+
+                    var profileTabsToShow = new List<string>();
+                    foreach (var prof in runningProfiles)
                     {
-                        profileTabsToShow.Add(prof);
+                        if (!profileTabsToShow.Contains(prof, StringComparer.OrdinalIgnoreCase))
+                        {
+                            profileTabsToShow.Add(prof);
+                        }
                     }
-                }
 
-                if (!string.IsNullOrEmpty(activeProfile) && !profileTabsToShow.Contains(activeProfile, StringComparer.OrdinalIgnoreCase))
-                {
-                    profileTabsToShow.Add(activeProfile);
-                }
-
-                foreach (var prof in allProfiles)
-                {
-                    if (profileTabsToShow.Count >= 5) break;
-                    if (!profileTabsToShow.Contains(prof, StringComparer.OrdinalIgnoreCase))
+                    if (!string.IsNullOrEmpty(activeProfile) && !profileTabsToShow.Contains(activeProfile, StringComparer.OrdinalIgnoreCase))
                     {
-                        profileTabsToShow.Add(prof);
+                        profileTabsToShow.Add(activeProfile);
                     }
+
+                    foreach (var prof in allProfiles)
+                    {
+                        if (profileTabsToShow.Count >= 5) break;
+                        if (!profileTabsToShow.Contains(prof, StringComparer.OrdinalIgnoreCase))
+                        {
+                            profileTabsToShow.Add(prof);
+                        }
+                    }
+
+                    if (profileTabsToShow.Count == 0)
+                    {
+                        profileTabsToShow.Add("Default");
+                    }
+
+                    foreach (var profName in profileTabsToShow)
+                    {
+                        string profTabId = CliManagerService.FormatAntigravityProfileId(profName);
+                        string displayName = $"agy: {profName}";
+                        AddTabButton(profTabId, displayName, ref curX);
+                    }
+                    continue;
                 }
 
-                if (profileTabsToShow.Count == 0)
-                {
-                    profileTabsToShow.Add("Default");
-                }
-
-                foreach (var profName in profileTabsToShow)
-                {
-                    string profTabId = CliManagerService.FormatAntigravityProfileId(profName);
-                    string displayName = $"agy: {profName}";
-                    AddTabButton(profTabId, displayName, ref curX);
-                }
-                continue;
+                AddTabButton(normId, ws.Name, ref curX);
             }
-
-            AddTabButton(normId, ws.Name, ref curX);
         }
 
         _manageClisButton = new Button
@@ -718,13 +727,20 @@ public partial class CliWebviewForm : Form
         tabsPanel.Width = curX;
         tabsPanel.ResumeLayout();
 
-        if (!_dynamicTabButtons.Any(b => string.Equals(b.Tag as string, _activeTabId, StringComparison.OrdinalIgnoreCase)))
+        if (isEmptyWorkspace)
+        {
+            _activeTabId = string.Empty;
+        }
+        else if (!_dynamicTabButtons.Any(b => string.Equals(b.Tag as string, _activeTabId, StringComparison.OrdinalIgnoreCase)))
         {
             if (_dynamicTabButtons.Count > 0 && _dynamicTabButtons[0].Tag is string firstId)
             {
                 _activeTabId = firstId;
             }
         }
+
+        SetTerminalContentVisible(!isEmptyWorkspace);
+        ShowEmptyState(isEmptyWorkspace, workspaces);
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
@@ -763,8 +779,300 @@ public partial class CliWebviewForm : Form
         btn.Click += (_, _) => SwitchTab(tabId);
         SetupTabHover(btn, tabId);
 
+        btn.MouseDown += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                ShowTabContextMenu(btn, tabId, btn.PointToScreen(e.Location));
+            }
+        };
+
         _dynamicTabButtons.Add(btn);
         tabsPanel.Controls.Add(btn);
+    }
+
+    private void ShowTabContextMenu(Button tabBtn, string tabId, Point screenLocation)
+    {
+        var c = ThemeManager.Colors;
+
+        _tabContextMenu?.Dispose();
+        var menu = new ContextMenuStrip
+        {
+            ShowImageMargin = false,
+            Renderer = new ToolStripProfessionalRenderer(new ShellColorTable()),
+            BackColor = c.CardBackground,
+            ForeColor = c.TextPrimary
+        };
+        _tabContextMenu = menu;
+
+        bool isAgyProfile = CliManagerService.IsAntigravityProfileId(tabId, out var profileName);
+        bool isBuiltIn = IsBuiltInCli(tabId);
+
+        string displayName = isAgyProfile
+            ? $"agy: {profileName}"
+            : (tabBtn.Text ?? string.Empty).TrimStart('●', '○', '◐', '▲', ' ').Trim();
+
+        menu.Items.Add(new ToolStripMenuItem(displayName)
+        {
+            Enabled = false,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+        });
+        menu.Items.Add(new ToolStripSeparator());
+
+        menu.Items.Add(new ToolStripMenuItem("Open in External CMD (Real Terminal)", null, (_, _) =>
+        {
+            LaunchExternalCmdForTab(tabId);
+        }));
+
+        menu.Items.Add(new ToolStripSeparator());
+
+        // Built-in CLIs have fixed ids, so only profiles and custom workspaces can be renamed.
+        menu.Items.Add(new ToolStripMenuItem("Rename", null, async (_, _) =>
+        {
+            await HandleRenameTabAsync(tabId);
+        })
+        {
+            Enabled = isAgyProfile || !isBuiltIn
+        });
+
+        menu.Items.Add(new ToolStripMenuItem("Remove / Close Tab", null, async (_, _) =>
+        {
+            await HandleDeleteTabAsync(tabId);
+        })
+        {
+            ForeColor = c.DangerRed
+        });
+
+        menu.Show(screenLocation);
+    }
+
+    /// <summary>
+    /// Opens a real, interactive Windows console running the tab's CLI, with the same
+    /// environment the embedded session would have been given.
+    /// </summary>
+    private void LaunchExternalCmdForTab(string tabId)
+    {
+        if (_cliManager == null) return;
+
+        ExternalLaunchSpec? spec;
+        try
+        {
+            spec = _cliManager.BuildExternalLaunchSpec(tabId);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Could not prepare the external command:\n{ex.Message}", "Open in External CMD", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (spec == null || string.IsNullOrWhiteSpace(spec.Command))
+        {
+            MessageBox.Show(this, "This tab has no command configured.", "Open in External CMD", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        string workDir = string.IsNullOrWhiteSpace(spec.WorkingDirectory)
+            ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            : spec.WorkingDirectory;
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/k {spec.Command}",
+                WorkingDirectory = workDir,
+                UseShellExecute = false,
+                CreateNoWindow = false
+            };
+
+            foreach (var kvp in spec.EnvironmentVariables)
+            {
+                psi.Environment[kvp.Key] = kvp.Value;
+            }
+
+            // An inherited ANTHROPIC_API_KEY would shadow the injected token.
+            if (psi.Environment.ContainsKey("ANTHROPIC_AUTH_TOKEN"))
+            {
+                psi.Environment.Remove("ANTHROPIC_API_KEY");
+            }
+
+            Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Failed to open an external console:\n{ex.Message}", "Open in External CMD", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private async Task HandleRenameTabAsync(string tabId)
+    {
+        if (_cliManager == null) return;
+
+        if (CliManagerService.IsAntigravityProfileId(tabId, out var profileName))
+        {
+            string? newName = PromptForName("Rename Antigravity Profile", "New profile name:", profileName);
+            if (string.IsNullOrWhiteSpace(newName) || string.Equals(newName, profileName, StringComparison.Ordinal)) return;
+
+            if (!_cliManager.ProfileService.RenameProfile(profileName, newName))
+            {
+                MessageBox.Show(this, $"Could not rename \"{profileName}\". The name may already be in use.", "Rename", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            RebuildTabs();
+            SwitchTab(CliManagerService.FormatAntigravityProfileId(newName));
+            return;
+        }
+
+        if (IsBuiltInCli(tabId))
+        {
+            MessageBox.Show(this, "Built-in CLIs cannot be renamed.", "Rename", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var ws = AiConfigService.Instance.GetCliWorkspaces()
+            .FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), tabId, StringComparison.OrdinalIgnoreCase));
+        if (ws == null) return;
+
+        string? newWorkspaceName = PromptForName("Rename Workspace", "New workspace name:", ws.Name);
+        if (string.IsNullOrWhiteSpace(newWorkspaceName) || string.Equals(newWorkspaceName, ws.Name, StringComparison.Ordinal)) return;
+
+        ws.Name = newWorkspaceName;
+        AiConfigService.Instance.SaveCliWorkspace(ws);
+        RebuildTabs();
+    }
+
+    private async Task HandleDeleteTabAsync(string tabId)
+    {
+        if (_cliManager == null) return;
+
+        // An Antigravity tab exists only because the profile exists, so closing it removes the profile.
+        if (CliManagerService.IsAntigravityProfileId(tabId, out var profileName))
+        {
+            var removeProfile = MessageBox.Show(
+                this,
+                $"Remove the Antigravity profile \"{profileName}\"?\n\nIts saved credentials and virtual home will be deleted. This cannot be undone.",
+                "Remove Profile",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+
+            if (removeProfile != DialogResult.Yes) return;
+
+            try { await _cliManager.StopAsync(tabId); } catch { }
+
+            if (!_cliManager.ProfileService.DeleteProfile(profileName))
+            {
+                MessageBox.Show(this, $"Could not remove profile \"{profileName}\".", "Remove Profile", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            _activeTabId = string.Empty;
+            RebuildTabs();
+            return;
+        }
+
+        // Workspace tab: stop it and hide it. Workspaces are re-added from Manage CLIs,
+        // so closing a tab never deletes a user's configuration outright.
+        string workspaceId = AiConfigService.NormalizeCliId(tabId);
+        string label = _cliManager.GetInfo(tabId).ShortName;
+
+        var closeTab = MessageBox.Show(
+            this,
+            $"Close the \"{label}\" tab?\n\nIt will be stopped and hidden from the workspace. Add it back any time from Manage CLIs.",
+            "Remove / Close Tab",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question,
+            MessageBoxDefaultButton.Button2);
+
+        if (closeTab != DialogResult.Yes) return;
+
+        try { await _cliManager.StopAsync(tabId); } catch { }
+
+        var ws = AiConfigService.Instance.GetCliWorkspaces()
+            .FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), workspaceId, StringComparison.OrdinalIgnoreCase));
+        if (ws != null)
+        {
+            AiConfigService.Instance.ToggleCliWorkspace(ws.Id, false);
+        }
+
+        _activeTabId = string.Empty;
+        RebuildTabs();
+    }
+
+    private string? PromptForName(string title, string label, string initialValue)
+    {
+        var c = ThemeManager.Colors;
+
+        using var dialog = new Form
+        {
+            Text = title,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = false,
+            ClientSize = new Size(400, 152),
+            BackColor = c.WindowBackground,
+            ForeColor = c.TextPrimary
+        };
+
+        var promptLabel = new Label
+        {
+            Text = label,
+            Bounds = new Rectangle(16, 16, 368, 20),
+            ForeColor = c.TextSecondary
+        };
+
+        var input = new TextBox
+        {
+            Text = initialValue,
+            Bounds = new Rectangle(16, 42, 368, 26),
+            BackColor = c.WellBackground,
+            ForeColor = c.TextPrimary,
+            BorderStyle = BorderStyle.FixedSingle
+        };
+
+        var okButton = new Button
+        {
+            Text = "Save",
+            DialogResult = DialogResult.OK,
+            Bounds = new Rectangle(216, 92, 80, 30),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = c.AccentGreen,
+            ForeColor = c.AccentGreenText,
+            Cursor = Cursors.Hand
+        };
+        okButton.FlatAppearance.BorderColor = c.AccentGreen;
+
+        var cancelButton = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            Bounds = new Rectangle(304, 92, 80, 30),
+            FlatStyle = FlatStyle.Flat,
+            BackColor = c.ButtonBg,
+            ForeColor = c.ButtonText,
+            Cursor = Cursors.Hand
+        };
+        cancelButton.FlatAppearance.BorderColor = c.ButtonBorder;
+
+        dialog.Controls.Add(promptLabel);
+        dialog.Controls.Add(input);
+        dialog.Controls.Add(okButton);
+        dialog.Controls.Add(cancelButton);
+        dialog.AcceptButton = okButton;
+        dialog.CancelButton = cancelButton;
+
+        dialog.Shown += (_, _) =>
+        {
+            ThemeManager.ApplyDwmTitleBarTheme(dialog.Handle);
+            input.SelectAll();
+            input.Focus();
+        };
+
+        return dialog.ShowDialog(this) == DialogResult.OK ? input.Text.Trim() : null;
     }
 
     private void OpenManageClisDialog()
@@ -773,6 +1081,257 @@ public partial class CliWebviewForm : Form
         form.ConfigurationChanged += RebuildTabs;
         form.ShowDialog(this);
         RebuildTabs();
+    }
+
+    /// <summary>
+    /// Shows or hides every hosted terminal WebView. Passing false leaves the content
+    /// panel to the empty-state card.
+    /// </summary>
+    private void SetTerminalContentVisible(bool visible)
+    {
+        if (hermesWebView != null) hermesWebView.Visible = visible && string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase);
+        if (claudeWebView != null) claudeWebView.Visible = visible && string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
+        if (antigravityWebView != null) antigravityWebView.Visible = visible && string.Equals(_activeTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
+
+        foreach (var kvp in _customWebViews)
+        {
+            kvp.Value.Visible = visible && string.Equals(kvp.Key, _activeTabId, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private void ShowEmptyState(bool show, List<CliWorkspaceConfig> workspaces)
+    {
+        if (!show)
+        {
+            if (_emptyStatePanel != null) _emptyStatePanel.Visible = false;
+            return;
+        }
+
+        EnsureEmptyStatePanel();
+        if (_emptyStatePanel == null) return;
+
+        PopulateEmptyStateCombo(workspaces);
+        _emptyStatePanel.Visible = true;
+        _emptyStatePanel.BringToFront();
+        LayoutEmptyState();
+    }
+
+    private void EnsureEmptyStatePanel()
+    {
+        if (_emptyStatePanel != null) return;
+
+        _emptyStatePanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = ThemeManager.Colors.WindowBackground,
+            Visible = false
+        };
+
+        _emptyStateCard = new Panel
+        {
+            Size = new Size(520, 220),
+            BackColor = ThemeManager.Colors.CardBackground
+        };
+        _emptyStateCard.Paint += (_, e) =>
+        {
+            if (_emptyStateCard == null) return;
+            using var pen = new Pen(ThemeManager.Colors.CardBorder, 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, _emptyStateCard.Width - 1, _emptyStateCard.Height - 1);
+        };
+
+        _emptyTitleLabel = new Label
+        {
+            Text = "No CLI Terminals Active",
+            Font = new Font("Segoe UI", 14F, FontStyle.Bold),
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoSize = false,
+            Bounds = new Rectangle(20, 26, 480, 28)
+        };
+
+        _emptySubtitleLabel = new Label
+        {
+            Text = "There are currently no background terminals configured in your workspace.",
+            Font = new Font("Segoe UI", 9.5F, FontStyle.Regular),
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoSize = false,
+            Bounds = new Rectangle(20, 58, 480, 40)
+        };
+
+        _emptyAddCombo = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9.5F),
+            Bounds = new Rectangle(20, 120, 340, 28)
+        };
+        _actionToolTip.SetToolTip(_emptyAddCombo, "Select a CLI workspace or shell to add");
+
+        _emptyAddButton = new Button
+        {
+            Text = "+ Add to Workspace",
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+            Cursor = Cursors.Hand,
+            Bounds = new Rectangle(368, 119, 132, 30)
+        };
+        _emptyAddButton.FlatAppearance.BorderSize = 1;
+        _emptyAddButton.Click += EmptyStateAddButton_Click;
+
+        _emptyHintLabel = new Label
+        {
+            Text = "The selection is saved to your workspace and restored on next launch.",
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+            TextAlign = ContentAlignment.MiddleCenter,
+            AutoSize = false,
+            Bounds = new Rectangle(20, 164, 480, 20)
+        };
+
+        _emptyStateCard.Controls.Add(_emptyTitleLabel);
+        _emptyStateCard.Controls.Add(_emptySubtitleLabel);
+        _emptyStateCard.Controls.Add(_emptyAddCombo);
+        _emptyStateCard.Controls.Add(_emptyAddButton);
+        _emptyStateCard.Controls.Add(_emptyHintLabel);
+
+        _emptyStatePanel.Controls.Add(_emptyStateCard);
+        _emptyStatePanel.Resize += (_, _) => LayoutEmptyState();
+
+        contentPanel.Controls.Add(_emptyStatePanel);
+
+        ApplyEmptyStateTheme();
+    }
+
+    private void LayoutEmptyState()
+    {
+        if (_emptyStatePanel == null || _emptyStateCard == null) return;
+
+        int x = Math.Max(0, (_emptyStatePanel.ClientSize.Width - _emptyStateCard.Width) / 2);
+        int y = Math.Max(0, (_emptyStatePanel.ClientSize.Height - _emptyStateCard.Height) / 2);
+        _emptyStateCard.Location = new Point(x, y);
+    }
+
+    private void PopulateEmptyStateCombo(List<CliWorkspaceConfig> workspaces)
+    {
+        if (_emptyAddCombo == null) return;
+
+        var previousId = (_emptyAddCombo.SelectedItem as EmptyStateOption)?.Id;
+
+        _emptyAddCombo.BeginUpdate();
+        _emptyAddCombo.Items.Clear();
+
+        foreach (var ws in workspaces)
+        {
+            var label = string.IsNullOrWhiteSpace(ws.Name) ? ws.Id : ws.Name;
+            _emptyAddCombo.Items.Add(new EmptyStateOption(ws.Id, label, false));
+        }
+
+        _emptyAddCombo.Items.Add(new EmptyStateOption("shell:cmd", "Command Prompt (embedded)", true));
+        _emptyAddCombo.Items.Add(new EmptyStateOption("shell:powershell", "PowerShell (embedded)", true));
+
+        if (_emptyAddCombo.Items.Count > 0)
+        {
+            int restore = previousId == null ? -1 : FindEmptyStateOption(previousId);
+            _emptyAddCombo.SelectedIndex = restore >= 0 ? restore : 0;
+        }
+
+        _emptyAddCombo.EndUpdate();
+    }
+
+    private int FindEmptyStateOption(string id)
+    {
+        if (_emptyAddCombo == null) return -1;
+
+        for (int i = 0; i < _emptyAddCombo.Items.Count; i++)
+        {
+            if (_emptyAddCombo.Items[i] is EmptyStateOption opt &&
+                string.Equals(opt.Id, id, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void EmptyStateAddButton_Click(object? sender, EventArgs e)
+    {
+        if (_emptyAddCombo?.SelectedItem is not EmptyStateOption option) return;
+
+        if (option.IsShell)
+        {
+            if (string.Equals(option.Id, "shell:powershell", StringComparison.OrdinalIgnoreCase))
+            {
+                OpenEmbeddedShell("powershell", "PowerShell", "powershell.exe");
+            }
+            else
+            {
+                OpenEmbeddedShell("cmd", "Command Prompt", "cmd.exe");
+            }
+            return;
+        }
+
+        // Persist first, then rebuild so the new tab exists before we switch to it.
+        AiConfigService.Instance.ToggleCliWorkspace(option.Id, true);
+        RebuildTabs();
+
+        string workspaceId = AiConfigService.NormalizeCliId(option.Id);
+        string targetTabId = string.Equals(workspaceId, "antigravity_cli", StringComparison.OrdinalIgnoreCase)
+            ? CliManagerService.FormatAntigravityProfileId(_cliManager?.ProfileService.ActiveProfile ?? "Default")
+            : workspaceId;
+
+        SwitchTab(targetTabId);
+
+        try
+        {
+            _cliManager?.Start(targetTabId);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CliWebviewForm] Failed to start '{targetTabId}' after adding it: {ex.Message}");
+        }
+    }
+
+    private void ApplyEmptyStateTheme()
+    {
+        if (_emptyStatePanel == null) return;
+
+        var c = ThemeManager.Colors;
+
+        _emptyStatePanel.BackColor = c.WindowBackground;
+        if (_emptyStateCard != null) _emptyStateCard.BackColor = c.CardBackground;
+        if (_emptyTitleLabel != null) _emptyTitleLabel.ForeColor = c.TextPrimary;
+        if (_emptySubtitleLabel != null) _emptySubtitleLabel.ForeColor = c.TextMuted;
+        if (_emptyHintLabel != null) _emptyHintLabel.ForeColor = c.TextMuted;
+
+        if (_emptyAddCombo != null)
+        {
+            _emptyAddCombo.BackColor = c.WellBackground;
+            _emptyAddCombo.ForeColor = c.TextPrimary;
+        }
+
+        if (_emptyAddButton != null)
+        {
+            _emptyAddButton.BackColor = c.AccentGreen;
+            _emptyAddButton.ForeColor = c.AccentGreenText;
+            _emptyAddButton.FlatAppearance.BorderColor = c.AccentGreen;
+            _emptyAddButton.FlatAppearance.MouseOverBackColor = c.AccentGreenHover;
+        }
+
+        _emptyStateCard?.Invalidate();
+    }
+
+    private sealed class EmptyStateOption
+    {
+        public EmptyStateOption(string id, string label, bool isShell)
+        {
+            Id = id;
+            Label = label;
+            IsShell = isShell;
+        }
+
+        public string Id { get; }
+        public string Label { get; }
+        public bool IsShell { get; }
+
+        public override string ToString() => Label;
     }
 
     private void LayoutToolbar()
@@ -940,7 +1499,9 @@ public partial class CliWebviewForm : Form
         tabsPanel.BackColor = c.HeaderBackground;
         toolsPanel.BackColor = c.HeaderBackground;
         contentPanel.BackColor = c.WindowBackground;
-        contentPanel.Padding = new Padding(0, 8, 0, 0);
+        contentPanel.Padding = new Padding(0, 10, 0, 0);
+
+        ApplyEmptyStateTheme();
 
         activeStatusLabel.ForeColor = c.TextSecondary;
 
@@ -1741,6 +2302,26 @@ public partial class CliWebviewForm : Form
     {
         if (_cliManager == null) return;
         var c = ThemeManager.Colors;
+
+        // No workspace enabled: there is no active CLI, so hide its controls and say so.
+        if (string.IsNullOrEmpty(_activeTabId))
+        {
+            activeStatusLabel.Text = "No terminals active";
+            activeStatusLabel.ForeColor = c.TextMuted;
+
+            toggleRunButton.Visible = false;
+            restartCliButton.Visible = false;
+            clearTerminalButton.Visible = false;
+            openBrowserButton.Visible = false;
+
+            LayoutToolbar();
+            return;
+        }
+
+        toggleRunButton.Visible = true;
+        restartCliButton.Visible = true;
+        clearTerminalButton.Visible = true;
+
         var info = _cliManager.GetInfo(_activeTabId);
         activeStatusLabel.Text = $"{info.ShortName}: {info.StatusText}";
 

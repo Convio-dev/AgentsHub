@@ -134,6 +134,12 @@ public class AiConfig
 
     [JsonPropertyName("promptPresets")]
     public List<PromptEnhancerPreset> PromptPresets { get; set; } = new();
+
+    /// <summary>
+    /// Last workspace preset the user applied. One of "Preset_Clean", "Preset_Duo", "Preset_All".
+    /// </summary>
+    [JsonPropertyName("terminalWorkspacePreset")]
+    public string TerminalWorkspacePreset { get; set; } = "Preset_Duo";
 }
 
 public class AiConfigService
@@ -223,6 +229,13 @@ public class AiConfigService
         lock (_lock)
         {
             EnsurePromptPresets(newConfig);
+
+            // A payload that never carried the preset label must not reset it.
+            if (string.IsNullOrWhiteSpace(newConfig.TerminalWorkspacePreset))
+            {
+                newConfig.TerminalWorkspacePreset = _config.TerminalWorkspacePreset;
+            }
+
             SyncToolTargets(newConfig);
             _config = newConfig;
             try
@@ -694,6 +707,10 @@ public class AiConfigService
             }
         }
 
+        // A config with no workspaces at all has never had a preset applied, so the
+        // stored preset is authoritative for the initial enable/disable state.
+        bool isFreshWorkspaceConfig = _config.CliWorkspaces == null || _config.CliWorkspaces.Count == 0;
+
         if (_config.CliWorkspaces == null || _config.CliWorkspaces.Count == 0)
         {
             _config.CliWorkspaces = new List<CliWorkspaceConfig>();
@@ -749,6 +766,17 @@ public class AiConfigService
             }
         }
         _config.CliWorkspaces = uniqueWorkspaces;
+
+        if (isFreshWorkspaceConfig)
+        {
+            ApplyWorkspacePresetFlags(_config.TerminalWorkspacePreset);
+        }
+        else
+        {
+            // Keep the stored label describing the workspace the user is actually in, so the
+            // dashboard never advertises a preset that no longer matches the enabled tabs.
+            _config.TerminalWorkspacePreset = MatchPresetToFlags();
+        }
 
         if (string.IsNullOrWhiteSpace(_config.ClaudeEngineMode))
         {
@@ -887,6 +915,100 @@ public class AiConfigService
             }
         }
         SaveConfig(_config);
+    }
+
+    /// <summary>
+    /// Maps an incoming preset name onto a known preset id. Unknown values fall back to Preset_Duo.
+    /// </summary>
+    public static string NormalizeWorkspacePreset(string? presetName)
+    {
+        return (presetName ?? string.Empty).Trim() switch
+        {
+            "Preset_Clean" => "Preset_Clean",
+            "Preset_All" => "Preset_All",
+            _ => "Preset_Duo"
+        };
+    }
+
+    /// <summary>
+    /// Applies a preset's enable/disable flags in place. Callers hold the lock.
+    /// </summary>
+    private void ApplyWorkspacePresetFlags(string? presetName)
+    {
+        var preset = NormalizeWorkspacePreset(presetName);
+
+        var (hermes, claude, antigravity) = preset switch
+        {
+            "Preset_Clean" => (false, false, false),
+            "Preset_All" => (true, true, true),
+            _ => (false, true, true)
+        };
+
+        SetWorkspaceEnabled("hermes", hermes);
+        SetWorkspaceEnabled("claude_code", claude);
+        SetWorkspaceEnabled("antigravity_cli", antigravity);
+
+        _config.TerminalWorkspacePreset = preset;
+    }
+
+    private void SetWorkspaceEnabled(string normalizedId, bool enabled)
+    {
+        if (_config.CliWorkspaces == null) return;
+
+        var ws = _config.CliWorkspaces.FirstOrDefault(c =>
+            string.Equals(NormalizeCliId(c.Id), normalizedId, StringComparison.OrdinalIgnoreCase));
+        if (ws != null)
+        {
+            ws.IsEnabled = enabled;
+        }
+    }
+
+    private bool IsWorkspaceEnabled(string normalizedId)
+    {
+        var ws = _config.CliWorkspaces?.FirstOrDefault(c =>
+            string.Equals(NormalizeCliId(c.Id), normalizedId, StringComparison.OrdinalIgnoreCase));
+        return ws?.IsEnabled ?? false;
+    }
+
+    /// <summary>
+    /// Names the preset whose flags match the current workspace exactly. A hand-toggled
+    /// combination that matches none of the three returns "" (no preset active).
+    /// </summary>
+    private string MatchPresetToFlags()
+    {
+        bool hermes = IsWorkspaceEnabled("hermes");
+        bool claude = IsWorkspaceEnabled("claude_code");
+        bool antigravity = IsWorkspaceEnabled("antigravity_cli");
+
+        if (!hermes && !claude && !antigravity) return "Preset_Clean";
+        if (hermes && claude && antigravity) return "Preset_All";
+        if (!hermes && claude && antigravity) return "Preset_Duo";
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Applies one of the three workspace presets and persists the result to ai_config.json.
+    /// </summary>
+    public void ApplyWorkspacePreset(string presetName)
+    {
+        lock (_lock)
+        {
+            ApplyWorkspacePresetFlags(presetName);
+        }
+        SaveConfig(_config);
+    }
+
+    /// <summary>
+    /// The active workspace preset: "Preset_Clean", "Preset_Duo", "Preset_All", or "" when the
+    /// enabled tabs are a hand-toggled mix that matches no preset.
+    /// </summary>
+    public string GetTerminalWorkspacePreset()
+    {
+        lock (_lock)
+        {
+            return _config.TerminalWorkspacePreset ?? string.Empty;
+        }
     }
 
     public string GetClaudeEngineMode()

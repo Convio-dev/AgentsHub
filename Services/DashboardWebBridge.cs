@@ -880,6 +880,42 @@ public sealed class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "apply_terminal_preset":
+                {
+                    var presetName = data.TryGetProperty("preset", out var presetProp) ? presetProp.GetString() : null;
+                    AiConfigService.Instance.ApplyWorkspacePreset(presetName ?? "Preset_Duo");
+
+                    // Rebuild the standalone terminal workspace if the user has it open.
+                    try
+                    {
+                        _mainForm.Invoke(() =>
+                        {
+                            if (_cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                            {
+                                _cliWebviewForm.RebuildTabs();
+                            }
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DashboardWebBridge] RebuildTabs after preset failed: {ex.Message}");
+                    }
+
+                    SendResponse(requestId, true, new
+                    {
+                        success = true,
+                        preset = AiConfigService.Instance.GetTerminalWorkspacePreset()
+                    });
+                }
+                break;
+
+            case "get_terminal_preset":
+                SendResponse(requestId, true, new
+                {
+                    preset = AiConfigService.Instance.GetTerminalWorkspacePreset()
+                });
+                break;
+
             case "launch_tool":
                 {
                     string? target = null;
@@ -1779,6 +1815,21 @@ public sealed class DashboardWebBridge : IDisposable
                 id = p.Id,
                 name = p.Name,
                 systemPrompt = p.SystemPrompt
+            }).ToList(),
+            // Round-trips through save_ai_config so a config save cannot reset the label.
+            terminalWorkspacePreset = cfg.TerminalWorkspacePreset,
+            // Must round-trip too: save_ai_config replaces the whole config, so omitting these
+            // would silently drop every CLI workspace (including user-added ones) on any save.
+            cliWorkspaces = (cfg.CliWorkspaces ?? new List<CliWorkspaceConfig>()).Select(w => new
+            {
+                id = w.Id,
+                name = w.Name,
+                command = w.Command,
+                workingDirectory = w.WorkingDirectory,
+                port = w.Port,
+                isWebUi = w.IsWebUi,
+                isDefault = w.IsDefault,
+                isEnabled = w.IsEnabled
             }).ToList()
         };
     }
