@@ -19,6 +19,11 @@ public class ConnectedClientInfo
     public DateTime LastActivity { get; set; } = DateTime.UtcNow;
 }
 
+/// <summary>
+/// One socket the LAN feature tried to bind, and whether it came up.
+/// </summary>
+public sealed record LanForwarderInfo(int Port, string Label, string Address, bool Bound, string Detail);
+
 public class LanProxyService : IDisposable
 {
     private TcpListener? _listener;
@@ -29,9 +34,19 @@ public class LanProxyService : IDisposable
     private readonly ConcurrentDictionary<string, DateTime> _recentlyNotifiedRemoteIps = new();
     private readonly ConcurrentDictionary<string, ConnectedClientInfo> _clients = new();
 
+    /// <summary>
+    /// Which sockets are actually bound for LAN access, recorded at bind time. Failures are
+    /// included with <see cref="LanForwarderInfo.Bound"/> false so the UI can report a port that
+    /// is not reachable instead of assuming every forwarder came up.
+    /// </summary>
+    private readonly List<LanForwarderInfo> _forwarders = new();
+
     public int ListenPort { get; set; } = 9191;
     public int TargetPort { get; set; } = 9119;
     public bool IsRunning { get; private set; }
+
+    /// <summary>Set when the last Start() could not bind. Null once a start succeeds.</summary>
+    public string? LastBindError { get; private set; }
 
     public Func<Task>? StartHermesAction { get; set; }
     public Func<Task<bool>>? CheckHermesAliveAction { get; set; }
@@ -42,6 +57,14 @@ public class LanProxyService : IDisposable
     public event Action<ConnectedClientInfo>? RemoteDeviceConnected;
     public event Action<IReadOnlyList<ConnectedClientInfo>>? ActiveClientsChanged;
 
+    public IReadOnlyList<LanForwarderInfo> GetForwarders()
+    {
+        lock (_lock)
+        {
+            return _forwarders.ToList();
+        }
+    }
+
     public bool Start(int listenPort = 9191, int targetPort = 9119)
     {
         lock (_lock)
@@ -50,6 +73,7 @@ public class LanProxyService : IDisposable
 
             ListenPort = listenPort;
             TargetPort = targetPort;
+            LastBindError = null;
 
             try
             {
@@ -62,14 +86,19 @@ public class LanProxyService : IDisposable
                 _listenTask = Task.Run(() => AcceptConnectionsAsync(_listener, _cts.Token));
 
                 LogMessage?.Invoke($"LAN Proxy active on 0.0.0.0:{listenPort} -> 127.0.0.1:{targetPort}");
+                _forwarders.Add(new LanForwarderInfo(listenPort, "Gateway", "0.0.0.0 (all interfaces)", true, ""));
 
                 // Bind secondary listeners on LAN IP for direct port forwarding without port remapping
                 var lanIpStr = NetworkHelper.GetLocalIPv4();
                 if (IPAddress.TryParse(lanIpStr, out var lanIp) && !IPAddress.IsLoopback(lanIp))
                 {
-                    BindDirectForwarder(lanIp, targetPort, targetPort, true);
-                    BindDirectForwarder(lanIp, 9229, 9229, false);
-                    BindDirectForwarder(lanIp, 9339, 9339, false);
+                    BindDirectForwarder(lanIp, targetPort, targetPort, "Hermes");
+                    BindDirectForwarder(lanIp, 9229, 9229, "Claude Code");
+                    BindDirectForwarder(lanIp, 9339, 9339, "Antigravity");
+                }
+                else
+                {
+                    LastBindError = "No LAN IPv4 address was found, so only the gateway port is available.";
                 }
 
                 StateChanged?.Invoke(true);
@@ -78,14 +107,17 @@ public class LanProxyService : IDisposable
             catch (Exception ex)
             {
                 LogMessage?.Invoke($"Failed to bind proxy listener on port {listenPort}: {ex.Message}");
+                LastBindError = ex.Message;
                 Stop();
+                LastBindError = ex.Message;
                 return false;
             }
         }
     }
 
-    private void BindDirectForwarder(IPAddress ip, int listenPort, int targetPort, bool isHermes)
+    private void BindDirectForwarder(IPAddress ip, int listenPort, int targetPort, string label)
     {
+        bool isHermes = listenPort == targetPort;
         try
         {
             var l = new TcpListener(ip, listenPort);
@@ -105,10 +137,14 @@ public class LanProxyService : IDisposable
                 }
             }
             LogMessage?.Invoke($"LAN Direct Forwarder active on {ip}:{listenPort} -> 127.0.0.1:{targetPort}");
+            _forwarders.Add(new LanForwarderInfo(listenPort, label, ip.ToString(), true, ""));
         }
         catch (Exception ex)
         {
+            // Ports already claimed by another process land here. Record it rather than
+            // letting the UI imply this port is reachable from the network.
             LogMessage?.Invoke($"Direct LAN forwarder notice on {ip}:{listenPort}: {ex.Message}");
+            _forwarders.Add(new LanForwarderInfo(listenPort, label, ip.ToString(), false, ex.Message));
         }
     }
 
@@ -183,6 +219,7 @@ public class LanProxyService : IDisposable
                 try { l.Stop(); } catch { }
             }
             _secondaryListeners.Clear();
+            _forwarders.Clear();
 
             _listener = null;
             _cts?.Dispose();

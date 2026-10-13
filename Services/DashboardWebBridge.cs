@@ -32,6 +32,13 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     private CancellationTokenSource? _promptEnhanceCts;
 
+    // The firewall probe spawns PowerShell, so the result is cached briefly. The LAN view can
+    // open several times in a row and each probe would otherwise cost a process launch.
+    private FirewallStatus? _cachedFirewall;
+    private DateTime _cachedFirewallAt = DateTime.MinValue;
+    private readonly SemaphoreSlim _firewallGate = new(1, 1);
+    private const int FirewallCacheMs = 20000;
+
     // Smart Cooldown rate limiter for VPN quota reset (backend guard)
     private static DateTime _lastQuotaResetTime = DateTime.MinValue;
     private static readonly Lock _quotaResetLock = new();
@@ -122,6 +129,26 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
             }
         };
+
+        if (_lanProxyService != null)
+        {
+            // The device list was already being tracked but never reached the UI.
+            _lanProxyService.ActiveClientsChanged += clients =>
+            {
+                PostEventToUi("lan_clients_changed", new { clients = ToClientDtos(clients) });
+            };
+
+            _lanProxyService.StateChanged += running =>
+            {
+                // A bind can fail, so the UI re-reads the real state rather than trusting the toggle.
+                InvalidateFirewallCache();
+                PostEventToUi("lan_state_changed", new
+                {
+                    running,
+                    bindError = _lanProxyService.LastBindError ?? ""
+                });
+            };
+        }
 
         _cliManager.ProfileService.ActiveProfileChanged += (activeProfile) =>
         {
@@ -348,6 +375,72 @@ public sealed partial class DashboardWebBridge : IDisposable
                 else
                 {
                     SendResponse(requestId, false, "LAN Proxy service not initialized");
+                }
+                break;
+
+            case "get_lan_state":
+                {
+                    // The firewall probe spawns PowerShell, so it is cached and only forced
+                    // when the UI asks for a recheck.
+                    bool forceFirewall = data.TryGetProperty("refresh", out var refreshEl)
+                        && refreshEl.ValueKind == JsonValueKind.True;
+
+                    var required = GetRequiredLanPorts();
+                    var firewall = await GetFirewallStatusAsync(required, forceFirewall);
+
+                    SendResponse(requestId, true, new
+                    {
+                        lan = BuildLanStateDto(required),
+                        firewall = ToFirewallDto(firewall, required),
+                        clients = ToClientDtos(_lanProxyService?.GetActiveClients())
+                    });
+                }
+                break;
+
+            case "get_lan_clients":
+                SendResponse(requestId, true, new
+                {
+                    clients = ToClientDtos(_lanProxyService?.GetActiveClients())
+                });
+                break;
+
+            case "request_firewall_rule":
+                {
+                    var ports = GetRequiredLanPorts();
+                    if (ports.Count == 0)
+                    {
+                        SendResponse(requestId, false, "Turn LAN access on first, so there are ports to allow.");
+                        break;
+                    }
+
+                    var result = await FirewallHelper.RequestInboundRuleAsync(ports);
+                    var fresh = await GetFirewallStatusAsync(ports, force: true);
+
+                    SendResponse(requestId, true, new
+                    {
+                        succeeded = result.Succeeded,
+                        userCancelled = result.UserCancelled,
+                        message = result.Message,
+                        lan = BuildLanStateDto(ports),
+                        firewall = ToFirewallDto(fresh, ports)
+                    });
+                }
+                break;
+
+            case "remove_firewall_rule":
+                {
+                    var result = await FirewallHelper.RemoveInboundRuleAsync();
+                    var ports = GetRequiredLanPorts();
+                    var fresh = await GetFirewallStatusAsync(ports, force: true);
+
+                    SendResponse(requestId, true, new
+                    {
+                        succeeded = result.Succeeded,
+                        userCancelled = result.UserCancelled,
+                        message = result.Message,
+                        lan = BuildLanStateDto(ports),
+                        firewall = ToFirewallDto(fresh, ports)
+                    });
                 }
                 break;
 
@@ -1662,6 +1755,126 @@ public sealed partial class DashboardWebBridge : IDisposable
             opencode = GetOpenCodeState(),
             aiConfig = GetAiConfigDto()
         };
+    }
+
+    /// <summary>
+    /// The ports that should be reachable from another device: the gateway plus every forwarder
+    /// that actually bound. An unbound forwarder is excluded because something else owns that
+    /// port, so allowing it through the firewall would achieve nothing.
+    /// </summary>
+    private IReadOnlyList<int> GetRequiredLanPorts()
+    {
+        var proxy = _lanProxyService;
+        if (proxy == null || !proxy.IsRunning) return [];
+
+        var ports = new List<int> { proxy.ListenPort };
+        ports.AddRange(proxy.GetForwarders().Where(f => f.Bound).Select(f => f.Port));
+        return ports.Distinct().Order().ToList();
+    }
+
+    private async Task<FirewallStatus> GetFirewallStatusAsync(IReadOnlyList<int> requiredPorts, bool force)
+    {
+        if (!force && _cachedFirewall is { } cached && (DateTime.UtcNow - _cachedFirewallAt).TotalMilliseconds < FirewallCacheMs)
+        {
+            return cached;
+        }
+
+        await _firewallGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!force && _cachedFirewall is { } recheck && (DateTime.UtcNow - _cachedFirewallAt).TotalMilliseconds < FirewallCacheMs)
+            {
+                return recheck;
+            }
+
+            var status = await FirewallHelper
+                .GetStatusAsync(requiredPorts, NetworkHelper.GetLocalIPv4())
+                .ConfigureAwait(false);
+
+            _cachedFirewall = status;
+            _cachedFirewallAt = DateTime.UtcNow;
+            return status;
+        }
+        finally
+        {
+            _firewallGate.Release();
+        }
+    }
+
+    private void InvalidateFirewallCache()
+    {
+        _cachedFirewall = null;
+        _cachedFirewallAt = DateTime.MinValue;
+    }
+
+    private object BuildLanStateDto(IReadOnlyList<int> requiredPorts)
+    {
+        var proxy = _lanProxyService;
+        var forwarders = proxy?.GetForwarders() ?? [];
+        var lanIp = NetworkHelper.GetLocalIPv4();
+
+        return new
+        {
+            lanIp,
+            gatewayPort = proxy?.ListenPort ?? StartupHelper.GetIntPreference("LanPort", 9191),
+            targetPort = proxy?.TargetPort ?? _cliManager.HermesService.Port,
+            running = proxy?.IsRunning ?? false,
+            enabled = StartupHelper.GetPreference("LanProxyEnabled", true),
+            bindError = proxy?.LastBindError ?? "",
+            requiredPorts,
+            forwarders = forwarders.Select(f => new
+            {
+                port = f.Port,
+                label = f.Label,
+                address = f.Address,
+                bound = f.Bound,
+                detail = f.Detail
+            }).ToArray()
+        };
+    }
+
+    private static object ToFirewallDto(FirewallStatus status, IReadOnlyList<int> requiredPorts)
+    {
+        return new
+        {
+            querySucceeded = status.QuerySucceeded,
+            detail = status.Detail,
+            state = status.StateFor(requiredPorts).ToString().ToLowerInvariant(),
+            ruleExists = status.RuleExists,
+            ruleEnabled = status.RuleEnabled,
+            ruleInbound = status.RuleInbound,
+            ruleAllow = status.RuleAllow,
+            ruleProfile = status.RuleProfile,
+            rulePorts = status.RulePorts,
+            requiredPorts,
+            missingPorts = status.MissingPorts(requiredPorts),
+            domainEnabled = status.DomainEnabled,
+            privateEnabled = status.PrivateEnabled,
+            publicEnabled = status.PublicEnabled,
+            activeProfile = status.ActiveProfile,
+            firewallOnForActiveProfile = status.FirewallOnForActiveProfile,
+            inboundBlocked = status.InboundBlockedByNetworkCategory,
+            networkName = status.NetworkName,
+            networkCategory = status.NetworkCategory,
+            networkInterface = status.NetworkInterface
+        };
+    }
+
+    private static object[] ToClientDtos(IReadOnlyList<ConnectedClientInfo>? clients)
+    {
+        if (clients == null || clients.Count == 0) return [];
+
+        return clients.Select(c => (object)new
+        {
+            ip = c.IpAddress,
+            deviceName = c.DeviceName,
+            hostName = c.HostName ?? "",
+            userAgent = c.UserAgent ?? "",
+            deviceType = LanProxyService.DetectDeviceType(c.UserAgent),
+            activeConnections = c.ActiveConnections,
+            firstSeen = c.FirstSeen.ToString("o"),
+            lastActivity = c.LastActivity.ToString("o")
+        }).ToArray();
     }
 
     private List<object> GetRunningWebPorts(string lanIp, int hermesPort, int lanProxyPort)
