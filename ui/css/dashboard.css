@@ -456,6 +456,9 @@ body, html {
 /* Views Container */
 #content-container {
   flex: 1;
+  /* A flex item will not shrink below its content's min-content width without this, so the
+     card grid used to force the container wider than the viewport and clip the last card. */
+  min-width: 0;
   overflow-y: auto;
   padding: 20px;
   position: relative;
@@ -486,7 +489,10 @@ body, html {
 /* Cards & Layout */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  /* 285px keeps three cards side by side at the collapsed-sidebar width (previously the third
+     was clipped off the right edge) without changing the arrangement. auto-fit collapses the
+     unused tracks, so wider windows just give the same three cards more room. */
+  grid-template-columns: repeat(auto-fit, minmax(285px, 1fr));
   gap: 16px;
   margin-bottom: 20px;
 }
@@ -498,6 +504,8 @@ body, html {
   padding: 18px;
   position: relative;
   transition: border-color 0.15s ease;
+  /* Grid children need this too, or a wide child bursts out of its track. */
+  min-width: 0;
 }
 
 .dashboard-card:hover {
@@ -509,12 +517,30 @@ body, html {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  /* When the title and its control cannot both fit, the control drops to its own line
+     instead of crushing the title into four lines or overlapping it. Matches the existing
+     .opencode-header behaviour. */
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+/* Keep a wrapped control right-aligned instead of letting space-between drop it to the left. */
+.card-header > :not(.card-title-group) {
+  margin-left: auto;
 }
 
 .card-title-group {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The text block beside the icon must be allowed to shrink, otherwise a long title holds the
+   card at its max-content width and the header can never wrap. */
+.card-title-group > div {
+  min-width: 0;
 }
 
 .card-icon {
@@ -2075,6 +2101,9 @@ html[data-theme="light"] .ip-matrix-val .ip-new {
   border-radius: var(--radius-sm);
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid rgba(16, 185, 129, 0.25);
+  /* Never let the badge be squeezed onto two lines or shrink into the title. */
+  flex-shrink: 0;
+  white-space: nowrap;
   color: var(--accent-green);
   user-select: none;
 }
