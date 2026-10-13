@@ -491,7 +491,7 @@ public class CliManagerService : IDisposable
 
                 // Name the account this session will authenticate as, so cross-profile
                 // contamination is visible in the log instead of only in the CLI banner.
-                string accountEmail = _profileService.GetAccountEmail(profileName) ?? string.Empty;
+                string accountEmail = AntigravityProfileService.GetAccountEmail(profileName) ?? string.Empty;
                 LogMessage?.Invoke("Antigravity", string.IsNullOrWhiteSpace(accountEmail)
                     ? $"Launching profile '{profileName}' on port {port} (no saved account email)."
                     : $"Launching profile '{profileName}' as {accountEmail} on port {port}.");

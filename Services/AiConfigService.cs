@@ -299,10 +299,7 @@ public class AiConfigService
                 var match = _config.DevTools.FirstOrDefault(d =>
                     string.Equals(d.Id, toolName, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(d.Name, toolName, StringComparison.OrdinalIgnoreCase));
-                if (match != null)
-                {
-                    match.Target = target;
-                }
+                if (match != null) match.Target = target;
             }
         }
         SaveConfig(_config);
@@ -908,10 +905,7 @@ public class AiConfigService
         lock (_lock)
         {
             var item = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
-            if (item != null)
-            {
-                item.IsEnabled = isEnabled;
-            }
+            if (item != null) item.IsEnabled = isEnabled;
         }
         SaveConfig(_config);
     }
@@ -956,10 +950,7 @@ public class AiConfigService
 
         var ws = _config.CliWorkspaces.FirstOrDefault(c =>
             string.Equals(NormalizeCliId(c.Id), normalizedId, StringComparison.OrdinalIgnoreCase));
-        if (ws != null)
-        {
-            ws.IsEnabled = enabled;
-        }
+        if (ws != null) ws.IsEnabled = enabled;
     }
 
     private bool IsWorkspaceEnabled(string normalizedId)
@@ -1079,18 +1070,12 @@ public class AiConfigService
         lock (_lock)
         {
             var provider = _config.Providers.FirstOrDefault(p => string.Equals(p.Id, "openrouter", StringComparison.OrdinalIgnoreCase));
-            if (provider != null)
-            {
-                provider.ApiKey = apiKey.Trim();
-            }
+            if (provider != null) provider.ApiKey = apiKey.Trim();
             StartupHelper.SetStringPreference("ClaudeGatewayApiKey", apiKey.Trim());
 
             // Also synchronize active preset's API key
             var activeProv = GetActiveClaudeGatewayProvider();
-            if (activeProv != null)
-            {
-                activeProv.ApiKey = apiKey.Trim();
-            }
+            if (activeProv != null) activeProv.ApiKey = apiKey.Trim();
             SaveConfig(_config);
         }
     }

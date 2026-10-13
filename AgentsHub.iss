@@ -2,7 +2,12 @@
 ; Agents Hub Installer Configuration
 
 #define MyAppName "Agents Hub"
-#define MyAppVersion "1.0.3"
+; The version comes from the build. build-installer.cmd reads <Version> out of HermesHub.csproj
+; and passes it as /DMyAppVersion, so the project file stays the single source of truth. The
+; fallback keeps a bare ISCC run working instead of failing on an undefined symbol.
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0"
+#endif
 #define MyAppPublisher "ZeroNuxs"
 #define MyAppURL "https://github.com/ZerroDevs/HermesOn"
 #define MyAppExeName "HermesHub.exe"
@@ -75,5 +80,10 @@ Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameter
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}"
+; Deliberately no [UninstallDelete] wipe of {app}.
+;
+; That folder also holds {app}\Profiles, which stores the per-profile Antigravity credentials
+; including live Google OAuth tokens. A blanket "filesandordirs {app}" deleted them, so
+; uninstalling destroyed logins the user cannot recover. Inno already removes every file it
+; installed; the only thing left behind afterwards is user data, which is meant to survive.
+; Delete {app}\Profiles by hand if a genuinely clean removal is wanted.

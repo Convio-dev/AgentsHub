@@ -233,17 +233,17 @@ public static class NetworkHelper
                         var trimmed = line.Trim();
                         if (string.IsNullOrWhiteSpace(dto.Ip) && trimmed.StartsWith("ip=", StringComparison.OrdinalIgnoreCase))
                         {
-                            dto.Ip = trimmed.Substring(3).Trim();
+                            dto.Ip = trimmed[3..].Trim();
                         }
                         else if (string.IsNullOrWhiteSpace(dto.CountryCode) && trimmed.StartsWith("loc=", StringComparison.OrdinalIgnoreCase))
                         {
-                            dto.CountryCode = trimmed.Substring(4).Trim().ToUpperInvariant();
+                            dto.CountryCode = trimmed[4..].Trim().ToUpperInvariant();
                             dto.CountryEmoji = CountryCodeToEmoji(dto.CountryCode);
                             dto.Country = dto.CountryCode;
                         }
                         else if (string.IsNullOrWhiteSpace(dto.City) && trimmed.StartsWith("colo=", StringComparison.OrdinalIgnoreCase))
                         {
-                            dto.City = trimmed.Substring(5).Trim();
+                            dto.City = trimmed[5..].Trim();
                         }
                     }
                 }

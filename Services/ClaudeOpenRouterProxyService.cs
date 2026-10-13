@@ -212,7 +212,7 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
                 var authHeader = req.Headers["Authorization"] ?? "";
                 if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
                 {
-                    apiKey = authHeader.Substring(7).Trim();
+                    apiKey = authHeader[7..].Trim();
                 }
             }
 
@@ -517,7 +517,7 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
         clientResp.StatusCode = 200;
 
         var output = clientResp.OutputStream;
-        var messageId = "msg_" + Guid.NewGuid().ToString("N").Substring(0, 20);
+        var messageId = "msg_" + Guid.NewGuid().ToString("N")[..20];
 
         // 1. Initial Anthropic event: message_start
         var startPayload = new
@@ -529,7 +529,7 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
                 type = "message",
                 role = "assistant",
                 content = Array.Empty<object>(),
-                model = model,
+                model,
                 stop_reason = (string?)null,
                 stop_sequence = (string?)null,
                 usage = new { input_tokens = 0, output_tokens = 0 }
@@ -554,7 +554,7 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
             if (string.IsNullOrWhiteSpace(line)) continue;
             if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
 
-            var dataStr = line.Substring(5).Trim();
+            var dataStr = line[5..].Trim();
             if (dataStr == "[DONE]") break;
 
             try
@@ -642,7 +642,7 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
                         }
 
                         // If new tool call started
-                        if (!activeToolCalls.ContainsKey(tcIdx))
+                        if (!activeToolCalls.TryGetValue(tcIdx, out string? value))
                         {
                             // Close active text block if open
                             if (isTextBlockActive)
@@ -653,7 +653,8 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
                             }
 
                             activeToolBlockIndex = nextBlockIndex++;
-                            activeToolCalls[tcIdx] = activeToolBlockIndex.ToString();
+                            value = activeToolBlockIndex.ToString();
+                            activeToolCalls[tcIdx] = value;
 
                             var toolStart = new
                             {
@@ -662,7 +663,7 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
                                 content_block = new
                                 {
                                     type = "tool_use",
-                                    id = callId ?? "call_" + Guid.NewGuid().ToString("N").Substring(0, 16),
+                                    id = callId ?? "call_" + Guid.NewGuid().ToString("N")[..16],
                                     name = funcName ?? "tool",
                                     input = new { }
                                 }
@@ -674,7 +675,7 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
                         if (!string.IsNullOrEmpty(argsChunk))
                         {
                             outputTokensCount++;
-                            int targetBlockIdx = int.Parse(activeToolCalls[tcIdx]);
+                            int targetBlockIdx = int.Parse(value);
                             var toolDelta = new
                             {
                                 type = "content_block_delta",
@@ -796,7 +797,7 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
 
         var anthropicObj = new JsonObject
         {
-            ["id"] = "msg_" + Guid.NewGuid().ToString("N").Substring(0, 20),
+            ["id"] = "msg_" + Guid.NewGuid().ToString("N")[..20],
             ["type"] = "message",
             ["role"] = "assistant",
             ["content"] = contentArray,
@@ -838,7 +839,7 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
             error = new
             {
                 type = "api_error",
-                message = message
+                message
             }
         };
         var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(errObj));

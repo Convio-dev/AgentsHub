@@ -86,11 +86,11 @@ public partial class CliWebviewForm : Form
             _cliManager = cliManager;
             _activeTabId = AiConfigService.NormalizeCliId(CliTypeToId(initialTab));
 
+            // ui/ is always copied next to the executable, so it is the only place these live.
+            // The assets/web fallback that used to sit behind this check has been removed.
             var baseDir = AppContext.BaseDirectory;
-            var uiTermPath = Path.Combine(baseDir, "ui", "terminal.html");
-            _terminalHtmlPath = File.Exists(uiTermPath) ? uiTermPath : Path.Combine(baseDir, "assets", "web", "terminal.html");
-            var uiOfflinePath = Path.Combine(baseDir, "ui", "hermes-offline.html");
-            _hermesOfflineHtmlPath = File.Exists(uiOfflinePath) ? uiOfflinePath : Path.Combine(baseDir, "assets", "web", "hermes-offline.html");
+            _terminalHtmlPath = Path.Combine(baseDir, "ui", "terminal.html");
+            _hermesOfflineHtmlPath = Path.Combine(baseDir, "ui", "hermes-offline.html");
 
             var cliIconPath = Path.Combine(baseDir, "assets", "cli.ico");
             if (File.Exists(cliIconPath))
@@ -1352,10 +1352,7 @@ public partial class CliWebviewForm : Form
 
             // The profile switcher only applies to Antigravity tabs; hide it elsewhere so the
             // toolbar does not crowd.
-            if (_profileComboBox != null)
-            {
-                _profileComboBox.Visible = isAntigravityActive;
-            }
+            if (_profileComboBox != null) _profileComboBox.Visible = isAntigravityActive;
 
             // 1. Compute Minimum Action Bar Width
             int actionControlsWidth = 10;
@@ -2612,7 +2609,7 @@ public partial class CliWebviewForm : Form
 
             foreach (var p in profiles)
             {
-                string? email = _cliManager.ProfileService.GetAccountEmail(p);
+                string? email = AntigravityProfileService.GetAccountEmail(p);
                 bool isRunning = _cliManager.IsProfileRunning(p);
                 int? port = isRunning ? _cliManager.GetPortForProfile(p) : null;
 

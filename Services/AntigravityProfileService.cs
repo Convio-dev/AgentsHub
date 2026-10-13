@@ -55,7 +55,7 @@ public sealed class AntigravityProfileService : IDisposable
         public string? UserName;
     }
 
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private FileSystemWatcher? _fileWatcher;
     private System.Threading.Timer? _debounceSyncTimer;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, FileSystemWatcher> _virtualHomeWatchers = new(StringComparer.OrdinalIgnoreCase);
@@ -91,7 +91,7 @@ public sealed class AntigravityProfileService : IDisposable
     public event Action<string>? LogMessage;
 
     private readonly Dictionary<string, string> _lastCapturedSignatures = new(StringComparer.OrdinalIgnoreCase);
-    private bool _isInitialized = false;
+    private readonly bool _isInitialized = false;
 
     public AntigravityProfileService()
     {
@@ -189,7 +189,7 @@ public sealed class AntigravityProfileService : IDisposable
             {
                 if (!Directory.Exists(ProfilesBaseDir))
                 {
-                    return Array.Empty<string>();
+                    return [];
                 }
 
                 var dirs = Directory.GetDirectories(ProfilesBaseDir)
@@ -204,7 +204,7 @@ public sealed class AntigravityProfileService : IDisposable
             catch (Exception ex)
             {
                 Log($"Error listing profiles: {ex.Message}");
-                return Array.Empty<string>();
+                return [];
             }
         }
     }
@@ -554,7 +554,7 @@ public sealed class AntigravityProfileService : IDisposable
                     var acctsObj = new
                     {
                         active = email,
-                        accounts = new[] { new { email = email } }
+                        accounts = new[] { new { email } }
                     };
                     File.WriteAllText(destGoogleAccounts, JsonSerializer.Serialize(acctsObj, new JsonSerializerOptions { WriteIndented = true }));
                 }
@@ -940,7 +940,7 @@ public sealed class AntigravityProfileService : IDisposable
         }
     }
 
-    public string? GetAccountEmail(string profileName)
+    public static string? GetAccountEmail(string profileName)
     {
         try
         {
@@ -1079,7 +1079,7 @@ public sealed class AntigravityProfileService : IDisposable
         if (e.ChangeType == WatcherChangeTypes.Deleted) return;
 
         // Strictly ignore anything inside antigravity-ide
-        if (e.FullPath.IndexOf("antigravity-ide", StringComparison.OrdinalIgnoreCase) >= 0) return;
+        if (e.FullPath.Contains("antigravity-ide", StringComparison.OrdinalIgnoreCase)) return;
 
         // Check if active session now has valid credentials
         if (!HasValidActiveCredentials()) return;
@@ -1153,11 +1153,9 @@ public sealed class AntigravityProfileService : IDisposable
         {
             try
             {
-                using (var srcStream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                using (var dstStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    srcStream.CopyTo(dstStream);
-                }
+                using var srcStream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var dstStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+                srcStream.CopyTo(dstStream);
                 return;
             }
             catch (IOException) when (i < 4)
@@ -1189,7 +1187,7 @@ public sealed class AntigravityProfileService : IDisposable
             throw new InvalidOperationException("Operation blocked: root .gemini directory cannot be modified or cleared.");
         }
 
-        if (normalized.IndexOf("antigravity-ide", StringComparison.OrdinalIgnoreCase) >= 0)
+        if (normalized.Contains("antigravity-ide", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("Operation blocked: antigravity-ide directory is strictly protected.");
         }
@@ -1202,7 +1200,7 @@ public sealed class AntigravityProfileService : IDisposable
             if (!File.Exists(googleAccountsJsonPath))
             {
                 string alt = googleAccountsJsonPath.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
-                    ? googleAccountsJsonPath.Substring(0, googleAccountsJsonPath.Length - 5)
+                    ? googleAccountsJsonPath[..^5]
                     : googleAccountsJsonPath + ".json";
                 if (File.Exists(alt)) googleAccountsJsonPath = alt;
                 else return null;
@@ -1546,7 +1544,7 @@ public sealed class AntigravityProfileService : IDisposable
             void OnChanged(object sender, FileSystemEventArgs e)
             {
                 if (e.ChangeType == WatcherChangeTypes.Deleted) return;
-                if (e.FullPath.IndexOf("antigravity-ide", StringComparison.OrdinalIgnoreCase) >= 0) return;
+                if (e.FullPath.Contains("antigravity-ide", StringComparison.OrdinalIgnoreCase)) return;
 
                 if (_virtualHomeDebounceTimers.TryGetValue(profileName, out var existingTimer))
                 {

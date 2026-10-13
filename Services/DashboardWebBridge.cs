@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -922,12 +923,11 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "save_ai_config":
                 if (data.TryGetProperty("config", out var cfgProp))
                 {
-                    var deserialized = JsonSerializer.Deserialize<AiConfig>(cfgProp.GetRawText(), CaseInsensitiveJsonOptions);
-                    if (deserialized != null)
-                    {
-                        AiConfigService.Instance.SaveConfig(deserialized);
-                        SendResponse(requestId, true, new { success = true });
-                    }
+                    // Patch the live config rather than replacing it, so anything the dashboard
+                    // does not send is left alone.
+                    ApplyConfigPatch(AiConfigService.Instance.CurrentConfig, cfgProp);
+                    AiConfigService.Instance.SaveConfig(AiConfigService.Instance.CurrentConfig);
+                    SendResponse(requestId, true, new { success = true });
                 }
                 break;
 
@@ -1379,7 +1379,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "ensure_proton_vpn_running":
             case "launch_proton_vpn":
                 {
-                    bool isRunning = _protonVpnService.IsClientRunning();
+                    bool isRunning = ProtonVpnService.IsClientRunning();
                     bool launched = false;
                     if (!isRunning)
                     {
@@ -1397,9 +1397,9 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "focus_opencode_session":
             case "FocusOpenCodeSession":
                 {
-                    string? sId = data.TryGetProperty("sessionId", out var sEl) ? sEl.GetString() : (data.TryGetProperty("id", out var idEl) ? idEl.GetString() : null);
+                    // The payload may still carry a session id; the implementation never used it.
                     string? sDir = data.TryGetProperty("directory", out var dEl) ? dEl.GetString() : (data.TryGetProperty("path", out var pEl) ? pEl.GetString() : null);
-                    var ok = FocusOpenCodeSession(sId, sDir);
+                    var ok = FocusOpenCodeSession(sDir);
                     SendResponse(requestId, ok, new { success = ok });
                 }
                 break;
@@ -1729,7 +1729,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
         return new
         {
-            version = "v1.0.3",
+            version = AppInfo.DisplayVersion,
             lanIp,
             lanUrl,
             lanProxyPort,
@@ -1779,7 +1779,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
         var ports = new List<int> { proxy.ListenPort };
         ports.AddRange(proxy.GetForwarders().Where(f => f.Bound).Select(f => f.Port));
-        return ports.Distinct().Order().ToList();
+        return [.. ports.Distinct().Order()];
     }
 
     private async Task<FirewallStatus> GetFirewallStatusAsync(IReadOnlyList<int> requiredPorts, bool force)
@@ -1874,7 +1874,7 @@ public sealed partial class DashboardWebBridge : IDisposable
     {
         if (clients == null || clients.Count == 0) return [];
 
-        return clients.Select(c => (object)new
+        return [.. clients.Select(c => (object)new
         {
             ip = c.IpAddress,
             deviceName = c.DeviceName,
@@ -1884,7 +1884,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             activeConnections = c.ActiveConnections,
             firstSeen = c.FirstSeen.ToString("o"),
             lastActivity = c.LastActivity.ToString("o")
-        }).ToArray();
+        })];
     }
 
     private List<object> GetRunningWebPorts(string lanIp, int hermesPort, int lanProxyPort)
@@ -1987,6 +1987,40 @@ public sealed partial class DashboardWebBridge : IDisposable
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// Applies a dashboard config payload as a patch instead of a replacement.
+    ///
+    /// The dashboard sends back only the fields it renders, so a blind replace reset every field
+    /// the DTO does not emit. The Claude gateway settings are the live example: they are edited
+    /// through their own actions, never appear in the DTO, and were silently wiped back to their
+    /// defaults by any unrelated dashboard save. Copying only the properties actually present
+    /// means a field the dashboard does not own cannot be clobbered by it.
+    ///
+    /// Reflection is safe here because the csproj roots the whole HermesHub assembly
+    /// (TrimmerRootAssembly) and reflection-based JSON is already enabled.
+    /// </summary>
+    private static void ApplyConfigPatch(AiConfig target, JsonElement payload)
+    {
+        var incoming = JsonSerializer.Deserialize<AiConfig>(payload.GetRawText(), CaseInsensitiveJsonOptions);
+        if (incoming == null) return;
+
+        var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in payload.EnumerateObject())
+        {
+            present.Add(property.Name);
+        }
+
+        foreach (var property in typeof(AiConfig).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (!property.CanRead || !property.CanWrite) continue;
+
+            var jsonName = property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? property.Name;
+            if (!present.Contains(jsonName)) continue;
+
+            property.SetValue(target, property.GetValue(incoming));
+        }
     }
 
     /// <summary>
@@ -2292,9 +2326,10 @@ public sealed partial class DashboardWebBridge : IDisposable
         return _openCodeWatcher?.GetStateDto() ?? new OpenCodeStateDto();
     }
 
-    public bool FocusOpenCodeSession(string? sessionId, string? directory)
+    public bool FocusOpenCodeSession(string? directory)
     {
-        return _openCodeWatcher?.FocusOpenCodeSession(sessionId, directory) ?? false;
+        // No instance state involved, so the watcher exposes this statically.
+        return OpenCodeWatcherService.FocusOpenCodeSession(directory);
     }
 
     public async Task<OpenCodeStateDto> RefreshOpenCodeSidecarAsync()
@@ -2657,7 +2692,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         }
 
         // Native fallback disconnect
-        await _protonVpnService.DisconnectAsync();
+        await ProtonVpnService.DisconnectAsync();
         await NetworkHelper.DisconnectWarpAsync();
         await NetworkHelper.FlushDnsAsync();
         var freshDetails = await NetworkHelper.FetchPublicIpDetailsAsync();
@@ -2691,7 +2726,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             .Select(name => (object)new
             {
                 name,
-                email = _cliManager.ProfileService.GetAccountEmail(name) ?? string.Empty,
+                email = AntigravityProfileService.GetAccountEmail(name) ?? string.Empty,
                 isRunning = _cliManager.IsProfileRunning(name),
                 port = _cliManager.GetPortForProfile(name)
             })];

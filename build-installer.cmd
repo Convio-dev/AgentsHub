@@ -22,7 +22,17 @@ if not defined ISCC_EXE (
     exit /b 1
 )
 
-"%ISCC_EXE%" AgentsHub.iss
+rem The project file is the one source of truth for the version. Read it here and hand it to
+rem the installer script, which no longer carries its own copy.
+set "APP_VERSION="
+for /f "usebackq tokens=2 delims=<>" %%v in (`findstr /r /c:"<Version>[0-9]" HermesHub.csproj`) do set "APP_VERSION=%%v"
+if not defined APP_VERSION (
+    echo [ERROR] Could not read ^<Version^> from HermesHub.csproj.
+    exit /b 1
+)
+echo      Version: %APP_VERSION%
+
+"%ISCC_EXE%" /DMyAppVersion=%APP_VERSION% AgentsHub.iss
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Inno Setup compilation failed.
     exit /b %ERRORLEVEL%

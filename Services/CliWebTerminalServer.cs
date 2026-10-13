@@ -11,7 +11,7 @@ using HermesHub.Helpers;
 
 namespace HermesHub.Services;
 
-public sealed class CliWebTerminalServer : IDisposable
+public sealed partial class CliWebTerminalServer : IDisposable
 {
     private sealed class WebSocketClient(WebSocket socket)
     {
@@ -59,7 +59,10 @@ public sealed class CliWebTerminalServer : IDisposable
     public CliWebTerminalServer(CliManagerService cliManager)
     {
         _cliManager = cliManager;
-        _webAssetsDir = Path.Combine(AppContext.BaseDirectory, "assets", "web");
+        // Served straight out of ui/, the same tree the embedded WebViews load. There used to be a
+        // second flat copy under assets/web that had to be hand-synced with this one, and the
+        // terminal page served over the LAN was the copy nobody remembered to update.
+        _webAssetsDir = Path.Combine(AppContext.BaseDirectory, "ui");
 
         // Fixed endpoints. Antigravity profiles register their own on launch through
         // EnsureEndpoint, because each profile binds its own allocated port.
@@ -106,7 +109,7 @@ public sealed class CliWebTerminalServer : IDisposable
         }
     }
 
-    private void StopEndpoint(EndpointListener endpoint)
+    private static void StopEndpoint(EndpointListener endpoint)
     {
         try
         {
@@ -195,7 +198,12 @@ public sealed class CliWebTerminalServer : IDisposable
                     ".html" => "text/html; charset=utf-8",
                     ".js" => "application/javascript; charset=utf-8",
                     ".css" => "text/css; charset=utf-8",
+                    ".png" => "image/png",
+                    ".svg" => "image/svg+xml",
                     ".ico" => "image/x-icon",
+                    ".json" => "application/json; charset=utf-8",
+                    ".map" => "application/json; charset=utf-8",
+                    ".woff2" => "font/woff2",
                     _ => "application/octet-stream"
                 };
                 await ServeFileAsync(context, relative, contentType).ConfigureAwait(false);
@@ -216,14 +224,9 @@ public sealed class CliWebTerminalServer : IDisposable
         string fullPath = Path.Combine(_webAssetsDir, relativeFile);
         if (!File.Exists(fullPath))
         {
-            string altPath = Path.Combine(AppContext.BaseDirectory, "ui", relativeFile);
-            if (File.Exists(altPath)) fullPath = altPath;
-            else
-            {
-                context.Response.StatusCode = 404;
-                context.Response.Close();
-                return;
-            }
+            context.Response.StatusCode = 404;
+            context.Response.Close();
+            return;
         }
 
         byte[] bytes;
@@ -235,8 +238,7 @@ public sealed class CliWebTerminalServer : IDisposable
             string reqTheme = context.Request.QueryString["theme"] ?? (ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark");
             string reqAccent = context.Request.QueryString["accent"] ?? ThemeManager.AccentHex;
             bool isLight = reqTheme.Equals("light", StringComparison.OrdinalIgnoreCase);
-
-            var (h, s, l) = ThemeManager.HexToHsl(reqAccent);
+            var (h, _, _) = ThemeManager.HexToHsl(reqAccent);
             double lum = ThemeManager.GetLuminance(reqAccent);
             string accentText = lum > 0.62 ? "#0a0f14" : "#ffffff";
 
@@ -250,7 +252,7 @@ public sealed class CliWebTerminalServer : IDisposable
 
             string dynamicRoot = $":root {{\n      --bg-terminal: {bgTerminal};\n      --bg-overlay: {bgOverlay};\n      --bg-card: {bgCard};\n      --border-subtle: {borderSubtle};\n      --text-main: {textMain};\n      --text-muted: {textMuted};\n      --text-dim: {textDim};\n      --accent-green: {reqAccent};\n      --accent-text: {accentText};\n    }}";
 
-            var rootRegex = new Regex(@":root\s*\{[^}]*\}", RegexOptions.Singleline);
+            var rootRegex = MyRegex();
             if (rootRegex.IsMatch(html))
             {
                 html = rootRegex.Replace(html, dynamicRoot, 1);
@@ -465,4 +467,7 @@ public sealed class CliWebTerminalServer : IDisposable
         _cts.Dispose();
         GC.SuppressFinalize(this);
     }
+
+    [GeneratedRegex(@":root\s*\{[^}]*\}", RegexOptions.Singleline)]
+    private static partial Regex MyRegex();
 }

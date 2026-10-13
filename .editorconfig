@@ -1,0 +1,76 @@
+# Editor configuration for Agents Hub.
+#
+# The point of this file is that the IDE and `dotnet build` agree. They did not before: the IDE
+# reported 78 style problems that the build never mentioned, so a build could pass clean while
+# the editor disagreed. The build now enforces the style rules below, and every rule listed as
+# `warning` is one the codebase currently satisfies.
+#
+# If you add a rule here at `warning` and the build starts warning, either fix the code or lower
+# the rule to `suggestion` with a comment saying why. Do not leave it half-decided.
+
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Web files and project files in this tree are two-space indented.
+[*.{json,yml,yaml,html,css,js,csproj,props,targets}]
+indent_size = 2
+
+# Line endings are deliberately not set here. The working tree is a mix of CRLF and LF and git
+# owns the conversion, so enforcing one would turn a fresh checkout into a wall of warnings.
+
+# ---------------------------------------------------------------------------
+# C#
+# ---------------------------------------------------------------------------
+[*.cs]
+
+# --- Style rules the build enforces (all currently satisfied) ---
+dotnet_diagnostic.IDE0028.severity = warning   # use collection initializer
+dotnet_diagnostic.IDE0037.severity = warning   # use inferred member name
+dotnet_diagnostic.IDE0044.severity = warning   # make field readonly
+dotnet_diagnostic.IDE0057.severity = warning   # use range operator
+dotnet_diagnostic.IDE0059.severity = warning   # value assigned is never used
+dotnet_diagnostic.IDE0060.severity = warning   # remove unused parameter
+dotnet_diagnostic.IDE0063.severity = warning   # use simple using statement
+dotnet_diagnostic.IDE0290.severity = warning   # use primary constructor
+dotnet_diagnostic.IDE0301.severity = warning   # use collection expression for empty
+dotnet_diagnostic.IDE0305.severity = warning   # use collection expression
+dotnet_diagnostic.IDE0330.severity = warning   # use System.Threading.Lock
+
+# IDE0031 (use null propagation) is deliberately a suggestion, not a warning.
+#
+# Its code fix rewrites `if (x != null) x.P = v;` as `x?.P = v;`. That is null-conditional
+# assignment, which only exists from C# 14 on. Applying it project-wide put 32 of those in the
+# tree, `dotnet build` accepted them under the .NET 10 default language version, and the C#
+# extension in the editor then reported 25 errors it could not parse. The syntax is not worth
+# the tooling split, so the 32 were reverted and the rule stays a suggestion. Same reasoning
+# applies to any other rule whose fix emits newer-than-C#13 syntax.
+dotnet_diagnostic.IDE0031.severity = suggestion
+
+# --- Analysis families deliberately left as suggestions ---
+#
+# These are real improvements, not noise, but they are not bugs and each family needs its own
+# pass. Counts measured on 2026-10-14 with `dotnet format analyzers --severity info`:
+#
+#   SYSLIB1054 (18)  DllImport -> LibraryImport. Two conversions already failed: CredWrite and
+#                    InitializeProcThreadAttributeList take structs with embedded strings that the
+#                    source generator cannot marshal (SYSLIB1051). The credential store and the
+#                    ConPTY layer stay on DllImport until they are done properly, one call at a
+#                    time, with the marshalling checked against the native signature.
+#   CA1869    ( 5)   Cache JsonSerializerOptions instead of allocating per call.
+#   CA1822    ( 1)   Make members static where they use no instance state.
+#   SYSLIB1045 ( 1)  Use GeneratedRegex.
+dotnet_diagnostic.SYSLIB1054.severity = suggestion
+dotnet_diagnostic.SYSLIB1051.severity = error
+dotnet_diagnostic.CA1869.severity = suggestion
+dotnet_diagnostic.CA1822.severity = suggestion
+dotnet_diagnostic.SYSLIB1045.severity = suggestion
+dotnet_diagnostic.CA2249.severity = warning
+dotnet_diagnostic.CA1854.severity = warning
+
+# Naming and nullability follow the SDK defaults; nothing here overrides them.

@@ -4,7 +4,7 @@
 
   // Global Client State
   const state = {
-    version: 'v1.0.3',
+    version: '',
     lanIp: '127.0.0.1',
     lanUrl: 'http://127.0.0.1:9095/',
     lanProxyPort: 9191,
@@ -879,9 +879,21 @@
 
   // Keep the About card's version in step with the version the backend reports, so it is not
   // a second hardcoded copy of the number.
+  // Every version shown in the interface comes from the backend, which reads it off the
+  // assembly. Nothing here is allowed to carry its own copy.
   function renderAboutVersion() {
-    const el = document.getElementById('about-version');
-    if (el && state.version) el.textContent = state.version;
+    const version = state.version || '';
+
+    const about = document.getElementById('about-version');
+    if (about) about.textContent = version;
+
+    const brand = document.getElementById('brand-version');
+    if (brand) brand.textContent = version.toUpperCase();
+
+    const bootLine = document.getElementById('boot-log-line');
+    if (bootLine) {
+      bootLine.textContent = version ? 'Agents Hub ' + version + ' active.' : 'Agents Hub starting.';
+    }
   }
 
   function setupSettingsView() {
@@ -4560,7 +4572,7 @@
     try {
       const res = await callBridge('get_initial_state');
       if (res) {
-        state.version = res.version || 'v1.0.3';
+        state.version = res.version || '';
         renderAboutVersion();
         state.lanIp = res.lanIp || '127.0.0.1';
         state.lanUrl = res.lanUrl || 'http://127.0.0.1:9095/';

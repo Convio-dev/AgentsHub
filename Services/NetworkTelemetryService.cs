@@ -15,10 +15,10 @@ public static class NetworkTelemetryService
     private const int SampleIntervalMs = 2000;
     private const int CounterRefreshMs = 30000;
 
-    private static readonly object SampleLock = new();
+    private static readonly Lock SampleLock = new();
 
     private static System.Threading.Timer? _sampler;
-    private static List<PerformanceCounter> _counters = new();
+    private static List<PerformanceCounter> _counters = [];
     private static DateTime _countersRefreshUtc = DateTime.MinValue;
 
     // Written by the sampler thread, read by the UI thread. A plain int keeps the write atomic,
@@ -106,7 +106,7 @@ public static class NetworkTelemetryService
         catch
         {
             DisposeAll(_counters);
-            _counters = new List<PerformanceCounter>();
+            _counters = [];
             return;
         }
 

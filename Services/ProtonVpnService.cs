@@ -20,18 +20,13 @@ public sealed class ProtonVpnRotationResult
     public string Message { get; set; } = string.Empty;
 }
 
-public sealed class ProtonVpnService
+public sealed class ProtonVpnService(OpenCodeWatcherService? openCodeWatcher = null)
 {
-    private readonly OpenCodeWatcherService? _openCodeWatcher;
+    private readonly OpenCodeWatcherService? _openCodeWatcher = openCodeWatcher;
     private DateTime _lastRotationTime = DateTime.MinValue;
-    private readonly object _rotationLock = new();
+    private readonly Lock _rotationLock = new();
 
-    public ProtonVpnService(OpenCodeWatcherService? openCodeWatcher = null)
-    {
-        _openCodeWatcher = openCodeWatcher;
-    }
-
-    public string? FindProtonExecutable()
+    public static string? FindProtonExecutable()
     {
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
@@ -70,7 +65,7 @@ public sealed class ProtonVpnService
         return null;
     }
 
-    public bool IsClientRunning()
+    public static bool IsClientRunning()
     {
         return Process.GetProcessesByName("ProtonVPN.Client").Length > 0 ||
                Process.GetProcessesByName("ProtonVPN").Length > 0 ||
@@ -160,7 +155,7 @@ public sealed class ProtonVpnService
         }
     }
 
-    public async Task<bool> DisconnectAsync()
+    public static async Task<bool> DisconnectAsync()
     {
         try
         {

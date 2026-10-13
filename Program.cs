@@ -1,6 +1,6 @@
 namespace HermesHub;
 
-internal static class Program
+internal static partial class Program
 {
     private const string MutexName = @"Global\AgentsHub_SingleInstance_Mutex";
     private const string ShowWindowEventName = @"Global\AgentsHub_ShowWindow_Event";
@@ -63,6 +63,7 @@ internal static class Program
         }
     }
 
-    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
-    private static extern bool AttachConsole(int dwProcessId);
+    [System.Runtime.InteropServices.LibraryImport("kernel32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static partial bool AttachConsole(int dwProcessId);
 }

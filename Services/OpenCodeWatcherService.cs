@@ -52,7 +52,7 @@ public sealed class OpenCodeInteractivePromptDto
     public string Command { get; set; } = string.Empty;
 
     [JsonPropertyName("options")]
-    public List<string> Options { get; set; } = new();
+    public List<string> Options { get; set; } = [];
 
     [JsonPropertyName("createdAt")]
     public string CreatedAt { get; set; } = DateTime.UtcNow.ToString("o");
@@ -73,34 +73,34 @@ public sealed class OpenCodeStateDto
     public int Pid { get; set; }
 
     [JsonPropertyName("activeSessions")]
-    public List<OpenCodeSessionDto> ActiveSessions { get; set; } = new();
+    public List<OpenCodeSessionDto> ActiveSessions { get; set; } = [];
 }
 
-public sealed class OpenCodeWatcherService : IDisposable
+public sealed partial class OpenCodeWatcherService : IDisposable
 {
     private static readonly HttpClient _httpClient = new()
     {
         Timeout = TimeSpan.FromSeconds(3)
     };
 
-    [DllImport("user32.dll")]
+    [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetForegroundWindow(IntPtr hWnd);
+    private static partial bool SetForegroundWindow(IntPtr hWnd);
 
-    [DllImport("user32.dll")]
+    [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    private static partial bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
-    [DllImport("user32.dll")]
+    [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool IsIconic(IntPtr hWnd);
+    private static partial bool IsIconic(IntPtr hWnd);
 
     private const int SW_RESTORE = 9;
 
-    private readonly object _stateLock = new();
-    private readonly List<OpenCodeSessionDto> _sessions = new();
-    private readonly List<FileSystemWatcher> _fileWatchers = new();
-    private System.Threading.Timer? _heartbeatTimer;
+    private readonly Lock _stateLock = new();
+    private readonly List<OpenCodeSessionDto> _sessions = [];
+    private readonly List<FileSystemWatcher> _fileWatchers = [];
+    private readonly System.Threading.Timer? _heartbeatTimer;
     private CancellationTokenSource? _debounceCts;
     private bool _isDisposed;
 
@@ -445,7 +445,7 @@ public sealed class OpenCodeWatcherService : IDisposable
             _consecutiveFailures++;
 
             bool processAlive = false;
-            int currentPid = 0;
+            int currentPid;
             lock (_stateLock) { currentPid = Pid; }
             if (currentPid > 0)
             {
@@ -546,7 +546,7 @@ public sealed class OpenCodeWatcherService : IDisposable
             else
             {
                 StopSseListener();
-                OnSessionsUpdated?.Invoke(new List<OpenCodeSessionDto>());
+                OnSessionsUpdated?.Invoke([]);
             }
         }
     }
@@ -791,7 +791,7 @@ public sealed class OpenCodeWatcherService : IDisposable
     {
         lock (_stateLock)
         {
-            return _sessions.Select(s => new OpenCodeSessionDto
+            return [.. _sessions.Select(s => new OpenCodeSessionDto
             {
                 Id = s.Id,
                 Title = s.Title,
@@ -799,7 +799,7 @@ public sealed class OpenCodeWatcherService : IDisposable
                 Status = s.Status,
                 IsBusy = s.IsBusy,
                 AgentState = s.AgentState
-            }).ToList();
+            })];
         }
     }
 
@@ -818,7 +818,7 @@ public sealed class OpenCodeWatcherService : IDisposable
         }
     }
 
-    public bool FocusOpenCodeSession(string? sessionId = null, string? directory = null)
+    public static bool FocusOpenCodeSession(string? directory = null)
     {
         try
         {
@@ -1218,7 +1218,7 @@ public sealed class OpenCodeWatcherService : IDisposable
                                 if (string.IsNullOrWhiteSpace(line)) continue;
                                 if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    var dataJson = line.Substring(5).Trim();
+                                    var dataJson = line[5..].Trim();
                                     HandleSseEventJson(dataJson);
                                 }
                             }
@@ -1369,7 +1369,7 @@ public sealed class OpenCodeWatcherService : IDisposable
         catch { }
     }
 
-    private OpenCodeInteractivePromptDto? ParseInteractivePromptElement(JsonElement el, string defaultType)
+    private static OpenCodeInteractivePromptDto? ParseInteractivePromptElement(JsonElement el, string defaultType)
     {
         try
         {

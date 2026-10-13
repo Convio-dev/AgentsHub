@@ -24,10 +24,10 @@ public class ConnectedClientInfo
 /// </summary>
 public sealed record LanForwarderInfo(int Port, string Label, string Address, bool Bound, string Detail);
 
-public class LanProxyService : IDisposable
+public partial class LanProxyService : IDisposable
 {
     private TcpListener? _listener;
-    private readonly List<TcpListener> _secondaryListeners = new();
+    private readonly List<TcpListener> _secondaryListeners = [];
     private CancellationTokenSource? _cts;
     private Task? _listenTask;
     private readonly Lock _lock = new();
@@ -39,7 +39,7 @@ public class LanProxyService : IDisposable
     /// included with <see cref="LanForwarderInfo.Bound"/> false so the UI can report a port that
     /// is not reachable instead of assuming every forwarder came up.
     /// </summary>
-    private readonly List<LanForwarderInfo> _forwarders = new();
+    private readonly List<LanForwarderInfo> _forwarders = [];
 
     public int ListenPort { get; set; } = 9191;
     public int TargetPort { get; set; } = 9119;
@@ -61,7 +61,7 @@ public class LanProxyService : IDisposable
     {
         lock (_lock)
         {
-            return _forwarders.ToList();
+            return [.. _forwarders];
         }
     }
 
@@ -148,7 +148,7 @@ public class LanProxyService : IDisposable
         }
     }
 
-    private async Task AcceptForwardConnectionAsync(TcpListener listener, int targetLoopbackPort, CancellationToken token)
+    private static async Task AcceptForwardConnectionAsync(TcpListener listener, int targetLoopbackPort, CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
@@ -382,7 +382,7 @@ public class LanProxyService : IDisposable
 
     private static string? ExtractUserAgent(string headers)
     {
-        var match = Regex.Match(headers, @"(?im)^User-Agent:\s*([^\r\n]+)");
+        var match = MyRegex().Match(headers);
         return match.Success ? match.Groups[1].Value.Trim() : null;
     }
 
@@ -694,7 +694,7 @@ public class LanProxyService : IDisposable
             }
         }
 
-        var (h, s, l) = ThemeManager.HexToHsl(accent);
+        var (h, _, _) = ThemeManager.HexToHsl(accent);
         double lum = ThemeManager.GetLuminance(accent);
         string accentText = lum > 0.62 ? "#0a0f14" : "#ffffff";
 
@@ -1039,4 +1039,7 @@ public class LanProxyService : IDisposable
         Stop();
         GC.SuppressFinalize(this);
     }
+
+    [GeneratedRegex(@"(?im)^User-Agent:\s*([^\r\n]+)", RegexOptions.None, "en-US")]
+    private static partial Regex MyRegex();
 }

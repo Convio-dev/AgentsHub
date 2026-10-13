@@ -48,7 +48,7 @@ public class ThemeColors
     public required Color HeaderButtonHover { get; init; }
 }
 
-public static class ThemeManager
+public static partial class ThemeManager
 {
     private static AppTheme _currentTheme = AppTheme.Dark;
     private static string _accentHex = "#4049B9";
@@ -250,8 +250,8 @@ public static class ThemeManager
         ThemeChanged?.Invoke();
     }
 
-    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+    [System.Runtime.InteropServices.LibraryImport("dwmapi.dll")]
+    private static partial int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
 

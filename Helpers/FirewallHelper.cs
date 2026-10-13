@@ -77,7 +77,7 @@ public sealed class FirewallStatus
     }
 
     public IReadOnlyList<int> MissingPorts(IReadOnlyList<int> requiredPorts) =>
-        requiredPorts.Where(p => !RulePorts.Contains(p)).Distinct().Order().ToList();
+        [.. requiredPorts.Where(p => !RulePorts.Contains(p)).Distinct().Order()];
 }
 
 public sealed class FirewallGrantResult
@@ -388,7 +388,7 @@ public static class FirewallHelper
             RuleInbound = ruleInbound,
             RuleAllow = ruleAllow,
             RuleProfile = ruleProfile,
-            RulePorts = rulePorts.Distinct().Order().ToList(),
+            RulePorts = [.. rulePorts.Distinct().Order()],
             DomainEnabled = domain,
             PrivateEnabled = priv,
             PublicEnabled = pub,
