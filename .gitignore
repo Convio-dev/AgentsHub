@@ -25,6 +25,17 @@ publish/
 appsettings.Development.json
 appsettings.Production.json
 
+# Local agent workspace data - session notes can contain personal details
+# (account emails, machine paths, installed tool versions).
+.workbuddy-ai/
+
+# Per-profile Antigravity credentials. Each profile folder holds a real Google OAuth
+# token in gemini_credential.json - never commit these.
+Profiles/
+
+# Local tool state
+.freebuff/
+
 # logs
 *.log
 logs/
