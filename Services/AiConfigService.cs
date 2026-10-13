@@ -11,7 +11,7 @@ public class AiProvider
     public string Name { get; set; } = string.Empty;
     public string BaseUrl { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
-    public List<string> Models { get; set; } = new();
+    public List<string> Models { get; set; } = [];
     public bool IsEnabled { get; set; } = true;
 
     public override string ToString() => IsEnabled ? Name : $"{Name} (Disabled)";
@@ -107,16 +107,16 @@ public class PromptEnhancerPreset
 public class AiConfig
 {
     [JsonPropertyName("devTools")]
-    public List<DevToolItem> DevTools { get; set; } = new();
+    public List<DevToolItem> DevTools { get; set; } = [];
 
     [JsonPropertyName("toolTargets")]
     public Dictionary<string, string> ToolTargets { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public List<AiProvider> Providers { get; set; } = new();
+    public List<AiProvider> Providers { get; set; } = [];
     public string? SelectedProviderId { get; set; }
     public string? SelectedModel { get; set; }
-    public List<DashboardShortcut> Shortcuts { get; set; } = new();
-    public List<CliWorkspaceConfig> CliWorkspaces { get; set; } = new();
+    public List<DashboardShortcut> Shortcuts { get; set; } = [];
+    public List<CliWorkspaceConfig> CliWorkspaces { get; set; } = [];
 
     public string ClaudeEngineMode { get; set; } = "OpenRouter";
     public string ClaudeSelectedModel { get; set; } = "qwen/qwen-2.5-coder-32b-instruct:free";
@@ -124,7 +124,7 @@ public class AiConfig
 
     public bool ClaudeInjectionEnabled { get; set; } = true;
     public string ClaudeSelectedGatewayId { get; set; } = "preset_local_proxy";
-    public List<ClaudeGatewayProvider> ClaudeGatewayProviders { get; set; } = new();
+    public List<ClaudeGatewayProvider> ClaudeGatewayProviders { get; set; } = [];
 
     [JsonPropertyName("promptEnhancerTemperature")]
     public double PromptEnhancerTemperature { get; set; } = 0.6;
@@ -133,7 +133,7 @@ public class AiConfig
     public string ActivePromptPresetId { get; set; } = "preset_general";
 
     [JsonPropertyName("promptPresets")]
-    public List<PromptEnhancerPreset> PromptPresets { get; set; } = new();
+    public List<PromptEnhancerPreset> PromptPresets { get; set; } = [];
 
     /// <summary>
     /// Last workspace preset the user applied. One of "Preset_Clean", "Preset_Duo", "Preset_All".
@@ -147,9 +147,13 @@ public class AiConfigService
     private static readonly Lazy<AiConfigService> _instance = new(() => new AiConfigService());
     public static AiConfigService Instance => _instance.Value;
 
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private readonly string _configFilePath;
     private AiConfig _config = new();
+
+    // Cached so config load/save does not allocate a new options instance on every call.
+    private static readonly JsonSerializerOptions CaseInsensitiveJsonOptions = new() { PropertyNameCaseInsensitive = true };
+    private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
 
     public event Action? ConfigChanged;
 
@@ -204,10 +208,7 @@ public class AiConfigService
                 if (File.Exists(_configFilePath))
                 {
                     var json = File.ReadAllText(_configFilePath);
-                    var loaded = JsonSerializer.Deserialize<AiConfig>(json, new JsonSerializerOptions
-                    {
-                        PropertyNameCaseInsensitive = true
-                    });
+                    var loaded = JsonSerializer.Deserialize<AiConfig>(json, CaseInsensitiveJsonOptions);
 
                     if (loaded != null)
                     {
@@ -246,10 +247,7 @@ public class AiConfigService
                     Directory.CreateDirectory(dir);
                 }
 
-                var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                });
+                var json = JsonSerializer.Serialize(_config, IndentedJsonOptions);
                 File.WriteAllText(_configFilePath, json);
             }
             catch
@@ -310,7 +308,7 @@ public class AiConfigService
         SaveConfig(_config);
     }
 
-    public List<DevToolItem> GetDefaultDevTools()
+    public static List<DevToolItem> GetDefaultDevTools()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var freebuffPath = Path.Combine(localAppData, @"Programs\@codebufffreebuff-desktop\Freebuff.exe");
@@ -318,8 +316,8 @@ public class AiConfigService
         var opencodePath = Path.Combine(localAppData, @"Programs\@opencodedesktop\OpenCode.exe");
         var antigravityPath = Path.Combine(localAppData, @"Programs\Antigravity IDE\Antigravity IDE.exe");
 
-        return new List<DevToolItem>
-        {
+        return
+        [
             new()
             {
                 Id = "freebuff",
@@ -368,10 +366,10 @@ public class AiConfigService
                 Target = @"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App",
                 IsEnabled = true
             }
-        };
+        ];
     }
 
-    public Dictionary<string, string> GetDefaultToolTargets()
+    public static Dictionary<string, string> GetDefaultToolTargets()
     {
         var defaults = GetDefaultDevTools();
         var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -394,8 +392,8 @@ public class AiConfigService
 
     public static List<PromptEnhancerPreset> BuildDefaultPromptPresets()
     {
-        return new List<PromptEnhancerPreset>
-        {
+        return
+        [
             new()
             {
                 Id = "preset_general",
@@ -424,7 +422,7 @@ public class AiConfigService
                 IsBuiltIn = true,
                 SystemPrompt = "You are an expert prompt engineer. Transform the user's prompt into a complete, structured master prompt with clear sections: Role, Context, Primary Objective, Detailed Instructions, Constraints, and Expected Output Format. Return ONLY the enhanced prompt without meta-commentary."
             }
-        };
+        ];
     }
 
     /// <summary>
@@ -474,12 +472,9 @@ public class AiConfigService
         }
     }
 
-    public void SyncToolTargets(AiConfig config)    {
+    public static void SyncToolTargets(AiConfig config)    {
         if (config == null) return;
-        if (config.ToolTargets == null)
-        {
-            config.ToolTargets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        }
+        config.ToolTargets ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         if (config.DevTools != null)
         {
@@ -544,10 +539,7 @@ public class AiConfigService
         }
 
         // 2. Ensure DevTools collection
-        if (_config.DevTools == null)
-        {
-            _config.DevTools = new List<DevToolItem>();
-        }
+        _config.DevTools ??= [];
 
         if (_config.DevTools.Count == 0)
         {
@@ -588,13 +580,13 @@ public class AiConfigService
                 Name = "OpenRouter",
                 BaseUrl = "https://openrouter.ai/api/v1",
                 ApiKey = string.Empty,
-                Models = new List<string>
-                {
+                Models =
+                [
                     "anthropic/claude-3.5-sonnet",
                     "deepseek/deepseek-chat",
                     "openai/gpt-4o-mini",
                     "google/gemini-2.0-flash-exp:free"
-                }
+                ]
             });
 
             _config.Providers.Add(new AiProvider
@@ -603,12 +595,12 @@ public class AiConfigService
                 Name = "OpenAI",
                 BaseUrl = "https://api.openai.com/v1",
                 ApiKey = string.Empty,
-                Models = new List<string>
-                {
+                Models =
+                [
                     "gpt-4o",
                     "gpt-4o-mini",
                     "o3-mini"
-                }
+                ]
             });
 
             _config.Providers.Add(new AiProvider
@@ -617,11 +609,11 @@ public class AiConfigService
                 Name = "Groq",
                 BaseUrl = "https://api.groq.com/openai/v1",
                 ApiKey = string.Empty,
-                Models = new List<string>
-                {
+                Models =
+                [
                     "llama-3.3-70b-versatile",
                     "deepseek-r1-distill-llama-70b"
-                }
+                ]
             });
 
             _config.Providers.Add(new AiProvider
@@ -630,11 +622,11 @@ public class AiConfigService
                 Name = "DeepSeek",
                 BaseUrl = "https://api.deepseek.com/v1",
                 ApiKey = string.Empty,
-                Models = new List<string>
-                {
+                Models =
+                [
                     "deepseek-chat",
                     "deepseek-reasoner"
-                }
+                ]
             });
 
             _config.Providers.Add(new AiProvider
@@ -643,25 +635,25 @@ public class AiConfigService
                 Name = "Local Ollama",
                 BaseUrl = "http://localhost:11434/v1",
                 ApiKey = string.Empty,
-                Models = new List<string>
-                {
+                Models =
+                [
                     "llama3.2",
                     "qwen2.5-coder"
-                }
+                ]
             });
         }
 
         if (_config.Shortcuts == null || _config.Shortcuts.Count == 0)
         {
-            _config.Shortcuts = new List<DashboardShortcut>
-            {
+            _config.Shortcuts =
+            [
                 new() { Name = "Antigravity IDE", Target = _config.ToolTargets.GetValueOrDefault("Antigravity-ide", defaults.GetValueOrDefault("Antigravity-ide", string.Empty)), Category = "AI Dev Tool" },
                 new() { Name = "Claude Desktop", Target = _config.ToolTargets.GetValueOrDefault("Claude", defaults.GetValueOrDefault("Claude", string.Empty)), Category = "AI Dev Tool" },
                 new() { Name = "ChatGPT Desktop", Target = _config.ToolTargets.GetValueOrDefault("ChatGPT", defaults.GetValueOrDefault("ChatGPT", string.Empty)), Category = "AI Dev Tool" },
                 new() { Name = "OpenCode Desktop", Target = _config.ToolTargets.GetValueOrDefault("OpenCode", defaults.GetValueOrDefault("OpenCode", string.Empty)), Category = "AI Dev Tool" },
                 new() { Name = "Cline", Target = _config.ToolTargets.GetValueOrDefault("Cline", defaults.GetValueOrDefault("Cline", string.Empty)), Category = "AI Dev Tool" },
                 new() { Name = "FreeBuff Desktop", Target = _config.ToolTargets.GetValueOrDefault("FreeBuff", defaults.GetValueOrDefault("FreeBuff", string.Empty)), Category = "AI Dev Tool" }
-            };
+            ];
         }
         else
         {
@@ -713,7 +705,7 @@ public class AiConfigService
 
         if (_config.CliWorkspaces == null || _config.CliWorkspaces.Count == 0)
         {
-            _config.CliWorkspaces = new List<CliWorkspaceConfig>();
+            _config.CliWorkspaces = [];
         }
 
         // Migrate legacy IDs if present in loaded config
@@ -791,10 +783,7 @@ public class AiConfigService
             _config.ClaudeCustomGatewayUrl = "https://openrouter.ai/api/v1";
         }
 
-        if (_config.ClaudeGatewayProviders == null)
-        {
-            _config.ClaudeGatewayProviders = new List<ClaudeGatewayProvider>();
-        }
+        _config.ClaudeGatewayProviders ??= [];
 
         var existingKey = GetOpenRouterApiKey();
 
@@ -850,7 +839,7 @@ public class AiConfigService
         id = id.Trim();
         if (id.StartsWith("antigravity_cli:", StringComparison.OrdinalIgnoreCase))
         {
-            return $"antigravity_cli:{id.Substring("antigravity_cli:".Length).Trim()}";
+            return $"antigravity_cli:{id["antigravity_cli:".Length..].Trim()}";
         }
         var clean = id.ToLowerInvariant().Replace("_", "").Replace("-", "");
         return clean switch
@@ -1138,15 +1127,15 @@ public class AiConfigService
             {
                 EnsureDefaults();
             }
-            var list = _config.ClaudeGatewayProviders ?? new List<ClaudeGatewayProvider>();
-            return list.Select(p => new ClaudeGatewayProvider
+            var list = _config.ClaudeGatewayProviders ?? [];
+            return [.. list.Select(p => new ClaudeGatewayProvider
             {
                 Id = p.Id,
                 Name = p.Name,
                 BaseUrl = p.BaseUrl,
                 ApiKey = p.ApiKey,
                 IsPreset = p.IsPreset
-            }).ToList();
+            })];
         }
     }
 
@@ -1159,7 +1148,7 @@ public class AiConfigService
                 EnsureDefaults();
             }
 
-            var providers = _config.ClaudeGatewayProviders ?? new List<ClaudeGatewayProvider>();
+            var providers = _config.ClaudeGatewayProviders ?? [];
             var selectedId = GetClaudeSelectedGatewayId();
             var found = providers.FirstOrDefault(p => string.Equals(p.Id, selectedId, StringComparison.OrdinalIgnoreCase));
             if (found != null)
@@ -1187,10 +1176,7 @@ public class AiConfigService
     {
         lock (_lock)
         {
-            if (_config.ClaudeGatewayProviders == null)
-            {
-                _config.ClaudeGatewayProviders = new List<ClaudeGatewayProvider>();
-            }
+            _config.ClaudeGatewayProviders ??= [];
 
             var idx = _config.ClaudeGatewayProviders.FindIndex(p => string.Equals(p.Id, provider.Id, StringComparison.OrdinalIgnoreCase));
             if (idx >= 0)
@@ -1246,7 +1232,7 @@ public class AiConfigService
         "huggingfaceh4/zephyr-7b-beta:free"
     ];
 
-    private readonly List<string> _cachedFreeModels = new();
+    private readonly List<string> _cachedFreeModels = [];
     private DateTime _lastFreeModelsFetch = DateTime.MinValue;
 
     public IReadOnlyList<string> GetCachedOpenRouterFreeModels()
@@ -1255,7 +1241,7 @@ public class AiConfigService
         {
             if (_cachedFreeModels.Count > 0)
             {
-                return _cachedFreeModels.ToList();
+                return [.. _cachedFreeModels];
             }
             return DefaultFallbackFreeModels;
         }
@@ -1267,7 +1253,7 @@ public class AiConfigService
         {
             if (!forceRefresh && _cachedFreeModels.Count > 0 && (DateTime.UtcNow - _lastFreeModelsFetch).TotalHours < 2)
             {
-                return _cachedFreeModels.ToList();
+                return [.. _cachedFreeModels];
             }
         }
 
@@ -1331,7 +1317,7 @@ public class AiConfigService
             {
                 _cachedFreeModels.AddRange(DefaultFallbackFreeModels);
             }
-            return _cachedFreeModels.ToList();
+            return [.. _cachedFreeModels];
         }
     }
 }

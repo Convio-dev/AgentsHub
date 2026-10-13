@@ -24,8 +24,8 @@ public partial class CliWebviewForm : Form
             {
                 using var currentProc = Process.GetCurrentProcess();
                 var procName = currentProc.ProcessName;
-                return procName.IndexOf("devenv", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                       procName.IndexOf("DesignToolsServer", StringComparison.OrdinalIgnoreCase) >= 0;
+                return procName.Contains("devenv", StringComparison.OrdinalIgnoreCase) ||
+                       procName.Contains("DesignToolsServer", StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
@@ -56,7 +56,7 @@ public partial class CliWebviewForm : Form
     private Button? _manageClisButton;
     private Button? _shellLauncherButton;
     private ContextMenuStrip? _shellContextMenu;
-    private readonly List<Button> _dynamicTabButtons = new();
+    private readonly List<Button> _dynamicTabButtons = [];
     private readonly ToolTip _actionToolTip = new() { ShowAlways = true };
     private bool _isUpdatingProfileCombo;
     private bool _isUpdatingClaudeControls;
@@ -656,8 +656,8 @@ public partial class CliWebviewForm : Form
                 string normId = AiConfigService.NormalizeCliId(ws.Id);
                 if (string.Equals(normId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
                 {
-                    var allProfiles = _cliManager?.ProfileService.GetProfiles() ?? Array.Empty<string>();
-                    var runningProfiles = _cliManager?.GetRunningAntigravityProfiles() ?? Array.Empty<string>();
+                    var allProfiles = _cliManager?.ProfileService.GetProfiles() ?? [];
+                    var runningProfiles = _cliManager?.GetRunningAntigravityProfiles() ?? [];
                     var activeProfile = _cliManager?.ProfileService.ActiveProfile ?? "Default";
 
                     var profileTabsToShow = new List<string>();
@@ -827,9 +827,9 @@ public partial class CliWebviewForm : Form
         menu.Items.Add(new ToolStripSeparator());
 
         // Built-in CLIs have fixed ids, so only profiles and custom workspaces can be renamed.
-        menu.Items.Add(new ToolStripMenuItem("Rename", null, async (_, _) =>
+        menu.Items.Add(new ToolStripMenuItem("Rename", null, (_, _) =>
         {
-            await HandleRenameTabAsync(tabId);
+            HandleRenameTab(tabId);
         })
         {
             Enabled = isAgyProfile || !isBuiltIn
@@ -905,7 +905,7 @@ public partial class CliWebviewForm : Form
         }
     }
 
-    private async Task HandleRenameTabAsync(string tabId)
+    private void HandleRenameTab(string tabId)
     {
         if (_cliManager == null) return;
 
@@ -1318,18 +1318,11 @@ public partial class CliWebviewForm : Form
         _emptyStateCard?.Invalidate();
     }
 
-    private sealed class EmptyStateOption
+    private sealed class EmptyStateOption(string id, string label, bool isShell)
     {
-        public EmptyStateOption(string id, string label, bool isShell)
-        {
-            Id = id;
-            Label = label;
-            IsShell = isShell;
-        }
-
-        public string Id { get; }
-        public string Label { get; }
-        public bool IsShell { get; }
+        public string Id { get; } = id;
+        public string Label { get; } = label;
+        public bool IsShell { get; } = isShell;
 
         public override string ToString() => Label;
     }
@@ -2003,7 +1996,7 @@ public partial class CliWebviewForm : Form
         }
     }
 
-    private Microsoft.Web.WebView2.WinForms.WebView2 CreateHostedWebView()
+    private static Microsoft.Web.WebView2.WinForms.WebView2 CreateHostedWebView()
     {
         // WebView2's default background is opaque white, which paints as a
         // white bar across the terminal while the control resizes with the form.

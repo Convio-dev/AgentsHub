@@ -1038,7 +1038,7 @@ public class SettingsForm : Form
                 _workingConfig.ToolTargets[tool.Id] = tool.Target;
             }
         }
-        AiConfigService.Instance.SyncToolTargets(_workingConfig);
+        AiConfigService.SyncToolTargets(_workingConfig);
 
         // Save
         AiConfigService.Instance.SaveConfig(_workingConfig);

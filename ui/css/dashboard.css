@@ -83,6 +83,111 @@ body, html {
   display: none !important;
 }
 
+/* CLI Dependencies list (Settings view) */
+.dependencies-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dependency-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition: border-color 0.15s ease;
+}
+
+.dependency-row:hover {
+  border-color: var(--accent-green);
+}
+
+.dependency-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+  color: var(--accent-green);
+  flex-shrink: 0;
+}
+
+.dependency-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dependency-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dependency-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.dependency-detail {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dep-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dep-badge-ok,
+.dep-badge-busy {
+  color: var(--accent-green);
+  background: var(--accent-green-bg);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.dep-badge-missing {
+  color: var(--accent-amber);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.dep-badge-failed {
+  color: var(--accent-red);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.dependency-action {
+  flex-shrink: 0;
+}
+
+.dependency-log {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  max-height: 90px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* Sidebar */
 #sidebar {
   width: var(--sidebar-width);

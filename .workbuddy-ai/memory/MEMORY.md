@@ -38,5 +38,14 @@ CPU **and** GPU telemetry were both removed. The telemetry card now shows a RAM 
 
 **Never sample perf counters on the UI thread.** `Bytes Total/sec` is a delta counter, so the counter set is cached and *reused* across the 30s refresh — creating counters per poll, or reading one twice in a row (the DTO has two callers: the 2.5s timer push and the 2s UI poll), returns meaningless values. The service publishes a plain `int` snapshot via `Volatile.Write` so readers never take the sample lock. The first `Network Interface` enumeration in a cold process can take several seconds (Windows perflib cold start), so the network badge may read 0 briefly after launch.
 
+## Dependency checker (Settings view)
+`Services/DependencyCheckerService.cs` detects the four external tools (`hermes`, `claude`, `antigravity`, `warp`) for the "CLI Dependencies & Runtimes" card. Resolution is managed PATH/PATHEXT scanning plus `%ENV%` fallback paths — **not** `where.exe`. `.cmd`/`.bat` hits must be probed via `cmd.exe /c ""path" --version"` (they cannot launch directly with `UseShellExecute = false`).
+
+**`hermes --version` costs ~4s** (Python boot), so `VersionProbeTimeoutMs` is 8s; probes run in parallel so that ≈4s is the whole scan's floor. The scan is lazy — it only fires when the Settings view first opens.
+
 ## Tooling
 - antislop skills are installed at `.agents/skills/`; `AGENTS.md` routes UI/copy/layout work there. No global antislop mode is saved (`%APPDATA%\antislop\settings.json` absent), so the mode question must be asked per session.
+- There is **no `.editorconfig`**, and the IDE analyzers (IDE00xx / CAxxxx) are **not** surfaced as build warnings — `dotnet build` reports 0 warnings while the IDE lists dozens. To apply them, scope `dotnet format` precisely:
+  `dotnet format style|analyzers HermesHub.csproj --diagnostics <ids> --include <files> --severity info`
+  (`--severity` only accepts info/warn/error.) Review with `git diff`; the tree is usually committed so rollback is safe.
+- `DllImport` → `LibraryImport` conversions need `[return: MarshalAs(UnmanagedType.Bool)]` for `bool`-returning Win32 calls, plus `partial` on the containing type, or the build fails with SYSLIB1051.

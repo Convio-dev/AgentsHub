@@ -137,6 +137,37 @@
         }
         break;
 
+      case 'dependency_install_progress':
+        if (payload && payload.id && payload.line) {
+          const lines = dependencyState.logs[payload.id] || (dependencyState.logs[payload.id] = []);
+          lines.push(payload.line);
+          if (lines.length > 200) lines.shift();
+          renderDependencies();
+        }
+        break;
+
+      case 'dependency_install_complete':
+        if (payload && payload.id) {
+          if (payload.dependency) {
+            const index = dependencyState.items.findIndex(d => d.id === payload.id);
+            if (index >= 0) dependencyState.items[index] = payload.dependency;
+            else dependencyState.items.push(payload.dependency);
+          }
+
+          dependencyState.busy[payload.id] = payload.success ? 'done' : 'failed';
+          renderDependencies();
+
+          showToast(payload.message || (payload.success ? 'Install finished.' : 'Install failed.'),
+            payload.success ? 'success' : 'error', 6000);
+
+          // Let the transient Done/Failed badge decay back to the detected state.
+          setTimeout(() => {
+            delete dependencyState.busy[payload.id];
+            renderDependencies();
+          }, 4000);
+        }
+        break;
+
       case 'cli_status_changed':
         if (payload && payload.cli) {
           state.clis[payload.cli] = { state: payload.state, port: payload.port, pid: payload.pid };
@@ -463,6 +494,11 @@
         if (fitAddonInstance) fitAddonInstance.fit();
       }, 50);
     }
+
+    // Dependency detection spawns version probes, so only scan the first time Settings opens.
+    if (viewName === 'settings' && !dependencyState.loaded && !dependencyState.loading) {
+      loadDependencies(false);
+    }
   }
 
   // Discord Adaptive Theme & Color Engine
@@ -627,6 +663,176 @@
   function applyAccentColor(hex) {
     const currentTheme = localStorage.getItem('agents_hub_theme') || 'dark';
     applyAdaptiveTheme(currentTheme, hex);
+  }
+
+  // CLI Dependencies & Runtimes (Settings view)
+  const dependencyState = {
+    items: [],
+    busy: {},
+    logs: {},
+    loaded: false,
+    loading: false
+  };
+
+  const DEPENDENCY_ICONS = {
+    hermes: '<path d="m12 2 9 5v10l-9 5-9-5V7Z"/><path d="m3 7 9 5 9-5"/><path d="M12 22V12"/>',
+    claude: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+    antigravity: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
+    warp: '<path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.2 9.4 4.5 4.5 0 0 0 7 19Z"/>'
+  };
+
+  function dependencyBadge(item, busy) {
+    if (busy === 'running') return { cls: 'dep-badge-busy', text: 'Installing' };
+    if (busy === 'done') return { cls: 'dep-badge-ok', text: 'Done' };
+    if (busy === 'failed') return { cls: 'dep-badge-failed', text: 'Failed' };
+    if (item.isInstalled) return { cls: 'dep-badge-ok', text: 'Installed' };
+    return { cls: 'dep-badge-missing', text: 'Not Installed' };
+  }
+
+  function dependencyDetailText(item, busy) {
+    if (busy === 'running') return 'Installing in the background - output streams below.';
+    if (busy === 'failed') return 'Last install attempt failed. Check the output below.';
+
+    if (item.isInstalled) {
+      const parts = [];
+      if (item.version) parts.push(item.version);
+      if (item.path) parts.push(item.path);
+      return parts.length ? parts.join('  -  ') : 'Detected on PATH';
+    }
+
+    return `Command: ${item.commandPreview || 'not available'}`;
+  }
+
+  function dependencyActionLabel(item, busy) {
+    if (busy === 'running') return 'Installing...';
+    if (item.installKind === 'browser') return item.isInstalled ? 'Verify' : 'Open Site';
+    return item.isInstalled ? 'Reinstall' : 'Install Now';
+  }
+
+  function renderDependencies() {
+    const container = document.getElementById('dependencies-list-container');
+    if (!container) return;
+
+    if (dependencyState.items.length === 0) {
+      container.innerHTML = `<div style="font-size: 12px; color: var(--text-dim); padding: 8px 2px;">${
+        dependencyState.loading ? 'Scanning for installed CLI tools...' : 'No dependency data yet. Click Recheck All.'
+      }</div>`;
+      return;
+    }
+
+    container.innerHTML = '';
+
+    dependencyState.items.forEach(item => {
+      const busy = dependencyState.busy[item.id];
+      const badge = dependencyBadge(item, busy);
+
+      const row = document.createElement('div');
+      row.className = 'dependency-row';
+
+      const icon = document.createElement('div');
+      icon.className = 'dependency-icon';
+      icon.innerHTML = `<svg class="icon-svg" style="width: 17px; height: 17px;" viewBox="0 0 24 24">${DEPENDENCY_ICONS[item.id] || DEPENDENCY_ICONS.hermes}</svg>`;
+
+      const info = document.createElement('div');
+      info.className = 'dependency-info';
+
+      const titleLine = document.createElement('div');
+      titleLine.className = 'dependency-title-line';
+
+      const name = document.createElement('span');
+      name.className = 'dependency-name';
+      name.textContent = item.name;
+
+      const badgeEl = document.createElement('span');
+      badgeEl.className = 'dep-badge ' + badge.cls;
+      badgeEl.textContent = badge.text;
+
+      titleLine.appendChild(name);
+      titleLine.appendChild(badgeEl);
+
+      const detail = document.createElement('div');
+      detail.className = 'dependency-detail';
+      detail.textContent = dependencyDetailText(item, busy);
+
+      info.appendChild(titleLine);
+      info.appendChild(detail);
+
+      const logLines = dependencyState.logs[item.id];
+      if (logLines && logLines.length > 0) {
+        const logEl = document.createElement('div');
+        logEl.className = 'dependency-log';
+        logEl.textContent = logLines.join('\n');
+        info.appendChild(logEl);
+      }
+
+      const action = document.createElement('div');
+      action.className = 'dependency-action';
+
+      const button = document.createElement('button');
+      button.className = 'btn ' + (item.isInstalled && item.installKind !== 'browser' ? 'btn-outline' : 'btn-success');
+      button.style.padding = '5px 12px';
+      button.style.fontSize = '11.5px';
+      button.style.whiteSpace = 'nowrap';
+      button.textContent = dependencyActionLabel(item, busy);
+      button.disabled = busy === 'running' || dependencyState.loading;
+      button.addEventListener('click', () => handleDependencyAction(item));
+
+      action.appendChild(button);
+
+      row.appendChild(icon);
+      row.appendChild(info);
+      row.appendChild(action);
+      container.appendChild(row);
+    });
+  }
+
+  async function loadDependencies(announceFailure) {
+    if (dependencyState.loading) return;
+
+    dependencyState.loading = true;
+    renderDependencies();
+
+    try {
+      const res = await callBridge('get_dependencies_status');
+      dependencyState.items = (res && res.dependencies) || [];
+      dependencyState.loaded = true;
+    } catch (err) {
+      if (announceFailure) {
+        showToast('Dependency scan failed: ' + err.message, 'error', 4500);
+      } else {
+        console.warn('Dependency scan failed:', err);
+      }
+    } finally {
+      dependencyState.loading = false;
+      renderDependencies();
+    }
+  }
+
+  async function handleDependencyAction(item) {
+    if (dependencyState.busy[item.id] === 'running') return;
+
+    // An already-installed browser-only tool has nothing to install; re-verify instead.
+    if (item.installKind === 'browser' && item.isInstalled) {
+      await loadDependencies(true);
+      return;
+    }
+
+    dependencyState.busy[item.id] = 'running';
+    dependencyState.logs[item.id] = [];
+    renderDependencies();
+
+    try {
+      await callBridge('run_dependency_install', { id: item.id });
+      showToast(`Starting ${item.name} installer...`, 'info', 3000);
+    } catch (err) {
+      dependencyState.busy[item.id] = 'failed';
+      renderDependencies();
+      showToast(`Could not start installer: ${err.message}`, 'error', 4500);
+    }
+  }
+
+  function setupDependencies() {
+    document.getElementById('btn-recheck-dependencies')?.addEventListener('click', () => loadDependencies(true));
   }
 
   function setupSettingsView() {
@@ -4174,6 +4380,7 @@
       ['Navigation', setupNavigation],
       ['Terminal', initTerminal],
       ['TerminalPresets', setupTerminalPresets],
+      ['Dependencies', setupDependencies],
       ['PromptEnhancer', setupPromptEnhancer],
       ['ProvidersView', setupProvidersView],
       ['ClaudeConfig', setupClaudeGatewayConfig],

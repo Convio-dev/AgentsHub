@@ -10,7 +10,7 @@ using Microsoft.Web.WebView2.Core;
 
 namespace HermesHub.Services;
 
-public sealed class DashboardWebBridge : IDisposable
+public sealed partial class DashboardWebBridge : IDisposable
 {
     private readonly Form _mainForm;
     private readonly CliManagerService _cliManager;
@@ -20,7 +20,7 @@ public sealed class DashboardWebBridge : IDisposable
     private CliWebviewForm? _cliWebviewForm;
 
     // Debounced terminal output buffers per CLI type (Constraint 3)
-    private readonly object _streamLock = new();
+    private readonly Lock _streamLock = new();
     private readonly Dictionary<CliType, System.Text.StringBuilder> _terminalBuffers = new()
     {
         [CliType.Hermes] = new System.Text.StringBuilder(),
@@ -34,7 +34,10 @@ public sealed class DashboardWebBridge : IDisposable
 
     // Smart Cooldown rate limiter for VPN quota reset (backend guard)
     private static DateTime _lastQuotaResetTime = DateTime.MinValue;
-    private static readonly object _quotaResetLock = new();
+    private static readonly Lock _quotaResetLock = new();
+
+    // Cached so payload parsing does not allocate a new options instance on every message.
+    private static readonly JsonSerializerOptions CaseInsensitiveJsonOptions = new() { PropertyNameCaseInsensitive = true };
     private readonly ProtonVpnService _protonVpnService;
 
     public DashboardWebBridge(Form mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
@@ -219,8 +222,9 @@ public sealed class DashboardWebBridge : IDisposable
         public ulong ullAvailExtendedVirtual;
     }
 
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+    [System.Runtime.InteropServices.LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static partial bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
 
     private void OnMetricsTimerTick(object? sender, EventArgs e)
     {
@@ -231,7 +235,7 @@ public sealed class DashboardWebBridge : IDisposable
         PostEventToUi("hardware_metrics", GetSystemTelemetryDto());
     }
 
-    private object GetSystemTelemetryDto()
+    private static object GetSystemTelemetryDto()
     {
         // Sampling runs on NetworkTelemetryService's own thread; this read is cached and cheap.
         NetworkTelemetryService.EnsureStarted();
@@ -242,7 +246,7 @@ public sealed class DashboardWebBridge : IDisposable
         long hermesMemMb = 0;
         try
         {
-            var mem = new MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(MEMORYSTATUSEX)) };
+            var mem = new MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MEMORYSTATUSEX>() };
             if (GlobalMemoryStatusEx(ref mem))
             {
                 totalRamMb = (long)(mem.ullTotalPhys / (1024 * 1024));
@@ -266,10 +270,10 @@ public sealed class DashboardWebBridge : IDisposable
             netKbps = Math.Round(netKiloBytesPerSec, 1),
             netMbps = Math.Round(netKiloBytesPerSec / 1024.0, 3),
             ramMb = usedRamMb,
-            totalRamMb = totalRamMb,
+            totalRamMb,
             memoryUsedGb = memUsedGb,
             memoryTotalGb = memTotalGb,
-            hermesMemMb = hermesMemMb
+            hermesMemMb
         };
     }
 
@@ -577,7 +581,7 @@ public sealed class DashboardWebBridge : IDisposable
 
                     var newProv = new ClaudeGatewayProvider
                     {
-                        Id = "custom_" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        Id = "custom_" + Guid.NewGuid().ToString("N")[..8],
                         Name = string.IsNullOrWhiteSpace(name) ? "Custom Gateway" : name,
                         BaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "https://openrouter.ai/api/v1" : baseUrl,
                         ApiKey = apiKey,
@@ -675,7 +679,7 @@ public sealed class DashboardWebBridge : IDisposable
                         model = cfg.GetClaudeSelectedModel(),
                         gatewayUrl = cfg.GetClaudeCustomGatewayUrl(),
                         hasApiKey = !string.IsNullOrWhiteSpace(apiKey),
-                        apiKey = apiKey
+                        apiKey
                     });
                 }
                 break;
@@ -723,7 +727,7 @@ public sealed class DashboardWebBridge : IDisposable
                         model = cfg.GetClaudeSelectedModel(),
                         gatewayUrl = cfg.GetClaudeCustomGatewayUrl(),
                         hasApiKey = !string.IsNullOrWhiteSpace(apiKey),
-                        apiKey = apiKey
+                        apiKey
                     });
                 }
                 break;
@@ -797,8 +801,8 @@ public sealed class DashboardWebBridge : IDisposable
                             {
                                 valid = true,
                                 usage = Math.Round(usage, 4),
-                                limit = limit,
-                                label = label,
+                                limit,
+                                label,
                                 message = limit.HasValue ? $"Limit: ${limit.Value:F2} | Usage: ${usage:F4}" : $"Usage: ${usage:F4}"
                             });
                         }
@@ -825,7 +829,7 @@ public sealed class DashboardWebBridge : IDisposable
             case "save_ai_config":
                 if (data.TryGetProperty("config", out var cfgProp))
                 {
-                    var deserialized = JsonSerializer.Deserialize<AiConfig>(cfgProp.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    var deserialized = JsonSerializer.Deserialize<AiConfig>(cfgProp.GetRawText(), CaseInsensitiveJsonOptions);
                     if (deserialized != null)
                     {
                         AiConfigService.Instance.SaveConfig(deserialized);
@@ -868,6 +872,31 @@ public sealed class DashboardWebBridge : IDisposable
                 {
                     preset = AiConfigService.Instance.GetTerminalWorkspacePreset()
                 });
+                break;
+
+            case "get_dependencies_status":
+                {
+                    var dependencies = await DependencyCheckerService.GetDependenciesStatusAsync();
+                    SendResponse(requestId, true, new { dependencies = dependencies.Select(ToDependencyDto).ToList() });
+                }
+                break;
+
+            case "run_dependency_install":
+                {
+                    var dependencyId = data.TryGetProperty("id", out var depIdProp) ? depIdProp.GetString() : null;
+                    var definition = DependencyCheckerService.Find(dependencyId);
+
+                    if (definition == null)
+                    {
+                        SendResponse(requestId, false, "Unknown dependency.");
+                        break;
+                    }
+
+                    // Acknowledge immediately: the installer streams its output as events, so the
+                    // UI never has to wait on a long-running script.
+                    SendResponse(requestId, true, new { success = true, started = true, id = definition.Id, name = definition.Name });
+                    _ = RunDependencyInstallAsync(definition);
+                }
                 break;
 
             case "launch_tool":
@@ -957,7 +986,7 @@ public sealed class DashboardWebBridge : IDisposable
                             if (devTool != null) devTool.Target = selectedPath;
                         }
                         AiConfigService.Instance.SaveConfig(cfg);
-                        SendResponse(requestId, true, new { toolName = tool, toolId = toolId, path = selectedPath });
+                        SendResponse(requestId, true, new { toolName = tool, toolId, path = selectedPath });
                     }
                     else
                     {
@@ -979,8 +1008,8 @@ public sealed class DashboardWebBridge : IDisposable
                         toolId = rsToolIdProp.GetString();
                     }
 
-                    var defaults = AiConfigService.Instance.GetDefaultToolTargets();
-                    var defaultTools = AiConfigService.Instance.GetDefaultDevTools();
+                    var defaults = AiConfigService.GetDefaultToolTargets();
+                    var defaultTools = AiConfigService.GetDefaultDevTools();
 
                     string defPath = string.Empty;
                     if (!string.IsNullOrWhiteSpace(toolId))
@@ -1006,7 +1035,7 @@ public sealed class DashboardWebBridge : IDisposable
                         if (devTool != null) devTool.Target = defPath;
                     }
                     AiConfigService.Instance.SaveConfig(cfg);
-                    SendResponse(requestId, true, new { toolName = tool, toolId = toolId, path = defPath });
+                    SendResponse(requestId, true, new { toolName = tool, toolId, path = defPath });
                 }
                 break;
 
@@ -1153,7 +1182,7 @@ public sealed class DashboardWebBridge : IDisposable
             case "save_shortcuts":
                 if (data.TryGetProperty("shortcuts", out var scProp))
                 {
-                    var scList = JsonSerializer.Deserialize<List<DashboardShortcut>>(scProp.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    var scList = JsonSerializer.Deserialize<List<DashboardShortcut>>(scProp.GetRawText(), CaseInsensitiveJsonOptions);
                     if (scList != null)
                     {
                         var cfg = AiConfigService.Instance.CurrentConfig;
@@ -1485,7 +1514,7 @@ public sealed class DashboardWebBridge : IDisposable
         }
     }
 
-    private bool LaunchExecutableTarget(string target, string toolName)
+    private static bool LaunchExecutableTarget(string target, string toolName)
     {
         if (string.IsNullOrWhiteSpace(target)) return false;
         try
@@ -1507,7 +1536,7 @@ public sealed class DashboardWebBridge : IDisposable
         }
     }
 
-    private void LaunchToolApp(string toolName)
+    private static void LaunchToolApp(string toolName)
     {
         var target = AiConfigService.Instance.GetToolTarget(toolName, string.Empty);
         if (string.IsNullOrWhiteSpace(target))
@@ -1619,7 +1648,7 @@ public sealed class DashboardWebBridge : IDisposable
         };
     }
 
-    private object GetRunningWebPorts(string lanIp, int hermesPort, int lanProxyPort)
+    private List<object> GetRunningWebPorts(string lanIp, int hermesPort, int lanProxyPort)
     {
         string themeParam = $"?theme={(ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark")}&accent={Uri.EscapeDataString(ThemeManager.AccentHex)}";
         var list = new List<object>
@@ -1682,7 +1711,7 @@ public sealed class DashboardWebBridge : IDisposable
                 localUrl = $"http://127.0.0.1:{basePort}/{themeParam}",
                 lanUrl = $"http://{lanIp}:{basePort}/{themeParam}",
                 state = isRunning ? "Running" : "Offline",
-                isRunning = isRunning
+                isRunning
             });
         }
 
@@ -1721,7 +1750,7 @@ public sealed class DashboardWebBridge : IDisposable
         return list;
     }
 
-    private object GetAiConfigDto()
+    private static object GetAiConfigDto()
     {
         var cfg = AiConfigService.Instance.CurrentConfig;
         return new
@@ -1729,7 +1758,7 @@ public sealed class DashboardWebBridge : IDisposable
             selectedProviderId = cfg.SelectedProviderId,
             selectedModel = cfg.SelectedModel,
             toolTargets = cfg.ToolTargets,
-            devTools = (cfg.DevTools ?? new List<DevToolItem>()).Select(d => new
+            devTools = (cfg.DevTools ?? []).Select(d => new
             {
                 id = d.Id,
                 name = d.Name,
@@ -1756,7 +1785,7 @@ public sealed class DashboardWebBridge : IDisposable
             }).ToList(),
             promptEnhancerTemperature = cfg.PromptEnhancerTemperature,
             activePromptPresetId = cfg.ActivePromptPresetId,
-            promptPresets = (cfg.PromptPresets ?? new List<PromptEnhancerPreset>()).Select(p => new
+            promptPresets = (cfg.PromptPresets ?? []).Select(p => new
             {
                 id = p.Id,
                 name = p.Name,
@@ -1774,7 +1803,7 @@ public sealed class DashboardWebBridge : IDisposable
             terminalWorkspacePreset = cfg.TerminalWorkspacePreset,
             // Must round-trip too: save_ai_config replaces the whole config, so omitting these
             // would silently drop every CLI workspace (including user-added ones) on any save.
-            cliWorkspaces = (cfg.CliWorkspaces ?? new List<CliWorkspaceConfig>()).Select(w => new
+            cliWorkspaces = (cfg.CliWorkspaces ?? []).Select(w => new
             {
                 id = w.Id,
                 name = w.Name,
@@ -1795,6 +1824,125 @@ public sealed class DashboardWebBridge : IDisposable
         CliType.AntigravityCli => 9339,
         _ => 0
     };
+
+    private static object ToDependencyDto(DependencyStatus status) => new
+    {
+        id = status.Id,
+        name = status.Name,
+        description = status.Description,
+        isInstalled = status.IsInstalled,
+        version = status.Version,
+        path = status.Path,
+        installKind = status.InstallKind,
+        siteUrl = status.SiteUrl,
+        commandPreview = status.CommandPreview
+    };
+
+    /// <summary>
+    /// Installs a dependency in the background, streaming installer output as
+    /// dependency_install_progress events and finishing with dependency_install_complete.
+    /// </summary>
+    private async Task RunDependencyInstallAsync(DependencyDefinition definition)
+    {
+        var startedAt = DateTime.UtcNow;
+
+        try
+        {
+            if (string.Equals(definition.InstallKind, "browser", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(definition.SiteUrl))
+                {
+                    PostDependencyInstallComplete(definition.Id, false, "No download page is configured for this tool.", null);
+                    return;
+                }
+
+                Process.Start(new ProcessStartInfo(definition.SiteUrl) { UseShellExecute = true });
+                PostDependencyInstallComplete(definition.Id, true, $"Opened {definition.SiteUrl} in your default browser.", null);
+                return;
+            }
+
+            PostEventToUi("dependency_install_progress", new { id = definition.Id, line = $"Running: {definition.CommandPreview}" });
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                // Bypass is what lets the downloaded script run on machines whose execution
+                // policy would otherwise refuse it; -NoProfile keeps startup deterministic.
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -Command \"{definition.InstallCommand}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            };
+
+            using var process = new Process { StartInfo = startInfo };
+            var buffer = new StringBuilder();
+
+            process.OutputDataReceived += (_, e) => ForwardInstallLine(definition.Id, e.Data, buffer);
+            process.ErrorDataReceived += (_, e) => ForwardInstallLine(definition.Id, e.Data, buffer);
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            try
+            {
+                await process.WaitForExitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                PostDependencyInstallComplete(definition.Id, false, "Installer timed out after 5 minutes.", null);
+                return;
+            }
+
+            bool succeeded = process.ExitCode == 0;
+            string message = succeeded
+                ? $"Installer finished in {(DateTime.UtcNow - startedAt).TotalSeconds:F0}s."
+                : $"Installer exited with code {process.ExitCode}.";
+
+            // Re-detect so the badge reflects reality rather than the exit code alone.
+            var status = DependencyCheckerService.GetStatus(definition.Id);
+            if (succeeded && status is { IsInstalled: false })
+            {
+                succeeded = false;
+                message = "Installer finished, but the tool is still not resolvable. A shell restart may be required.";
+            }
+
+            PostDependencyInstallComplete(definition.Id, succeeded, message, status);
+        }
+        catch (Exception ex)
+        {
+            PostDependencyInstallComplete(definition.Id, false, ex.Message, null);
+        }
+    }
+
+    private void ForwardInstallLine(string dependencyId, string? line, StringBuilder buffer)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return;
+
+        if (buffer.Length < 4000)
+        {
+            buffer.AppendLine(line);
+        }
+
+        PostEventToUi("dependency_install_progress", new { id = dependencyId, line });
+    }
+
+    private void PostDependencyInstallComplete(string dependencyId, bool success, string message, DependencyStatus? status)
+    {
+        PostEventToUi("dependency_install_complete", new
+        {
+            id = dependencyId,
+            success,
+            message,
+            dependency = status == null ? null : ToDependencyDto(status)
+        });
+    }
 
     private void PostEventToUi(string eventType, object payload)
     {
@@ -1818,7 +1966,7 @@ public sealed class DashboardWebBridge : IDisposable
         {
             timestamp = DateTime.Now.ToString("HH:mm:ss"),
             tag = source,
-            level = level,
+            level,
             text = $"[{source}] {message}"
         });
     }
@@ -2047,8 +2195,8 @@ public sealed class DashboardWebBridge : IDisposable
                         success,
                         provider = providerName,
                         cooldownSeconds,
-                        old = new { ipv4 = oldIpv4, ipv6 = oldIpv6, country = country },
-                        @new = new { ipv4 = newIpv4, ipv6 = newIpv6, country = country, flag = countryCode },
+                        old = new { ipv4 = oldIpv4, ipv6 = oldIpv6, country },
+                        @new = new { ipv4 = newIpv4, ipv6 = newIpv6, country, flag = countryCode },
                         oldIp = oldIpv4 != "unknown" ? oldIpv4 : oldIp,
                         newIp = newIpv4 != "unknown" ? newIpv4 : newIp,
                         oldIpv4,
@@ -2256,15 +2404,14 @@ public sealed class DashboardWebBridge : IDisposable
 
     private object[] GetProfilesWithEmail()
     {
-        return _cliManager.ProfileService.GetProfiles()
+        return [.. _cliManager.ProfileService.GetProfiles()
             .Select(name => (object)new
             {
                 name,
                 email = _cliManager.ProfileService.GetAccountEmail(name) ?? string.Empty,
                 isRunning = _cliManager.IsProfileRunning(name),
                 port = _cliManager.GetPortForProfile(name)
-            })
-            .ToArray();
+            })];
     }
 
     public void Dispose()
