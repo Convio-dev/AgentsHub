@@ -992,6 +992,12 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "get_dev_tools":
+                // Local reads only: File.Exists per tool. Cheap enough to call whenever the view
+                // opens, so the path health on screen is never stale.
+                SendResponse(requestId, true, new { devTools = BuildDevToolDtos() });
+                break;
+
             case "launch_tool":
                 {
                     string? target = null;
@@ -1023,12 +1029,12 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                     if (string.IsNullOrWhiteSpace(target))
                     {
-                        SendResponse(requestId, false, "Target path is empty. Please click 'Browse' to set an executable path first.");
+                        SendResponse(requestId, false, "Target path is empty. Set one with Browse first.");
                         break;
                     }
 
-                    bool launched = LaunchExecutableTarget(target, toolName ?? "Tool");
-                    SendResponse(requestId, launched, new { success = launched, target });
+                    var (launched, launchMessage) = LaunchExecutableTarget(target, toolName ?? "Tool");
+                    SendResponse(requestId, launched, new { success = launched, target, message = launchMessage });
                 }
                 break;
 
@@ -1623,38 +1629,42 @@ public sealed partial class DashboardWebBridge : IDisposable
         }
     }
 
-    private static bool LaunchExecutableTarget(string target, string toolName)
+    /// <summary>
+    /// Starts an external target. Returns the outcome rather than showing a dialog, so the
+    /// dashboard can report it through the same toast channel as everything else.
+    /// </summary>
+    private static (bool Launched, string Message) LaunchExecutableTarget(string target, string toolName)
     {
-        if (string.IsNullOrWhiteSpace(target)) return false;
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            return (false, $"No executable path is set for {toolName}.");
+        }
+
+        // Backstop for a quoted path that reached here without passing through config load.
+        var resolved = DevToolTargets.Normalize(target);
+
         try
         {
-            if (target.StartsWith("shell:AppsFolder\\", StringComparison.OrdinalIgnoreCase))
+            if (resolved.StartsWith("shell:AppsFolder\\", StringComparison.OrdinalIgnoreCase))
             {
-                Process.Start(new ProcessStartInfo("explorer.exe", target) { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo("explorer.exe", resolved) { UseShellExecute = true });
             }
             else
             {
-                Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo(resolved) { UseShellExecute = true });
             }
-            return true;
+            return (true, $"{toolName} started.");
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Failed to launch {toolName}: {ex.Message}", "Launch Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return false;
+            return (false, $"{toolName} could not start: {ex.Message}");
         }
     }
 
     private static void LaunchToolApp(string toolName)
     {
         var target = AiConfigService.Instance.GetToolTarget(toolName, string.Empty);
-        if (string.IsNullOrWhiteSpace(target))
-        {
-            MessageBox.Show($"Target path for '{toolName}' is not configured. Please click Browse to set its executable path.", "Target Empty", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        LaunchExecutableTarget(target, toolName);
+        _ = LaunchExecutableTarget(target, toolName);
     }
 
     private void LaunchShortcutApp(string target, string arguments)
@@ -1979,6 +1989,39 @@ public sealed partial class DashboardWebBridge : IDisposable
         return list;
     }
 
+    /// <summary>
+    /// The dev tool list with its launch health attached, so the page can show which tools
+    /// actually point at something without asking the user to find out by clicking Launch.
+    /// </summary>
+    private static List<object> BuildDevToolDtos()
+    {
+        var cfg = AiConfigService.Instance.CurrentConfig;
+        var list = new List<object>();
+
+        foreach (var d in cfg.DevTools ?? [])
+        {
+            var health = DevToolTargets.Check(d.Target);
+            list.Add(new
+            {
+                id = d.Id,
+                name = d.Name,
+                description = d.Description,
+                target = d.Target,
+                isEnabled = d.IsEnabled,
+                health = new
+                {
+                    state = health.State.ToString().ToLowerInvariant(),
+                    detail = health.Detail,
+                    resolvedTarget = health.ResolvedTarget,
+                    kind = health.Kind,
+                    launchable = health.Launchable
+                }
+            });
+        }
+
+        return list;
+    }
+
     private static object GetAiConfigDto()
     {
         var cfg = AiConfigService.Instance.CurrentConfig;
@@ -1987,14 +2030,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             selectedProviderId = cfg.SelectedProviderId,
             selectedModel = cfg.SelectedModel,
             toolTargets = cfg.ToolTargets,
-            devTools = (cfg.DevTools ?? []).Select(d => new
-            {
-                id = d.Id,
-                name = d.Name,
-                description = d.Description,
-                target = d.Target,
-                isEnabled = d.IsEnabled
-            }).ToList(),
+            devTools = BuildDevToolDtos(),
             shortcuts = cfg.Shortcuts.Select(s => new
             {
                 id = s.Id,

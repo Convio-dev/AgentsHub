@@ -501,7 +501,8 @@
     }
 
     if (viewName === 'devtools') {
-      renderDevToolsList();
+      // The health check is local reads only, so it is re-run whenever the view opens.
+      loadDevTools();
     }
 
     if (viewName === 'terminals') {
@@ -2276,7 +2277,7 @@
 
     const setBadge = (text, cls) => {
       badge.textContent = text;
-      badge.className = 'lan-badge' + (cls ? ' ' + cls : '');
+      badge.className = 'status-badge' + (cls ? ' ' + cls : '');
     };
 
     if (!loaded) {
@@ -2479,14 +2480,75 @@
   }
 
   // AI Dev Tools View (Dynamic Tools Manager)
+  // ---- AI Dev Tools ----
+
+  let devtoolExpandedId = null;
+
+  const DEVTOOL_HEALTH = {
+    ready: { text: 'Ready', cls: 'is-ok' },
+    needsfixing: { text: 'Path needs fixing', cls: 'is-warn' },
+    missing: { text: 'Path missing', cls: 'is-warn' },
+    empty: { text: 'No path set', cls: 'is-off' },
+    unsupported: { text: 'Cannot start this', cls: 'is-off' }
+  };
+
+  function devtoolHealth(tool) {
+    const h = (tool && tool.health) || {};
+    const known = DEVTOOL_HEALTH[h.state] || DEVTOOL_HEALTH.empty;
+    return {
+      state: DEVTOOL_HEALTH[h.state] ? h.state : 'empty',
+      text: known.text,
+      cls: known.cls,
+      detail: h.detail || '',
+      resolvedTarget: h.resolvedTarget || '',
+      kind: h.kind || '',
+      launchable: h.launchable === true
+    };
+  }
+
+  // The seeded descriptions restate the name ("WorkBuddy AI" -> "WorkBuddy AI", "Main executable
+  // for FreeBuff Desktop"), so they read as a fact without being one. When a description says
+  // nothing the name does not already say, the line shows where the tool actually lives, which
+  // is what helps you spot a path that moved.
+  function devtoolSubtitle(tool, health) {
+    const desc = (tool.description || '').trim();
+    const name = (tool.name || '').trim();
+    const target = (tool.target || '').trim();
+
+    const restatesName = !desc
+      || desc.toLowerCase() === name.toLowerCase()
+      || (name.length > 0 && desc.toLowerCase().includes(name.toLowerCase()));
+
+    if (!restatesName) return desc;
+    if (!target) return 'No path set yet';
+    if (health.kind === 'App alias') return 'Windows app alias';
+
+    const resolved = health.resolvedTarget || target;
+    const parts = resolved.split('\\').filter(Boolean);
+    return parts.length > 1 ? '...\\' + parts.slice(-2).join('\\') : resolved;
+  }
+
   function renderDevToolsList() {
     const container = document.getElementById('tools-list-container');
     if (!container) return;
 
-    container.innerHTML = '';
     const devTools = (state.aiConfig && Array.isArray(state.aiConfig.devTools))
       ? state.aiConfig.devTools
       : [];
+
+    container.innerHTML = '';
+
+    const countEl = document.getElementById('devtools-health-count');
+    if (countEl) {
+      const ready = devTools.filter(t => devtoolHealth(t).state === 'ready').length;
+      if (devTools.length === 0) {
+        countEl.textContent = 'No tools';
+        countEl.className = 'status-badge';
+      } else {
+        countEl.textContent = ready + ' of ' + devTools.length + ' ready';
+        countEl.className = 'status-badge' + (ready === devTools.length ? ' is-ok' : ' is-warn');
+      }
+    }
 
     if (devTools.length === 0) {
       const emptyBox = document.createElement('div');
@@ -2494,9 +2556,9 @@
       emptyBox.style.cssText = 'padding: 32px 16px; text-align: center; border: 1px dashed var(--border-subtle); border-radius: var(--radius-md); color: var(--text-muted);';
       emptyBox.innerHTML = `
         <svg class="icon-svg" style="width: 32px; height: 32px; margin: 0 auto 10px; color: var(--text-dim);" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-        <div style="font-size: 13.5px; font-weight: 600; color: var(--text-main); margin-bottom: 4px;">No AI Dev Tools Configured</div>
-        <div style="font-size: 12px; margin-bottom: 14px;">Add external desktop AI clients and development tools to launch them directly from Agents Hub.</div>
-        <button class="btn btn-primary text-xs" id="btn-empty-add-devtool" style="padding: 6px 14px;">+ Add First Tool</button>
+        <div style="font-size: 13.5px; font-weight: 600; color: var(--text-main); margin-bottom: 4px;">No AI Dev Tools configured</div>
+        <div style="font-size: 12px; margin-bottom: 14px;">Add a desktop AI client and its executable path to launch it from here.</div>
+        <button class="btn btn-primary" id="btn-empty-add-devtool" type="button" style="padding: 6px 14px; font-size: 12px;">+ Add First Tool</button>
       `;
       container.appendChild(emptyBox);
       emptyBox.querySelector('#btn-empty-add-devtool')?.addEventListener('click', () => openDevToolModal(null));
@@ -2504,79 +2566,114 @@
     }
 
     devTools.forEach(t => {
-      const isMasked = state.isShortcutsMasked;
+      const health = devtoolHealth(t);
       const targetPath = t.target || '';
       const isEnabled = t.isEnabled !== false;
+      const isExpanded = devtoolExpandedId === t.id;
+      const canLaunch = health.launchable;
 
       const row = document.createElement('div');
-      row.className = `devtool-card dashboard-card ${isEnabled ? '' : 'disabled'}`;
+      row.className = 'devtool-card' + (isEnabled ? '' : ' disabled') + (isExpanded ? ' expanded' : '');
       row.dataset.id = t.id;
+
+      const launchTitle = canLaunch
+        ? 'Launch ' + t.name
+        : (health.detail || 'This tool has no usable executable path.');
+
       row.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
-          <div>
-            <b style="font-size: 13.5px; color: var(--text-main);">${escapeHtml(t.name)}</b>
-            <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 2px;">${escapeHtml(t.description || 'Custom External Application')}</div>
+        <div class="devtool-row">
+          <button type="button" class="devtool-expand" data-id="${t.id}" aria-expanded="${isExpanded}" title="${isExpanded ? 'Hide path and actions' : 'Show path and actions'}">
+            <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <span class="dot ${health.state === 'ready' ? 'online' : ''}"></span>
+          <div class="devtool-identity">
+            <div class="devtool-name">${escapeHtml(t.name)}</div>
+            <div class="devtool-sub">${escapeHtml(devtoolSubtitle(t, health))}</div>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <label class="toggle-switch" title="${isEnabled ? 'Tool is active (click to disable)' : 'Tool is disabled (click to enable)'}">
+          <span class="devtool-health ${health.cls}">${escapeHtml(health.text)}</span>
+          <div class="devtool-row-actions">
+            <label class="toggle-switch" title="${isEnabled ? 'Enabled. Click to disable.' : 'Disabled. Click to enable.'}">
               <input type="checkbox" class="devtool-enable-toggle" data-id="${t.id}" ${isEnabled ? 'checked' : ''}>
               <span class="toggle-slider"></span>
             </label>
-            <button class="btn btn-success btn-launch-tool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" data-target="${escapeHtml(targetPath)}" style="padding: 5px 12px; display: inline-flex; align-items: center; gap: 4px;" title="Launch Tool">
+            <button class="btn btn-success btn-launch-tool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" title="${escapeHtml(launchTitle)}" ${canLaunch ? '' : 'disabled'}>
               <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               <span>Launch</span>
             </button>
-            <button class="btn btn-outline btn-edit-devtool" data-id="${t.id}" style="padding: 5px 10px; display: inline-flex; align-items: center; gap: 4px;" title="Edit tool details">
+            <button class="btn btn-outline btn-edit-devtool" data-id="${t.id}" title="Edit the name and description">
               <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
               <span>Edit</span>
             </button>
-            <button class="btn btn-outline btn-delete-devtool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" style="padding: 5px 10px; color: var(--accent-red); display: inline-flex; align-items: center; gap: 4px;" title="Delete tool">
+          </div>
+        </div>
+        <div class="devtool-detail" style="display: ${isExpanded ? 'flex' : 'none'};">
+          <div class="devtool-path-row">
+            <div class="devtool-path-wrap">
+              <input type="${state.isShortcutsMasked ? 'password' : 'text'}" class="input-text tool-path-input" data-id="${t.id}" value="${escapeHtml(targetPath)}" placeholder="C:\path\to\tool.exe or shell:AppsFolder\...">
+              <button type="button" class="devtool-mask btn-toggle-mask-tool" data-id="${t.id}" title="Show or hide the path">
+                <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24">
+                  ${state.isShortcutsMasked
+                    ? '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>'
+                    : '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'
+                  }
+                </svg>
+              </button>
+            </div>
+            <button class="btn btn-outline btn-browse-tool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" title="Select the executable with the file browser">
+              <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>Browse...</span>
+            </button>
+          </div>
+          ${health.detail ? `<p class="devtool-note ${health.cls === 'is-warn' ? 'is-warn' : ''}">${escapeHtml(health.detail)}</p>` : ''}
+          <div class="devtool-detail-actions">
+            ${health.state === 'needsfixing' ? '<button class="btn btn-primary btn-fix-tool" data-id="' + t.id + '" type="button">Fix path</button>' : ''}
+            <button class="btn btn-outline btn-reset-tool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" type="button" title="Restore the path this tool ships with">Reset to default</button>
+            <button class="btn btn-outline devtool-danger btn-delete-devtool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" type="button" title="Remove this tool">
               <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
               <span>Delete</span>
             </button>
           </div>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <div style="position: relative; flex: 1;">
-            <input type="${isMasked ? 'password' : 'text'}" class="input-text tool-path-input" data-id="${t.id}" value="${escapeHtml(targetPath)}" placeholder="Path to executable (.exe, .cmd, .bat) or shell:AppsFolder..." style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding-right: 32px;">
-            <button type="button" class="btn-toggle-mask-tool" data-id="${t.id}" title="Toggle path visibility" style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; background: none; border: none; cursor: pointer; color: var(--text-dim); padding: 0; display: flex; align-items: center; justify-content: center;">
-              <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24">
-                ${isMasked
-                  ? '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>'
-                  : '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'
-                }
-              </svg>
-            </button>
-          </div>
-          <button class="btn btn-outline btn-browse-tool" data-id="${t.id}" data-name="${escapeHtml(t.name)}" title="Select file with file browser" style="white-space: nowrap; padding: 6px 12px;">
-            <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-            <span>Browse...</span>
-          </button>
-        </div>
       `;
       container.appendChild(row);
     });
 
-    // Launch buttons
-    container.querySelectorAll('.btn-launch-tool').forEach(b => {
+    // Expand / collapse
+    container.querySelectorAll('.devtool-expand').forEach(b => {
       b.addEventListener('click', () => {
         const id = b.dataset.id;
-        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
-        const target = (tool && tool.target) || b.dataset.target || '';
-        const name = (tool && tool.name) || b.dataset.name || 'Tool';
-        if (!target || !target.trim()) {
-          if (typeof showToast === 'function') {
-            showToast(`Target path for "${name}" is empty. Click "Browse..." to select an executable first.`, 'warning');
-          } else {
-            alert(`Target path for "${name}" is empty. Please click "Browse..." or "Edit" to select an executable file first.`);
-          }
-          return;
-        }
-        callBridge('launch_tool', { toolId: id, toolName: name, target });
+        devtoolExpandedId = devtoolExpandedId === id ? null : id;
+        renderDevToolsList();
       });
     });
 
-    // Browse file buttons
+    // Launch
+    container.querySelectorAll('.btn-launch-tool').forEach(b => {
+      b.addEventListener('click', async () => {
+        const id = b.dataset.id;
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
+        const name = (tool && tool.name) || b.dataset.name || 'Tool';
+        const target = (tool && tool.target) || '';
+
+        b.disabled = true;
+        try {
+          const res = await callBridge('launch_tool', { toolId: id, toolName: name, target });
+          if (res && res.message) {
+            showToast(res.message, 'success', 3500);
+          } else {
+            showToast(name + ' started.', 'success', 3500);
+          }
+        } catch (err) {
+          const reason = (err && err.message) ? err.message : ('Could not start ' + name + '.');
+          showToast(reason, 'error', 6000);
+          appendLog('Launch failed for ' + name + ': ' + reason);
+        } finally {
+          b.disabled = false;
+        }
+      });
+    });
+
+    // Browse
     container.querySelectorAll('.btn-browse-tool').forEach(b => {
       b.addEventListener('click', async () => {
         const id = b.dataset.id;
@@ -2588,60 +2685,10 @@
             if (tool) tool.target = res.path;
             if (!state.aiConfig.toolTargets) state.aiConfig.toolTargets = {};
             if (toolName) state.aiConfig.toolTargets[toolName] = res.path;
-            state.aiConfig.toolTargets[id] = res.path;
-
-            const input = container.querySelector(`.tool-path-input[data-id="${id}"]`);
-            if (input) input.value = res.path;
-            const launchBtn = container.querySelector(`.btn-launch-tool[data-id="${id}"]`);
-            if (launchBtn) launchBtn.dataset.target = res.path;
-
             await callBridge('save_ai_config', { config: state.aiConfig });
+            await loadDevTools(false);
           }
         } catch { }
-      });
-    });
-
-    // Edit tool button
-    container.querySelectorAll('.btn-edit-devtool').forEach(b => {
-      b.addEventListener('click', () => {
-        const id = b.dataset.id;
-        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
-        if (tool) openDevToolModal(tool);
-      });
-    });
-
-    // Delete tool button
-    container.querySelectorAll('.btn-delete-devtool').forEach(b => {
-      b.addEventListener('click', async () => {
-        const id = b.dataset.id;
-        const toolName = b.dataset.name || 'Tool';
-        if (confirm(`Remove "${toolName}" from AI Dev Tools?`)) {
-          state.aiConfig.devTools = (state.aiConfig.devTools || []).filter(t => t.id !== id);
-          if (state.aiConfig.toolTargets) {
-            delete state.aiConfig.toolTargets[toolName];
-            delete state.aiConfig.toolTargets[id];
-          }
-          await callBridge('save_ai_config', { config: state.aiConfig });
-          renderDevToolsList();
-          populatePresetDropdown();
-        }
-      });
-    });
-
-    // Enable/disable toggle
-    container.querySelectorAll('.devtool-enable-toggle').forEach(chk => {
-      chk.addEventListener('change', async () => {
-        const id = chk.dataset.id;
-        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
-        if (tool) {
-          tool.isEnabled = chk.checked;
-          const card = chk.closest('.devtool-card');
-          if (card) {
-            if (tool.isEnabled) card.classList.remove('disabled');
-            else card.classList.add('disabled');
-          }
-          await callBridge('save_ai_config', { config: state.aiConfig });
-        }
       });
     });
 
@@ -2650,36 +2697,135 @@
       inp.addEventListener('change', async () => {
         const id = inp.dataset.id;
         const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
-        if (tool) {
-          tool.target = inp.value.trim();
-          if (!state.aiConfig.toolTargets) state.aiConfig.toolTargets = {};
-          state.aiConfig.toolTargets[tool.name] = tool.target;
-          state.aiConfig.toolTargets[tool.id] = tool.target;
-          const launchBtn = container.querySelector(`.btn-launch-tool[data-id="${id}"]`);
-          if (launchBtn) launchBtn.dataset.target = tool.target;
-          await callBridge('save_ai_config', { config: state.aiConfig });
-        }
+        if (!tool) return;
+
+        const entered = inp.value.trim();
+        tool.target = entered;
+        if (!state.aiConfig.toolTargets) state.aiConfig.toolTargets = {};
+        state.aiConfig.toolTargets[tool.name] = entered;
+
+        await callBridge('save_ai_config', { config: state.aiConfig });
+        await loadDevTools(false);
       });
     });
 
-    // Toggle mask button
+    // Show / hide the path
     container.querySelectorAll('.btn-toggle-mask-tool').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.dataset.id;
         const input = container.querySelector(`.tool-path-input[data-id="${id}"]`);
-        if (input) {
-          const isCurrentlyPassword = input.type === 'password';
-          input.type = isCurrentlyPassword ? 'text' : 'password';
-          btn.innerHTML = `<svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24">${
-            !isCurrentlyPassword
-              ? '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>'
-              : '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'
-          }</svg>`;
+        if (!input) return;
+        const wasPassword = input.type === 'password';
+        input.type = wasPassword ? 'text' : 'password';
+        btn.innerHTML = `<svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24">${
+          wasPassword
+            ? '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'
+            : '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>'
+        }</svg>`;
+      });
+    });
+
+    // Fix a stored path that only needs cleaning up
+    container.querySelectorAll('.btn-fix-tool').forEach(b => {
+      b.addEventListener('click', async () => {
+        const id = b.dataset.id;
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === id);
+        if (!tool) return;
+
+        const health = devtoolHealth(tool);
+        const fixed = health.resolvedTarget || (tool.target || '').replace(/^"+|"+$/g, '');
+        tool.target = fixed;
+        if (!state.aiConfig.toolTargets) state.aiConfig.toolTargets = {};
+        state.aiConfig.toolTargets[tool.name] = fixed;
+
+        await callBridge('save_ai_config', { config: state.aiConfig });
+        showToast('Path cleaned up for ' + tool.name + '.', 'success', 3500);
+        await loadDevTools(false);
+      });
+    });
+
+    // Restore the shipped default path
+    container.querySelectorAll('.btn-reset-tool').forEach(b => {
+      b.addEventListener('click', async () => {
+        const id = b.dataset.id;
+        const toolName = b.dataset.name || 'Tool';
+        try {
+          const res = await callBridge('reset_tool_target', { toolId: id, toolName });
+          if (res && res.path) {
+            showToast('Restored the default path for ' + toolName + '.', 'success', 3500);
+          } else {
+            showToast('No default path is known for ' + toolName + '.', 'warning', 5000);
+          }
+          await loadDevTools(false);
+        } catch (err) {
+          showToast('Could not reset the path for ' + toolName + '.', 'error', 5000);
         }
+      });
+    });
+
+    // Edit name and description
+    container.querySelectorAll('.btn-edit-devtool').forEach(b => {
+      b.addEventListener('click', () => {
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === b.dataset.id);
+        if (tool) openDevToolModal(tool);
+      });
+    });
+
+    // Delete
+    container.querySelectorAll('.btn-delete-devtool').forEach(b => {
+      b.addEventListener('click', async () => {
+        const id = b.dataset.id;
+        const toolName = b.dataset.name || 'Tool';
+        if (!confirm(`Remove "${toolName}" from AI Dev Tools?`)) return;
+
+        state.aiConfig.devTools = (state.aiConfig.devTools || []).filter(t => t.id !== id);
+        if (state.aiConfig.toolTargets) {
+          delete state.aiConfig.toolTargets[toolName];
+          delete state.aiConfig.toolTargets[id];
+        }
+        if (devtoolExpandedId === id) devtoolExpandedId = null;
+
+        await callBridge('save_ai_config', { config: state.aiConfig });
+        await loadDevTools(false);
+        populatePresetDropdown();
+      });
+    });
+
+    // Enable / disable
+    container.querySelectorAll('.devtool-enable-toggle').forEach(chk => {
+      chk.addEventListener('change', async () => {
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === chk.dataset.id);
+        if (!tool) return;
+        tool.isEnabled = chk.checked;
+        await callBridge('save_ai_config', { config: state.aiConfig });
+        renderDevToolsList();
       });
     });
   }
 
+  async function loadDevTools() {
+    const btn = document.getElementById('btn-recheck-devtools');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Checking';
+    }
+
+    try {
+      const res = await callBridge('get_dev_tools', {});
+      if (res && Array.isArray(res.devTools)) {
+        if (!state.aiConfig) state.aiConfig = {};
+        state.aiConfig.devTools = res.devTools;
+      }
+    } catch (err) {
+      appendLog('Could not read the dev tool list: ' + (err.message || err));
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Recheck paths';
+      }
+      renderDevToolsList();
+    }
+  }
   function openDevToolModal(tool = null) {
     const modal = document.getElementById('modal-devtool-editor');
     if (!modal) return;
@@ -2698,7 +2844,7 @@
       if (targetInp) targetInp.value = tool.target || '';
       if (enabledInp) enabledInp.checked = tool.isEnabled !== false;
     } else {
-      if (title) title.textContent = 'Add New AI Dev Tool';
+      if (title) title.textContent = 'Add AI Dev Tool';
       if (idInp) idInp.value = '';
       if (nameInp) nameInp.value = '';
       if (descInp) descInp.value = '';
@@ -2714,6 +2860,8 @@
     document.getElementById('btn-add-dev-tool')?.addEventListener('click', () => {
       openDevToolModal(null);
     });
+
+    document.getElementById('btn-recheck-devtools')?.addEventListener('click', () => loadDevTools());
 
     const modal = document.getElementById('modal-devtool-editor');
     if (!modal) return;
@@ -2779,7 +2927,9 @@
 
       await callBridge('save_ai_config', { config: state.aiConfig });
       modal.classList.remove('open');
-      renderDevToolsList();
+      // The modal rebuilds the entry locally, so the health attached by the backend has to be
+      // read back rather than rendered from a record that no longer carries it.
+      await loadDevTools();
       populatePresetDropdown();
     });
   }

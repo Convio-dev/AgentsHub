@@ -846,6 +846,13 @@ html[data-theme="light"] .dashboard-card {
   margin-bottom: 6px;
 }
 
+.form-hint {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
 .input-text {
   width: 100%;
   background: var(--bg-input);
@@ -2388,18 +2395,185 @@ html[data-theme="light"] .telemetry-stat-chip {
 }
 
 /* Dev Tool Card Styling */
+/* ---------- AI Dev Tools ---------- */
+.devtool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.devtool-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .devtool-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  padding: 14px 16px;
   transition: border-color 0.2s ease, opacity 0.2s ease;
 }
-.devtool-card:hover {
+.devtool-card:hover,
+.devtool-card.expanded {
   border-color: var(--border-focus);
 }
 .devtool-card.disabled {
   opacity: 0.6;
+}
+
+.devtool-row {
+  display: grid;
+  grid-template-columns: 22px 10px minmax(140px, 1.5fr) minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.devtool-expand {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.devtool-expand:hover {
+  color: var(--text-main);
+}
+.devtool-expand:focus-visible {
+  outline: 2px solid var(--accent-green);
+  outline-offset: 1px;
+}
+.devtool-expand svg {
+  transition: transform 0.15s ease;
+}
+.devtool-card.expanded .devtool-expand svg {
+  transform: rotate(90deg);
+}
+
+.devtool-identity {
+  min-width: 0;
+}
+.devtool-name {
+  font-size: 13px;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.devtool-sub {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.devtool-health {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.devtool-health.is-ok {
+  color: var(--accent-green);
+}
+.devtool-health.is-warn {
+  color: var(--accent-amber);
+}
+.devtool-health.is-off {
+  color: var(--text-dim);
+}
+
+.devtool-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.devtool-row-actions .btn {
+  padding: 5px 12px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.devtool-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.devtool-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.devtool-path-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.devtool-path-wrap input {
+  width: 100%;
+  padding-right: 32px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.devtool-mask {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.devtool-mask:hover {
+  color: var(--text-main);
+}
+
+.devtool-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.devtool-note.is-warn {
+  color: var(--accent-amber);
+}
+
+.devtool-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.devtool-detail-actions .btn {
+  padding: 5px 12px;
+  font-size: 11.5px;
+}
+.devtool-detail-actions .devtool-danger {
+  margin-left: auto;
+  color: var(--accent-red);
 }
 
 /* Modern Accessible Toggle Switch */
@@ -2583,7 +2757,7 @@ html[data-theme="light"] .telemetry-stat-chip {
   color: var(--text-muted);
 }
 
-.lan-badge {
+.status-badge {
   display: inline-flex;
   align-items: center;
   padding: 3px 9px;
@@ -2596,16 +2770,16 @@ html[data-theme="light"] .telemetry-stat-chip {
   color: var(--text-muted);
   white-space: nowrap;
 }
-.lan-badge.is-ok {
+.status-badge.is-ok {
   border-color: var(--accent-green);
   color: var(--accent-green);
   background: var(--accent-green-bg);
 }
-.lan-badge.is-warn {
+.status-badge.is-warn {
   border-color: var(--accent-amber);
   color: var(--accent-amber);
 }
-.lan-badge.is-off {
+.status-badge.is-off {
   color: var(--text-dim);
 }
 
@@ -2733,4 +2907,17 @@ html[data-theme="light"] .telemetry-stat-chip {
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 14px;
+}
+
+/* A disabled button has to look disabled. There was no shared rule for this, so every disabled
+   control in the app (and every hover style on one) still read as clickable. Declared last so
+   it wins over the per-variant :hover rules at equal specificity. */
+.btn:disabled,
+.btn:disabled:hover,
+.btn:disabled:active {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border-color: var(--border-subtle);
 }

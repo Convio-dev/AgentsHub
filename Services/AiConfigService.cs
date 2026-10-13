@@ -569,6 +569,16 @@ public class AiConfigService
             }
         }
 
+        // 2b. Repair targets that cannot be launched as stored. A path pasted from Explorer's
+        // "Copy as path" arrives wrapped in quotes, which Process.Start cannot resolve, so the
+        // tool stops launching while still looking configured. Cleaning it here keeps it working
+        // without making the user pick the file again. Runs before SyncToolTargets so the
+        // lookup map receives the repaired value.
+        foreach (var tool in _config.DevTools)
+        {
+            tool.Target = DevToolTargets.Normalize(tool.Target);
+        }
+
         // 3. Keep ToolTargets synchronized
         SyncToolTargets(_config);
 
