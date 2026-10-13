@@ -1149,31 +1149,47 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         StartupHelper.SetPreference("EnableHardwareMonitor", hwEl.GetBoolean());
                     }
+                    // The payload is a partial patch: most callers save one checkbox and send no
+                    // theme at all. Only touch the theme when a value was actually supplied. Running
+                    // SetTheme unconditionally defaulted the theme to Dark, so toggling any unrelated
+                    // preference silently reset the app and rewrote the registry to dark while the
+                    // dashboard kept its own light value in browser storage.
                     string? themeStr = null;
                     if (stProp.TryGetProperty("theme", out var themeEl))
                     {
-                        themeStr = themeEl.GetString();
-                        StartupHelper.SetStringPreference("Theme", themeStr ?? "dark");
+                        var rawTheme = themeEl.GetString();
+                        if (!string.IsNullOrWhiteSpace(rawTheme))
+                        {
+                            themeStr = rawTheme;
+                            StartupHelper.SetStringPreference("Theme", rawTheme);
+                        }
                     }
                     string? accentStr = null;
                     if (stProp.TryGetProperty("accentColor", out var colEl))
                     {
-                        accentStr = colEl.GetString();
-                        StartupHelper.SetStringPreference("AccentColor", accentStr ?? "#4049B9");
+                        var rawAccent = colEl.GetString();
+                        if (!string.IsNullOrWhiteSpace(rawAccent))
+                        {
+                            accentStr = rawAccent;
+                            StartupHelper.SetStringPreference("AccentColor", rawAccent);
+                        }
                     }
 
-                    var appTheme = (themeStr != null && themeStr.Equals("light", StringComparison.OrdinalIgnoreCase))
-                        ? AppTheme.Light
-                        : AppTheme.Dark;
-                    ThemeManager.SetTheme(appTheme, accentStr);
-
-                    _mainForm.Invoke(() =>
+                    if (themeStr != null || accentStr != null)
                     {
-                        if (_cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                        var appTheme = themeStr == null
+                            ? ThemeManager.CurrentTheme
+                            : (themeStr.Equals("light", StringComparison.OrdinalIgnoreCase) ? AppTheme.Light : AppTheme.Dark);
+                        ThemeManager.SetTheme(appTheme, accentStr);
+
+                        _mainForm.Invoke(() =>
                         {
-                            _cliWebviewForm.ApplyTheme();
-                        }
-                    });
+                            if (_cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                            {
+                                _cliWebviewForm.ApplyTheme();
+                            }
+                        });
+                    }
 
                     SendResponse(requestId, true, new { success = true });
                 }

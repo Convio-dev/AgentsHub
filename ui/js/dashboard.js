@@ -4007,6 +4007,15 @@
           const activeColor = localStorage.getItem('agents_hub_accent_color') || res.settings.accentColor || '#4049B9';
           applyAdaptiveTheme(activeTheme, activeColor);
 
+          // The dashboard owns the theme; the C# side keeps its own copy in the registry and
+          // ThemeManager seeds from it at startup. If the two disagree, push ours so the CLI
+          // windows match this view instead of staying on a stale dark value.
+          const appliedTheme = localStorage.getItem('agents_hub_theme') || 'light';
+          const backendTheme = res.settings.theme === 'light' ? 'light' : 'dark';
+          if (appliedTheme !== backendTheme) {
+            callBridge('save_general_settings', { settings: { theme: appliedTheme } });
+          }
+
           // Update VPN Provider UI conditionally
           updateVpnProviderUi();
         }
