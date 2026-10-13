@@ -1830,6 +1830,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         id = status.Id,
         name = status.Name,
         description = status.Description,
+        category = status.Category,
         isInstalled = status.IsInstalled,
         version = status.Version,
         path = status.Path,
@@ -1863,12 +1864,17 @@ public sealed partial class DashboardWebBridge : IDisposable
 
             PostEventToUi("dependency_install_progress", new { id = definition.Id, line = $"Running: {definition.CommandPreview}" });
 
+            // winget is an app-execution alias, so it has to be reached through cmd rather than
+            // launched directly. PowerShell runs the downloaded install scripts, and Bypass is
+            // what lets them run on machines whose execution policy would otherwise refuse them.
+            bool useWinget = string.Equals(definition.InstallKind, "winget", StringComparison.OrdinalIgnoreCase);
+
             var startInfo = new ProcessStartInfo
             {
-                FileName = "powershell.exe",
-                // Bypass is what lets the downloaded script run on machines whose execution
-                // policy would otherwise refuse it; -NoProfile keeps startup deterministic.
-                Arguments = $"-NoProfile -ExecutionPolicy Bypass -Command \"{definition.InstallCommand}\"",
+                FileName = useWinget ? "cmd.exe" : "powershell.exe",
+                Arguments = useWinget
+                    ? $"/c {definition.InstallCommand}"
+                    : $"-NoProfile -ExecutionPolicy Bypass -Command \"{definition.InstallCommand}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -1900,17 +1906,29 @@ public sealed partial class DashboardWebBridge : IDisposable
                 return;
             }
 
-            bool succeeded = process.ExitCode == 0;
-            string message = succeeded
-                ? $"Installer finished in {(DateTime.UtcNow - startedAt).TotalSeconds:F0}s."
-                : $"Installer exited with code {process.ExitCode}.";
-
-            // Re-detect so the badge reflects reality rather than the exit code alone.
+            // Re-detect rather than trusting the exit code alone: winget returns non-zero for
+            // "already installed", and a tool can land on PATH only after a shell restart.
             var status = DependencyCheckerService.GetStatus(definition.Id);
-            if (succeeded && status is { IsInstalled: false })
+            bool installed = status is { IsInstalled: true };
+            bool succeeded;
+            string message;
+
+            if (installed)
+            {
+                succeeded = true;
+                message = process.ExitCode == 0
+                    ? $"Installer finished in {(DateTime.UtcNow - startedAt).TotalSeconds:F0}s."
+                    : $"Installer exited with code {process.ExitCode}, but {definition.Name} is now detected.";
+            }
+            else if (process.ExitCode == 0)
             {
                 succeeded = false;
                 message = "Installer finished, but the tool is still not resolvable. A shell restart may be required.";
+            }
+            else
+            {
+                succeeded = false;
+                message = $"Installer exited with code {process.ExitCode}.";
             }
 
             PostDependencyInstallComplete(definition.Id, succeeded, message, status);

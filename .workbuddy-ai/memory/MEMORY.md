@@ -39,9 +39,16 @@ CPU **and** GPU telemetry were both removed. The telemetry card now shows a RAM 
 **Never sample perf counters on the UI thread.** `Bytes Total/sec` is a delta counter, so the counter set is cached and *reused* across the 30s refresh — creating counters per poll, or reading one twice in a row (the DTO has two callers: the 2.5s timer push and the 2s UI poll), returns meaningless values. The service publishes a plain `int` snapshot via `Volatile.Write` so readers never take the sample lock. The first `Network Interface` enumeration in a cold process can take several seconds (Windows perflib cold start), so the network badge may read 0 briefly after launch.
 
 ## Dependency checker (Settings view)
-`Services/DependencyCheckerService.cs` detects the four external tools (`hermes`, `claude`, `antigravity`, `warp`) for the "CLI Dependencies & Runtimes" card. Resolution is managed PATH/PATHEXT scanning plus `%ENV%` fallback paths — **not** `where.exe`. `.cmd`/`.bat` hits must be probed via `cmd.exe /c ""path" --version"` (they cannot launch directly with `UseShellExecute = false`).
+`Services/DependencyCheckerService.cs` detects the eight external tools for the "Dependencies & Required Runtimes" card, split into two UI sections by `Category` (`runtime` → section 1; `agent` / `utility` → section 2). Resolution is managed PATH/PATHEXT scanning plus `%ENV%` fallback paths — **not** `where.exe`. Fallbacks support a single `*` directory segment (highest version first). `.cmd`/`.bat` hits must be probed via `cmd.exe /c ""path" --version"` (they cannot launch directly with `UseShellExecute = false`).
+
+Rules that exist for real reasons — do not remove:
+- **`GuiExecutableNames`** blocks `--version` probes against GUI launchers (ProtonVPN, Cloudflare WARP.exe); probing them opens the app window. GUI installs get their version from the versioned folder name instead.
+- **`ExcludedPathTokens = ["WindowsApps"]`** on python rejects the Microsoft Store stub, which is not an interpreter.
+- **winget is an app-execution alias** and cannot be launched with `UseShellExecute = false`; it runs via `cmd.exe /c winget install …`.
 
 **`hermes --version` costs ~4s** (Python boot), so `VersionProbeTimeoutMs` is 8s; probes run in parallel so that ≈4s is the whole scan's floor. The scan is lazy — it only fires when the Settings view first opens.
+
+**Proton's real install path** is `%ProgramFiles%\Proton\VPN\v<version>\ProtonVPN.Client.exe` (plus `ProtonVPN.Launcher.exe`) — *not* `…\VPN\ProtonVPN.exe`, which the original brief assumed and which does not exist.
 
 ## Tooling
 - antislop skills are installed at `.agents/skills/`; `AGENTS.md` routes UI/copy/layout work there. No global antislop mode is saved (`%APPDATA%\antislop\settings.json` absent), so the mode question must be asked per session.

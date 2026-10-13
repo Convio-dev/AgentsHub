@@ -675,10 +675,14 @@
   };
 
   const DEPENDENCY_ICONS = {
-    hermes: '<path d="m12 2 9 5v10l-9 5-9-5V7Z"/><path d="m3 7 9 5 9-5"/><path d="M12 22V12"/>',
+    node: '<path d="M12 2 3 7v10l9 5 9-5V7Z"/><path d="M12 8v8"/>',
+    git: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/><circle cx="18" cy="6" r="3"/>',
+    python: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
     claude: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
     antigravity: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>',
-    warp: '<path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.2 9.4 4.5 4.5 0 0 0 7 19Z"/>'
+    hermes: '<path d="m12 2 9 5v10l-9 5-9-5V7Z"/><path d="m3 7 9 5 9-5"/><path d="M12 22V12"/>',
+    warp: '<path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.2 9.4 4.5 4.5 0 0 0 7 19Z"/>',
+    proton: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>'
   };
 
   function dependencyBadge(item, busy) {
@@ -705,84 +709,98 @@
 
   function dependencyActionLabel(item, busy) {
     if (busy === 'running') return 'Installing...';
-    if (item.installKind === 'browser') return item.isInstalled ? 'Verify' : 'Open Site';
-    return item.isInstalled ? 'Reinstall' : 'Install Now';
+
+    if (item.installKind === 'browser') return item.isInstalled ? 'Verify' : 'Open Download Page';
+    if (item.isInstalled) return item.installKind === 'winget' ? 'Update via Winget' : 'Reinstall';
+    return item.installKind === 'winget' ? 'Install via Winget' : 'Run PowerShell Installer';
+  }
+
+  function buildDependencyRow(item) {
+    const busy = dependencyState.busy[item.id];
+    const badge = dependencyBadge(item, busy);
+
+    const row = document.createElement('div');
+    row.className = 'dependency-row';
+
+    const icon = document.createElement('div');
+    icon.className = 'dependency-icon';
+    icon.innerHTML = `<svg class="icon-svg" style="width: 17px; height: 17px;" viewBox="0 0 24 24">${DEPENDENCY_ICONS[item.id] || DEPENDENCY_ICONS.hermes}</svg>`;
+
+    const info = document.createElement('div');
+    info.className = 'dependency-info';
+
+    const titleLine = document.createElement('div');
+    titleLine.className = 'dependency-title-line';
+
+    const name = document.createElement('span');
+    name.className = 'dependency-name';
+    name.textContent = item.name;
+
+    const badgeEl = document.createElement('span');
+    badgeEl.className = 'dep-badge ' + badge.cls;
+    badgeEl.textContent = badge.text;
+
+    titleLine.appendChild(name);
+    titleLine.appendChild(badgeEl);
+
+    const detail = document.createElement('div');
+    detail.className = 'dependency-detail';
+    detail.textContent = dependencyDetailText(item, busy);
+
+    info.appendChild(titleLine);
+    info.appendChild(detail);
+
+    const logLines = dependencyState.logs[item.id];
+    if (logLines && logLines.length > 0) {
+      const logEl = document.createElement('div');
+      logEl.className = 'dependency-log';
+      logEl.textContent = logLines.join('\n');
+      info.appendChild(logEl);
+    }
+
+    const action = document.createElement('div');
+    action.className = 'dependency-action';
+
+    const button = document.createElement('button');
+    button.className = 'btn ' + (item.isInstalled ? 'btn-outline' : 'btn-success');
+    button.style.padding = '5px 12px';
+    button.style.fontSize = '11.5px';
+    button.style.whiteSpace = 'nowrap';
+    button.textContent = dependencyActionLabel(item, busy);
+    button.disabled = busy === 'running' || dependencyState.loading;
+    button.addEventListener('click', () => handleDependencyAction(item));
+
+    action.appendChild(button);
+
+    row.appendChild(icon);
+    row.appendChild(info);
+    row.appendChild(action);
+    return row;
   }
 
   function renderDependencies() {
-    const container = document.getElementById('dependencies-list-container');
-    if (!container) return;
+    const runtimeContainer = document.getElementById('runtimes-list-container');
+    const agentContainer = document.getElementById('agents-list-container');
+    if (!runtimeContainer || !agentContainer) return;
+
+    runtimeContainer.innerHTML = '';
+    agentContainer.innerHTML = '';
 
     if (dependencyState.items.length === 0) {
-      container.innerHTML = `<div style="font-size: 12px; color: var(--text-dim); padding: 8px 2px;">${
-        dependencyState.loading ? 'Scanning for installed CLI tools...' : 'No dependency data yet. Click Recheck All.'
-      }</div>`;
+      const placeholder = document.createElement('div');
+      placeholder.className = 'dependency-empty';
+      placeholder.textContent = dependencyState.loading
+        ? 'Scanning for installed tools...'
+        : 'No dependency data yet. Click Recheck All.';
+      runtimeContainer.appendChild(placeholder);
       return;
     }
 
-    container.innerHTML = '';
-
+    // Runtimes go in section 1; agents and network utilities share section 2.
     dependencyState.items.forEach(item => {
-      const busy = dependencyState.busy[item.id];
-      const badge = dependencyBadge(item, busy);
-
-      const row = document.createElement('div');
-      row.className = 'dependency-row';
-
-      const icon = document.createElement('div');
-      icon.className = 'dependency-icon';
-      icon.innerHTML = `<svg class="icon-svg" style="width: 17px; height: 17px;" viewBox="0 0 24 24">${DEPENDENCY_ICONS[item.id] || DEPENDENCY_ICONS.hermes}</svg>`;
-
-      const info = document.createElement('div');
-      info.className = 'dependency-info';
-
-      const titleLine = document.createElement('div');
-      titleLine.className = 'dependency-title-line';
-
-      const name = document.createElement('span');
-      name.className = 'dependency-name';
-      name.textContent = item.name;
-
-      const badgeEl = document.createElement('span');
-      badgeEl.className = 'dep-badge ' + badge.cls;
-      badgeEl.textContent = badge.text;
-
-      titleLine.appendChild(name);
-      titleLine.appendChild(badgeEl);
-
-      const detail = document.createElement('div');
-      detail.className = 'dependency-detail';
-      detail.textContent = dependencyDetailText(item, busy);
-
-      info.appendChild(titleLine);
-      info.appendChild(detail);
-
-      const logLines = dependencyState.logs[item.id];
-      if (logLines && logLines.length > 0) {
-        const logEl = document.createElement('div');
-        logEl.className = 'dependency-log';
-        logEl.textContent = logLines.join('\n');
-        info.appendChild(logEl);
-      }
-
-      const action = document.createElement('div');
-      action.className = 'dependency-action';
-
-      const button = document.createElement('button');
-      button.className = 'btn ' + (item.isInstalled && item.installKind !== 'browser' ? 'btn-outline' : 'btn-success');
-      button.style.padding = '5px 12px';
-      button.style.fontSize = '11.5px';
-      button.style.whiteSpace = 'nowrap';
-      button.textContent = dependencyActionLabel(item, busy);
-      button.disabled = busy === 'running' || dependencyState.loading;
-      button.addEventListener('click', () => handleDependencyAction(item));
-
-      action.appendChild(button);
-
-      row.appendChild(icon);
-      row.appendChild(info);
-      row.appendChild(action);
-      container.appendChild(row);
+      const row = buildDependencyRow(item);
+      if (item.category === 'runtime') runtimeContainer.appendChild(row);
+      else agentContainer.appendChild(row);
     });
   }
 
@@ -823,7 +841,9 @@
 
     try {
       await callBridge('run_dependency_install', { id: item.id });
-      showToast(`Starting ${item.name} installer...`, 'info', 3000);
+      showToast(item.installKind === 'browser'
+        ? `Opening the download page for ${item.name}...`
+        : `Starting ${item.name} installer...`, 'info', 3000);
     } catch (err) {
       dependencyState.busy[item.id] = 'failed';
       renderDependencies();

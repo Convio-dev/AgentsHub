@@ -10,11 +10,18 @@ public sealed class DependencyDefinition
     public string Name { get; init; } = "";
     public string Description { get; init; } = "";
 
-    /// <summary>"powershell" runs <see cref="InstallCommand"/>; "browser" opens <see cref="SiteUrl"/>.</summary>
+    /// <summary>"runtime" (dev prerequisites) or "agent" / "utility" (AI engines and network tools).</summary>
+    public string Category { get; init; } = "agent";
+
+    /// <summary>"winget", "powershell" or "browser".</summary>
     public string InstallKind { get; init; } = "powershell";
 
     public string SiteUrl { get; init; } = "";
+
+    /// <summary>Full command line for the winget / powershell install kinds.</summary>
     public string InstallCommand { get; init; } = "";
+
+    /// <summary>Short form shown in the UI when the tool is missing.</summary>
     public string CommandPreview { get; init; } = "";
 
     /// <summary>Executable names looked up on PATH (without extension).</summary>
@@ -22,6 +29,18 @@ public sealed class DependencyDefinition
 
     /// <summary>Absolute fallbacks; may contain %ENVIRONMENT% tokens.</summary>
     public string[] FallbackPaths { get; init; } = [];
+
+    /// <summary>
+    /// PATH hits whose directory contains any of these tokens are ignored. Guards against the
+    /// Microsoft Store "python.exe" stub in WindowsApps, which is not a real interpreter.
+    /// </summary>
+    public string[] ExcludedPathTokens { get; init; } = [];
+
+    /// <summary>
+    /// File names that must never be probed with --version, because the executable is a GUI
+    /// launcher and probing it would open the application window.
+    /// </summary>
+    public string[] GuiExecutableNames { get; init; } = [];
 }
 
 /// <summary>Detection result for one tool.</summary>
@@ -30,6 +49,7 @@ public sealed class DependencyStatus
     public string Id { get; init; } = "";
     public string Name { get; init; } = "";
     public string Description { get; init; } = "";
+    public string Category { get; init; } = "agent";
     public bool IsInstalled { get; init; }
     public string Version { get; init; } = "";
     public string Path { get; init; } = "";
@@ -39,7 +59,7 @@ public sealed class DependencyStatus
 }
 
 /// <summary>
-/// Detects whether the external CLI tools the hub drives are present.
+/// Detects whether the external runtimes and CLI tools the hub drives are present.
 ///
 /// Detection resolves executables from PATH plus a few standard install locations, then probes
 /// each hit for a version string. Every probe spawns a short-lived process, so callers must use
@@ -54,32 +74,54 @@ public static class DependencyCheckerService
 
     private static readonly string ProgramFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
     private static readonly string ProgramFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-    private static readonly string AppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-    private static readonly string LocalAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
     private static readonly string UserProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     public static IReadOnlyList<DependencyDefinition> Catalog { get; } =
     [
+        // ---- 1. Core dev runtimes ----
         new DependencyDefinition
         {
-            Id = "hermes",
-            Name = "Hermes Agent Engine",
-            Description = "Backend agent daemon that powers the Hermes web dashboard.",
-            InstallKind = "browser",
-            SiteUrl = "https://hermes-agent.nousresearch.com/",
-            CommandPreview = "hermes dashboard",
-            Commands = ["hermes"],
-            FallbackPaths =
-            [
-                @"%APPDATA%\Python\Scripts\hermes.exe",
-                @"%LOCALAPPDATA%\Programs\Python\Scripts\hermes.exe"
-            ]
+            Id = "node",
+            Name = "Node.js LTS",
+            Description = "Required by the Claude Code CLI and other npm-distributed agents.",
+            Category = "runtime",
+            InstallKind = "winget",
+            InstallCommand = "winget install OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements",
+            CommandPreview = "winget install OpenJS.NodeJS.LTS",
+            Commands = ["node"]
         },
+        new DependencyDefinition
+        {
+            Id = "git",
+            Name = "Git for Windows",
+            Description = "Required by Claude Code and OpenCode for repository inspection and diff tracking.",
+            Category = "runtime",
+            InstallKind = "winget",
+            InstallCommand = "winget install Git.Git -e --accept-source-agreements --accept-package-agreements",
+            CommandPreview = "winget install Git.Git",
+            Commands = ["git"]
+        },
+        new DependencyDefinition
+        {
+            Id = "python",
+            Name = "Python 3.10+ & pip",
+            Description = "Required by the Hermes Agent engine.",
+            Category = "runtime",
+            InstallKind = "winget",
+            InstallCommand = "winget install Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements",
+            CommandPreview = "winget install Python.Python.3.12",
+            Commands = ["python", "py"],
+            // The WindowsApps entry is the Store stub, not a real interpreter.
+            ExcludedPathTokens = ["WindowsApps"]
+        },
+
+        // ---- 2. AI agents & network tools ----
         new DependencyDefinition
         {
             Id = "claude",
             Name = "Claude Code CLI",
             Description = "Anthropic's terminal coding agent. Routed through the local OpenRouter gateway.",
+            Category = "agent",
             InstallKind = "powershell",
             SiteUrl = "https://claude.ai/",
             InstallCommand = "irm https://claude.ai/install.ps1 | iex",
@@ -97,6 +139,7 @@ public static class DependencyCheckerService
             Id = "antigravity",
             Name = "Antigravity CLI (agy)",
             Description = "Google Antigravity terminal agent, run per isolated profile.",
+            Category = "agent",
             InstallKind = "powershell",
             SiteUrl = "https://antigravity.google/",
             InstallCommand = "irm https://antigravity.google/cli/install.ps1 | iex",
@@ -110,19 +153,56 @@ public static class DependencyCheckerService
         },
         new DependencyDefinition
         {
+            Id = "hermes",
+            Name = "Hermes Agent Engine",
+            Description = "Backend agent daemon that powers the Hermes web dashboard.",
+            Category = "agent",
+            InstallKind = "browser",
+            SiteUrl = "https://hermes-agent.nousresearch.com/",
+            CommandPreview = "hermes dashboard",
+            Commands = ["hermes"],
+            FallbackPaths =
+            [
+                @"%APPDATA%\Python\Scripts\hermes.exe",
+                @"%LOCALAPPDATA%\Programs\Python\Scripts\hermes.exe"
+            ]
+        },
+        new DependencyDefinition
+        {
             Id = "warp",
             Name = "Cloudflare WARP",
             Description = "Used to rotate the public IP when resetting provider quota.",
+            Category = "utility",
             InstallKind = "browser",
             SiteUrl = "https://one.one.one.one/",
             CommandPreview = "warp-cli status",
             Commands = ["warp-cli"],
             FallbackPaths =
             [
+                @"%ProgramFiles%\Cloudflare\Cloudflare WARP\warp-cli.exe",
                 @"%ProgramFiles%\Cloudflare\Cloudflare WARP\Cloudflare WARP.exe",
-                @"%ProgramFiles(x86)%\Cloudflare\Cloudflare WARP\Cloudflare WARP.exe",
-                @"%ProgramFiles%\Cloudflare\Cloudflare WARP\warp-cli.exe"
-            ]
+                @"%ProgramFiles(x86)%\Cloudflare\Cloudflare WARP\Cloudflare WARP.exe"
+            ],
+            GuiExecutableNames = ["Cloudflare WARP.exe"]
+        },
+        new DependencyDefinition
+        {
+            Id = "proton",
+            Name = "Proton VPN Client",
+            Description = "Alternative IP rotation provider for quota resets.",
+            Category = "utility",
+            InstallKind = "browser",
+            SiteUrl = "https://protonvpn.com/download",
+            CommandPreview = "protonvpn-cli --version",
+            Commands = ["protonvpn-cli", "protonvpn"],
+            FallbackPaths =
+            [
+                @"%ProgramFiles%\Proton\VPN\ProtonVPN.exe",
+                // Proton installs into a versioned subfolder, e.g. ...\VPN\v5.1.8\ProtonVPN.Client.exe
+                @"%ProgramFiles%\Proton\VPN\v*\ProtonVPN.Client.exe",
+                @"%ProgramFiles%\Proton\VPN\ProtonVPN.Launcher.exe"
+            ],
+            GuiExecutableNames = ["ProtonVPN.exe", "ProtonVPN.Client.exe", "ProtonVPN.Launcher.exe"]
         }
     ];
 
@@ -165,7 +245,7 @@ public static class DependencyCheckerService
 
         foreach (var command in definition.Commands)
         {
-            var resolved = ResolveOnPath(command);
+            var resolved = ResolveOnPath(command, definition.ExcludedPathTokens);
             if (resolved != null)
             {
                 path = resolved;
@@ -177,22 +257,31 @@ public static class DependencyCheckerService
         {
             foreach (var candidate in definition.FallbackPaths)
             {
-                var expanded = Expand(candidate);
-                if (expanded.Length > 0 && File.Exists(expanded))
+                var resolved = ResolveFallback(candidate);
+                if (resolved != null)
                 {
-                    path = expanded;
+                    path = resolved;
                     break;
                 }
             }
         }
 
-        string version = path.Length > 0 ? ProbeVersion(path) : "";
+        // Never run --version against a GUI launcher; that would open the app window.
+        bool probeAllowed = path.Length > 0 && !IsGuiLauncher(definition, path);
+        string version = probeAllowed ? ProbeVersion(path) : "";
+
+        // GUI installs keep their version in the folder name (…\VPN\v5.1.8\…), so fall back to it.
+        if (version.Length == 0 && path.Length > 0)
+        {
+            version = ExtractVersion(path.Replace('\\', ' ').Replace('/', ' '));
+        }
 
         return new DependencyStatus
         {
             Id = definition.Id,
             Name = definition.Name,
             Description = definition.Description,
+            Category = definition.Category,
             IsInstalled = path.Length > 0,
             Version = version,
             Path = path,
@@ -202,11 +291,24 @@ public static class DependencyCheckerService
         };
     }
 
+    private static bool IsGuiLauncher(DependencyDefinition definition, string path)
+    {
+        if (definition.GuiExecutableNames.Length == 0) return false;
+
+        var fileName = Path.GetFileName(path);
+        foreach (var guiName in definition.GuiExecutableNames)
+        {
+            if (string.Equals(fileName, guiName, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Resolves an executable against PATH and PATHEXT. Done in managed code rather than by
     /// shelling out to where.exe, so detection costs no extra process.
     /// </summary>
-    private static string? ResolveOnPath(string command)
+    private static string? ResolveOnPath(string command, string[] excludedTokens)
     {
         var pathVariable = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrWhiteSpace(pathVariable)) return null;
@@ -218,6 +320,17 @@ public static class DependencyCheckerService
         {
             var trimmed = directory.Trim().Trim('"');
             if (trimmed.Length == 0) continue;
+
+            bool excluded = false;
+            foreach (var token in excludedTokens)
+            {
+                if (trimmed.Contains(token, StringComparison.OrdinalIgnoreCase))
+                {
+                    excluded = true;
+                    break;
+                }
+            }
+            if (excluded) continue;
 
             foreach (var extension in extensions)
             {
@@ -239,6 +352,53 @@ public static class DependencyCheckerService
         return null;
     }
 
+    /// <summary>
+    /// Resolves one fallback template. A single "*" directory segment is expanded against the
+    /// filesystem (highest version first), which is how Proton's versioned install folder is
+    /// found: %ProgramFiles%\Proton\VPN\v*\ProtonVPN.Client.exe
+    /// </summary>
+    private static string? ResolveFallback(string template)
+    {
+        var expanded = Expand(template);
+        if (expanded.Length == 0) return null;
+
+        if (!expanded.Contains('*'))
+        {
+            return File.Exists(expanded) ? expanded : null;
+        }
+
+        int star = expanded.IndexOf('*');
+        int directoryEnd = expanded.LastIndexOf(Path.DirectorySeparatorChar, star);
+        if (directoryEnd < 0) return null;
+
+        var parent = expanded[..directoryEnd];
+        var remainder = expanded[(directoryEnd + 1)..];
+
+        int separator = remainder.IndexOf(Path.DirectorySeparatorChar);
+        if (separator < 0) return null;
+
+        var pattern = remainder[..separator];
+        var tail = remainder[(separator + 1)..];
+
+        try
+        {
+            if (!Directory.Exists(parent)) return null;
+
+            // Descending so v5.1.8 wins over an older v3.x left behind by an upgrade.
+            foreach (var directory in Directory.GetDirectories(parent, pattern).OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase))
+            {
+                var candidate = Path.Combine(directory, tail);
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
+        catch
+        {
+            // Unreadable directory; treat as a miss.
+        }
+
+        return null;
+    }
+
     private static string Expand(string template)
     {
         if (string.IsNullOrWhiteSpace(template)) return "";
@@ -255,8 +415,8 @@ public static class DependencyCheckerService
     }
 
     /// <summary>
-    /// Runs "&lt;tool&gt; --version" and pulls the first dotted number out of the output. Returns
-    /// an empty string when the probe times out or prints nothing useful.
+    /// Runs "&lt;tool&gt; --version" and pulls the version out of the output. Returns an empty
+    /// string when the probe times out or prints nothing useful.
     /// </summary>
     private static string ProbeVersion(string executablePath)
     {

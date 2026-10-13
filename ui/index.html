@@ -1024,14 +1024,14 @@
 
           <!-- CLI Dependencies & Runtimes -->
           <div class="dashboard-card" style="margin-bottom: 16px;" id="card-dependencies">
-            <div class="card-header" style="justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div class="card-header" style="justify-content: space-between; align-items: center; margin-bottom: 14px;">
               <div class="card-title-group">
                 <div class="card-icon" style="color: var(--accent-green);">
                   <svg class="icon-svg" viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
                 </div>
                 <div>
-                  <div class="card-title">CLI DEPENDENCIES &amp; RUNTIMES</div>
-                  <div class="card-subtitle">Verify installed external CLI tools and install missing agents</div>
+                  <div class="card-title">DEPENDENCIES &amp; REQUIRED RUNTIMES</div>
+                  <div class="card-subtitle">Verify installed development runtimes, AI CLI engines, and network utilities</div>
                 </div>
               </div>
               <button class="btn btn-outline" id="btn-recheck-dependencies" style="padding: 5px 12px; font-size: 11.5px; white-space: nowrap;">
@@ -1040,8 +1040,20 @@
               </button>
             </div>
 
-            <div class="dependencies-list" id="dependencies-list-container">
-              <!-- Populated dynamically via JS -->
+            <!-- Group 1: Core System & Dev Runtimes -->
+            <div style="margin-bottom: 16px;">
+              <div class="dependency-section-title">1. Core Dev Runtimes (Required by CLI Agents)</div>
+              <div class="dependencies-list" id="runtimes-list-container">
+                <!-- Node.js, Git, Python rendered dynamically -->
+              </div>
+            </div>
+
+            <!-- Group 2: AI Agents & VPN Utilities -->
+            <div>
+              <div class="dependency-section-title">2. AI Agents &amp; Network Tools</div>
+              <div class="dependencies-list" id="agents-list-container">
+                <!-- Claude Code, Antigravity, Hermes, WARP, Proton VPN rendered dynamically -->
+              </div>
             </div>
           </div>
 
