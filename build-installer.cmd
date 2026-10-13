@@ -22,7 +22,7 @@ if not defined ISCC_EXE (
     exit /b 1
 )
 
-"%ISCC_EXE%" HermesHub.iss
+"%ISCC_EXE%" AgentsHub.iss
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Inno Setup compilation failed.
     exit /b %ERRORLEVEL%

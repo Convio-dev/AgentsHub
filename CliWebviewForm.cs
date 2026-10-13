@@ -92,6 +92,17 @@ public partial class CliWebviewForm : Form
             var uiOfflinePath = Path.Combine(baseDir, "ui", "hermes-offline.html");
             _hermesOfflineHtmlPath = File.Exists(uiOfflinePath) ? uiOfflinePath : Path.Combine(baseDir, "assets", "web", "hermes-offline.html");
 
+            var cliIconPath = Path.Combine(baseDir, "assets", "cli.ico");
+            if (File.Exists(cliIconPath))
+            {
+                Icon = new Icon(cliIconPath);
+            }
+            else
+            {
+                var appIconPath = Path.Combine(baseDir, "assets", "app.ico");
+                if (File.Exists(appIconPath)) Icon = new Icon(appIconPath);
+            }
+
             SetupStyles();
             HookEvents();
 
