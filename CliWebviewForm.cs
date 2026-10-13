@@ -2092,6 +2092,11 @@ public partial class CliWebviewForm : Form
         }
     }
 
+    /// <summary>
+    /// Shared WebView2 hardening, applied to every hosted page in this window. DevTools stay
+    /// disabled so no terminal or custom workspace can be inspected. Keep this in sync with the
+    /// dashboard WebView2 in <c>MainForm</c>.
+    /// </summary>
     private static void ConfigureWebViewSettings(CoreWebView2 webView)
     {
         webView.Settings.AreDefaultContextMenusEnabled = true;
@@ -2505,6 +2510,12 @@ public partial class CliWebviewForm : Form
             if (port > 0)
             {
                 Process.Start(new ProcessStartInfo($"http://127.0.0.1:{port}/") { UseShellExecute = true });
+            }
+            else
+            {
+                MessageBox.Show(
+                    "This tab has no web port yet. Start the session first, then open it in the browser.",
+                    "Open in Browser", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
         catch (Exception ex)

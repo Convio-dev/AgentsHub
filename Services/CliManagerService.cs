@@ -483,6 +483,12 @@ public class CliManagerService : IDisposable
                 string virtualHomeDir = _profileService.PrepareVirtualHome(profileName);
                 _profileService.StartVirtualHomeWatcher(profileName);
 
+                // Bind this profile's allocated port to its own terminal session, so the
+                // "Open in browser" action on an Antigravity tab has something to connect to.
+                // Without it the port is just a number and the browser reports
+                // ERR_CONNECTION_REFUSED.
+                _webTerminalServer.EnsureEndpoint(id, $"agy: {profileName}", port);
+
                 // Name the account this session will authenticate as, so cross-profile
                 // contamination is visible in the log instead of only in the CLI banner.
                 string accountEmail = _profileService.GetAccountEmail(profileName) ?? string.Empty;

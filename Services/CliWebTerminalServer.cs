@@ -37,9 +37,14 @@ public sealed class CliWebTerminalServer : IDisposable
         }
     }
 
-    private sealed class EndpointListener(CliType cliType, int port)
+    /// <summary>
+    /// One HTTP + WebSocket endpoint serving a single terminal session. Keyed by session id
+    /// rather than CliType, so every Antigravity profile can have its own live port.
+    /// </summary>
+    private sealed class EndpointListener(string sessionId, string displayName, int port)
     {
-        public CliType CliType { get; } = cliType;
+        public string SessionId { get; } = sessionId;
+        public string DisplayName { get; } = displayName;
         public int Port { get; } = port;
         public HttpListener? Listener { get; set; }
         public ConcurrentDictionary<WebSocket, WebSocketClient> Sockets { get; } = new();
@@ -47,7 +52,7 @@ public sealed class CliWebTerminalServer : IDisposable
 
     private readonly CliManagerService _cliManager;
     private readonly string _webAssetsDir;
-    private readonly EndpointListener[] _endpoints;
+    private readonly ConcurrentDictionary<string, EndpointListener> _endpoints = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _cts = new();
     private bool _isDisposed;
 
@@ -56,23 +61,65 @@ public sealed class CliWebTerminalServer : IDisposable
         _cliManager = cliManager;
         _webAssetsDir = Path.Combine(AppContext.BaseDirectory, "assets", "web");
 
-        _endpoints =
-        [
-            new EndpointListener(CliType.ClaudeCode, 9229),
-            new EndpointListener(CliType.AntigravityCli, 9339)
-        ];
+        // Fixed endpoints. Antigravity profiles register their own on launch through
+        // EnsureEndpoint, because each profile binds its own allocated port.
+        _endpoints["claude_code"] = new EndpointListener("claude_code", "Claude Code", 9229);
+        _endpoints["antigravity_cli"] = new EndpointListener("antigravity_cli", "Antigravity CLI", 9339);
 
-        _cliManager.TerminalDataReceived += OnTerminalDataReceived;
-        _cliManager.StatusChanged += OnStatusChanged;
+        // Subscribe to the id-based events: the CliType events collapse every Antigravity
+        // profile onto CliType.AntigravityCli, which would feed one profile's output to another
+        // profile's endpoint.
+        _cliManager.TerminalDataReceivedId += OnTerminalDataReceived;
+        _cliManager.StatusChangedId += OnStatusChanged;
         ThemeManager.ThemeChanged += OnThemeChanged;
     }
 
     public void Start()
     {
-        foreach (var endpoint in _endpoints)
+        foreach (var endpoint in _endpoints.Values)
         {
             StartEndpoint(endpoint);
         }
+    }
+
+    /// <summary>
+    /// Binds an endpoint for a terminal session - used for Antigravity profiles, which listen on
+    /// their own allocated port. Idempotent, and replaces the listener if the port changed.
+    /// </summary>
+    public void EnsureEndpoint(string sessionId, string displayName, int port)
+    {
+        if (_isDisposed || string.IsNullOrWhiteSpace(sessionId) || port <= 0) return;
+
+        if (_endpoints.TryGetValue(sessionId, out var existing))
+        {
+            if (existing.Port == port) return;
+
+            // The profile was reallocated to a different port; retire the stale listener.
+            _endpoints.TryRemove(sessionId, out _);
+            StopEndpoint(existing);
+        }
+
+        var endpoint = new EndpointListener(sessionId, displayName, port);
+        if (_endpoints.TryAdd(sessionId, endpoint))
+        {
+            StartEndpoint(endpoint);
+        }
+    }
+
+    private void StopEndpoint(EndpointListener endpoint)
+    {
+        try
+        {
+            endpoint.Listener?.Stop();
+            endpoint.Listener?.Close();
+        }
+        catch { }
+
+        foreach (var client in endpoint.Sockets.Values)
+        {
+            try { client.Socket.Dispose(); } catch { }
+        }
+        endpoint.Sockets.Clear();
     }
 
     private void StartEndpoint(EndpointListener endpoint)
@@ -248,11 +295,11 @@ public sealed class CliWebTerminalServer : IDisposable
 
         try
         {
-            var info = _cliManager.GetInfo(endpoint.CliType);
-            var history = _cliManager.GetTerminalHistory(endpoint.CliType);
+            var info = _cliManager.GetInfo(endpoint.SessionId);
+            var history = _cliManager.GetTerminalHistory(endpoint.SessionId);
             var initPayload = new CliWebviewForm.TerminalInitPayload(
                 "init",
-                info.ShortName,
+                endpoint.DisplayName,
                 info.State == CliState.Running,
                 info.StatusText,
                 history);
@@ -300,7 +347,7 @@ public sealed class CliWebTerminalServer : IDisposable
                                     string? text = dataEl.GetString();
                                     if (text != null)
                                     {
-                                        _cliManager.SendInput(endpoint.CliType, text);
+                                        _cliManager.SendInput(endpoint.SessionId, text);
                                     }
                                 }
                                 break;
@@ -311,12 +358,12 @@ public sealed class CliWebTerminalServer : IDisposable
                                 {
                                     short cols = colsEl.GetInt16();
                                     short rows = rowsEl.GetInt16();
-                                    _cliManager.Resize(endpoint.CliType, cols, rows);
+                                    _cliManager.Resize(endpoint.SessionId, cols, rows);
                                 }
                                 break;
 
                             case "start":
-                                _cliManager.Start(endpoint.CliType);
+                                _cliManager.Start(endpoint.SessionId);
                                 break;
                         }
                     }
@@ -342,10 +389,9 @@ public sealed class CliWebTerminalServer : IDisposable
         }
     }
 
-    private void OnTerminalDataReceived(CliType type, string text)
+    private void OnTerminalDataReceived(string sessionId, string text)
     {
-        var endpoint = _endpoints.FirstOrDefault(e => e.CliType == type);
-        if (endpoint == null || endpoint.Sockets.IsEmpty) return;
+        if (!_endpoints.TryGetValue(sessionId, out var endpoint) || endpoint.Sockets.IsEmpty) return;
 
         var payload = new CliWebviewForm.TerminalOutputPayload("output", text);
         string json = JsonSerializer.Serialize(payload, CliWebviewForm.CliJsonContext.Default.TerminalOutputPayload);
@@ -359,10 +405,9 @@ public sealed class CliWebTerminalServer : IDisposable
         }
     }
 
-    private void OnStatusChanged(CliType type, CliState state, string message)
+    private void OnStatusChanged(string sessionId, CliState state, string message)
     {
-        var endpoint = _endpoints.FirstOrDefault(e => e.CliType == type);
-        if (endpoint == null || endpoint.Sockets.IsEmpty) return;
+        if (!_endpoints.TryGetValue(sessionId, out var endpoint) || endpoint.Sockets.IsEmpty) return;
 
         var payload = new CliWebviewForm.TerminalStatusPayload("status", state == CliState.Running, message);
         string json = JsonSerializer.Serialize(payload, CliWebviewForm.CliJsonContext.Default.TerminalStatusPayload);
@@ -388,7 +433,7 @@ public sealed class CliWebTerminalServer : IDisposable
         var payload = new { type = "theme_changed", theme, accentColor = accent };
         string json = JsonSerializer.Serialize(payload);
 
-        foreach (var endpoint in _endpoints)
+        foreach (var endpoint in _endpoints.Values)
         {
             foreach (var client in endpoint.Sockets.Values)
             {
@@ -405,27 +450,17 @@ public sealed class CliWebTerminalServer : IDisposable
         if (_isDisposed) return;
         _isDisposed = true;
 
-        _cliManager.TerminalDataReceived -= OnTerminalDataReceived;
-        _cliManager.StatusChanged -= OnStatusChanged;
+        _cliManager.TerminalDataReceivedId -= OnTerminalDataReceived;
+        _cliManager.StatusChangedId -= OnStatusChanged;
         ThemeManager.ThemeChanged -= OnThemeChanged;
 
         _cts.Cancel();
 
-        foreach (var endpoint in _endpoints)
+        foreach (var endpoint in _endpoints.Values)
         {
-            try
-            {
-                endpoint.Listener?.Stop();
-                endpoint.Listener?.Close();
-            }
-            catch { }
-
-            foreach (var client in endpoint.Sockets.Values)
-            {
-                try { client.Socket.Dispose(); } catch { }
-            }
-            endpoint.Sockets.Clear();
+            StopEndpoint(endpoint);
         }
+        _endpoints.Clear();
 
         _cts.Dispose();
         GC.SuppressFinalize(this);
