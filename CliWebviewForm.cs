@@ -1339,10 +1339,11 @@ public partial class CliWebviewForm : Form
             bool isClaudeActive = string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
             bool isClaudeOpenRouter = isClaudeActive && string.Equals(AiConfigService.Instance.GetClaudeEngineMode(), "OpenRouter", StringComparison.OrdinalIgnoreCase);
 
-            // Hide profile dropdown in multi-instance tab mode to prevent crowding
+            // The profile switcher only applies to Antigravity tabs; hide it elsewhere so the
+            // toolbar does not crowd.
             if (_profileComboBox != null)
             {
-                _profileComboBox.Visible = false;
+                _profileComboBox.Visible = isAntigravityActive;
             }
 
             // 1. Compute Minimum Action Bar Width
@@ -1361,9 +1362,11 @@ public partial class CliWebviewForm : Form
                     actionControlsWidth += 130 + 6; // _claudeModelComboBox (min 130px)
                 }
             }
-            else if (isAntigravityActive && _addProfileButton != null)
+            else if (isAntigravityActive)
             {
-                actionControlsWidth += 52 + 8;
+                if (_addProfileButton != null) actionControlsWidth += 52 + 8;
+                // Profile switcher reserves its minimum width so the tabs panel clamps correctly.
+                if (_profileComboBox != null) actionControlsWidth += 120 + 6;
             }
 
             // 2. Clamp tabsPanel.Width
@@ -1397,16 +1400,31 @@ public partial class CliWebviewForm : Form
                 right = _shellLauncherButton.Left - 10;
             }
 
-            // Dedicated + Add button for onboarding additional Antigravity accounts
-            if (isAntigravityActive && _addProfileButton != null)
+            // Antigravity-only toolbar controls: profile switcher + add-account button, laid out
+            // right to left so the switcher sits immediately left of the add button.
+            if (isAntigravityActive)
             {
-                _addProfileButton.Visible = true;
-                _addProfileButton.Location = new Point(Math.Max(0, right - _addProfileButton.Width), 7);
-                right = _addProfileButton.Left - 8;
+                if (_addProfileButton != null)
+                {
+                    _addProfileButton.Visible = true;
+                    _addProfileButton.Location = new Point(Math.Max(0, right - _addProfileButton.Width), 7);
+                    right = _addProfileButton.Left - 8;
+                }
+
+                if (_profileComboBox != null)
+                {
+                    // Responsive: takes what is left, but never squashes below 120px or grows
+                    // past 160px where it would push the action buttons off the bar.
+                    int comboWidth = Math.Clamp(right - 12, 120, 160);
+                    _profileComboBox.Width = comboWidth;
+                    _profileComboBox.Location = new Point(Math.Max(0, right - comboWidth), 9);
+                    right = _profileComboBox.Left - 8;
+                }
             }
-            else if (_addProfileButton != null)
+            else
             {
-                _addProfileButton.Visible = false;
+                if (_addProfileButton != null) _addProfileButton.Visible = false;
+                if (_profileComboBox != null) _profileComboBox.Visible = false;
             }
 
             // Claude Engine & Model controls

@@ -630,8 +630,19 @@ public sealed class AntigravityProfileService : IDisposable
         {
             try
             {
-                // Step 1: Backup current profile if valid
-                if (!string.IsNullOrWhiteSpace(_activeProfile) && HasValidActiveCredentials())
+                // Step 1: Capture the live session into the outgoing profile, but ONLY when that
+                // profile has nothing saved yet.
+                //
+                // ExportCurrentSession reads the single, machine-wide 'gemini:antigravity'
+                // credential and writes it into the profile's saved files. Running it on every
+                // switch therefore overwrites a profile's stored account with whatever credential
+                // was applied last - which is exactly how two profiles end up resolving to the
+                // same Google account. A profile that already has valid saved credentials must
+                // never be overwritten here; its own VirtualHome is the source of truth and the
+                // VirtualHome watcher syncs any refresh back.
+                if (!string.IsNullOrWhiteSpace(_activeProfile) &&
+                    HasValidActiveCredentials() &&
+                    !HasValidSavedCredentials(_activeProfile))
                 {
                     ExportCurrentSession(_activeProfile);
                 }

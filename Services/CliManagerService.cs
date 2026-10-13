@@ -468,8 +468,27 @@ public class CliManagerService : IDisposable
                 info.Port = port;
                 info.WebUrl = $"http://127.0.0.1:{port}";
 
+                // agy authenticates from the single, machine-wide 'gemini:antigravity'
+                // credential - the per-profile VirtualHome alone is not enough. Applying the
+                // profile here is what makes a session started from a tab pick up its OWN
+                // account. Without it the process reads whatever credential was applied last,
+                // which is why tab-started sessions showed the other profile's email while the
+                // dropdown path (which already applies) was correct.
+                bool applied = _profileService.ApplyProfile(profileName);
+                if (!applied)
+                {
+                    LogMessage?.Invoke("Antigravity", $"Warning: could not apply profile '{profileName}'. The session may start with another profile's credentials.");
+                }
+
                 string virtualHomeDir = _profileService.PrepareVirtualHome(profileName);
                 _profileService.StartVirtualHomeWatcher(profileName);
+
+                // Name the account this session will authenticate as, so cross-profile
+                // contamination is visible in the log instead of only in the CLI banner.
+                string accountEmail = _profileService.GetAccountEmail(profileName) ?? string.Empty;
+                LogMessage?.Invoke("Antigravity", string.IsNullOrWhiteSpace(accountEmail)
+                    ? $"Launching profile '{profileName}' on port {port} (no saved account email)."
+                    : $"Launching profile '{profileName}' as {accountEmail} on port {port}.");
 
                 envVars = new Dictionary<string, string>
                 {

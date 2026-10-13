@@ -50,6 +50,17 @@ Rules that exist for real reasons — do not remove:
 
 **Proton's real install path** is `%ProgramFiles%\Proton\VPN\v<version>\ProtonVPN.Client.exe` (plus `ProtonVPN.Launcher.exe`) — *not* `…\VPN\ProtonVPN.exe`, which the original brief assumed and which does not exist.
 
+## Antigravity profile isolation — read before touching ApplyProfile
+**`agy` authenticates from the single, machine-wide `gemini:antigravity` credential**, not from the per-profile VirtualHome alone. The VirtualHome is necessary but NOT sufficient.
+
+Therefore **`CliManagerService.Start(id)` MUST call `_profileService.ApplyProfile(profileName)` before `PrepareVirtualHome` for every agy profile launch.** That call is what writes the profile's credential into the Windows Credential Manager. Omitting it is what made tab-started sessions show the *other* profile's Google account while the dropdown path (which already applied) was correct. Order: `ApplyProfile` → `PrepareVirtualHome` → `StartVirtualHomeWatcher` → env (`USERPROFILE`/`HOME`/`APPDATA`/`LOCALAPPDATA`/`PORT`/`ANTIGRAVITY_PORT`) → `cmd.exe /c agy` with `workDir = virtualHome`.
+
+`ApplyProfile`'s step 1 used to corrupt profiles: it ran `ExportCurrentSession(_activeProfile)` unconditionally, which reads that same global credential and writes it into the outgoing profile's saved files, so every switch overwrote the outgoing profile's account. It is now guarded with `!HasValidSavedCredentials(_activeProfile)` — **do not remove that guard**, it is what makes calling `ApplyProfile` on every launch safe.
+
+Known remaining gap: `Start(CliType.AntigravityCli)` (tray "Start All CLIs", dashboard `toggle_cli`) passes the bare id `antigravity_cli`, which is not a profile id, so it takes the generic workspace path with no credential applied. `SwitchTab` normalises that id to the active profile; `Start` does not.
+
+`SwitchTab` already routes `_customWebViews[profileId].Visible` per profile and calls `TriggerTerminalFit()`.
+
 ## Tooling
 - antislop skills are installed at `.agents/skills/`; `AGENTS.md` routes UI/copy/layout work there. No global antislop mode is saved (`%APPDATA%\antislop\settings.json` absent), so the mode question must be asked per session.
 - There is **no `.editorconfig`**, and the IDE analyzers (IDE00xx / CAxxxx) are **not** surfaced as build warnings — `dotnet build` reports 0 warnings while the IDE lists dozens. To apply them, scope `dotnet format` precisely:
