@@ -1059,10 +1059,45 @@
           </div>
 
           <div class="dashboard-card">
-            <div class="card-title" style="margin-bottom: 8px;">About Agents Hub</div>
-            <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.6;">
-              <b>Agents Hub v1.0.3</b>: High Performance Multi-Agent Hub and Workspace.<br>
-              Unified process engine for Hermes, Claude Code, and Antigravity CLI.
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-icon" style="color: var(--accent-green);">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                </div>
+                <div>
+                  <div class="card-title">ABOUT AGENTS HUB</div>
+                  <div class="card-subtitle">Version <span id="about-version">v1.0.3</span></div>
+                </div>
+              </div>
+            </div>
+
+            <p class="about-summary">
+              Agents Hub runs Hermes, Claude Code and Antigravity CLI from one window. Each agent gets a real
+              terminal session with its own credentials, and a port you can open in a browser or hand to a phone
+              on the same network. It ships as a single portable executable built on .NET 10 and WebView2.
+            </p>
+
+            <div class="about-links">
+              <button class="about-link" data-url="https://github.com/ZerroDevs/AgentsHub" title="Open the source repository">
+                <svg class="icon-svg about-link-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                <span class="about-link-label">Repository</span>
+                <span class="about-link-value">github.com/ZerroDevs/AgentsHub</span>
+                <svg class="icon-svg about-link-open" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </button>
+
+              <button class="about-link" data-url="https://github.com/ZerroDevs/AgentsHub?tab=MIT-1-ov-file" title="Read the MIT license">
+                <svg class="icon-svg about-link-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span class="about-link-label">License</span>
+                <span class="about-link-value">MIT</span>
+                <svg class="icon-svg about-link-open" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </button>
+
+              <button class="about-link" data-url="https://github.com/ZerroDevs" title="Open the author's GitHub profile">
+                <svg class="icon-svg about-link-icon" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span class="about-link-label">Author</span>
+                <span class="about-link-value">ZerroDevs</span>
+                <svg class="icon-svg about-link-open" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </button>
             </div>
           </div>
         </div>

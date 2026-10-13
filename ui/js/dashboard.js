@@ -855,7 +855,23 @@
     document.getElementById('btn-recheck-dependencies')?.addEventListener('click', () => loadDependencies(true));
   }
 
+  // Keep the About card's version in step with the version the backend reports, so it is not
+  // a second hardcoded copy of the number.
+  function renderAboutVersion() {
+    const el = document.getElementById('about-version');
+    if (el && state.version) el.textContent = state.version;
+  }
+
   function setupSettingsView() {
+    // About card: open links in the system browser instead of navigating the WebView.
+    document.querySelectorAll('.about-link').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const url = btn.dataset.url;
+        if (url) callBridge('open_url_external', { url });
+      });
+    });
+
+    renderAboutVersion();
     // Theme toggles
     document.querySelectorAll('.btn-theme-toggle').forEach(b => {
       b.addEventListener('click', () => {
@@ -3931,6 +3947,7 @@
       const res = await callBridge('get_initial_state');
       if (res) {
         state.version = res.version || 'v1.0.3';
+        renderAboutVersion();
         state.lanIp = res.lanIp || '127.0.0.1';
         state.lanUrl = res.lanUrl || 'http://127.0.0.1:9095/';
         state.qrBase64 = res.qrBase64 || '';

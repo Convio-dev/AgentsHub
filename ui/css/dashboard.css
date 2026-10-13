@@ -2049,8 +2049,76 @@ html[data-theme="light"] .ip-matrix-val .ip-new {
 }
 
 /* Preferences and Settings Item Styles */
-.preference-item {
+/* About card (Settings view) */
+.about-summary {
+  margin: 0 0 12px 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+.about-links {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.about-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.about-link:hover {
+  border-color: var(--accent-green);
+}
+
+.about-link-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--accent-green);
+}
+
+.about-link-label {
+  flex: 0 0 90px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.about-link-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-cyan);
+}
+
+.about-link-open {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.preference-item {  display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 0;
