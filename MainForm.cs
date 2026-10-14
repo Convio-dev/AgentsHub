@@ -133,10 +133,10 @@ public partial class MainForm : Form
             // DevTools stay unavailable in every WebView2 the app hosts - this is a product
             // surface, not a browser. AreDevToolsEnabled = false removes the DevTools window
             // itself, the context-menu "Inspect" entry, and the F12 / Ctrl+Shift+I shortcuts.
-            _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-            _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+            _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
             _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            _webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
+            _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 
             // Attach C# backend bridge
             if (_cliManager != null)

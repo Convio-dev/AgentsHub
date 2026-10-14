@@ -3127,7 +3127,7 @@ public partial class CliWebviewForm : Form
     /// </summary>
     private static void ConfigureWebViewSettings(CoreWebView2 webView)
     {
-        webView.Settings.AreDefaultContextMenusEnabled = true;
+        webView.Settings.AreDefaultContextMenusEnabled = false;
         webView.Settings.AreDevToolsEnabled = false;
         webView.Settings.IsStatusBarEnabled = false;
         webView.Settings.IsZoomControlEnabled = true;

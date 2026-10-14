@@ -33,6 +33,7 @@ public static class InstalledClients
         new("OpenCode Desktop", "OpenCode.exe"),
         new("FreeBuff Desktop", "Freebuff.exe"),
         new("Antigravity IDE", "Antigravity IDE.exe"),
+        new("Antigravity App", "Antigravity.exe"),
         new("Zed", "Zed.exe"),
         new("Positron", "Positron.exe"),
         new("Continue", "Continue.exe"),

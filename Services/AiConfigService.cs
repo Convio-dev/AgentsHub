@@ -337,6 +337,38 @@ public class AiConfigService
         SaveConfig(_config);
     }
 
+    public static string FindAntigravityAppPath()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+
+        var candidates = new[]
+        {
+            Path.Combine(localAppData, @"Programs\antigravity\Antigravity.exe"),
+            Path.Combine(localAppData, @"Programs\Antigravity\Antigravity.exe"),
+            Path.Combine(localAppData, @"antigravity\Antigravity.exe"),
+            Path.Combine(localAppData, @"Antigravity\Antigravity.exe"),
+            Path.Combine(programFiles, @"antigravity\Antigravity.exe"),
+            Path.Combine(programFiles, @"Antigravity\Antigravity.exe"),
+            Path.Combine(programFilesX86, @"antigravity\Antigravity.exe"),
+            Path.Combine(programFilesX86, @"Antigravity\Antigravity.exe"),
+            Path.Combine(appData, @"Programs\antigravity\Antigravity.exe"),
+            Path.Combine(localAppData, @"Programs\antigravity-app\Antigravity.exe")
+        };
+
+        foreach (var c in candidates)
+        {
+            if (!string.IsNullOrWhiteSpace(c) && File.Exists(c))
+            {
+                return c;
+            }
+        }
+
+        return string.Empty;
+    }
+
     public static List<DevToolItem> GetDefaultDevTools()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -344,6 +376,7 @@ public class AiConfigService
         var clinePath = Path.Combine(localAppData, @"Cline\cline-app.exe");
         var opencodePath = Path.Combine(localAppData, @"Programs\@opencodedesktop\OpenCode.exe");
         var antigravityPath = Path.Combine(localAppData, @"Programs\Antigravity IDE\Antigravity IDE.exe");
+        var antigravityAppPath = FindAntigravityAppPath();
 
         return
         [
@@ -381,6 +414,14 @@ public class AiConfigService
             },
             new()
             {
+                Id = "antigravity_app",
+                Name = "Antigravity App",
+                Description = "Path to Antigravity.exe",
+                Target = !string.IsNullOrWhiteSpace(antigravityAppPath) ? antigravityAppPath : string.Empty,
+                IsEnabled = true
+            },
+            new()
+            {
                 Id = "claude",
                 Name = "Claude",
                 Description = "Claude Desktop application",
@@ -413,6 +454,9 @@ public class AiConfigService
         dict["Cline"] = dict.GetValueOrDefault("cline", string.Empty);
         dict["OpenCode"] = dict.GetValueOrDefault("opencode", string.Empty);
         dict["Antigravity-ide"] = dict.GetValueOrDefault("antigravity_ide", string.Empty);
+        dict["Antigravity App"] = dict.GetValueOrDefault("antigravity_app", string.Empty);
+        dict["antigravity_app"] = dict.GetValueOrDefault("antigravity_app", string.Empty);
+        dict["Antigravity"] = dict.GetValueOrDefault("antigravity_app", string.Empty);
         dict["Claude"] = @"shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude";
         dict["ChatGPT"] = @"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App";
 
@@ -588,12 +632,49 @@ public class AiConfigService
         }
         else
         {
-            // Sanitize existing items
+            // Ensure any default dev tool missing from existing user config is added
+            foreach (var def in defaultDevTools)
+            {
+                if (!_config.DevTools.Any(d => string.Equals(d.Id, def.Id, StringComparison.OrdinalIgnoreCase) ||
+                                               string.Equals(d.Name, def.Name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _config.DevTools.Add(new DevToolItem
+                    {
+                        Id = def.Id,
+                        Name = def.Name,
+                        Description = def.Description,
+                        Target = def.Target,
+                        IsEnabled = def.IsEnabled
+                    });
+                }
+            }
+
+            // Sanitize existing items and auto-detect empty paths for known tools
             foreach (var tool in _config.DevTools)
             {
                 if (!IsCleanPath(tool.Target))
                 {
                     tool.Target = string.Empty;
+                }
+
+                if (string.IsNullOrWhiteSpace(tool.Target))
+                {
+                    if (string.Equals(tool.Id, "antigravity_app", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(tool.Name, "Antigravity App", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var detected = FindAntigravityAppPath();
+                        if (!string.IsNullOrWhiteSpace(detected))
+                        {
+                            tool.Target = detected;
+                        }
+                    }
+                    else if (string.Equals(tool.Id, "antigravity_ide", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(tool.Name, "Antigravity IDE", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                        var idePath = Path.Combine(localApp, @"Programs\Antigravity IDE\Antigravity IDE.exe");
+                        if (File.Exists(idePath)) tool.Target = idePath;
+                    }
                 }
             }
         }

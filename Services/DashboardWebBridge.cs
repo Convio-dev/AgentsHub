@@ -487,6 +487,14 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "get_active_profile_email":
+                {
+                    var actProf = _cliManager.ProfileService.ActiveProfile;
+                    var actEmail = AntigravityProfileService.GetAccountEmail(actProf) ?? string.Empty;
+                    SendResponse(requestId, true, new { profile = actProf, email = actEmail });
+                }
+                break;
+
             case "switch_antigravity_profile":
                 if (data.TryGetProperty("profile", out var profProp))
                 {
@@ -1111,6 +1119,13 @@ public sealed partial class DashboardWebBridge : IDisposable
                         target = AiConfigService.Instance.GetToolTarget(toolName, string.Empty);
                     }
 
+                    if (string.IsNullOrWhiteSpace(target) &&
+                        (string.Equals(toolId, "antigravity_app", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(toolName, "Antigravity App", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        target = AiConfigService.FindAntigravityAppPath();
+                    }
+
                     if (string.IsNullOrWhiteSpace(target))
                     {
                         SendResponse(requestId, false, "Target path is empty. Set one with Browse first.");
@@ -1154,11 +1169,17 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string? selectedPath = null;
                     _mainForm.Invoke(() =>
                     {
+                        var localPrograms = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
+                        var localAntigravity = Path.Combine(localPrograms, "antigravity");
+                        string initDir = Directory.Exists(localAntigravity) ? localAntigravity :
+                                        Directory.Exists(localPrograms) ? localPrograms :
+                                        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+
                         using var ofd = new OpenFileDialog
                         {
                             Title = string.IsNullOrWhiteSpace(tool) ? "Select Executable Target" : $"Select Target Executable for {tool}",
                             Filter = "Executables (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All Files (*.*)|*.*",
-                            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
+                            InitialDirectory = initDir
                         };
                         if (ofd.ShowDialog(_mainForm) == DialogResult.OK)
                         {

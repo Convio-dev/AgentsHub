@@ -285,6 +285,8 @@
           renderProfiles();
           renderQuickProfileSelect();
           updateHeaderStatus();
+          updateAntigravityAppCardUi();
+          updateProfileEmailUi();
         }
         break;
 
@@ -1515,26 +1517,119 @@
       const themeParam = currentThemeParam();
       callBridge('open_url_external', { url: `http://127.0.0.1:${port}/${themeParam}` });
     });
+  }
 
-    // Standalone Terminals Window Buttons
-    const openStandalone = () => callBridge('open_standalone_terminals');
-    document.getElementById('btn-popout-terminals')?.addEventListener('click', openStandalone);
-    document.getElementById('btn-popout-terminals-dash')?.addEventListener('click', openStandalone);
-    document.getElementById('btn-open-standalone-hdr')?.addEventListener('click', openStandalone);
+  async function launchAntigravityAppFromDash() {
+    const btn = document.getElementById('btn-open-antigravity-app-dash');
+    if (btn) btn.disabled = true;
 
-    // System Shell Launchers (Standard & Administrator)
-    document.getElementById('btn-shell-cmd')?.addEventListener('click', () => {
-      callBridge('open_system_shell', { shell: 'cmd', asAdmin: false });
-    });
-    document.getElementById('btn-shell-cmd-admin')?.addEventListener('click', () => {
-      callBridge('open_system_shell', { shell: 'cmd', asAdmin: true });
-    });
-    document.getElementById('btn-shell-ps')?.addEventListener('click', () => {
-      callBridge('open_system_shell', { shell: 'powershell', asAdmin: false });
-    });
-    document.getElementById('btn-shell-ps-admin')?.addEventListener('click', () => {
-      callBridge('open_system_shell', { shell: 'powershell', asAdmin: true });
-    });
+    try {
+      const devTools = (state.aiConfig && state.aiConfig.devTools) || [];
+      const tool = devTools.find(t => t.id === 'antigravity_app' || (t.name && t.name.toLowerCase() === 'antigravity app'));
+      const target = (tool && tool.target) || (state.aiConfig && state.aiConfig.toolTargets && (state.aiConfig.toolTargets['Antigravity App'] || state.aiConfig.toolTargets['antigravity_app'])) || '';
+
+      const res = await callBridge('launch_tool', {
+        toolId: 'antigravity_app',
+        toolName: 'Antigravity App',
+        target: target
+      });
+
+      if (res && res.message) {
+        showToast(res.message, 'success', 3500);
+      } else {
+        showToast('Antigravity App started.', 'success', 3500);
+      }
+    } catch (err) {
+      const reason = (err && err.message) ? err.message : 'Could not launch Antigravity App. Please configure its path in AI Dev Tools.';
+      showToast(reason, 'error', 5000);
+      appendLog('Antigravity App launch failed: ' + reason);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  let isProfileEmailVisible = false;
+
+  function getActiveProfileEmail() {
+    const active = (state.antigravity && state.antigravity.activeProfile) || 'default';
+    const profiles = (state.antigravity && state.antigravity.profiles) || [];
+    const profObj = profiles.find(p => (typeof p === 'object' ? p.name : p).toLowerCase() === active.toLowerCase());
+    if (profObj && typeof profObj === 'object') {
+      return profObj.email || profObj.Email || profObj.accountEmail || profObj.AccountEmail || '';
+    }
+    return '';
+  }
+
+  async function updateProfileEmailUi() {
+    const emailText = document.getElementById('dash-active-profile-email-text');
+    const eyeOff = document.querySelector('#btn-toggle-profile-email-dash .icon-eye-off');
+    const eyeOn = document.querySelector('#btn-toggle-profile-email-dash .icon-eye-on');
+    const btn = document.getElementById('btn-toggle-profile-email-dash');
+    if (!emailText) return;
+
+    let email = getActiveProfileEmail();
+    if (!email) {
+      try {
+        const res = await callBridge('get_active_profile_email');
+        if (res && res.email) {
+          email = res.email;
+          const active = (state.antigravity && state.antigravity.activeProfile) || 'default';
+          const profiles = (state.antigravity && state.antigravity.profiles) || [];
+          const profObj = profiles.find(p => (typeof p === 'object' ? p.name : p).toLowerCase() === active.toLowerCase());
+          if (profObj && typeof profObj === 'object') {
+            profObj.email = email;
+          }
+        }
+      } catch {}
+    }
+
+    if (!email) {
+      emailText.textContent = 'No account email';
+      emailText.style.color = 'var(--text-dim)';
+      if (btn) btn.style.display = 'none';
+      return;
+    }
+
+    if (btn) {
+      btn.style.display = 'inline-flex';
+      btn.title = isProfileEmailVisible ? 'Hide account email' : 'Show account email';
+    }
+    emailText.style.color = 'var(--text-main)';
+    if (isProfileEmailVisible) {
+      emailText.textContent = email;
+      if (eyeOff) eyeOff.style.display = 'none';
+      if (eyeOn) eyeOn.style.display = '';
+    } else {
+      emailText.textContent = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+      if (eyeOff) eyeOff.style.display = '';
+      if (eyeOn) eyeOn.style.display = 'none';
+    }
+  }
+
+  function updateAntigravityAppCardUi() {
+    const dot = document.getElementById('dash-dot-antigravity-app');
+    const note = document.getElementById('dash-antigravity-app-note');
+    const btn = document.getElementById('btn-open-antigravity-app-dash');
+    if (dot || btn) {
+      const devTools = (state.aiConfig && state.aiConfig.devTools) || [];
+      const tool = devTools.find(t => t.id === 'antigravity_app' || (t.name && t.name.toLowerCase() === 'antigravity app'));
+      const target = (tool && tool.target) || (state.aiConfig && state.aiConfig.toolTargets && (state.aiConfig.toolTargets['Antigravity App'] || state.aiConfig.toolTargets['antigravity_app'])) || '';
+      const hasPath = !!(target && target.trim());
+
+      if (dot) {
+        dot.className = 'dot ' + (hasPath ? 'online' : '');
+      }
+      if (note) {
+        note.textContent = hasPath ? `(profile: ${state.antigravity.activeProfile || 'default'})` : '(no path set in AI Dev Tools)';
+      }
+      if (btn) {
+        btn.title = hasPath
+          ? `Open Antigravity App (uses profile: ${state.antigravity.activeProfile || 'default'})`
+          : 'Open AI Dev Tools to set the executable path for Antigravity App';
+      }
+    }
+
+    updateProfileEmailUi();
   }
 
   // Header & Status Updates
@@ -1570,6 +1665,8 @@
     if (summaryEl) {
       summaryEl.textContent = `Antigravity Profile: ${state.antigravity.activeProfile || 'None'}`;
     }
+
+    updateAntigravityAppCardUi();
   }
 
   function updateDashboardCliRows() {
@@ -2233,13 +2330,20 @@
 
       dropdown.onchange = async () => {
         const chosen = dropdown.value;
-        await callBridge('switch_antigravity_profile', { profile: chosen });
+        const res = await callBridge('switch_antigravity_profile', { profile: chosen });
         state.antigravity.activeProfile = chosen;
+        if (res && res.profiles) {
+          state.antigravity.profiles = res.profiles;
+        }
         if (summary) summary.textContent = `Antigravity Profile: ${chosen}`;
         if (sel && sel !== dropdown) sel.value = chosen;
         if (cardSel && cardSel !== dropdown) cardSel.value = chosen;
+        updateAntigravityAppCardUi();
+        updateProfileEmailUi();
       };
     });
+
+    updateAntigravityAppCardUi();
   }
 
   let selectedPortId = 'hermes';
@@ -3252,6 +3356,8 @@
         renderDevToolsList();
       });
     });
+
+    updateAntigravityAppCardUi();
   }
 
   // ---- finding installed clients ----
@@ -5563,6 +5669,13 @@
     document.getElementById('btn-popout-terminals')?.addEventListener('click', openStandalone);
     document.getElementById('btn-popout-terminals-dash')?.addEventListener('click', openStandalone);
     document.getElementById('btn-open-standalone-hdr')?.addEventListener('click', openStandalone);
+    document.getElementById('btn-open-antigravity-app-dash')?.addEventListener('click', launchAntigravityAppFromDash);
+    document.getElementById('btn-toggle-profile-email-dash')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      isProfileEmailVisible = !isProfileEmailVisible;
+      updateProfileEmailUi();
+    });
 
     // Native System Shell Launchers (Standard & Administrator)
     document.getElementById('btn-shell-cmd')?.addEventListener('click', () => {
