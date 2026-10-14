@@ -13,6 +13,7 @@
     lanUrlMode: 'lan',
     isIpMasked: false,
     isShortcutsMasked: localStorage.getItem('agents_hub_mask_shortcuts') === 'true',
+    isShortcutsLocked: localStorage.getItem('agents_hub_shortcuts_locked') !== 'false',
     publicIp: '',
     ipv4: '',
     ipv6: '',
@@ -77,6 +78,7 @@
           }
           const err = new Error(errText);
           err.data = msg.data;
+          appendLog(`Bridge action '${msg.action || 'request'}' failed: ${errText}`, 'System', null, 'error', msg.data);
           reject(err);
         }
         return;
@@ -98,7 +100,7 @@
   }
 
   function handleBackendEvent(eventType, payload) {
-    // FIX: Do NOT flood logs with hardware metrics, stream chunks, or internal updates!
+    // Suppress high-frequency stream events from log spam
     const suppressedEvents = [
       'hardware_metrics', 
       'terminal_data', 
@@ -108,7 +110,59 @@
       'opencode_interactive_prompt'
     ];
     if (!suppressedEvents.includes(eventType)) {
-      appendLog(`[${eventType}] ${JSON.stringify(payload)}`);
+      let friendlySummary = `Event: ${eventType}`;
+      let inferredLevel = 'info';
+      let inferredTag = 'System';
+
+      if (eventType === 'ai_config_changed') {
+        const presetsCount = payload?.promptPresets?.length || payload?.builtInPromptPresets?.length || 0;
+        const provsCount = payload?.providers?.length || 0;
+        friendlySummary = `AI Configuration updated (${presetsCount} prompt presets, ${provsCount} providers configured)`;
+        inferredTag = 'Config';
+      } else if (eventType === 'cli_status_changed') {
+        friendlySummary = `CLI ${payload?.cli || 'workspace'} status changed to ${payload?.state || 'unknown'} (PID: ${payload?.pid || 'N/A'}, Port: ${payload?.port || 'N/A'})`;
+        inferredTag = 'CLI';
+        if ((payload?.state || '').toLowerCase() === 'error') inferredLevel = 'error';
+      } else if (eventType === 'lan_proxy_state_changed') {
+        friendlySummary = `LAN Proxy ${payload?.lanProxyEnabled ? 'enabled' : 'disabled'} on port ${payload?.lanProxyPort || state.lanProxyPort}`;
+        inferredTag = 'Network';
+      } else if (eventType === 'lan_clients_changed') {
+        const cnt = Array.isArray(payload?.clients) ? payload.clients.length : 0;
+        friendlySummary = `LAN active clients updated (${cnt} device(s) connected)`;
+        inferredTag = 'Network';
+      } else if (eventType === 'lan_state_changed') {
+        if (payload?.bindError) {
+          friendlySummary = `LAN bind warning: ${payload.bindError}`;
+          inferredLevel = 'warn';
+        } else {
+          friendlySummary = `LAN network state updated (running: ${!!payload?.running})`;
+        }
+        inferredTag = 'Network';
+      } else if (eventType === 'running_ports_updated') {
+        const ports = payload?.runningPorts ? Object.entries(payload.runningPorts).map(([k, v]) => `${k}:${v}`).join(', ') : 'none';
+        friendlySummary = `Running ports updated: ${ports || 'none'}`;
+        inferredTag = 'System';
+      } else if (eventType === 'profile_changed' || eventType === 'profile_saved') {
+        friendlySummary = `Antigravity profile switched: ${payload?.activeProfile || 'default'}`;
+        inferredTag = 'CLI';
+      } else if (eventType === 'antigravity_instance_status_changed') {
+        friendlySummary = `Antigravity profile '${payload?.profile}' ${payload?.isRunning ? 'started on port ' + payload?.port : 'stopped'}`;
+        inferredTag = 'CLI';
+      } else if (eventType === 'dependency_install_all_complete') {
+        const failedCount = (payload?.failed || []).length;
+        if (failedCount > 0) {
+          friendlySummary = `Batch dependency install finished with failures: ${payload.failed.join(', ')}`;
+          inferredLevel = 'error';
+        } else {
+          friendlySummary = 'Batch dependency install finished successfully';
+          inferredLevel = 'success';
+        }
+        inferredTag = 'System';
+      } else if (typeof payload === 'string') {
+        friendlySummary = `[${eventType}] ${payload}`;
+      }
+
+      appendLog(friendlySummary, inferredTag, null, inferredLevel, payload);
     }
 
     switch (eventType) {
@@ -127,7 +181,7 @@
 
       case 'live_log_entry':
         if (payload) {
-          appendLog(payload.text || payload.message, payload.tag, payload.timestamp);
+          appendLog(payload.text || payload.message, payload.tag, payload.timestamp, payload.level, payload.data || payload.details);
         }
         break;
 
@@ -3454,10 +3508,30 @@
     return { id, name, target, category, arguments: args };
   }
 
+  let draggedShortcutId = null;
+
+  function updateShortcutsLockUi() {
+    const btnLock = document.getElementById('btn-toggle-lock-shortcuts');
+    const iconLock = document.getElementById('icon-lock-shortcuts');
+    if (!btnLock || !iconLock) return;
+
+    if (state.isShortcutsLocked) {
+      btnLock.classList.remove('unlocked');
+      btnLock.title = 'Unlock to rearrange shortcuts (Currently Locked)';
+      iconLock.innerHTML = '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>';
+    } else {
+      btnLock.classList.add('unlocked');
+      btnLock.title = 'Lock shortcuts in place (Currently Unlocked)';
+      iconLock.innerHTML = '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>';
+    }
+  }
+
   function renderDashboardShortcuts() {
     const grid = document.getElementById('dashboard-shortcuts-grid');
     if (!grid) return;
     grid.innerHTML = '';
+
+    updateShortcutsLockUi();
 
     const rawShortcuts = state.aiConfig?.shortcuts || [];
     if (rawShortcuts.length === 0) {
@@ -3469,16 +3543,28 @@
     state.aiConfig.shortcuts = rawShortcuts.map((s, idx) => normalizeShortcut(s, idx));
     const shortcuts = state.aiConfig.shortcuts;
 
-    shortcuts.forEach(sc => {
+    shortcuts.forEach((sc, index) => {
       const card = document.createElement('div');
-      card.className = 'shortcut-card';
+      card.className = 'shortcut-card' + (state.isShortcutsLocked ? '' : ' reorder-unlocked');
+      card.setAttribute('data-id', sc.id);
+      card.setAttribute('data-index', index);
+      card.draggable = !state.isShortcutsLocked;
+
       const targetDisplay = state.isShortcutsMasked ? '**' : (sc.target || 'No target configured');
       const targetTooltip = state.isShortcutsMasked ? 'Location hidden (**)' : (sc.target || 'No target configured');
+
+      const dragHandleHtml = !state.isShortcutsLocked
+        ? '<span class="shortcut-drag-handle" title="Drag to reorder" style="margin-right: 6px; cursor: grab; font-size: 14px; user-select: none;">&#8942;&#8942;</span>'
+        : '';
+
       card.innerHTML = `
         <div class="shortcut-top">
-          <div class="shortcut-info">
-            <div class="shortcut-name">${escapeHtml(sc.name)}</div>
-            <span class="shortcut-cat">${escapeHtml(sc.category || 'AI Dev Tool')}</span>
+          <div class="shortcut-info" style="display: flex; align-items: flex-start; gap: 4px;">
+            ${dragHandleHtml}
+            <div>
+              <div class="shortcut-name">${escapeHtml(sc.name)}</div>
+              <span class="shortcut-cat">${escapeHtml(sc.category || 'AI Dev Tool')}</span>
+            </div>
           </div>
           <div class="shortcut-actions">
             <button class="btn-icon btn-edit-sc" title="Edit Shortcut" data-id="${sc.id}">
@@ -3495,8 +3581,73 @@
           <span>Launch</span>
         </button>
       `;
+
+      if (!state.isShortcutsLocked) {
+        card.addEventListener('dragstart', (e) => {
+          if (e.target.closest('button') || e.target.closest('input')) {
+            e.preventDefault();
+            return;
+          }
+          draggedShortcutId = sc.id;
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', sc.id);
+          setTimeout(() => {
+            if (draggedShortcutId === sc.id) {
+              card.classList.add('dragging');
+            }
+          }, 0);
+        });
+
+        card.addEventListener('dragend', () => {
+          draggedShortcutId = null;
+          grid.querySelectorAll('.shortcut-card').forEach(c => {
+            c.classList.remove('dragging');
+            c.classList.remove('drag-over');
+          });
+        });
+
+        card.addEventListener('dragover', (e) => {
+          if (!draggedShortcutId || draggedShortcutId === sc.id) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          card.classList.add('drag-over');
+        });
+
+        card.addEventListener('dragleave', (e) => {
+          if (!card.contains(e.relatedTarget)) {
+            card.classList.remove('drag-over');
+          }
+        });
+
+        card.addEventListener('drop', async (e) => {
+          e.preventDefault();
+          card.classList.remove('drag-over');
+          if (!draggedShortcutId || draggedShortcutId === sc.id) return;
+
+          const fromId = draggedShortcutId;
+          const toId = sc.id;
+          draggedShortcutId = null;
+
+          const fromIdx = state.aiConfig.shortcuts.findIndex(s => s.id === fromId);
+          const toIdx = state.aiConfig.shortcuts.findIndex(s => s.id === toId);
+
+          if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) {
+            const [movedItem] = state.aiConfig.shortcuts.splice(fromIdx, 1);
+            state.aiConfig.shortcuts.splice(toIdx, 0, movedItem);
+            renderDashboardShortcuts();
+            await callBridge('save_shortcuts', { shortcuts: state.aiConfig.shortcuts });
+          }
+        });
+      }
+
       grid.appendChild(card);
     });
+
+    grid.ondragover = (e) => {
+      if (draggedShortcutId) {
+        e.preventDefault();
+      }
+    };
 
     const maskShortcutsIcon = document.getElementById('icon-mask-shortcuts');
     if (maskShortcutsIcon) {
@@ -3663,6 +3814,13 @@
   function setupShortcutEditor() {
     document.getElementById('btn-add-dashboard-shortcut')?.addEventListener('click', () => {
       openShortcutEditorModal(null);
+    });
+
+    document.getElementById('btn-toggle-lock-shortcuts')?.addEventListener('click', () => {
+      state.isShortcutsLocked = !state.isShortcutsLocked;
+      localStorage.setItem('agents_hub_shortcuts_locked', state.isShortcutsLocked);
+      updateShortcutsLockUi();
+      renderDashboardShortcuts();
     });
 
     document.getElementById('btn-toggle-mask-shortcuts')?.addEventListener('click', async () => {
@@ -4734,19 +4892,68 @@
     });
   }
 
-  // Feature 8: Centralized Structured Logging System & Filter Tags
+  // Feature 8: Centralized Structured Logging System & Execution Inspector
   state.logs = [];
   state.currentLogFilter = 'all';
+  state.logSearchQuery = '';
+  state.logAutoScroll = true;
   state.currentPrompt = null;
+  let logIdCounter = 0;
 
-  function appendLog(text, tag = null, timestamp = null) {
-    if (!text) return;
-    let rawText = text;
+  function updateLogPillCounts() {
+    const total = state.logs.length;
+    const errors = state.logs.filter(l => l.level === 'error').length;
+    const warns = state.logs.filter(l => l.level === 'warn').length;
+    const sys = state.logs.filter(l => (l.tag || '').toLowerCase() === 'system').length;
+    const cli = state.logs.filter(l => ['cli', 'hermes', 'claude', 'antigravity'].includes((l.tag || '').toLowerCase())).length;
+    const opencode = state.logs.filter(l => (l.tag || '').toLowerCase() === 'opencode').length;
+    const warp = state.logs.filter(l => ['warp', 'vpn', 'quotareset'].includes((l.tag || '').toLowerCase())).length;
+
+    const elTotal = document.getElementById('logs-total-count');
+    if (elTotal) elTotal.textContent = `${total} ${total === 1 ? 'entry' : 'entries'}`;
+
+    const setBadge = (id, count) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = count;
+    };
+    setBadge('count-pill-all', total);
+    setBadge('count-pill-error', errors);
+    setBadge('count-pill-warn', warns);
+    setBadge('count-pill-system', sys);
+    setBadge('count-pill-cli', cli);
+    setBadge('count-pill-opencode', opencode);
+    setBadge('count-pill-warp', warp);
+
+    const pillErr = document.querySelector('.log-filter-pill.pill-error');
+    if (pillErr) pillErr.classList.toggle('has-errors', errors > 0);
+
+    const pillWarn = document.querySelector('.log-filter-pill.pill-warn');
+    if (pillWarn) pillWarn.classList.toggle('has-warns', warns > 0);
+  }
+
+  function appendLog(text, tag = null, timestamp = null, level = null, extraData = null) {
+    if (!text && !extraData) return;
+    let rawText = text || '';
+    let jsonPayload = extraData || null;
+
     if (typeof rawText === 'object') {
+      jsonPayload = jsonPayload || rawText;
       rawText = rawText.message || rawText.error || JSON.stringify(rawText);
     } else {
       rawText = String(rawText);
     }
+
+    if (!jsonPayload) {
+      const jsonStart = rawText.indexOf('{');
+      if (jsonStart !== -1 && rawText.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(rawText.substring(jsonStart));
+          jsonPayload = parsed;
+          rawText = rawText.substring(0, jsonStart).trim() || 'Data payload';
+        } catch { }
+      }
+    }
+
     const time = timestamp || new Date().toLocaleTimeString();
 
     // Deduce tag if not explicitly provided
@@ -4758,6 +4965,8 @@
         inferredTag = 'OpenCode';
       } else if (rawText.startsWith('[WARP]') || rawText.startsWith('[QuotaReset]') || rawText.startsWith('[ProtonVPN]')) {
         inferredTag = 'WARP';
+      } else if (rawText.startsWith('[CLI]') || rawText.startsWith('[Shortcuts]') || rawText.startsWith('[Claude]') || rawText.startsWith('[Hermes]') || rawText.startsWith('[Antigravity]')) {
+        inferredTag = 'CLI';
       } else {
         inferredTag = 'System';
       }
@@ -4768,10 +4977,27 @@
       cleanText = cleanText.substring(inferredTag.length + 2).trim();
     }
 
+    let inferredLevel = level;
+    if (!inferredLevel) {
+      const lower = cleanText.toLowerCase();
+      if (lower.includes('error') || lower.includes('exception') || lower.includes('failed') || lower.includes('fail:') || lower.includes('fatal') || lower.includes('critical') || lower.includes('rejected')) {
+        inferredLevel = 'error';
+      } else if (lower.includes('warn') || lower.includes('warning') || lower.includes('timeout') || lower.includes('timed out') || lower.includes('offline') || lower.includes('could not bind')) {
+        inferredLevel = 'warn';
+      } else if (lower.includes('success') || lower.includes('installed') || lower.includes('ready') || lower.includes('connected') || lower.includes('saved')) {
+        inferredLevel = 'success';
+      } else {
+        inferredLevel = 'info';
+      }
+    }
+
     const logEntry = {
+      id: 'log_' + (++logIdCounter),
       timestamp: time,
       tag: inferredTag,
-      text: cleanText
+      level: inferredLevel,
+      text: cleanText,
+      jsonDetails: jsonPayload
     };
 
     state.logs.push(logEntry);
@@ -4779,24 +5005,65 @@
       state.logs.shift();
     }
 
-    if (shouldShowLogEntry(logEntry, state.currentLogFilter)) {
+    updateLogPillCounts();
+
+    if (shouldShowLogEntry(logEntry, state.currentLogFilter, state.logSearchQuery)) {
       renderLogEntryDom(logEntry);
     }
   }
 
-  function shouldShowLogEntry(entry, filter) {
-    if (!filter || filter.toLowerCase() === 'all') return true;
-    const f = filter.toLowerCase();
-    const t = (entry.tag || '').toLowerCase();
-    if (f === 'system') return t === 'system';
-    if (f === 'opencode') return t === 'opencode';
-    if (f === 'warp') return t === 'warp' || t === 'quotareset';
-    return t === f;
+  function shouldShowLogEntry(entry, filter, searchQuery) {
+    if (filter && filter.toLowerCase() !== 'all') {
+      const f = filter.toLowerCase();
+      if (f === 'error') {
+        if (entry.level !== 'error') return false;
+      } else if (f === 'warn') {
+        if (entry.level !== 'warn') return false;
+      } else if (f === 'system') {
+        if ((entry.tag || '').toLowerCase() !== 'system') return false;
+      } else if (f === 'cli') {
+        if (!['cli', 'hermes', 'claude', 'antigravity'].includes((entry.tag || '').toLowerCase())) return false;
+      } else if (f === 'opencode') {
+        if ((entry.tag || '').toLowerCase() !== 'opencode') return false;
+      } else if (f === 'warp') {
+        if (!['warp', 'vpn', 'quotareset'].includes((entry.tag || '').toLowerCase())) return false;
+      }
+    }
+
+    if (searchQuery && searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      const inText = (entry.text || '').toLowerCase().includes(q);
+      const inTag = (entry.tag || '').toLowerCase().includes(q);
+      const inLevel = (entry.level || '').toLowerCase().includes(q);
+      const inTime = (entry.timestamp || '').toLowerCase().includes(q);
+      let inJson = false;
+      if (entry.jsonDetails) {
+        try { inJson = JSON.stringify(entry.jsonDetails).toLowerCase().includes(q); } catch { }
+      }
+      if (!inText && !inTag && !inLevel && !inTime && !inJson) return false;
+    }
+
+    return true;
+  }
+
+  function highlightSearchText(text, query) {
+    if (!query || !query.trim()) return escapeHtml(text);
+    const escapedText = escapeHtml(text);
+    const escapedQuery = escapeHtml(query.trim());
+    try {
+      const re = new RegExp(`(${escapedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      return escapedText.replace(re, '<mark class="log-search-match">$1</mark>');
+    } catch {
+      return escapedText;
+    }
   }
 
   function renderLogEntryDom(entry) {
     const logsEl = document.getElementById('logs-container');
     if (!logsEl) return;
+
+    const emptyEl = logsEl.querySelector('.logs-empty-state');
+    if (emptyEl) emptyEl.remove();
 
     const t = (entry.tag || '').toLowerCase();
     let tagClass = 'log-tag-default';
@@ -4807,33 +5074,89 @@
     } else if (t === 'opencode') {
       tagClass = 'log-tag-opencode';
       tagLabel = 'OpenCode';
-    } else if (t === 'warp' || t === 'quotareset') {
+    } else if (t === 'warp' || t === 'quotareset' || t === 'vpn') {
       tagClass = 'log-tag-warp';
       tagLabel = 'WARP';
+    } else if (t === 'cli' || t === 'hermes' || t === 'claude' || t === 'antigravity') {
+      tagClass = 'log-tag-cli';
+      tagLabel = 'CLI';
+    } else if (t === 'config') {
+      tagClass = 'log-tag-config';
+      tagLabel = 'Config';
     }
 
+    const levelClass = entry.level ? `log-level-${entry.level}` : 'log-level-info';
+    const badgeLevel = (entry.level || 'info').toUpperCase();
+    const badgeClass = `level-${entry.level || 'info'}`;
+
     const line = document.createElement('div');
-    line.className = 'log-line';
+    line.className = `log-line ${levelClass}`;
+    line.setAttribute('data-id', entry.id);
+
+    const hasJson = entry.jsonDetails && typeof entry.jsonDetails === 'object';
+    const jsonToggleHtml = hasJson
+      ? `<button type="button" class="log-json-toggle" title="Toggle JSON payload">{ JSON }</button>`
+      : '';
+
+    const jsonBoxHtml = hasJson
+      ? `<pre class="log-json-box" style="display: none;"><code>${escapeHtml(JSON.stringify(entry.jsonDetails, null, 2))}</code></pre>`
+      : '';
+
     line.innerHTML = `
       <span class="log-time">[${escapeHtml(entry.timestamp)}]</span>
-      <span class="log-tag ${tagClass}">${escapeHtml(tagLabel)}</span>
-      <span class="log-text">${escapeHtml(entry.text)}</span>
+      <span class="log-level-badge ${badgeClass}">${escapeHtml(badgeLevel)}</span>
+      <span class="log-tag ${tagClass}" title="${escapeHtml(tagLabel)}">${escapeHtml(tagLabel)}</span>
+      <div class="log-msg-wrap">
+        <span class="log-text">${highlightSearchText(entry.text, state.logSearchQuery)}</span>
+        ${jsonToggleHtml}
+        ${jsonBoxHtml}
+      </div>
     `;
 
+    if (hasJson) {
+      const btn = line.querySelector('.log-json-toggle');
+      const box = line.querySelector('.log-json-box');
+      if (btn && box) {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isHidden = box.style.display === 'none';
+          box.style.display = isHidden ? 'block' : 'none';
+          btn.textContent = isHidden ? '{ Close }' : '{ JSON }';
+        });
+      }
+    }
+
     logsEl.appendChild(line);
-    logsEl.scrollTop = logsEl.scrollHeight;
+
+    if (state.logAutoScroll) {
+      logsEl.scrollTop = logsEl.scrollHeight;
+    }
   }
 
   function refreshLogsDisplay() {
     const logsEl = document.getElementById('logs-container');
     if (!logsEl) return;
     logsEl.innerHTML = '';
-    const visibleEntries = state.logs.filter(entry => shouldShowLogEntry(entry, state.currentLogFilter));
+    const visibleEntries = state.logs.filter(entry => shouldShowLogEntry(entry, state.currentLogFilter, state.logSearchQuery));
+
+    if (visibleEntries.length === 0) {
+      logsEl.innerHTML = `
+        <div class="logs-empty-state">
+          <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <div>No logs match the current filter or search criteria.</div>
+        </div>
+      `;
+      return;
+    }
+
     visibleEntries.forEach(entry => renderLogEntryDom(entry));
-    logsEl.scrollTop = logsEl.scrollHeight;
+    if (state.logAutoScroll) {
+      logsEl.scrollTop = logsEl.scrollHeight;
+    }
   }
 
   function setupLogFilterListeners() {
+    updateLogPillCounts();
     document.querySelectorAll('.log-filter-bar .log-filter-pill').forEach(pill => {
       pill.addEventListener('click', () => {
         document.querySelectorAll('.log-filter-bar .log-filter-pill').forEach(p => p.classList.remove('active'));
@@ -4846,8 +5169,90 @@
     document.getElementById('btn-clear-logs')?.addEventListener('click', () => {
       state.logs = [];
       const logsEl = document.getElementById('logs-container');
-      if (logsEl) logsEl.innerHTML = '';
+      if (logsEl) {
+        logsEl.innerHTML = `
+          <div class="logs-empty-state">
+            <svg class="icon-svg" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <div>Logs cleared. Waiting for new events...</div>
+          </div>
+        `;
+      }
+      updateLogPillCounts();
       showToast('Logs cleared', 'info', 1500);
+    });
+
+    document.getElementById('btn-copy-logs')?.addEventListener('click', async () => {
+      const visibleEntries = state.logs.filter(entry => shouldShowLogEntry(entry, state.currentLogFilter, state.logSearchQuery));
+      if (visibleEntries.length === 0) {
+        showToast('No logs to copy', 'info', 2000);
+        return;
+      }
+      const textToCopy = visibleEntries.map(e => {
+        let line = `[${e.timestamp}] [${(e.level || 'info').toUpperCase()}] [${e.tag || 'System'}] ${e.text}`;
+        if (e.jsonDetails) {
+          line += `\n${JSON.stringify(e.jsonDetails, null, 2)}`;
+        }
+        return line;
+      }).join('\n');
+
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        showToast(`Copied ${visibleEntries.length} log lines to clipboard`, 'success', 2500);
+      } catch {
+        const ta = document.createElement('textarea');
+        ta.value = textToCopy;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast(`Copied ${visibleEntries.length} log lines to clipboard`, 'success', 2500);
+      }
+    });
+
+    const btnAutoScroll = document.getElementById('btn-toggle-autoscroll');
+    btnAutoScroll?.addEventListener('click', () => {
+      state.logAutoScroll = !state.logAutoScroll;
+      btnAutoScroll.classList.toggle('active', state.logAutoScroll);
+      const lbl = document.getElementById('lbl-autoscroll');
+      if (lbl) lbl.textContent = state.logAutoScroll ? 'Auto-Scroll' : 'Scroll: Paused';
+      if (state.logAutoScroll) {
+        const logsEl = document.getElementById('logs-container');
+        if (logsEl) logsEl.scrollTop = logsEl.scrollHeight;
+      }
+    });
+
+    const searchInput = document.getElementById('logs-search-input');
+    const clearSearchBtn = document.getElementById('btn-clear-log-search');
+
+    searchInput?.addEventListener('input', () => {
+      state.logSearchQuery = searchInput.value;
+      if (clearSearchBtn) {
+        clearSearchBtn.style.display = searchInput.value ? 'block' : 'none';
+      }
+      refreshLogsDisplay();
+    });
+
+    clearSearchBtn?.addEventListener('click', () => {
+      if (searchInput) searchInput.value = '';
+      state.logSearchQuery = '';
+      clearSearchBtn.style.display = 'none';
+      refreshLogsDisplay();
+    });
+
+    const logsContainer = document.getElementById('logs-container');
+    logsContainer?.addEventListener('scroll', () => {
+      const isAtBottom = logsContainer.scrollHeight - logsContainer.scrollTop - logsContainer.clientHeight <= 40;
+      if (!isAtBottom && state.logAutoScroll) {
+        state.logAutoScroll = false;
+        btnAutoScroll?.classList.remove('active');
+        const lbl = document.getElementById('lbl-autoscroll');
+        if (lbl) lbl.textContent = 'Scroll: Paused';
+      } else if (isAtBottom && !state.logAutoScroll) {
+        state.logAutoScroll = true;
+        btnAutoScroll?.classList.add('active');
+        const lbl = document.getElementById('lbl-autoscroll');
+        if (lbl) lbl.textContent = 'Auto-Scroll';
+      }
     });
   }
 
@@ -5284,9 +5689,9 @@
     const btnAddProvider = document.getElementById('btn-add-claude-provider');
     const btnDeleteProvider = document.getElementById('btn-delete-claude-provider');
     const baseUrlInput = document.getElementById('claude-baseurl-input');
-    const apiKeyInput = document.getElementById('claude-apikey-input');
-    const btnToggleEye = document.getElementById('btn-toggle-show-claude-key');
-    const eyeIcon = document.getElementById('icon-claude-key-eye');
+    const apiKeysContainer = document.getElementById('claude-apikeys-container');
+    const btnAddApiKey = document.getElementById('btn-add-claude-apikey');
+    const keysCountBadge = document.getElementById('claude-keys-count-badge');
     const btnSaveProvider = document.getElementById('btn-save-claude-provider');
 
     const balanceText = document.getElementById('claude-key-balance-text');
@@ -5332,18 +5737,134 @@
       }
     }
 
-    // Eye toggle for key masking
-    btnToggleEye?.addEventListener('click', (e) => {
+    function renderApiKeyRows(keys) {
+      if (!apiKeysContainer) return;
+      apiKeysContainer.innerHTML = '';
+      const keyList = (keys && keys.length > 0) ? keys : [''];
+      if (keysCountBadge) {
+        keysCountBadge.textContent = `${keyList.length} ${keyList.length === 1 ? 'key' : 'keys'}`;
+      }
+
+      keyList.forEach((k, idx) => {
+        const row = document.createElement('div');
+        row.className = 'claude-apikey-row';
+        row.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+
+        const label = document.createElement('span');
+        label.className = 'claude-key-badge';
+        label.style.cssText = 'font-size: 10.5px; font-family: var(--font-mono); color: var(--text-dim); min-width: 24px; text-align: center; font-weight: 600;';
+        label.textContent = `#${idx + 1}`;
+
+        const input = document.createElement('input');
+        input.type = 'password';
+        input.className = 'input-text claude-key-input';
+        input.style.cssText = 'font-family: var(--font-mono); font-size: 12px; flex: 1;';
+        input.placeholder = `OpenRouter API key #${idx + 1} (sk-or-v1-...)`;
+        input.value = k || '';
+
+        const eyeBtn = document.createElement('button');
+        eyeBtn.type = 'button';
+        eyeBtn.className = 'btn btn-outline';
+        eyeBtn.title = 'Show or Hide Key';
+        eyeBtn.style.cssText = 'padding: 0 8px; height: 30px; display: inline-flex; align-items: center; justify-content: center;';
+        eyeBtn.innerHTML = '<svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+        eyeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isPass = input.type === 'password';
+          input.type = isPass ? 'text' : 'password';
+          eyeBtn.innerHTML = isPass
+            ? '<svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/></svg>'
+            : '<svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+        });
+
+        const testBtn = document.createElement('button');
+        testBtn.type = 'button';
+        testBtn.className = 'btn btn-outline';
+        testBtn.title = 'Test this specific key';
+        testBtn.style.cssText = 'padding: 0 8px; height: 30px; font-size: 11px;';
+        testBtn.textContent = 'Test';
+        testBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const val = input.value.trim();
+          if (!val) {
+            showToast(`Key #${idx + 1} is empty`, 'error', 2500);
+            return;
+          }
+          testBtn.disabled = true;
+          testBtn.textContent = '...';
+          try {
+            const res = await callBridge('check_openrouter_key', { apiKey: val });
+            if (res && res.valid) {
+              showToast(`Key #${idx + 1} valid! ${res.message || ''}`, 'success', 3500);
+            } else {
+              showToast(`Key #${idx + 1} check: ${res?.message || 'Invalid key'}`, 'error', 3500);
+            }
+          } catch (err) {
+            showToast(`Key #${idx + 1} check error: ${err.message}`, 'error', 3500);
+          } finally {
+            testBtn.disabled = false;
+            testBtn.textContent = 'Test';
+          }
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn btn-danger';
+        delBtn.title = 'Remove this key';
+        delBtn.style.cssText = 'padding: 0 8px; height: 30px; font-size: 11px;';
+        delBtn.textContent = '✕';
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const allRows = apiKeysContainer.querySelectorAll('.claude-apikey-row');
+          if (allRows.length <= 1) {
+            input.value = '';
+            showToast('Key cleared', 'info', 2000);
+          } else {
+            row.remove();
+            renumberKeyRows();
+          }
+        });
+
+        row.appendChild(label);
+        row.appendChild(input);
+        row.appendChild(eyeBtn);
+        row.appendChild(testBtn);
+        row.appendChild(delBtn);
+        apiKeysContainer.appendChild(row);
+      });
+    }
+
+    function renumberKeyRows() {
+      if (!apiKeysContainer) return;
+      const rows = apiKeysContainer.querySelectorAll('.claude-apikey-row');
+      rows.forEach((r, i) => {
+        const lbl = r.querySelector('.claude-key-badge');
+        if (lbl) lbl.textContent = `#${i + 1}`;
+        const inp = r.querySelector('.claude-key-input');
+        if (inp) inp.placeholder = `OpenRouter API key #${i + 1} (sk-or-v1-...)`;
+      });
+      if (keysCountBadge) {
+        keysCountBadge.textContent = `${rows.length} ${rows.length === 1 ? 'key' : 'keys'}`;
+      }
+    }
+
+    btnAddApiKey?.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!apiKeyInput) return;
-      const isPassword = apiKeyInput.type === 'password';
-      apiKeyInput.type = isPassword ? 'text' : 'password';
-      if (eyeIcon) {
-        eyeIcon.innerHTML = isPassword
-          ? '<path d="m2 2 20 20"/><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>'
-          : '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>';
+      if (!apiKeysContainer) return;
+      const currentKeys = Array.from(apiKeysContainer.querySelectorAll('.claude-key-input')).map(i => i.value);
+      currentKeys.push('');
+      renderApiKeyRows(currentKeys);
+      const inputs = apiKeysContainer.querySelectorAll('.claude-key-input');
+      if (inputs.length > 0) {
+        inputs[inputs.length - 1].focus();
       }
     });
+
+    function getEnteredApiKeys() {
+      if (!apiKeysContainer) return [];
+      const inputs = Array.from(apiKeysContainer.querySelectorAll('.claude-key-input'));
+      return inputs.map(i => i.value.trim()).filter(Boolean);
+    }
 
     async function checkKeyHealth(key) {
       if (!balanceText) return;
@@ -5381,17 +5902,18 @@
       const p = providersMap[provId];
       if (!p) return;
       const baseUrl = p.baseUrl || p.BaseUrl || '';
-      const apiKey = p.apiKey || p.ApiKey || '';
+      const apiKeys = p.apiKeys || p.ApiKeys || (p.apiKey || p.ApiKey ? [p.apiKey || p.ApiKey] : []);
       const isPreset = !!(p.isPreset !== undefined ? p.isPreset : (p.IsPreset !== undefined ? p.IsPreset : provId.startsWith('preset_')));
       if (baseUrlInput) baseUrlInput.value = baseUrl;
-      if (apiKeyInput) apiKeyInput.value = apiKey;
+      renderApiKeyRows(apiKeys);
       if (btnDeleteProvider) {
         btnDeleteProvider.style.display = isPreset ? 'none' : 'inline-block';
       }
       const enabled = injectionCheckbox ? injectionCheckbox.checked : true;
-      updateBadge(enabled, !!apiKey);
-      if (apiKey) {
-        checkKeyHealth(apiKey);
+      const hasKey = apiKeys.length > 0 && !!apiKeys[0];
+      updateBadge(enabled, hasKey);
+      if (hasKey) {
+        checkKeyHealth(apiKeys[0]);
       } else if (balanceText) {
         balanceText.textContent = 'Ready (No key set)';
         balanceText.style.color = 'var(--text-dim)';
@@ -5505,7 +6027,8 @@
       const p = providersMap[provId];
       const provName = p ? (p.name || p.Name || provId) : provId;
       const baseUrl = baseUrlInput?.value?.trim() || '';
-      const apiKey = apiKeyInput?.value?.trim() || '';
+      const apiKeys = getEnteredApiKeys();
+      const primaryKey = apiKeys[0] || '';
 
       btnSaveProvider.disabled = true;
       try {
@@ -5513,22 +6036,25 @@
           providerId: provId,
           name: provName,
           baseUrl: baseUrl,
-          apiKey: apiKey
+          apiKey: primaryKey,
+          apiKeys: apiKeys
         });
         if (res && res.success) {
           if (p) {
             p.baseUrl = baseUrl;
-            p.apiKey = apiKey;
+            p.apiKey = primaryKey;
+            p.apiKeys = apiKeys;
             p.BaseUrl = baseUrl;
-            p.ApiKey = apiKey;
+            p.ApiKey = primaryKey;
+            p.ApiKeys = apiKeys;
           }
-          showToast('Gateway provider saved', 'success', 3000);
+          showToast(`Saved ${apiKeys.length} API key(s) for ${provName}`, 'success', 3000);
           const enabled = injectionCheckbox ? injectionCheckbox.checked : true;
-          updateBadge(enabled, !!apiKey);
-          if (apiKey && (baseUrl.includes('openrouter.ai') || baseUrl.includes('127.0.0.1:9230') || provId.startsWith('preset_'))) {
-            await checkKeyHealth(apiKey);
+          updateBadge(enabled, apiKeys.length > 0);
+          if (primaryKey && (baseUrl.includes('openrouter.ai') || baseUrl.includes('127.0.0.1:9230') || provId.startsWith('preset_'))) {
+            await checkKeyHealth(primaryKey);
           } else if (balanceText) {
-            balanceText.textContent = apiKey ? 'Key configured' : 'Ready (No key set)';
+            balanceText.textContent = apiKeys.length > 0 ? `${apiKeys.length} key(s) configured` : 'Ready (No key set)';
             balanceText.style.color = 'var(--text-dim)';
           }
         }

@@ -22,6 +22,8 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
     public const int DefaultPort = 9230;
 
     private readonly Lock _lock = new();
+    private readonly Lock _keyLock = new();
+    private int _activeKeyIndex = 0;
     private HttpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _listenTask;
@@ -205,29 +207,40 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
             using var anthropicDoc = JsonDocument.Parse(requestBody);
             var root = anthropicDoc.RootElement;
 
-            // Resolve API Key from headers (Claude Code sends via x-api-key or Authorization Bearer)
-            string? apiKey = req.Headers["x-api-key"];
-            if (string.IsNullOrWhiteSpace(apiKey))
+            // Resolve failover pool of API keys
+            var activeProv = AiConfigService.Instance.GetActiveClaudeGatewayProvider();
+            var keysPool = activeProv.GetEffectiveApiKeys();
+
+            string? headerApiKey = req.Headers["x-api-key"];
+            if (string.IsNullOrWhiteSpace(headerApiKey))
             {
                 var authHeader = req.Headers["Authorization"] ?? "";
                 if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
                 {
-                    apiKey = authHeader[7..].Trim();
+                    headerApiKey = authHeader[7..].Trim();
                 }
             }
 
-            // Fallback to configured OpenRouter API key if not in headers
-            if (string.IsNullOrWhiteSpace(apiKey))
+            if (!string.IsNullOrWhiteSpace(headerApiKey) && !keysPool.Contains(headerApiKey, StringComparer.OrdinalIgnoreCase))
             {
-                var activeProv = AiConfigService.Instance.GetActiveClaudeGatewayProvider();
-                apiKey = !string.IsNullOrWhiteSpace(activeProv.ApiKey)
-                    ? activeProv.ApiKey
-                    : AiConfigService.Instance.GetOpenRouterApiKey();
+                if (keysPool.Count == 0)
+                {
+                    keysPool.Add(headerApiKey);
+                }
             }
 
-            if (string.IsNullOrWhiteSpace(apiKey))
+            if (keysPool.Count == 0)
             {
-                await SendAnthropicErrorAsync(resp, HttpStatusCode.Unauthorized, "No OpenRouter API key provided. Please configure your API key in AgentsHub.", ct).ConfigureAwait(false);
+                var fallbackKey = AiConfigService.Instance.GetOpenRouterApiKey();
+                if (!string.IsNullOrWhiteSpace(fallbackKey))
+                {
+                    keysPool.Add(fallbackKey);
+                }
+            }
+
+            if (keysPool.Count == 0)
+            {
+                await SendAnthropicErrorAsync(resp, HttpStatusCode.Unauthorized, "No OpenRouter API key provided. Please configure your API key(s) in AgentsHub.", ct).ConfigureAwait(false);
                 return;
             }
 
@@ -245,38 +258,101 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
             // Resolve upstream destination: default to OpenRouter
             var upstreamUrl = "https://openrouter.ai/api/v1/chat/completions";
 
-            using var upstreamReq = new HttpRequestMessage(HttpMethod.Post, upstreamUrl);
-            upstreamReq.Headers.Add("Authorization", $"Bearer {apiKey}");
-            upstreamReq.Headers.Add("HTTP-Referer", "https://app.agentshub.local");
-            upstreamReq.Headers.Add("X-Title", "AgentsHub Claude Code Local Proxy");
-            upstreamReq.Content = new StringContent(openAiJson, Encoding.UTF8, "application/json");
-
-            var upstreamResp = await _httpClient.SendAsync(
-                upstreamReq,
-                isStream ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead,
-                ct).ConfigureAwait(false);
-
-            if (!upstreamResp.IsSuccessStatusCode)
+            int totalKeys = keysPool.Count;
+            int startIdx;
+            lock (_keyLock)
             {
+                startIdx = _activeKeyIndex % totalKeys;
+            }
+
+            HttpResponseMessage? successfulResp = null;
+            string lastErrorMessage = "";
+            HttpStatusCode lastStatusCode = HttpStatusCode.InternalServerError;
+
+            for (int attempt = 0; attempt < totalKeys; attempt++)
+            {
+                int currentIdx = (startIdx + attempt) % totalKeys;
+                string currentKey = keysPool[currentIdx];
+
+                using var upstreamReq = new HttpRequestMessage(HttpMethod.Post, upstreamUrl);
+                upstreamReq.Headers.Add("Authorization", $"Bearer {currentKey}");
+                upstreamReq.Headers.Add("HTTP-Referer", "https://app.agentshub.local");
+                upstreamReq.Headers.Add("X-Title", "AgentsHub Claude Code Local Proxy");
+                upstreamReq.Content = new StringContent(openAiJson, Encoding.UTF8, "application/json");
+
+                HttpResponseMessage upstreamResp;
+                try
+                {
+                    upstreamResp = await _httpClient.SendAsync(
+                        upstreamReq,
+                        isStream ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead,
+                        ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    lastErrorMessage = $"Upstream connection failed: {ex.Message}";
+                    continue;
+                }
+
+                if (upstreamResp.IsSuccessStatusCode)
+                {
+                    successfulResp = upstreamResp;
+                    lock (_keyLock)
+                    {
+                        _activeKeyIndex = currentIdx;
+                    }
+                    if (attempt > 0)
+                    {
+                        LogMessage?.Invoke($"[Local Proxy] Successfully rotated to key #{currentIdx + 1} ({MaskKey(currentKey)}).");
+                    }
+                    break;
+                }
+
                 var errContent = await upstreamResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                 string cleanMsg = ExtractErrorMessage(errContent) ?? $"Upstream provider returned HTTP {(int)upstreamResp.StatusCode}";
-                await SendAnthropicErrorAsync(resp, upstreamResp.StatusCode, cleanMsg, ct).ConfigureAwait(false);
+                lastErrorMessage = cleanMsg;
+                lastStatusCode = upstreamResp.StatusCode;
+
+                bool isRateLimit = IsRateLimit(upstreamResp.StatusCode, cleanMsg);
+                if (isRateLimit && totalKeys > 1 && attempt < totalKeys - 1)
+                {
+                    int nextIdx = (currentIdx + 1) % totalKeys;
+                    LogMessage?.Invoke($"[Local Proxy] Key #{currentIdx + 1} ({MaskKey(currentKey)}) hit rate limit ({cleanMsg}). Auto-switching to key #{nextIdx + 1} ({attempt + 1}/{totalKeys})...");
+                    upstreamResp.Dispose();
+                    continue;
+                }
+                else
+                {
+                    upstreamResp.Dispose();
+                    break;
+                }
+            }
+
+            if (successfulResp == null)
+            {
+                string msg = totalKeys > 1
+                    ? $"All {totalKeys} configured OpenRouter API keys hit rate limits or failed. Last error: {lastErrorMessage}"
+                    : lastErrorMessage;
+                await SendAnthropicErrorAsync(resp, lastStatusCode, msg, ct).ConfigureAwait(false);
                 return;
             }
 
-            if (isStream)
+            using (successfulResp)
             {
-                await StreamOpenAiToAnthropicSseAsync(upstreamResp, resp, model, ct).ConfigureAwait(false);
-            }
-            else
-            {
-                var fullOpenAiResponse = await upstreamResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                var anthropicResponseJson = TranslateOpenAiResponseToAnthropic(fullOpenAiResponse, model);
-                resp.ContentType = "application/json; charset=utf-8";
-                resp.StatusCode = (int)HttpStatusCode.OK;
-                var bytes = Encoding.UTF8.GetBytes(anthropicResponseJson);
-                await resp.OutputStream.WriteAsync(bytes, ct).ConfigureAwait(false);
-                resp.Close();
+                if (isStream)
+                {
+                    await StreamOpenAiToAnthropicSseAsync(successfulResp, resp, model, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    var fullOpenAiResponse = await successfulResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    var anthropicResponseJson = TranslateOpenAiResponseToAnthropic(fullOpenAiResponse, model);
+                    resp.ContentType = "application/json; charset=utf-8";
+                    resp.StatusCode = (int)HttpStatusCode.OK;
+                    var bytes = Encoding.UTF8.GetBytes(anthropicResponseJson);
+                    await resp.OutputStream.WriteAsync(bytes, ct).ConfigureAwait(false);
+                    resp.Close();
+                }
             }
         }
         catch (OperationCanceledException)
@@ -812,6 +888,34 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
         };
 
         return anthropicObj.ToJsonString();
+    }
+
+    private static bool IsRateLimit(HttpStatusCode statusCode, string? errorMessage)
+    {
+        if (statusCode == (HttpStatusCode)429) return true;
+        if (statusCode == (HttpStatusCode)402) return true;
+        if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            var lower = errorMessage.ToLowerInvariant();
+            if (lower.Contains("rate limit") ||
+                lower.Contains("rate_limit") ||
+                lower.Contains("too many requests") ||
+                lower.Contains("quota exceeded") ||
+                lower.Contains("free model limit") ||
+                lower.Contains("exceeded") ||
+                lower.Contains("credits"))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static string MaskKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return "****";
+        if (key.Length <= 8) return "****";
+        return $"{key[..4]}...{key[^4..]}";
     }
 
     private static string? ExtractErrorMessage(string rawJson)

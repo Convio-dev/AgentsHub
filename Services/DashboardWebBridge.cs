@@ -610,6 +610,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                             name = p.Name,
                             baseUrl = p.BaseUrl,
                             apiKey = p.ApiKey,
+                            apiKeys = p.GetEffectiveApiKeys(),
                             isPreset = p.IsPreset
                         }),
                         activeProvider = new
@@ -618,6 +619,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                             name = active.Name,
                             baseUrl = active.BaseUrl,
                             apiKey = active.ApiKey,
+                            apiKeys = active.GetEffectiveApiKeys(),
                             isPreset = active.IsPreset
                         }
                     });
@@ -631,19 +633,39 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string apiKey = data.TryGetProperty("apiKey", out var kEl) ? (kEl.GetString()?.Trim() ?? "") : "";
                     string name = data.TryGetProperty("name", out var nEl) ? (nEl.GetString() ?? "") : "";
 
+                    var apiKeysList = new List<string>();
+                    if (data.TryGetProperty("apiKeys", out var keysArr) && keysArr.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in keysArr.EnumerateArray())
+                        {
+                            var s = item.GetString()?.Trim();
+                            if (!string.IsNullOrWhiteSpace(s) && !apiKeysList.Contains(s))
+                            {
+                                apiKeysList.Add(s);
+                            }
+                        }
+                    }
+                    if (apiKeysList.Count == 0 && !string.IsNullOrWhiteSpace(apiKey))
+                    {
+                        apiKeysList.Add(apiKey);
+                    }
+
+                    string primaryKey = apiKeysList.FirstOrDefault() ?? apiKey;
+
                     var provider = new ClaudeGatewayProvider
                     {
                         Id = string.IsNullOrWhiteSpace(provId) ? "preset_local_proxy" : provId,
                         Name = name,
                         BaseUrl = baseUrl,
-                        ApiKey = apiKey,
+                        ApiKey = primaryKey,
+                        ApiKeys = apiKeysList,
                         IsPreset = provId.StartsWith("preset_", StringComparison.OrdinalIgnoreCase)
                     };
                     AiConfigService.Instance.SaveClaudeGatewayProvider(provider);
 
                     if (string.Equals(AiConfigService.Instance.GetClaudeSelectedGatewayId(), provider.Id, StringComparison.OrdinalIgnoreCase))
                     {
-                        CliManagerService.SyncClaudeGatewaySettingsJson(apiKey, AiConfigService.Instance.GetClaudeSelectedModel(), baseUrl);
+                        CliManagerService.SyncClaudeGatewaySettingsJson(primaryKey, AiConfigService.Instance.GetClaudeSelectedModel(), baseUrl);
                     }
 
                     var info = _cliManager.GetInfo("claude_code");
@@ -661,6 +683,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                             name = provider.Name,
                             baseUrl = provider.BaseUrl,
                             apiKey = provider.ApiKey,
+                            apiKeys = provider.GetEffectiveApiKeys(),
                             isPreset = provider.IsPreset
                         }
                     });

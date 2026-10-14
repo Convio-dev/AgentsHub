@@ -97,7 +97,28 @@ public class ClaudeGatewayProvider
     public string Name { get; set; } = "";
     public string BaseUrl { get; set; } = "";
     public string ApiKey { get; set; } = "";
+    public List<string> ApiKeys { get; set; } = [];
     public bool IsPreset { get; set; } = false;
+
+    public List<string> GetEffectiveApiKeys()
+    {
+        var list = new List<string>();
+        if (ApiKeys != null && ApiKeys.Count > 0)
+        {
+            foreach (var k in ApiKeys)
+            {
+                if (!string.IsNullOrWhiteSpace(k) && !list.Contains(k.Trim()))
+                {
+                    list.Add(k.Trim());
+                }
+            }
+        }
+        if (list.Count == 0 && !string.IsNullOrWhiteSpace(ApiKey))
+        {
+            list.Add(ApiKey.Trim());
+        }
+        return list;
+    }
 }
 
 public class PromptEnhancerPreset
@@ -1140,6 +1161,7 @@ public class AiConfigService
                 Name = p.Name,
                 BaseUrl = p.BaseUrl,
                 ApiKey = p.ApiKey,
+                ApiKeys = p.GetEffectiveApiKeys(),
                 IsPreset = p.IsPreset
             })];
         }
@@ -1159,13 +1181,29 @@ public class AiConfigService
             var found = providers.FirstOrDefault(p => string.Equals(p.Id, selectedId, StringComparison.OrdinalIgnoreCase));
             if (found != null)
             {
-                return found;
+                return new ClaudeGatewayProvider
+                {
+                    Id = found.Id,
+                    Name = found.Name,
+                    BaseUrl = found.BaseUrl,
+                    ApiKey = found.ApiKey,
+                    ApiKeys = found.GetEffectiveApiKeys(),
+                    IsPreset = found.IsPreset
+                };
             }
 
             var localPreset = providers.FirstOrDefault(p => string.Equals(p.Id, "preset_local_proxy", StringComparison.OrdinalIgnoreCase));
             if (localPreset != null)
             {
-                return localPreset;
+                return new ClaudeGatewayProvider
+                {
+                    Id = localPreset.Id,
+                    Name = localPreset.Name,
+                    BaseUrl = localPreset.BaseUrl,
+                    ApiKey = localPreset.ApiKey,
+                    ApiKeys = localPreset.GetEffectiveApiKeys(),
+                    IsPreset = localPreset.IsPreset
+                };
             }
 
             return providers.FirstOrDefault() ?? new ClaudeGatewayProvider
@@ -1173,6 +1211,8 @@ public class AiConfigService
                 Id = "preset_local_proxy",
                 Name = "Local Proxy (127.0.0.1:9230)",
                 BaseUrl = "http://127.0.0.1:9230",
+                ApiKey = GetOpenRouterApiKey(),
+                ApiKeys = !string.IsNullOrWhiteSpace(GetOpenRouterApiKey()) ? [GetOpenRouterApiKey()] : [],
                 IsPreset = true
             };
         }
@@ -1191,6 +1231,7 @@ public class AiConfigService
                 existing.Name = provider.Name;
                 existing.BaseUrl = provider.BaseUrl;
                 existing.ApiKey = provider.ApiKey;
+                existing.ApiKeys = provider.ApiKeys;
             }
             else
             {
