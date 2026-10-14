@@ -41,6 +41,7 @@ dotnet_diagnostic.IDE0290.severity = warning   # use primary constructor
 dotnet_diagnostic.IDE0301.severity = warning   # use collection expression for empty
 dotnet_diagnostic.IDE0305.severity = warning   # use collection expression
 dotnet_diagnostic.IDE0330.severity = warning   # use System.Threading.Lock
+dotnet_diagnostic.IDE1006.severity = warning   # naming: fields _camelCase, everything else PascalCase
 
 # IDE0031 (use null propagation) is deliberately a suggestion, not a warning.
 #
@@ -57,14 +58,19 @@ dotnet_diagnostic.IDE0031.severity = suggestion
 # These are real improvements, not noise, but they are not bugs and each family needs its own
 # pass. Counts measured on 2026-10-14 with `dotnet format analyzers --severity info`:
 #
-#   SYSLIB1054 (18)  DllImport -> LibraryImport. Two conversions already failed: CredWrite and
-#                    InitializeProcThreadAttributeList take structs with embedded strings that the
-#                    source generator cannot marshal (SYSLIB1051). The credential store and the
-#                    ConPTY layer stay on DllImport until they are done properly, one call at a
-#                    time, with the marshalling checked against the native signature.
+#   SYSLIB1054 (18)  DllImport -> LibraryImport, converted one call at a time. GetForegroundWindow
+#                    in DashboardWebBridge is already on LibraryImport. Two conversions failed before:
+#                    CredWrite and InitializeProcThreadAttributeList take structs with embedded
+#                    strings that the source generator cannot marshal (SYSLIB1051). The credential
+#                    store and the ConPTY layer stay on DllImport until their marshalling is checked
+#                    against the native signature.
 #   CA1869    ( 5)   Cache JsonSerializerOptions instead of allocating per call.
-#   CA1822    ( 1)   Make members static where they use no instance state.
+#   CA1822    ( 4)   Make members static where they use no instance state. DashboardWebBridge's
+#                    FocusOpenCodeSession is done; the rest are in ProtonVpnService, MainForm and
+#                    AntigravityProfileService.
 #   SYSLIB1045 ( 1)  Use GeneratedRegex.
+#
+# Counts measured on 2026-10-14 with `dotnet format analyzers --severity info --verify-no-changes`.
 dotnet_diagnostic.SYSLIB1054.severity = suggestion
 dotnet_diagnostic.SYSLIB1051.severity = error
 dotnet_diagnostic.CA1869.severity = suggestion

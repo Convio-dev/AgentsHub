@@ -47,7 +47,9 @@ public partial class CliWebviewForm : Form
         Secondary
     }
 
-    private string _activeTabId
+    // Pane-aware replacement for a plain tab field, so it is a property and takes the property
+    // naming style. The underscore form tripped IDE1006, which the build now enforces.
+    private string ActivePaneTabId
     {
         get => _isSplitActive && _focusedPane == WorkspacePane.Secondary ? _secondaryTabId : _primaryTabId;
         set
@@ -63,7 +65,7 @@ public partial class CliWebviewForm : Form
         }
     }
 
-    public string ActiveTabId => _activeTabId;
+    public string ActiveTabId => ActivePaneTabId;
 
     /// <summary>Raised with the new tab id whenever the active workspace tab changes.</summary>
     public event Action<string>? ActiveTabChanged;
@@ -156,7 +158,7 @@ public partial class CliWebviewForm : Form
         }
     }
 
-    public CliType ActiveTab => IdToCliType(_activeTabId);
+    public CliType ActiveTab => IdToCliType(ActivePaneTabId);
 
     private static string CliTypeToId(CliType type) => type switch
     {
@@ -763,7 +765,7 @@ public partial class CliWebviewForm : Form
                 _claudeModelComboBox.SelectedIndex = 0;
             }
 
-            _claudeModelComboBox.Visible = !isOfficial && string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
+            _claudeModelComboBox.Visible = !isOfficial && string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -777,7 +779,7 @@ public partial class CliWebviewForm : Form
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
         if (_cliManager == null) return;
-        var info = _cliManager.GetInfo(_activeTabId);
+        var info = _cliManager.GetInfo(ActivePaneTabId);
 
         Color glyphColor = info.State switch
         {
@@ -1245,18 +1247,18 @@ public partial class CliWebviewForm : Form
         UpdateTabButtonsUi();
         UpdateToolbarUi();
 
-        if (IsAntigravityTab(_activeTabId))
+        if (IsAntigravityTab(ActivePaneTabId))
         {
             RefreshProfileCombo();
         }
-        else if (string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
         {
             UpdateClaudeControlsUi();
         }
 
         LayoutToolbar();
 
-        var focusedWv = GetWebViewForPane(_activeTabId, _focusedPane);
+        var focusedWv = GetWebViewForPane(ActivePaneTabId, _focusedPane);
         focusedWv?.Focus();
     }
 
@@ -1653,13 +1655,13 @@ public partial class CliWebviewForm : Form
 
         if (isEmptyWorkspace)
         {
-            _activeTabId = string.Empty;
+            ActivePaneTabId = string.Empty;
         }
-        else if (!_dynamicTabButtons.Any(b => string.Equals(b.Tag as string, _activeTabId, StringComparison.OrdinalIgnoreCase)))
+        else if (!_dynamicTabButtons.Any(b => string.Equals(b.Tag as string, ActivePaneTabId, StringComparison.OrdinalIgnoreCase)))
         {
             if (_dynamicTabButtons.Count > 0 && _dynamicTabButtons[0].Tag is string firstId)
             {
-                _activeTabId = firstId;
+                ActivePaneTabId = firstId;
             }
         }
 
@@ -1920,7 +1922,7 @@ public partial class CliWebviewForm : Form
                 return;
             }
 
-            _activeTabId = string.Empty;
+            ActivePaneTabId = string.Empty;
             RebuildTabs();
             return;
         }
@@ -1949,7 +1951,7 @@ public partial class CliWebviewForm : Form
             AiConfigService.Instance.ToggleCliWorkspace(ws.Id, false);
         }
 
-        _activeTabId = string.Empty;
+        ActivePaneTabId = string.Empty;
         RebuildTabs();
     }
 
@@ -2041,13 +2043,13 @@ public partial class CliWebviewForm : Form
     /// </summary>
     private void SetTerminalContentVisible(bool visible)
     {
-        if (hermesWebView != null) hermesWebView.Visible = visible && string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase);
-        if (claudeWebView != null) claudeWebView.Visible = visible && string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
-        if (antigravityWebView != null) antigravityWebView.Visible = visible && string.Equals(_activeTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
+        if (hermesWebView != null) hermesWebView.Visible = visible && string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase);
+        if (claudeWebView != null) claudeWebView.Visible = visible && string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
+        if (antigravityWebView != null) antigravityWebView.Visible = visible && string.Equals(ActivePaneTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
 
         foreach (var kvp in _customWebViews)
         {
-            kvp.Value.Visible = visible && string.Equals(kvp.Key, _activeTabId, StringComparison.OrdinalIgnoreCase);
+            kvp.Value.Visible = visible && string.Equals(kvp.Key, ActivePaneTabId, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -2287,8 +2289,8 @@ public partial class CliWebviewForm : Form
         {
             _isLayoutRunning = true;
 
-            bool isAntigravityActive = IsAntigravityTab(_activeTabId);
-            bool isClaudeActive = string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
+            bool isAntigravityActive = IsAntigravityTab(ActivePaneTabId);
+            bool isClaudeActive = string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
             bool isClaudeOpenRouter = isClaudeActive && string.Equals(AiConfigService.Instance.GetClaudeEngineMode(), "OpenRouter", StringComparison.OrdinalIgnoreCase);
 
             // The profile switcher only applies to Antigravity tabs; hide it elsewhere so the
@@ -2675,7 +2677,7 @@ public partial class CliWebviewForm : Form
         {
             if (_cliManager != null)
             {
-                await _cliManager.RestartAsync(_activeTabId);
+                await _cliManager.RestartAsync(ActivePaneTabId);
             }
         };
         clearTerminalButton.Click += (_, _) => HandleClearTerminalClick();
@@ -2893,28 +2895,28 @@ public partial class CliWebviewForm : Form
         UpdateTabButtonsUi();
         UpdateToolbarUi();
 
-        if (IsAntigravityTab(_activeTabId))
+        if (IsAntigravityTab(ActivePaneTabId))
         {
             RefreshProfileCombo();
         }
-        else if (string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
         {
             UpdateClaudeControlsUi();
         }
 
         LayoutToolbar();
 
-        if (string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase) && _hermesInitialized)
+        if (string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase) && _hermesInitialized)
         {
             RefreshHermesNavigation();
         }
-        else if (CliManagerService.IsAntigravityProfileId(_activeTabId, out _))
+        else if (CliManagerService.IsAntigravityProfileId(ActivePaneTabId, out _))
         {
-            _ = EnsureProfileWebViewAsync(_activeTabId);
+            _ = EnsureProfileWebViewAsync(ActivePaneTabId);
         }
-        else if (!IsBuiltInCli(_activeTabId))
+        else if (!IsBuiltInCli(ActivePaneTabId))
         {
-            var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), _activeTabId, StringComparison.OrdinalIgnoreCase));
+            var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), ActivePaneTabId, StringComparison.OrdinalIgnoreCase));
             if (ws != null)
             {
                 _ = EnsureCustomWebViewAsync(ws);
@@ -2925,10 +2927,10 @@ public partial class CliWebviewForm : Form
 
         if (_mainForm is MainForm mf && mf.HudTerminal is HudTerminalForm hud && hud.IsHudOpen)
         {
-            hud.SwitchCli(_activeTabId, syncToWebview: false);
+            hud.SwitchCli(ActivePaneTabId, syncToWebview: false);
         }
 
-        ActiveTabChanged?.Invoke(_activeTabId);
+        ActiveTabChanged?.Invoke(ActivePaneTabId);
     }
 
     private async Task EnsureProfileWebViewAsync(string profileId)
@@ -2945,7 +2947,7 @@ public partial class CliWebviewForm : Form
         try
         {
             var wv = CreateHostedWebView();
-            wv.Visible = string.Equals(_activeTabId, profileId, StringComparison.OrdinalIgnoreCase);
+            wv.Visible = string.Equals(ActivePaneTabId, profileId, StringComparison.OrdinalIgnoreCase);
             paneHostLeft.Controls.Add(wv);
             _customWebViews[profileId] = wv;
 
@@ -3035,7 +3037,7 @@ public partial class CliWebviewForm : Form
         try
         {
             var wv = CreateHostedWebView();
-            wv.Visible = string.Equals(_activeTabId, ws.Id, StringComparison.OrdinalIgnoreCase);
+            wv.Visible = string.Equals(ActivePaneTabId, ws.Id, StringComparison.OrdinalIgnoreCase);
             paneHostLeft.Controls.Add(wv);
             _customWebViews[ws.Id] = wv;
 
@@ -3123,7 +3125,7 @@ public partial class CliWebviewForm : Form
                 antigravityWebView.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
             }
 
-            SwitchTab(_activeTabId);
+            SwitchTab(ActivePaneTabId);
             NotifyWebViewsTheme();
         }
         catch (Exception ex)
@@ -3323,7 +3325,7 @@ public partial class CliWebviewForm : Form
             UpdateTabButtonsUi();
         }
 
-        if (string.Equals(cliId, _activeTabId, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(cliId, ActivePaneTabId, StringComparison.OrdinalIgnoreCase))
         {
             UpdateToolbarUi();
         }
@@ -3365,7 +3367,7 @@ public partial class CliWebviewForm : Form
             var info = _cliManager.GetInfo(id);
             bool isPrimary = string.Equals(_primaryTabId, id, StringComparison.OrdinalIgnoreCase);
             bool isSecondary = _isSplitActive && string.Equals(_secondaryTabId, id, StringComparison.OrdinalIgnoreCase);
-            bool isFocused = string.Equals(_activeTabId, id, StringComparison.OrdinalIgnoreCase);
+            bool isFocused = string.Equals(ActivePaneTabId, id, StringComparison.OrdinalIgnoreCase);
 
             var dotColor = info.State switch
             {
@@ -3421,7 +3423,7 @@ public partial class CliWebviewForm : Form
         var c = ThemeManager.Colors;
 
         // No workspace enabled: there is no active CLI, so hide its controls and say so.
-        if (string.IsNullOrEmpty(_activeTabId))
+        if (string.IsNullOrEmpty(ActivePaneTabId))
         {
             activeStatusLabel.Text = "No terminals active";
             activeStatusLabel.ForeColor = c.TextMuted;
@@ -3439,7 +3441,7 @@ public partial class CliWebviewForm : Form
         restartCliButton.Visible = true;
         clearTerminalButton.Visible = true;
 
-        var info = _cliManager.GetInfo(_activeTabId);
+        var info = _cliManager.GetInfo(ActivePaneTabId);
         activeStatusLabel.Text = $"{info.ShortName}: {info.StatusText}";
 
         int browserPort = GetBrowserPortForActiveTab();
@@ -3499,7 +3501,7 @@ public partial class CliWebviewForm : Form
         clearTerminalButton.Invalidate();
         openBrowserButton.Invalidate();
 
-        if (string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
         {
             UpdateClaudeControlsUi();
         }
@@ -3509,25 +3511,25 @@ public partial class CliWebviewForm : Form
 
     private int GetBrowserPortForActiveTab()
     {
-        if (string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase))
         {
             return _cliManager?.HermesService.Port ?? 8000;
         }
-        if (string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
         {
             return 9229;
         }
-        if (CliManagerService.IsAntigravityProfileId(_activeTabId, out var prof))
+        if (CliManagerService.IsAntigravityProfileId(ActivePaneTabId, out var prof))
         {
             return _cliManager?.GetPortForProfile(prof) ?? 0;
         }
-        if (string.Equals(_activeTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(ActivePaneTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
         {
             var activeProf = _cliManager?.ProfileService.ActiveProfile ?? string.Empty;
             return _cliManager?.GetPortForProfile(activeProf) ?? 0;
         }
 
-        var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w => string.Equals(w.Id, _activeTabId, StringComparison.OrdinalIgnoreCase));
+        var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w => string.Equals(w.Id, ActivePaneTabId, StringComparison.OrdinalIgnoreCase));
         return ws?.Port ?? 0;
     }
 
@@ -3535,26 +3537,26 @@ public partial class CliWebviewForm : Form
     {
         if (_cliManager == null) return;
 
-        var info = _cliManager.GetInfo(_activeTabId);
+        var info = _cliManager.GetInfo(ActivePaneTabId);
         if (info.State == CliState.Running || info.State == CliState.Starting)
         {
-            await _cliManager.StopAsync(_activeTabId);
+            await _cliManager.StopAsync(ActivePaneTabId);
         }
         else
         {
-            _cliManager.Start(_activeTabId);
+            _cliManager.Start(ActivePaneTabId);
         }
     }
 
     private void HandleClearTerminalClick()
     {
-        if (_cliManager == null || string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase))
+        if (_cliManager == null || string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        _cliManager.ClearTerminalHistory(_activeTabId);
-        var targetWv = GetWebViewForId(_activeTabId);
+        _cliManager.ClearTerminalHistory(ActivePaneTabId);
+        var targetWv = GetWebViewForId(ActivePaneTabId);
         if (targetWv?.CoreWebView2 != null)
         {
             var payload = new TerminalActionPayload("clear");
@@ -3630,14 +3632,14 @@ public partial class CliWebviewForm : Form
     {
         btn.MouseEnter += (_, _) =>
         {
-            if (!string.Equals(_activeTabId, id, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(ActivePaneTabId, id, StringComparison.OrdinalIgnoreCase))
             {
                 btn.BackColor = ThemeManager.Colors.ButtonHover;
             }
         };
         btn.MouseLeave += (_, _) =>
         {
-            if (!string.Equals(_activeTabId, id, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(ActivePaneTabId, id, StringComparison.OrdinalIgnoreCase))
             {
                 btn.BackColor = ThemeManager.Colors.ButtonBg;
             }
@@ -3671,7 +3673,7 @@ public partial class CliWebviewForm : Form
     {
         if (_dynamicTabButtons.Count == 0) return;
 
-        int currentIndex = _dynamicTabButtons.FindIndex(b => string.Equals(b.Tag as string, _activeTabId, StringComparison.OrdinalIgnoreCase));
+        int currentIndex = _dynamicTabButtons.FindIndex(b => string.Equals(b.Tag as string, ActivePaneTabId, StringComparison.OrdinalIgnoreCase));
         if (currentIndex < 0) currentIndex = 0;
 
         int nextIndex = forward
@@ -3694,7 +3696,7 @@ public partial class CliWebviewForm : Form
             _profileComboBox.Items.Clear();
 
             var profiles = _cliManager.ProfileService.GetProfiles();
-            string currentProfile = CliManagerService.IsAntigravityProfileId(_activeTabId, out var tabProf)
+            string currentProfile = CliManagerService.IsAntigravityProfileId(ActivePaneTabId, out var tabProf)
                 ? tabProf
                 : (_cliManager.ProfileService.ActiveProfile ?? "Default");
 

@@ -2217,8 +2217,11 @@ public sealed partial class DashboardWebBridge : IDisposable
         }
     }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
+    // LibraryImport, not DllImport: no parameters and an IntPtr return need no marshalling code,
+    // so the source generator can emit the call. The rest of the DllImport sites stay as they are
+    // until their struct marshalling is checked against the native signatures.
+    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
+    private static partial IntPtr GetForegroundWindow();
 
     public CliWebviewForm? CliWebviewForm => _cliWebviewForm;
 
@@ -2895,9 +2898,9 @@ public sealed partial class DashboardWebBridge : IDisposable
         return _openCodeWatcher?.GetStateDto() ?? new OpenCodeStateDto();
     }
 
-    public bool FocusOpenCodeSession(string? directory)
+    // Static because it reads no instance state, which is also why CA1822 flagged it.
+    public static bool FocusOpenCodeSession(string? directory)
     {
-        // No instance state involved, so the watcher exposes this statically.
         return OpenCodeWatcherService.FocusOpenCodeSession(directory);
     }
 
