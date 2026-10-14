@@ -558,16 +558,16 @@
               <span id="preset-active-label" style="font-size: 11.5px; color: var(--text-muted);">Active: AI Duo (Claude + agy)</span>
             </div>
             <div class="terminal-tabs-bar">
-              <div class="terminal-tabs">
-                <button class="term-tab active" data-term="Hermes">
+              <div class="terminal-tabs" id="interactive-terminal-tabs">
+                <button class="term-tab active" data-term="hermes">
                   <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                   <span>Hermes Web</span>
                 </button>
-                <button class="term-tab" data-term="ClaudeCode">
+                <button class="term-tab" data-term="claude_code">
                   <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
                   <span>Claude Code</span>
                 </button>
-                <button class="term-tab" data-term="AntigravityCli">
+                <button class="term-tab" data-term="antigravity_cli">
                   <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                   <span>Antigravity CLI</span>
                 </button>
@@ -582,7 +582,16 @@
               </div>
             </div>
             <div id="terminal-host">
-              <div id="xterm-container" style="width: 100%; height: 100%;"></div>
+              <iframe id="terminal-web-frame" class="hidden" title="Hermes web dashboard"></iframe>
+              <div id="term-panes-wrapper"></div>
+              <div id="terminal-offline-overlay" class="terminal-overlay hidden" aria-live="polite">
+                <div class="terminal-offline-card">
+                  <span class="terminal-offline-badge" id="terminal-offline-badge">Offline</span>
+                  <h3 id="terminal-offline-title">Session not running</h3>
+                  <p id="terminal-offline-status">This CLI is stopped.</p>
+                  <button type="button" class="btn btn-success" id="btn-terminal-start-cli">Start session</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

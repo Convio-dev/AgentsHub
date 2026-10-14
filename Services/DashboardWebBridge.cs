@@ -20,14 +20,11 @@ public sealed partial class DashboardWebBridge : IDisposable
     private CoreWebView2? _coreWebView;
     private CliWebviewForm? _cliWebviewForm;
 
-    // Debounced terminal output buffers per CLI type (Constraint 3)
+    // Debounced terminal output buffers, keyed by session id. A CliType key collapses every
+    // Antigravity profile onto CliType.AntigravityCli, so a profile session's output was either
+    // shown under the built-in tab or dropped entirely.
     private readonly Lock _streamLock = new();
-    private readonly Dictionary<CliType, System.Text.StringBuilder> _terminalBuffers = new()
-    {
-        [CliType.Hermes] = new System.Text.StringBuilder(),
-        [CliType.ClaudeCode] = new System.Text.StringBuilder(),
-        [CliType.AntigravityCli] = new System.Text.StringBuilder()
-    };
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder> _terminalStreamBuffers = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Windows.Forms.Timer _streamFlushTimer;
     private readonly System.Windows.Forms.Timer _metricsTimer;
 
@@ -119,15 +116,12 @@ public sealed partial class DashboardWebBridge : IDisposable
             }
         };
 
-        _cliManager.TerminalDataReceived += (type, data) =>
+        _cliManager.TerminalDataReceivedId += (id, data) =>
         {
             // Append incoming stream data into debounced buffer
             lock (_streamLock)
             {
-                if (_terminalBuffers.TryGetValue(type, out var sb))
-                {
-                    sb.Append(data);
-                }
+                _terminalStreamBuffers.GetOrAdd(id, _ => new System.Text.StringBuilder()).Append(data);
             }
         };
 
@@ -224,7 +218,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
         lock (_streamLock)
         {
-            foreach (var (cliType, sb) in _terminalBuffers)
+            foreach (var (sessionId, sb) in _terminalStreamBuffers)
             {
                 if (sb.Length > 0)
                 {
@@ -233,12 +227,52 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                     PostEventToUi("terminal_data", new
                     {
-                        cli = cliType.ToString(),
+                        cli = sessionId,
                         data = chunk
                     });
                 }
             }
         }
+    }
+
+    // The dashboard exposes one Antigravity tab for whichever profile is active, while terminal
+    // sessions are keyed by profile id. Resolving here keeps history, input, and resize pointed at
+    // the session that is actually running instead of at an empty "antigravity_cli" buffer.
+    private string ResolveTerminalSessionId(string cli)
+    {
+        if (CliManagerService.IsAntigravityProfileId(cli, out _)) return cli;
+
+        string norm = AiConfigService.NormalizeCliId(cli);
+        if (!string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase)) return norm;
+
+        var profile = _cliManager.ProfileService.ActiveProfile;
+        if (string.IsNullOrWhiteSpace(profile))
+        {
+            var profiles = _cliManager.ProfileService.GetProfiles();
+            profile = profiles.Count > 0 ? profiles[0] : "Default";
+        }
+        return CliManagerService.FormatAntigravityProfileId(profile);
+    }
+
+    // The dashboard terminal and the standalone workspace show the same sessions, so a tab change
+    // in the standalone window is pushed to the dashboard to keep the two views on one CLI.
+    private void NotifyStandaloneTabSwitched(string cliId)
+    {
+        PostEventToUi("terminal_tab_switched", new { cli = AiConfigService.NormalizeCliId(cliId) });
+    }
+
+    private CliWebviewForm EnsureStandaloneTerminalForm()
+    {
+        if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
+        {
+            _cliWebviewForm = new CliWebviewForm(_cliManager, CliType.Hermes, _mainForm);
+            _cliWebviewForm.ActiveTabChanged += NotifyStandaloneTabSwitched;
+        }
+        else
+        {
+            _cliWebviewForm.SetMainForm(_mainForm);
+        }
+        return _cliWebviewForm;
     }
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
@@ -564,44 +598,99 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            // Ids rather than CliType names: the dashboard sends normalized workspace ids
+            // ("claude_code"), which Enum.TryParse cannot read.
             case "toggle_cli":
-                if (data.TryGetProperty("cli", out var cliProp) && Enum.TryParse<CliType>(cliProp.GetString(), out var cliType))
+                if (data.TryGetProperty("cli", out var cliProp))
                 {
-                    var info = _cliManager.GetInfo(cliType);
+                    string targetCli = cliProp.GetString() ?? string.Empty;
+                    var info = _cliManager.GetInfo(targetCli);
                     if (info.State == CliState.Running)
                     {
-                        await _cliManager.StopAsync(cliType);
+                        await _cliManager.StopAsync(targetCli);
                     }
                     else
                     {
-                        _cliManager.Start(cliType);
+                        _cliManager.Start(targetCli);
                     }
-                    SendResponse(requestId, true, new { state = _cliManager.GetInfo(cliType).State.ToString() });
+                    SendResponse(requestId, true, new { state = _cliManager.GetInfo(targetCli).State.ToString() });
                 }
                 break;
 
             case "restart_cli":
-                if (data.TryGetProperty("cli", out var rCli) && Enum.TryParse<CliType>(rCli.GetString(), out var rType))
+                if (data.TryGetProperty("cli", out var rCli))
                 {
-                    await _cliManager.RestartAsync(rType);
+                    await _cliManager.RestartAsync(rCli.GetString() ?? string.Empty);
+                    SendResponse(requestId, true, new { success = true });
+                }
+                break;
+
+            // The dashboard terminal renders a CLI session, so it asks for that session's
+            // scrollback and running state before it attaches. Hermes is a web dashboard rather
+            // than a ConPTY session, so its tab answers with the Hermes port alone.
+            case "get_terminal_session":
+                {
+                    string reqCli = data.TryGetProperty("cli", out var gCli) ? (gCli.GetString() ?? "hermes") : "hermes";
+                    string normId = AiConfigService.NormalizeCliId(reqCli);
+
+                    if (string.Equals(normId, "hermes", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var hermesInfo = _cliManager.GetInfo("hermes");
+                        int hermesPort = _cliManager.HermesService.Port;
+                        SendResponse(requestId, true, new
+                        {
+                            cli = "hermes",
+                            sessionId = "hermes",
+                            isRunning = hermesInfo.State == CliState.Running,
+                            status = hermesInfo.StatusText,
+                            history = string.Empty,
+                            isWebUi = true,
+                            webUrl = $"http://127.0.0.1:{hermesPort}/",
+                            port = hermesPort,
+                            displayName = "Hermes Web"
+                        });
+                    }
+                    else
+                    {
+                        string sessionId = ResolveTerminalSessionId(normId);
+                        var info = _cliManager.GetInfo(sessionId);
+                        SendResponse(requestId, true, new
+                        {
+                            cli = normId,
+                            sessionId,
+                            isRunning = info.State == CliState.Running,
+                            status = info.StatusText,
+                            history = _cliManager.GetTerminalHistory(sessionId),
+                            isWebUi = false,
+                            webUrl = info.WebUrl ?? (info.Port != null ? $"http://127.0.0.1:{info.Port}" : string.Empty),
+                            port = info.Port,
+                            displayName = info.DisplayName
+                        });
+                    }
+                }
+                break;
+
+            case "clear_terminal_history":
+                if (data.TryGetProperty("cli", out var clrCli))
+                {
+                    _cliManager.ClearTerminalHistory(ResolveTerminalSessionId(clrCli.GetString() ?? string.Empty));
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
 
             case "send_terminal_input":
-                if (data.TryGetProperty("cli", out var inCli) && Enum.TryParse<CliType>(inCli.GetString(), out var inType) &&
-                    data.TryGetProperty("input", out var inData))
+                if (data.TryGetProperty("cli", out var inCli) && data.TryGetProperty("input", out var inData))
                 {
-                    _cliManager.SendInput(inType, inData.GetString() ?? string.Empty);
+                    _cliManager.SendInput(ResolveTerminalSessionId(inCli.GetString() ?? string.Empty), inData.GetString() ?? string.Empty);
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
 
             case "resize_terminal":
-                if (data.TryGetProperty("cli", out var szCli) && Enum.TryParse<CliType>(szCli.GetString(), out var szType) &&
+                if (data.TryGetProperty("cli", out var szCli) &&
                     data.TryGetProperty("cols", out var cols) && data.TryGetProperty("rows", out var rows))
                 {
-                    _cliManager.Resize(szType, (short)cols.GetInt32(), (short)rows.GetInt32());
+                    _cliManager.Resize(ResolveTerminalSessionId(szCli.GetString() ?? string.Empty), (short)cols.GetInt32(), (short)rows.GetInt32());
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
@@ -1413,28 +1502,27 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "open_standalone_terminals":
                 try
                 {
+                    // The standalone window opens on the CLI the dashboard is showing.
+                    string targetTab = data.TryGetProperty("cli", out var popCli) ? (popCli.GetString() ?? string.Empty) : string.Empty;
                     _mainForm.Invoke(() =>
                     {
-                        if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
+                        var form = EnsureStandaloneTerminalForm();
+                        if (!string.IsNullOrWhiteSpace(targetTab))
                         {
-                            _cliWebviewForm = new CliWebviewForm(_cliManager, CliType.Hermes, _mainForm);
+                            form.SwitchTab(targetTab);
                         }
-                        else
+                        form.ApplyTheme();
+                        if (form.WindowState == FormWindowState.Minimized)
                         {
-                            _cliWebviewForm.SetMainForm(_mainForm);
+                            form.WindowState = FormWindowState.Normal;
                         }
-                        _cliWebviewForm.ApplyTheme();
-                        if (_cliWebviewForm.WindowState == FormWindowState.Minimized)
-                        {
-                            _cliWebviewForm.WindowState = FormWindowState.Normal;
-                        }
-                        _cliWebviewForm.Show();
-                        _cliWebviewForm.BringToFront();
-                        _cliWebviewForm.Activate();
+                        form.Show();
+                        form.BringToFront();
+                        form.Activate();
 
                         if (StartupHelper.GetPreference("HideMainOnCliOpen", false))
                         {
-                            _cliWebviewForm.HideMainFormNow();
+                            form.HideMainFormNow();
                         }
                     });
                     SendResponse(requestId, true, new { success = true });
@@ -1443,6 +1531,24 @@ public sealed partial class DashboardWebBridge : IDisposable
                 {
                     Debug.WriteLine($"[DashboardWebBridge] open_standalone_terminals error: {ex}");
                     SendResponse(requestId, false, ex.Message);
+                }
+                break;
+
+            // Keeping the standalone workspace on the dashboard's CLI makes the two terminal views
+            // one session rather than two windows that drift apart.
+            case "sync_terminal_tab":
+                if (data.TryGetProperty("cli", out var syncCliProp))
+                {
+                    string syncCli = syncCliProp.GetString() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(syncCli) && _cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                    {
+                        try
+                        {
+                            _mainForm.Invoke(() => _cliWebviewForm.SwitchTab(syncCli));
+                        }
+                        catch { }
+                    }
+                    SendResponse(requestId, true, new { success = true });
                 }
                 break;
 
@@ -1456,26 +1562,19 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         _mainForm.Invoke(() =>
                         {
-                            if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
-                            {
-                                _cliWebviewForm = new CliWebviewForm(_cliManager, CliType.Hermes, _mainForm);
-                            }
-                            else
-                            {
-                                _cliWebviewForm.SetMainForm(_mainForm);
-                            }
+                            var form = EnsureStandaloneTerminalForm();
                             if (shellName.Equals("powershell", StringComparison.OrdinalIgnoreCase))
                             {
-                                _cliWebviewForm.OpenEmbeddedShell("powershell", "PowerShell", "powershell.exe");
+                                form.OpenEmbeddedShell("powershell", "PowerShell", "powershell.exe");
                             }
                             else
                             {
-                                _cliWebviewForm.OpenEmbeddedShell("cmd", "Command Prompt", "cmd.exe");
+                                form.OpenEmbeddedShell("cmd", "Command Prompt", "cmd.exe");
                             }
 
                             if (StartupHelper.GetPreference("HideMainOnCliOpen", false))
                             {
-                                _cliWebviewForm.HideMainFormNow();
+                                form.HideMainFormNow();
                             }
                         });
                     }
@@ -2131,12 +2230,11 @@ public sealed partial class DashboardWebBridge : IDisposable
             {
                 if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
                 {
-                    _cliWebviewForm = new CliWebviewForm(_cliManager, CliType.Hermes, _mainForm);
-                    _cliWebviewForm.SetMainForm(_mainForm);
-                    _cliWebviewForm.ApplyTheme();
-                    _cliWebviewForm.Show();
-                    _cliWebviewForm.BringToFront();
-                    _cliWebviewForm.Activate();
+                    var created = EnsureStandaloneTerminalForm();
+                    created.ApplyTheme();
+                    created.Show();
+                    created.BringToFront();
+                    created.Activate();
                     return;
                 }
 

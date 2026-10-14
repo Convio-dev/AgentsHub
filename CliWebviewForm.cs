@@ -65,6 +65,9 @@ public partial class CliWebviewForm : Form
 
     public string ActiveTabId => _activeTabId;
 
+    /// <summary>Raised with the new tab id whenever the active workspace tab changes.</summary>
+    public event Action<string>? ActiveTabChanged;
+
     private bool _hermesInitialized;
     private readonly string _terminalHtmlPath = string.Empty;
     private readonly string _hermesOfflineHtmlPath = string.Empty;
@@ -2924,6 +2927,8 @@ public partial class CliWebviewForm : Form
         {
             hud.SwitchCli(_activeTabId, syncToWebview: false);
         }
+
+        ActiveTabChanged?.Invoke(_activeTabId);
     }
 
     private async Task EnsureProfileWebViewAsync(string profileId)

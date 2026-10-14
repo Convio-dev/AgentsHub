@@ -32,7 +32,7 @@
     aiConfig: { providers: [], toolTargets: {}, devTools: [], shortcuts: [], selectedProviderId: null, selectedModel: null, promptPresets: [], builtInPromptPresets: [], activePromptPresetId: 'preset_general', promptEnhancerTemperature: 0.6 },
     settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', enableHardwareMonitor: localStorage.getItem('agents_hub_enable_hardware_monitor') === 'true', theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
-    activeTerminalCli: 'Hermes',
+    activeTerminalCli: 'hermes',
     selectedProvider: null,
     workspaces: [],
     activeWorkspaceId: null,
@@ -301,6 +301,11 @@
           updateHeaderStatus();
           updateDashboardCliRows();
           renderRunningPorts();
+
+          // A start or stop changes whether the open tab can attach, so it re-reads its session.
+          if (state.activeView === 'terminals' && normalizeCliKey(payload.cli) === normalizeCliKey(state.activeTerminalCli)) {
+            activateTerminalTab(state.activeTerminalCli, false);
+          }
         }
         break;
 
@@ -318,9 +323,20 @@
 
       case 'terminal_data':
         if (payload && payload.data) {
-          if (termInstance && payload.cli === state.activeTerminalCli) {
-            termInstance.write(payload.data);
+          // Output is routed by session, not by the visible tab, so a background CLI keeps its
+          // scrollback instead of losing everything printed while another tab was open.
+          const key = normalizeCliKey(payload.cli);
+          if (key !== 'hermes') {
+            const session = getTerminalSession(key);
+            if (session) session.term.write(payload.data);
           }
+        }
+        break;
+
+      case 'terminal_tab_switched':
+        if (payload && payload.cli) {
+          // Pushed by the standalone workspace; echoing it back would loop.
+          activateTerminalTab(payload.cli, false);
         }
         break;
 
@@ -848,8 +864,8 @@
     btnToggleSidebar?.addEventListener('click', () => {
       sidebar.classList.toggle('collapsed');
       localStorage.setItem('agents_hub_sidebar_collapsed', sidebar.classList.contains('collapsed'));
-      if (fitAddonInstance && state.activeView === 'terminals') {
-        setTimeout(() => fitAddonInstance.fit(), 220);
+      if (state.activeView === 'terminals') {
+        setTimeout(() => fitTerminalSession(terminalSessions[normalizeCliKey(state.activeTerminalCli)]), 220);
       }
     });
   }
@@ -881,9 +897,7 @@
     }
 
     if (viewName === 'terminals') {
-      setTimeout(() => {
-        if (fitAddonInstance) fitAddonInstance.fit();
-      }, 50);
+      activateTerminalTab(state.activeTerminalCli, false);
     }
 
     // Dependency detection spawns version probes, so only scan the first time Settings opens.
@@ -1021,14 +1035,15 @@
       rootStyle.setProperty('--border-focus', lightAccent);
     }
 
-    if (termInstance) {
-      termInstance.options.theme = {
+    // Retheme every session, not only the visible one.
+    Object.values(terminalSessions).forEach(session => {
+      session.term.options.theme = {
         background: activeTheme === 'dark' ? `hsl(${h}, ${s < 12 ? 6 : 14}%, 5%)` : '#0d1117',
         foreground: '#f8fafc',
         cursor: hex,
         selectionBackground: `hsla(${h}, ${s}%, 50%, 0.3)`
       };
-    }
+    });
 
     document.querySelectorAll('.btn-theme-toggle').forEach(b => {
       b.classList.toggle('active', b.dataset.theme === activeTheme);
@@ -1522,15 +1537,41 @@
     });
   }
 
-  // Terminal (xterm.js) Management
-  let termInstance = null;
-  let fitAddonInstance = null;
+  // Terminal (xterm.js) Management.
+  // One xterm per CLI session, kept alive across tab switches. Rebuilding a single terminal on
+  // every switch threw the scrollback away and left the new tab blank until fresh output arrived,
+  // which is why a running Claude Code session showed an empty pane. Hermes is a web dashboard,
+  // so its tab hosts the Hermes page instead of a terminal.
+  const terminalSessions = {};
+  const TERMINAL_TAB_LABELS = {
+    hermes: 'Hermes Web',
+    claude_code: 'Claude Code',
+    antigravity_cli: 'Antigravity CLI'
+  };
 
-  function initTerminal() {
-    const container = document.getElementById('xterm-container');
-    if (!container || typeof Terminal === 'undefined') return;
+  function normalizeCliKey(key) {
+    if (!key) return 'hermes';
+    const lk = String(key).toLowerCase();
+    if (lk === 'hermes') return 'hermes';
+    if (lk === 'claudecode' || lk === 'claude_code' || lk === 'claude') return 'claude_code';
+    if (lk === 'antigravitycli' || lk === 'antigravity_cli' || lk === 'agy' || lk.startsWith('antigravity_cli:')) return 'antigravity_cli';
+    return lk;
+  }
 
-    termInstance = new Terminal({
+  // reveal: the pane is shown before the terminal is opened. An xterm opened inside a
+  // display:none container never measures its cell size, so fit() silently keeps the default
+  // 80x24 grid and the shell wraps its output at the wrong width.
+  function getTerminalSession(key, reveal = false) {
+    if (terminalSessions[key]) return terminalSessions[key];
+
+    const wrapper = document.getElementById('term-panes-wrapper');
+    if (!wrapper || typeof Terminal === 'undefined') return null;
+
+    const container = document.createElement('div');
+    container.className = 'term-pane-instance' + (reveal ? '' : ' hidden');
+    wrapper.appendChild(container);
+
+    const term = new Terminal({
       cursorBlink: true,
       fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
       fontSize: 13,
@@ -1542,52 +1583,167 @@
       }
     });
 
+    let fitAddon = null;
     if (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) {
-      fitAddonInstance = new FitAddon.FitAddon();
-      termInstance.loadAddon(fitAddonInstance);
+      fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
     }
 
-    termInstance.open(container);
-    if (fitAddonInstance) fitAddonInstance.fit();
+    term.open(container);
+    term.onData(input => callBridge('send_terminal_input', { cli: key, input }));
 
-    termInstance.onData(data => {
-      callBridge('send_terminal_input', {
-        cli: state.activeTerminalCli,
-        input: data
-      });
+    const session = { key, term, fitAddon, container, initialized: false };
+    terminalSessions[key] = session;
+    return session;
+  }
+
+  // A pane measures zero while hidden, so it is fitted after it becomes visible.
+  function fitTerminalSession(session) {
+    if (!session || !session.fitAddon) return;
+    try {
+      session.fitAddon.fit();
+      // A fit that lands on the same dimensions repaints nothing, so the pane is redrawn
+      // explicitly. Without this a pane created while its view was hidden could stay blank.
+      session.term.refresh(0, session.term.rows - 1);
+      callBridge('resize_terminal', {
+        cli: session.key,
+        cols: session.term.cols,
+        rows: session.term.rows
+      }).catch(() => {});
+    } catch { }
+  }
+
+  function showTerminalOverlay(show, title, status, badge) {
+    const overlay = document.getElementById('terminal-offline-overlay');
+    if (!overlay) return;
+    overlay.classList.toggle('hidden', !show);
+    if (!show) return;
+
+    const titleEl = document.getElementById('terminal-offline-title');
+    const statusEl = document.getElementById('terminal-offline-status');
+    const badgeEl = document.getElementById('terminal-offline-badge');
+    if (titleEl) titleEl.textContent = title;
+    if (statusEl) statusEl.textContent = status;
+    if (badgeEl) badgeEl.textContent = badge;
+  }
+
+  async function activateTerminalTab(cliKey, syncStandalone = true) {
+    const key = normalizeCliKey(cliKey);
+    state.activeTerminalCli = key;
+
+    document.querySelectorAll('#interactive-terminal-tabs .term-tab').forEach(tab => {
+      tab.classList.toggle('active', normalizeCliKey(tab.dataset.term) === key);
+    });
+
+    // The standalone workspace shows the same sessions, so it follows the dashboard's tab.
+    if (syncStandalone) callBridge('sync_terminal_tab', { cli: key }).catch(() => {});
+
+    let info = null;
+    try {
+      info = await callBridge('get_terminal_session', { cli: key });
+    } catch (err) {
+      console.warn('Terminal session lookup failed:', err);
+    }
+
+    if (!info) {
+      showTerminalOverlay(true, 'Session unavailable', 'The backend did not answer for this CLI.', 'Error');
+      return;
+    }
+
+    const frame = document.getElementById('terminal-web-frame');
+    const wrapper = document.getElementById('term-panes-wrapper');
+
+    if (info.isWebUi) {
+      Object.values(terminalSessions).forEach(s => s.container.classList.add('hidden'));
+      if (wrapper) wrapper.classList.add('hidden');
+      if (frame) {
+        frame.classList.remove('hidden');
+        const target = info.isRunning ? (info.webUrl || 'http://127.0.0.1:9119/') : 'hermes-offline.html';
+        if (frame.getAttribute('src') !== target) frame.setAttribute('src', target);
+      }
+      showTerminalOverlay(!info.isRunning, 'Hermes is not running', info.status || 'Start it from the Dashboard to load this page.', 'Offline');
+      return;
+    }
+
+    if (frame) {
+      frame.classList.add('hidden');
+      frame.removeAttribute('src');
+    }
+    if (wrapper) wrapper.classList.remove('hidden');
+
+    const session = getTerminalSession(key, true);
+    if (!session) return;
+
+    Object.values(terminalSessions).forEach(s => s.container.classList.toggle('hidden', s.key !== key));
+
+    if (!session.initialized) {
+      session.initialized = true;
+      if (info.history) session.term.write(info.history);
+      else session.term.writeln(`\x1b[32m[${info.displayName || TERMINAL_TAB_LABELS[key]} session]\x1b[0m\r\n`);
+    }
+
+    const label = info.displayName || TERMINAL_TAB_LABELS[key];
+    if (!info.isRunning) {
+      showTerminalOverlay(true, `${label} is not running`, info.status || 'The process is currently stopped.', 'Offline');
+      return;
+    }
+
+    showTerminalOverlay(false);
+    // The cell size is measured on the first rendered frame after the pane becomes visible, so
+    // the fit waits for it and repeats once more for the layout pass that follows.
+    requestAnimationFrame(() => fitTerminalSession(session));
+    setTimeout(() => {
+      fitTerminalSession(session);
+      session.term.focus();
+    }, 50);
+  }
+
+  function initTerminal() {
+    if (typeof Terminal === 'undefined') return;
+    if (!document.getElementById('terminal-host')) return;
+
+    document.querySelectorAll('#interactive-terminal-tabs .term-tab').forEach(tab => {
+      tab.addEventListener('click', () => activateTerminalTab(tab.dataset.term, true));
     });
 
     window.addEventListener('resize', () => {
-      if (fitAddonInstance && state.activeView === 'terminals') {
-        fitAddonInstance.fit();
-        callBridge('resize_terminal', {
-          cli: state.activeTerminalCli,
-          cols: termInstance.cols,
-          rows: termInstance.rows
-        });
-      }
-    });
-
-    // Terminal Tabs
-    document.querySelectorAll('.term-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.term-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        state.activeTerminalCli = tab.dataset.term;
-        termInstance.clear();
-        termInstance.writeln(`\x1b[32m[Connected to ${state.activeTerminalCli} Terminal]\x1b[0m\r\n`);
-      });
+      if (state.activeView !== 'terminals') return;
+      fitTerminalSession(terminalSessions[normalizeCliKey(state.activeTerminalCli)]);
     });
 
     document.getElementById('btn-clear-terminal')?.addEventListener('click', () => {
-      if (termInstance) termInstance.clear();
+      const key = normalizeCliKey(state.activeTerminalCli);
+      const session = terminalSessions[key];
+      if (session) session.term.clear();
+      callBridge('clear_terminal_history', { cli: key }).catch(() => {});
     });
 
-    document.getElementById('btn-term-open-browser')?.addEventListener('click', () => {
-      const port = state.activeTerminalCli === 'Hermes' ? 9095 : (state.activeTerminalCli === 'ClaudeCode' ? 9229 : 9339);
-      const themeParam = currentThemeParam();
-      callBridge('open_url_external', { url: `http://127.0.0.1:${port}/${themeParam}` });
+    document.getElementById('btn-term-open-browser')?.addEventListener('click', async () => {
+      const key = normalizeCliKey(state.activeTerminalCli);
+      let url = '';
+      try {
+        const info = await callBridge('get_terminal_session', { cli: key });
+        url = (info && (info.webUrl || (info.port ? `http://127.0.0.1:${info.port}/` : ''))) || '';
+      } catch { }
+      if (!url) url = key === 'claude_code' ? 'http://127.0.0.1:9229/' : 'http://127.0.0.1:9339/';
+      const sep = url.includes('?') ? '&' : '?';
+      callBridge('open_url_external', { url: `${url}${sep}${currentThemeParam().replace('?', '')}` });
     });
+
+    document.getElementById('btn-terminal-start-cli')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        await callBridge('toggle_cli', { cli: normalizeCliKey(state.activeTerminalCli) });
+        setTimeout(() => activateTerminalTab(state.activeTerminalCli, false), 600);
+      } catch (err) {
+        showToast('Failed to start CLI: ' + err.message, 'error', 4500);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    activateTerminalTab(state.activeTerminalCli, false);
   }
 
   async function launchAntigravityAppFromDash() {
@@ -5818,7 +5974,7 @@
     });
 
     // Standalone Terminals Window Popouts
-    const openStandalone = () => callBridge('open_standalone_terminals');
+    const openStandalone = () => callBridge('open_standalone_terminals', { cli: normalizeCliKey(state.activeTerminalCli) });
     document.getElementById('btn-popout-terminals')?.addEventListener('click', openStandalone);
     document.getElementById('btn-popout-terminals-dash')?.addEventListener('click', openStandalone);
     document.getElementById('btn-open-standalone-hdr')?.addEventListener('click', openStandalone);
