@@ -498,6 +498,18 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "toggle_main_window":
+                if (_mainForm is MainForm mainFormToggle)
+                {
+                    mainFormToggle.ShowOrHideFromHotkey();
+                    SendResponse(requestId, true, new { success = true });
+                }
+                else
+                {
+                    SendResponse(requestId, false, "MainForm reference unavailable");
+                }
+                break;
+
             case "toggle_lan_proxy":
                 if (_lanProxyService != null)
                 {
@@ -1663,17 +1675,23 @@ public sealed partial class DashboardWebBridge : IDisposable
                     if (stProp.TryGetProperty("globalHotkey", out var hotkeyEl))
                     {
                         StartupHelper.SetPreference("GlobalHotkey", hotkeyEl.GetBoolean());
-                        // The field is typed as Form, so the hotkey is reached through the
-                        // concrete type. The form can be closing while a setting is saved.
-                        if (_mainForm is MainForm mainForm)
+                    }
+                    if (stProp.TryGetProperty("globalHotkeyModifier", out var ghModEl))
+                    {
+                        StartupHelper.SetStringPreference("GlobalHotkeyModifier", ghModEl.GetString() ?? "Ctrl+Alt");
+                    }
+                    if (stProp.TryGetProperty("globalHotkeyKey", out var ghKeyEl))
+                    {
+                        StartupHelper.SetStringPreference("GlobalHotkeyKey", ghKeyEl.GetString() ?? "H");
+                    }
+                    if (_mainForm is MainForm mainForm)
+                    {
+                        try
                         {
-                            try
-                            {
-                                mainForm.Invoke(() => mainForm.ApplyGlobalHotkey());
-                            }
-                            catch
-                            {
-                            }
+                            mainForm.Invoke(() => mainForm.ApplyGlobalHotkey());
+                        }
+                        catch
+                        {
                         }
                     }
                     if (stProp.TryGetProperty("globalHudHotkey", out var hudHotkeyEl))
@@ -2336,6 +2354,8 @@ public sealed partial class DashboardWebBridge : IDisposable
                 minimizeToTray = StartupHelper.GetPreference("MinimizeToTray", true),
                 notifications = StartupHelper.GetPreference("WindowsNotifications", true),
                 globalHotkey = StartupHelper.GetPreference("GlobalHotkey", true),
+                globalHotkeyModifier = StartupHelper.GetStringPreference("GlobalHotkeyModifier", "Ctrl+Alt"),
+                globalHotkeyKey = StartupHelper.GetStringPreference("GlobalHotkeyKey", "H"),
                 globalHudHotkey = StartupHelper.GetPreference("GlobalHudHotkey", true),
                 hudHotkeyKey = StartupHelper.GetStringPreference("HudHotkeyKey", "F12"),
                 hudHotkeyModifier = StartupHelper.GetStringPreference("HudHotkeyModifier", "None"),

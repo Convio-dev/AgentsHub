@@ -1436,6 +1436,8 @@
       const minimizeToTray = document.getElementById('setting-tray-minimize-checkbox')?.checked !== false;
       const notifications = document.getElementById('setting-notifications-checkbox')?.checked !== false;
       const globalHotkey = document.getElementById('setting-global-hotkey-checkbox')?.checked !== false;
+      const globalHotkeyModifier = document.getElementById('setting-window-modifier')?.value || 'Ctrl+Alt';
+      const globalHotkeyKey = document.getElementById('setting-window-key')?.value || 'H';
       const globalHudHotkey = document.getElementById('setting-global-hud-hotkey-checkbox')?.checked !== false;
       const hudHotkeyModifier = document.getElementById('setting-quake-modifier')?.value || 'None';
       const hudHotkeyKey = document.getElementById('setting-quake-key')?.value || 'F12';
@@ -1472,6 +1474,8 @@
           minimizeToTray,
           notifications,
           globalHotkey,
+          globalHotkeyModifier,
+          globalHotkeyKey,
           globalHudHotkey,
           hudHotkeyKey,
           hudHotkeyModifier,
@@ -6066,6 +6070,11 @@
           if (trayCheck) trayCheck.checked = res.settings.minimizeToTray !== false;
           if (notifCheck) notifCheck.checked = res.settings.notifications !== false;
           if (hotkeyCheck) hotkeyCheck.checked = res.settings.globalHotkey !== false;
+          const winModSelect = document.getElementById('setting-window-modifier');
+          if (winModSelect && res.settings.globalHotkeyModifier) winModSelect.value = res.settings.globalHotkeyModifier;
+          const winKeySelect = document.getElementById('setting-window-key');
+          if (winKeySelect && res.settings.globalHotkeyKey) winKeySelect.value = res.settings.globalHotkeyKey;
+          if (typeof updateWindowHotkeyPreview === 'function') updateWindowHotkeyPreview();
           if (hudCheck) hudCheck.checked = res.settings.globalHudHotkey !== false;
           const hudModSelect = document.getElementById('setting-quake-modifier');
           if (hudModSelect && res.settings.hudHotkeyModifier) hudModSelect.value = res.settings.hudHotkeyModifier;
@@ -7056,6 +7065,32 @@
     });
   }
 
+  function updateWindowHotkeyPreview() {
+    const winCheckbox = document.getElementById('setting-global-hotkey-checkbox');
+    const winModifier = document.getElementById('setting-window-modifier');
+    const winKey = document.getElementById('setting-window-key');
+    const winPreview = document.getElementById('window-hotkey-preview');
+    const winOptions = document.getElementById('window-hotkey-options');
+
+    const enabled = winCheckbox ? winCheckbox.checked : true;
+    if (winOptions) {
+      winOptions.style.opacity = enabled ? '1' : '0.4';
+      winOptions.style.pointerEvents = enabled ? 'auto' : 'none';
+    }
+    if (!winPreview) return;
+    if (!enabled) {
+      winPreview.textContent = 'Hotkey Disabled';
+      winPreview.style.color = 'var(--text-dim)';
+      return;
+    }
+    const mod = winModifier?.value || 'Ctrl+Alt';
+    const key = winKey?.value || 'H';
+    const keyText = key === 'Oem3' ? '~ (Tilde)' : key;
+    const comboText = mod === 'None' ? keyText : `${mod} + ${keyText}`;
+    winPreview.textContent = `Active Hotkey: ${comboText}`;
+    winPreview.style.color = 'var(--accent-cyan)';
+  }
+
   function updateHotkeyPreview() {
     const hudCheckbox = document.getElementById('setting-global-hud-hotkey-checkbox');
     const hudModifier = document.getElementById('setting-quake-modifier');
@@ -7150,6 +7185,51 @@
     });
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && wsModal?.classList.contains('open')) closeWorkspaceModal();
+    });
+
+    // Main Window Global Hotkey Settings controls
+    const winCheckbox = document.getElementById('setting-global-hotkey-checkbox');
+    const winModifier = document.getElementById('setting-window-modifier');
+    const winKey = document.getElementById('setting-window-key');
+
+    updateWindowHotkeyPreview();
+
+    winCheckbox?.addEventListener('change', () => {
+      updateWindowHotkeyPreview();
+      callBridge('save_general_settings', {
+        settings: {
+          globalHotkey: winCheckbox.checked,
+          globalHotkeyModifier: winModifier?.value || 'Ctrl+Alt',
+          globalHotkeyKey: winKey?.value || 'H'
+        }
+      });
+      showToast(`Global window hotkey ${winCheckbox.checked ? 'enabled' : 'disabled'}`, 'info');
+    });
+
+    winModifier?.addEventListener('change', () => {
+      updateWindowHotkeyPreview();
+      callBridge('save_general_settings', {
+        settings: {
+          globalHotkey: winCheckbox?.checked !== false,
+          globalHotkeyModifier: winModifier.value,
+          globalHotkeyKey: winKey?.value || 'H'
+        }
+      });
+    });
+
+    winKey?.addEventListener('change', () => {
+      updateWindowHotkeyPreview();
+      callBridge('save_general_settings', {
+        settings: {
+          globalHotkey: winCheckbox?.checked !== false,
+          globalHotkeyModifier: winModifier?.value || 'Ctrl+Alt',
+          globalHotkeyKey: winKey.value
+        }
+      });
+    });
+
+    document.getElementById('btn-trigger-window-hotkey-settings')?.addEventListener('click', () => {
+      callBridge('toggle_main_window');
     });
 
     // Quake HUD Settings controls

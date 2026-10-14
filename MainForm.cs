@@ -353,6 +353,22 @@ public partial class MainForm : Form
 
     private void TrayContextMenu_Opening(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        bool winHkEnabled = StartupHelper.GetPreference("GlobalHotkey", true);
+        if (_trayOpenItem != null)
+        {
+            if (winHkEnabled)
+            {
+                string winKey = StartupHelper.GetStringPreference("GlobalHotkeyKey", "H");
+                string winMod = StartupHelper.GetStringPreference("GlobalHotkeyModifier", "Ctrl+Alt");
+                string winHkLabel = winMod.Equals("None", StringComparison.OrdinalIgnoreCase) ? winKey : $"{winMod}+{winKey}";
+                _trayOpenItem.Text = $"Open Agents Hub [{winHkLabel}]";
+            }
+            else
+            {
+                _trayOpenItem.Text = "Open Agents Hub";
+            }
+        }
+
         bool hudEnabled = StartupHelper.GetPreference("GlobalHudHotkey", true);
         if (_trayHudItem != null)
         {
@@ -759,7 +775,9 @@ public partial class MainForm : Form
         if (wantEnabled && IsHandleCreated)
         {
             if (_globalHotkeyRegistered) UnregisterGlobalHotkey();
-            _globalHotkeyRegistered = RegisterHotKey(Handle, HotkeyId, ModControl | ModAlt, VkH);
+            uint targetVk = GetVkCodeFromName(StartupHelper.GetStringPreference("GlobalHotkeyKey", "H"));
+            uint modFlags = GetFsModifiersFromName(StartupHelper.GetStringPreference("GlobalHotkeyModifier", "Ctrl+Alt"));
+            _globalHotkeyRegistered = RegisterHotKey(Handle, HotkeyId, modFlags, targetVk);
         }
         else
         {
@@ -769,8 +787,6 @@ public partial class MainForm : Form
         bool wantHud = StartupHelper.GetPreference("GlobalHudHotkey", true);
         if (wantHud)
         {
-            SetupKeyboardHook();
-
             // Also register via RegisterHotKey as secondary fallback if supported
             if (IsHandleCreated)
             {
@@ -782,8 +798,16 @@ public partial class MainForm : Form
         }
         else
         {
-            RemoveKeyboardHook();
             UnregisterHudHotkey();
+        }
+
+        if (wantEnabled || wantHud)
+        {
+            SetupKeyboardHook();
+        }
+        else
+        {
+            RemoveKeyboardHook();
         }
     }
 
@@ -825,6 +849,15 @@ public partial class MainForm : Form
             try
             {
                 var kbd = System.Runtime.InteropServices.Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                if (IsWindowHotkeyMatch(kbd.vkCode))
+                {
+                    if (IsHandleCreated && !IsDisposed)
+                    {
+                        BeginInvoke(new Action(ShowOrHideFromHotkey));
+                    }
+                    return (IntPtr)1;
+                }
+
                 if (IsQuakeHotkeyMatch(kbd.vkCode))
                 {
                     if (IsHandleCreated && !IsDisposed)
@@ -839,6 +872,19 @@ public partial class MainForm : Form
         return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
     }
 
+    private bool IsWindowHotkeyMatch(uint vk)
+    {
+        bool wantEnabled = StartupHelper.GetPreference("GlobalHotkey", true);
+        if (!wantEnabled) return false;
+
+        string configuredKey = StartupHelper.GetStringPreference("GlobalHotkeyKey", "H");
+        uint targetVk = GetVkCodeFromName(configuredKey);
+        if (vk != targetVk) return false;
+
+        string mod = StartupHelper.GetStringPreference("GlobalHotkeyModifier", "Ctrl+Alt");
+        return IsModifierStateMatch(mod);
+    }
+
     private bool IsQuakeHotkeyMatch(uint vk)
     {
         bool wantHud = StartupHelper.GetPreference("GlobalHudHotkey", true);
@@ -849,7 +895,11 @@ public partial class MainForm : Form
         if (vk != targetVk) return false;
 
         string mod = StartupHelper.GetStringPreference("HudHotkeyModifier", "None");
+        return IsModifierStateMatch(mod);
+    }
 
+    private static bool IsModifierStateMatch(string mod)
+    {
         bool ctrlDown = (GetKeyState(0x11) & 0x8000) != 0; // VK_CONTROL
         bool altDown = (GetKeyState(0x12) & 0x8000) != 0;  // VK_MENU
         bool shiftDown = (GetKeyState(0x10) & 0x8000) != 0; // VK_SHIFT
@@ -872,7 +922,8 @@ public partial class MainForm : Form
     private static uint GetVkCodeFromName(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return 0x7B; // VK_F12 default
-        return name.Trim().ToUpperInvariant() switch
+        string trimmed = name.Trim().ToUpperInvariant();
+        return trimmed switch
         {
             "F1" => 0x70,
             "F2" => 0x71,
@@ -889,11 +940,7 @@ public partial class MainForm : Form
             "OEM3" or "~" or "`" => 0xC0,
             "SPACE" => 0x20,
             "TAB" => 0x09,
-            "Q" => 0x51,
-            "K" => 0x4B,
-            "T" => 0x54,
-            "H" => 0x48,
-            _ => 0x7B
+            _ => (trimmed.Length == 1 && char.IsLetterOrDigit(trimmed[0])) ? (uint)trimmed[0] : 0x7B
         };
     }
 
@@ -999,7 +1046,7 @@ public partial class MainForm : Form
         _hudTerminal.Toggle();
     }
 
-    private void ShowOrHideFromHotkey()
+    public void ShowOrHideFromHotkey()
     {
         if (InvokeRequired)
         {

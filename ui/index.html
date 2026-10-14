@@ -1327,10 +1327,90 @@
                 <input type="checkbox" id="setting-notifications-checkbox" checked>
                 <span>Enable Windows Notifications (Balloon Tips & System Tray Alerts)</span>
               </label>
-              <label class="checkbox-label">
-                <input type="checkbox" id="setting-global-hotkey-checkbox" checked>
-                <span>Global hotkey Ctrl+Alt+H to show or hide the window</span>
-              </label>
+              <!-- Main Window Global Hotkey Configuration -->
+              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin: 8px 0 12px 0;">
+                <label class="checkbox-label" style="margin-bottom: 8px; font-weight: 600;">
+                  <input type="checkbox" id="setting-global-hotkey-checkbox" checked>
+                  <span>Enable Global Hotkey to Show or Hide Window</span>
+                </label>
+                <div id="window-hotkey-options" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; margin-left: 24px;">
+                  <div>
+                    <label class="form-label" style="font-size: 11px; margin-bottom: 3px;">Hotkey Modifier:</label>
+                    <select id="setting-window-modifier" class="select-box" style="padding: 4px 8px; font-size: 11.5px; width: 100%;">
+                      <option value="Ctrl+Alt">Ctrl + Alt</option>
+                      <option value="Alt">Alt</option>
+                      <option value="Ctrl">Ctrl</option>
+                      <option value="Shift">Shift</option>
+                      <option value="Win">Win</option>
+                      <option value="Ctrl+Shift">Ctrl + Shift</option>
+                      <option value="Alt+Shift">Alt + Shift</option>
+                      <option value="None">None (Key only)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="form-label" style="font-size: 11px; margin-bottom: 3px;">Hotkey Key:</label>
+                    <select id="setting-window-key" class="select-box" style="padding: 4px 8px; font-size: 11.5px; width: 100%;">
+                      <option value="H">H</option>
+                      <option value="F12">F12</option>
+                      <option value="F11">F11</option>
+                      <option value="F10">F10</option>
+                      <option value="F9">F9</option>
+                      <option value="F8">F8</option>
+                      <option value="F7">F7</option>
+                      <option value="F6">F6</option>
+                      <option value="F5">F5</option>
+                      <option value="F4">F4</option>
+                      <option value="F3">F3</option>
+                      <option value="F2">F2</option>
+                      <option value="F1">F1</option>
+                      <option value="Oem3">~ (Tilde / Backquote)</option>
+                      <option value="Space">Space</option>
+                      <option value="Tab">Tab</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="C">C</option>
+                      <option value="D">D</option>
+                      <option value="E">E</option>
+                      <option value="G">G</option>
+                      <option value="I">I</option>
+                      <option value="J">J</option>
+                      <option value="K">K</option>
+                      <option value="L">L</option>
+                      <option value="M">M</option>
+                      <option value="N">N</option>
+                      <option value="O">O</option>
+                      <option value="P">P</option>
+                      <option value="Q">Q</option>
+                      <option value="R">R</option>
+                      <option value="S">S</option>
+                      <option value="T">T</option>
+                      <option value="U">U</option>
+                      <option value="V">V</option>
+                      <option value="W">W</option>
+                      <option value="X">X</option>
+                      <option value="Y">Y</option>
+                      <option value="Z">Z</option>
+                      <option value="0">0</option>
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                      <option value="6">6</option>
+                      <option value="7">7</option>
+                      <option value="8">8</option>
+                      <option value="9">9</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="margin-left: 24px; margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-outline" id="btn-trigger-window-hotkey-settings" style="font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 5px;">
+                    <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+                    <span>Test Hotkey Action Now</span>
+                  </button>
+                  <span id="window-hotkey-preview" style="font-size: 11.5px; font-family: var(--font-mono); color: var(--accent-cyan);">Active Hotkey: Ctrl + Alt + H</span>
+                </div>
+              </div>
               <!-- Quake HUD & Global Terminal Hotkey Configuration -->
               <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin: 8px 0 12px 0;">
                 <label class="checkbox-label" style="margin-bottom: 8px; font-weight: 600;">
