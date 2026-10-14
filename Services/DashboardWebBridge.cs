@@ -265,7 +265,16 @@ public sealed partial class DashboardWebBridge : IDisposable
     {
         if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
         {
-            _cliWebviewForm = new CliWebviewForm(_cliManager, CliType.Hermes, _mainForm);
+            var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+            var firstEnabled = workspaces.FirstOrDefault(w => w.IsEnabled);
+            CliType initType = CliType.Hermes;
+            if (firstEnabled != null)
+            {
+                string norm = AiConfigService.NormalizeCliId(firstEnabled.Id);
+                if (norm == "claude_code") initType = CliType.ClaudeCode;
+                else if (norm == "antigravity_cli") initType = CliType.AntigravityCli;
+            }
+            _cliWebviewForm = new CliWebviewForm(_cliManager, initType, _mainForm);
             _cliWebviewForm.ActiveTabChanged += NotifyStandaloneTabSwitched;
         }
         else
@@ -1195,19 +1204,25 @@ public sealed partial class DashboardWebBridge : IDisposable
                         System.Diagnostics.Debug.WriteLine($"[DashboardWebBridge] RebuildTabs after preset failed: {ex.Message}");
                     }
 
+                    var workspaces = AiConfigService.Instance.GetCliWorkspaces();
                     SendResponse(requestId, true, new
                     {
                         success = true,
-                        preset = AiConfigService.Instance.GetTerminalWorkspacePreset()
+                        preset = AiConfigService.Instance.GetTerminalWorkspacePreset(),
+                        enabledClis = workspaces.Where(w => w.IsEnabled).Select(w => AiConfigService.NormalizeCliId(w.Id)).ToList()
                     });
                 }
                 break;
 
             case "get_terminal_preset":
-                SendResponse(requestId, true, new
                 {
-                    preset = AiConfigService.Instance.GetTerminalWorkspacePreset()
-                });
+                    var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+                    SendResponse(requestId, true, new
+                    {
+                        preset = AiConfigService.Instance.GetTerminalWorkspacePreset(),
+                        enabledClis = workspaces.Where(w => w.IsEnabled).Select(w => AiConfigService.NormalizeCliId(w.Id)).ToList()
+                    });
+                }
                 break;
 
             case "get_dependencies_status":
@@ -1509,7 +1524,15 @@ public sealed partial class DashboardWebBridge : IDisposable
                         var form = EnsureStandaloneTerminalForm();
                         if (!string.IsNullOrWhiteSpace(targetTab))
                         {
-                            form.SwitchTab(targetTab);
+                            var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+                            bool isEnabled = workspaces.Any(w => w.IsEnabled && (
+                                string.Equals(AiConfigService.NormalizeCliId(w.Id), AiConfigService.NormalizeCliId(targetTab), StringComparison.OrdinalIgnoreCase) ||
+                                (string.Equals(w.Id, "antigravity_cli", StringComparison.OrdinalIgnoreCase) && CliManagerService.IsAntigravityProfileId(targetTab, out _))
+                            ));
+                            if (isEnabled)
+                            {
+                                form.SwitchTab(targetTab);
+                            }
                         }
                         form.ApplyTheme();
                         if (form.WindowState == FormWindowState.Minimized)
@@ -1544,7 +1567,15 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         try
                         {
-                            _mainForm.Invoke(() => _cliWebviewForm.SwitchTab(syncCli));
+                            var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+                            bool isEnabled = workspaces.Any(w => w.IsEnabled && (
+                                string.Equals(AiConfigService.NormalizeCliId(w.Id), AiConfigService.NormalizeCliId(syncCli), StringComparison.OrdinalIgnoreCase) ||
+                                (string.Equals(w.Id, "antigravity_cli", StringComparison.OrdinalIgnoreCase) && CliManagerService.IsAntigravityProfileId(syncCli, out _))
+                            ));
+                            if (isEnabled)
+                            {
+                                _mainForm.Invoke(() => _cliWebviewForm.SwitchTab(syncCli));
+                            }
                         }
                         catch { }
                     }
@@ -2333,7 +2364,9 @@ public sealed partial class DashboardWebBridge : IDisposable
             aiConfig = GetAiConfigDto(),
             workspaces = AiConfigService.Instance.GetWorkspaces(),
             activeWorkspaceId = AiConfigService.Instance.GetActiveWorkspaceId(),
-            tokenTelemetry = ProxyTelemetryService.Instance.GetSummary()
+            tokenTelemetry = ProxyTelemetryService.Instance.GetSummary(),
+            terminalWorkspacePreset = AiConfigService.Instance.GetTerminalWorkspacePreset(),
+            enabledClis = AiConfigService.Instance.GetCliWorkspaces().Where(w => w.IsEnabled).Select(w => AiConfigService.NormalizeCliId(w.Id)).ToList()
         };
     }
 

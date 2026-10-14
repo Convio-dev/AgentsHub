@@ -35,8 +35,8 @@ public partial class CliWebviewForm : Form
     }
 
     private readonly CliManagerService? _cliManager;
-    private string _primaryTabId = "hermes";
-    private string _secondaryTabId = "claude_code";
+    private string _primaryTabId = string.Empty;
+    private string _secondaryTabId = string.Empty;
     private bool _isSplitActive;
     private int _splitterDragOffset = 3;
     private WorkspacePane _focusedPane = WorkspacePane.Primary;
@@ -193,21 +193,50 @@ public partial class CliWebviewForm : Form
                CliManagerService.IsAntigravityProfileId(norm, out _);
     }
 
-    private string ResolveDefaultInitialTab(string requestedId)
+    private bool IsTabEnabled(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+        string normId = AiConfigService.NormalizeCliId(id);
+
+        if (CliManagerService.IsAntigravityProfileId(normId, out _))
+        {
+            return workspaces.Any(w => w.IsEnabled && string.Equals(AiConfigService.NormalizeCliId(w.Id), "antigravity_cli", StringComparison.OrdinalIgnoreCase));
+        }
+
+        return workspaces.Any(w => w.IsEnabled && string.Equals(AiConfigService.NormalizeCliId(w.Id), normId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string ResolveDefaultInitialTab(string? requestedId)
     {
         var workspaces = AiConfigService.Instance.GetCliWorkspaces();
         var enabled = workspaces.Where(w => w.IsEnabled).ToList();
-        if (enabled.Count == 0) return requestedId;
+        if (enabled.Count == 0) return string.Empty;
 
-        var match = enabled.FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), requestedId, StringComparison.OrdinalIgnoreCase));
-        if (match != null)
+        if (!string.IsNullOrWhiteSpace(requestedId))
         {
-            if (string.Equals(match.Id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+            string normReq = AiConfigService.NormalizeCliId(requestedId);
+
+            if (CliManagerService.IsAntigravityProfileId(normReq, out _))
             {
-                var prof = _cliManager?.ProfileService.ActiveProfile ?? "Default";
-                return CliManagerService.FormatAntigravityProfileId(prof);
+                if (enabled.Any(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), "antigravity_cli", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return normReq;
+                }
             }
-            return requestedId;
+            else
+            {
+                var match = enabled.FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), normReq, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                {
+                    if (string.Equals(match.Id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var prof = _cliManager?.ProfileService.ActiveProfile ?? "Default";
+                        return CliManagerService.FormatAntigravityProfileId(prof);
+                    }
+                    return normReq;
+                }
+            }
         }
 
         var first = enabled[0];
@@ -224,7 +253,7 @@ public partial class CliWebviewForm : Form
     {
         var workspaces = AiConfigService.Instance.GetCliWorkspaces();
         var enabled = workspaces.Where(w => w.IsEnabled).ToList();
-        if (enabled.Count == 0) return "claude_code";
+        if (enabled.Count == 0) return string.Empty;
 
         foreach (var ws in enabled)
         {
@@ -1653,20 +1682,31 @@ public partial class CliWebviewForm : Form
         tabsPanel.Width = curX;
         tabsPanel.ResumeLayout();
 
+        bool activeTabChanged = false;
         if (isEmptyWorkspace)
         {
-            ActivePaneTabId = string.Empty;
+            if (!string.IsNullOrEmpty(ActivePaneTabId))
+            {
+                ActivePaneTabId = string.Empty;
+                activeTabChanged = true;
+            }
         }
         else if (!_dynamicTabButtons.Any(b => string.Equals(b.Tag as string, ActivePaneTabId, StringComparison.OrdinalIgnoreCase)))
         {
             if (_dynamicTabButtons.Count > 0 && _dynamicTabButtons[0].Tag is string firstId)
             {
                 ActivePaneTabId = firstId;
+                activeTabChanged = true;
             }
         }
 
         SetTerminalContentVisible(!isEmptyWorkspace);
         ShowEmptyState(isEmptyWorkspace, workspaces);
+
+        if (activeTabChanged)
+        {
+            ApplyPaneLayout();
+        }
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
@@ -2863,6 +2903,19 @@ public partial class CliWebviewForm : Form
 
     public void SwitchTab(string id)
     {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            id = ResolveDefaultInitialTab(string.Empty);
+            if (string.IsNullOrEmpty(id))
+            {
+                ActivePaneTabId = string.Empty;
+                ApplyPaneLayout();
+                UpdateTabButtonsUi();
+                UpdateToolbarUi();
+                return;
+            }
+        }
+
         if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
         {
             var activeProf = _cliManager?.ProfileService.ActiveProfile ?? "Default";
@@ -2871,6 +2924,24 @@ public partial class CliWebviewForm : Form
         else if (!CliManagerService.IsAntigravityProfileId(id, out _))
         {
             id = AiConfigService.NormalizeCliId(id);
+        }
+
+        if (!IsTabEnabled(id))
+        {
+            if (IsTabEnabled(ActivePaneTabId))
+            {
+                return;
+            }
+
+            id = ResolveDefaultInitialTab(string.Empty);
+            if (string.IsNullOrEmpty(id) || !IsTabEnabled(id))
+            {
+                ActivePaneTabId = string.Empty;
+                ApplyPaneLayout();
+                UpdateTabButtonsUi();
+                UpdateToolbarUi();
+                return;
+            }
         }
 
         if (_isSplitActive)
@@ -2962,6 +3033,7 @@ public partial class CliWebviewForm : Form
             }
 
             NotifyWebViewsTheme();
+            ApplyPaneLayout();
         }
         catch (Exception ex)
         {
@@ -3060,6 +3132,7 @@ public partial class CliWebviewForm : Form
             }
 
             NotifyWebViewsTheme();
+            ApplyPaneLayout();
         }
         catch (Exception ex)
         {
@@ -3074,6 +3147,7 @@ public partial class CliWebviewForm : Form
         return new Microsoft.Web.WebView2.WinForms.WebView2
         {
             Dock = DockStyle.Fill,
+            Visible = false,
             DefaultBackgroundColor = Color.Transparent
         };
     }
@@ -3103,7 +3177,10 @@ public partial class CliWebviewForm : Form
             hermesWebView.CoreWebView2.WebMessageReceived += HermesWebView_WebMessageReceived;
             hermesWebView.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
             _hermesInitialized = true;
-            RefreshHermesNavigation();
+            if (IsTabEnabled("hermes"))
+            {
+                RefreshHermesNavigation();
+            }
 
             // Claude Code WebView
             await claudeWebView.EnsureCoreWebView2Async(_webViewEnv);

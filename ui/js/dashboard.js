@@ -32,7 +32,7 @@
     aiConfig: { providers: [], toolTargets: {}, devTools: [], shortcuts: [], selectedProviderId: null, selectedModel: null, promptPresets: [], builtInPromptPresets: [], activePromptPresetId: 'preset_general', promptEnhancerTemperature: 0.6 },
     settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', enableHardwareMonitor: localStorage.getItem('agents_hub_enable_hardware_monitor') === 'true', theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
-    activeTerminalCli: 'hermes',
+    activeTerminalCli: '',
     selectedProvider: null,
     workspaces: [],
     activeWorkspaceId: null,
@@ -1743,7 +1743,9 @@
       }
     });
 
-    activateTerminalTab(state.activeTerminalCli, false);
+    if (state.activeTerminalCli) {
+      activateTerminalTab(state.activeTerminalCli, false);
+    }
   }
 
   async function launchAntigravityAppFromDash() {
@@ -2010,7 +2012,7 @@
     Preset_All: 'Full Suite'
   };
 
-  function renderTerminalPresetState(activePreset) {
+  function renderTerminalPresetState(activePreset, enabledClis) {
     // An unknown preset means the enabled tabs are a hand-toggled mix, so nothing is highlighted.
     const active = TERMINAL_PRESET_LABELS[activePreset] ? activePreset : null;
 
@@ -2023,12 +2025,28 @@
 
     const label = document.getElementById('preset-active-label');
     if (label) label.textContent = `Active: ${active ? TERMINAL_PRESET_LABELS[active] : 'Custom'}`;
+
+    if (Array.isArray(enabledClis)) {
+      document.querySelectorAll('#interactive-terminal-tabs .term-tab').forEach(tab => {
+        const termKey = normalizeCliKey(tab.dataset.term);
+        const isEnabled = enabledClis.includes(termKey);
+        tab.style.display = isEnabled ? '' : 'none';
+      });
+
+      const currentNorm = normalizeCliKey(state.activeTerminalCli);
+      if (!enabledClis.includes(currentNorm)) {
+        const nextCli = enabledClis.length > 0 ? enabledClis[0] : '';
+        if (nextCli) {
+          activateTerminalTab(nextCli, false);
+        }
+      }
+    }
   }
 
   async function loadTerminalPreset() {
     try {
       const res = await callBridge('get_terminal_preset');
-      renderTerminalPresetState(res && res.preset);
+      renderTerminalPresetState(res && res.preset, res && res.enabledClis);
     } catch (err) {
       console.warn('Failed to load terminal workspace preset:', err);
     }
@@ -2047,7 +2065,7 @@
         try {
           const res = await callBridge('apply_terminal_preset', { preset });
           const applied = (res && res.preset) || preset;
-          renderTerminalPresetState(applied);
+          renderTerminalPresetState(applied, res && res.enabledClis);
           showToast(`Applied preset: ${TERMINAL_PRESET_LABELS[applied] || TERMINAL_PRESET_LABELS[preset]}`, 'success', 3000);
         } catch (err) {
           showToast('Failed to apply preset: ' + err.message, 'error', 4500);
@@ -6027,6 +6045,9 @@
         }
         if (res.aiConfig) {
           state.aiConfig = res.aiConfig;
+        }
+        if (res.enabledClis && res.terminalWorkspacePreset) {
+          renderTerminalPresetState(res.terminalWorkspacePreset, res.enabledClis);
         }
         if (res.opencode) {
           state.opencode = res.opencode;
