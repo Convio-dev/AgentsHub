@@ -130,6 +130,18 @@ public class PromptEnhancerService
                         var content = contentElem.GetString()?.Trim();
                         if (!string.IsNullOrEmpty(content))
                         {
+                            int inT = 0, outT = 0;
+                            if (root.TryGetProperty("usage", out var usg))
+                            {
+                                if (usg.TryGetProperty("prompt_tokens", out var pT)) inT = pT.GetInt32();
+                                if (usg.TryGetProperty("completion_tokens", out var cT)) outT = cT.GetInt32();
+                            }
+                            if (inT == 0 && outT == 0)
+                            {
+                                inT = rawPrompt.Length / 4;
+                                outT = content.Length / 4;
+                            }
+                            ProxyTelemetryService.Instance.RecordRequest(model, inT, outT, provider.Name);
                             return content;
                         }
                     }

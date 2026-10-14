@@ -211,6 +211,11 @@ public sealed partial class DashboardWebBridge : IDisposable
                 EmitLog("OpenCode", "warn", $"Interactive prompt: {prompt.Title} - {prompt.Prompt}");
             };
         }
+
+        ProxyTelemetryService.Instance.TelemetryUpdated += () =>
+        {
+            PostEventToUi("token_telemetry_updated", ProxyTelemetryService.Instance.GetSummary());
+        };
     }
 
     private void OnStreamFlushTimerTick(object? sender, EventArgs e)
@@ -334,6 +339,120 @@ public sealed partial class DashboardWebBridge : IDisposable
 
             case "get_system_telemetry":
                 SendResponse(requestId, true, GetSystemTelemetryDto());
+                break;
+
+            case "get_workspaces":
+                SendResponse(requestId, true, new
+                {
+                    workspaces = AiConfigService.Instance.GetWorkspaces(),
+                    activeWorkspaceId = AiConfigService.Instance.GetActiveWorkspaceId()
+                });
+                break;
+
+            case "save_workspace":
+                if (data.TryGetProperty("workspace", out var wsProp))
+                {
+                    var ws = JsonSerializer.Deserialize<ProjectWorkspace>(wsProp.GetRawText(), CaseInsensitiveJsonOptions);
+                    if (ws != null)
+                    {
+                        AiConfigService.Instance.SaveWorkspace(ws);
+                        SendResponse(requestId, true, new
+                        {
+                            success = true,
+                            workspace = ws,
+                            workspaces = AiConfigService.Instance.GetWorkspaces(),
+                            activeWorkspaceId = AiConfigService.Instance.GetActiveWorkspaceId()
+                        });
+                        PostEventToUi("workspaces_updated", new
+                        {
+                            workspaces = AiConfigService.Instance.GetWorkspaces(),
+                            activeWorkspaceId = AiConfigService.Instance.GetActiveWorkspaceId()
+                        });
+                        break;
+                    }
+                }
+                SendResponse(requestId, false, "Invalid workspace data");
+                break;
+
+            case "delete_workspace":
+                {
+                    string? delId = data.TryGetProperty("id", out var dIdProp) ? dIdProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(delId))
+                    {
+                        bool deleted = AiConfigService.Instance.DeleteWorkspace(delId);
+                        SendResponse(requestId, true, new
+                        {
+                            success = deleted,
+                            workspaces = AiConfigService.Instance.GetWorkspaces(),
+                            activeWorkspaceId = AiConfigService.Instance.GetActiveWorkspaceId()
+                        });
+                        PostEventToUi("workspaces_updated", new
+                        {
+                            workspaces = AiConfigService.Instance.GetWorkspaces(),
+                            activeWorkspaceId = AiConfigService.Instance.GetActiveWorkspaceId()
+                        });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Workspace ID required");
+                    }
+                }
+                break;
+
+            case "activate_workspace":
+                {
+                    string? actId = data.TryGetProperty("id", out var aIdProp) ? aIdProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(actId))
+                    {
+                        var all = AiConfigService.Instance.GetWorkspaces();
+                        var target = all.FirstOrDefault(w => string.Equals(w.Id, actId, StringComparison.OrdinalIgnoreCase));
+                        if (target != null)
+                        {
+                            AiConfigService.Instance.SetActiveWorkspaceId(target.Id);
+                            if (!string.IsNullOrWhiteSpace(target.AntigravityProfile) &&
+                                !string.Equals(_cliManager.ProfileService.ActiveProfile, target.AntigravityProfile, StringComparison.OrdinalIgnoreCase))
+                            {
+                                await _cliManager.SwitchAntigravityProfileAsync(target.AntigravityProfile);
+                            }
+                            SendResponse(requestId, true, new
+                            {
+                                success = true,
+                                activeWorkspace = target,
+                                activeWorkspaceId = target.Id,
+                                workspaces = AiConfigService.Instance.GetWorkspaces()
+                            });
+                            PostEventToUi("workspace_activated", new
+                            {
+                                activeWorkspace = target,
+                                activeWorkspaceId = target.Id
+                            });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Workspace not found");
+                }
+                break;
+
+            case "get_token_telemetry":
+                SendResponse(requestId, true, ProxyTelemetryService.Instance.GetSummary());
+                break;
+
+            case "reset_token_telemetry":
+                ProxyTelemetryService.Instance.Reset();
+                SendResponse(requestId, true, ProxyTelemetryService.Instance.GetSummary());
+                PostEventToUi("token_telemetry_updated", ProxyTelemetryService.Instance.GetSummary());
+                break;
+
+            case "toggle_quake_hud":
+                if (_mainForm is MainForm mf)
+                {
+                    mf.ExecuteQuakeHotkeyAction();
+                    SendResponse(requestId, true, new { success = true });
+                }
+                else
+                {
+                    SendResponse(requestId, false, "MainForm reference unavailable");
+                }
                 break;
 
             case "toggle_lan_proxy":
@@ -1423,6 +1542,32 @@ public sealed partial class DashboardWebBridge : IDisposable
                             }
                         }
                     }
+                    if (stProp.TryGetProperty("globalHudHotkey", out var hudHotkeyEl))
+                    {
+                        StartupHelper.SetPreference("GlobalHudHotkey", hudHotkeyEl.GetBoolean());
+                    }
+                    if (stProp.TryGetProperty("hudHotkeyKey", out var hudKeyEl))
+                    {
+                        StartupHelper.SetStringPreference("HudHotkeyKey", hudKeyEl.GetString() ?? "F12");
+                    }
+                    if (stProp.TryGetProperty("hudHotkeyModifier", out var hudModEl))
+                    {
+                        StartupHelper.SetStringPreference("HudHotkeyModifier", hudModEl.GetString() ?? "None");
+                    }
+                    if (stProp.TryGetProperty("hudHotkeyTarget", out var hudTargetEl))
+                    {
+                        StartupHelper.SetStringPreference("HudHotkeyTarget", hudTargetEl.GetString() ?? "cliwebview");
+                    }
+                    if (_mainForm is MainForm mainFormHud)
+                    {
+                        try
+                        {
+                            mainFormHud.Invoke(() => mainFormHud.ApplyGlobalHotkey());
+                        }
+                        catch
+                        {
+                        }
+                    }
                     if (stProp.TryGetProperty("maskPublicIp", out var maskEl))
                     {
                         StartupHelper.SetPreference("MaskPublicIp", maskEl.GetBoolean());
@@ -1969,6 +2114,52 @@ public sealed partial class DashboardWebBridge : IDisposable
         }
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    public CliWebviewForm? CliWebviewForm => _cliWebviewForm;
+
+    public void ToggleOrShowCliWebview()
+    {
+        _mainForm.Invoke(() =>
+        {
+            try
+            {
+                if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
+                {
+                    _cliWebviewForm = new CliWebviewForm(_cliManager, CliType.Hermes, _mainForm);
+                    _cliWebviewForm.SetMainForm(_mainForm);
+                    _cliWebviewForm.ApplyTheme();
+                    _cliWebviewForm.Show();
+                    _cliWebviewForm.BringToFront();
+                    _cliWebviewForm.Activate();
+                    return;
+                }
+
+                IntPtr fg = GetForegroundWindow();
+                if (_cliWebviewForm.Visible && _cliWebviewForm.WindowState != FormWindowState.Minimized && fg == _cliWebviewForm.Handle)
+                {
+                    _cliWebviewForm.Hide();
+                }
+                else
+                {
+                    _cliWebviewForm.ApplyTheme();
+                    if (_cliWebviewForm.WindowState == FormWindowState.Minimized)
+                    {
+                        _cliWebviewForm.WindowState = FormWindowState.Normal;
+                    }
+                    _cliWebviewForm.Show();
+                    _cliWebviewForm.BringToFront();
+                    _cliWebviewForm.Activate();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DashboardWebBridge] ToggleOrShowCliWebview error: {ex.Message}");
+            }
+        });
+    }
+
     private void ToggleCliInternal(CliType cliType)
     {
         var info = _cliManager.GetInfo(cliType);
@@ -2009,6 +2200,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                 minimizeToTray = StartupHelper.GetPreference("MinimizeToTray", true),
                 notifications = StartupHelper.GetPreference("WindowsNotifications", true),
                 globalHotkey = StartupHelper.GetPreference("GlobalHotkey", true),
+                globalHudHotkey = StartupHelper.GetPreference("GlobalHudHotkey", true),
+                hudHotkeyKey = StartupHelper.GetStringPreference("HudHotkeyKey", "F12"),
+                hudHotkeyModifier = StartupHelper.GetStringPreference("HudHotkeyModifier", "None"),
+                hudHotkeyTarget = StartupHelper.GetStringPreference("HudHotkeyTarget", "cliwebview"),
                 maskPublicIp = StartupHelper.GetPreference("MaskPublicIp", false),
                 maskShortcutPaths = StartupHelper.GetPreference("MaskShortcutPaths", false),
                 embedShellsInTerminalWorkspace = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false),
@@ -2030,7 +2225,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                 profiles = GetProfilesWithEmail()
             },
             opencode = GetOpenCodeState(),
-            aiConfig = GetAiConfigDto()
+            aiConfig = GetAiConfigDto(),
+            workspaces = AiConfigService.Instance.GetWorkspaces(),
+            activeWorkspaceId = AiConfigService.Instance.GetActiveWorkspaceId(),
+            tokenTelemetry = ProxyTelemetryService.Instance.GetSummary()
         };
     }
 

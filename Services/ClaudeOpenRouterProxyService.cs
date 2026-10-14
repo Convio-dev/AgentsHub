@@ -793,6 +793,8 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
         var msgStop = new { type = "message_stop" };
         await WriteSseEventAsync(output, "message_stop", JsonSerializer.Serialize(msgStop), ct).ConfigureAwait(false);
 
+        ProxyTelemetryService.Instance.RecordRequest(model, Math.Max(16, outputTokensCount / 3), outputTokensCount, "OpenRouter (Claude Code)");
+
         await output.FlushAsync(ct).ConfigureAwait(false);
         clientResp.Close();
     }
@@ -870,6 +872,8 @@ public sealed class ClaudeOpenRouterProxyService : IDisposable
             if (usgEl.TryGetProperty("prompt_tokens", out var pEl)) inTokens = pEl.GetInt32();
             if (usgEl.TryGetProperty("completion_tokens", out var cpEl)) outTokens = cpEl.GetInt32();
         }
+
+        ProxyTelemetryService.Instance.RecordRequest(model, inTokens, outTokens, "OpenRouter (Claude Code)");
 
         var anthropicObj = new JsonObject
         {

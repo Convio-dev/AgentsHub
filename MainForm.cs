@@ -18,6 +18,9 @@ public partial class MainForm : Form
     private OpenCodeWatcherService? _openCodeWatcher;
     private WebView2? _webView;
 
+    public DashboardWebBridge? DashboardBridge => _dashboardWebBridge;
+    public HudTerminalForm? HudTerminal => _hudTerminal;
+
     private NotifyIcon? _notifyIcon;
     private ContextMenuStrip? _trayContextMenu;
     private ToolStripMenuItem? _trayOpenItem;
@@ -245,6 +248,9 @@ public partial class MainForm : Form
 
         _openCodeWatcher?.Dispose();
         _dashboardWebBridge?.Dispose();
+        RemoveKeyboardHook();
+        UnregisterGlobalHotkey();
+        UnregisterHudHotkey();
         try { ClaudeOpenRouterProxyService.Instance.Stop(); } catch { }
 
         Application.Exit();
@@ -278,12 +284,50 @@ public partial class MainForm : Form
     // Ctrl+Alt+H is registered as a system-wide hotkey, so it only works while one instance is
     // running, which the single-instance mutex already guarantees.
     // ---------------------------------------------------------------
+    // ---------------------------------------------------------------
+    // Global hotkey: show or hide the window or Quake HUD/CLI from anywhere.
+    // ---------------------------------------------------------------
     private const int WmHotKey = 0x0312;
     private const int HotkeyId = 0x4C31;
+    private const int HotkeyHudId = 0x4C32;
     private const uint ModControl = 0x0002;
     private const uint ModAlt = 0x0001;
     private const uint VkH = 0x48;
     private bool _globalHotkeyRegistered;
+    private bool _hudHotkeyRegistered;
+    private HudTerminalForm? _hudTerminal;
+
+    private const int WH_KEYBOARD_LL = 13;
+    private const int WM_KEYDOWN = 0x0100;
+    private const int WM_SYSKEYDOWN = 0x0104;
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct KBDLLHOOKSTRUCT
+    {
+        public uint vkCode;
+        public uint scanCode;
+        public uint flags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetKeyState(int vKey);
 
     [System.Runtime.InteropServices.LibraryImport("user32.dll")]
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
@@ -293,6 +337,9 @@ public partial class MainForm : Form
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static partial bool UnregisterHotKey(IntPtr hWnd, int id);
 
+    private static IntPtr _hookHandle = IntPtr.Zero;
+    private static LowLevelKeyboardProc? _keyboardProc;
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
@@ -300,7 +347,7 @@ public partial class MainForm : Form
     }
 
     /// <summary>
-    /// Registers or unregisters the hotkey to match the stored preference.
+    /// Registers or unregisters the hotkeys to match stored preferences.
     /// </summary>
     public void ApplyGlobalHotkey()
     {
@@ -309,15 +356,158 @@ public partial class MainForm : Form
         if (wantEnabled && IsHandleCreated)
         {
             if (_globalHotkeyRegistered) UnregisterGlobalHotkey();
-
-            // Registration can fail when another process already holds the combination. That is
-            // not fatal: the window is still reachable from the tray.
             _globalHotkeyRegistered = RegisterHotKey(Handle, HotkeyId, ModControl | ModAlt, VkH);
         }
         else
         {
             UnregisterGlobalHotkey();
         }
+
+        bool wantHud = StartupHelper.GetPreference("GlobalHudHotkey", true);
+        if (wantHud)
+        {
+            SetupKeyboardHook();
+
+            // Also register via RegisterHotKey as secondary fallback if supported
+            if (IsHandleCreated)
+            {
+                if (_hudHotkeyRegistered) UnregisterHudHotkey();
+                uint targetVk = GetVkCodeFromName(StartupHelper.GetStringPreference("HudHotkeyKey", "F12"));
+                uint modFlags = GetFsModifiersFromName(StartupHelper.GetStringPreference("HudHotkeyModifier", "None"));
+                _hudHotkeyRegistered = RegisterHotKey(Handle, HotkeyHudId, modFlags, targetVk);
+            }
+        }
+        else
+        {
+            RemoveKeyboardHook();
+            UnregisterHudHotkey();
+        }
+    }
+
+    private void SetupKeyboardHook()
+    {
+        if (_hookHandle != IntPtr.Zero) return;
+        try
+        {
+            _keyboardProc = HookCallback;
+            using var curProcess = Process.GetCurrentProcess();
+            using var curModule = curProcess.MainModule;
+            IntPtr modHandle = curModule != null ? GetModuleHandle(curModule.ModuleName) : IntPtr.Zero;
+            _hookHandle = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardProc, modHandle, 0);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[MainForm] SetupKeyboardHook error: {ex.Message}");
+        }
+    }
+
+    private void RemoveKeyboardHook()
+    {
+        if (_hookHandle != IntPtr.Zero)
+        {
+            try
+            {
+                UnhookWindowsHookEx(_hookHandle);
+            }
+            catch { }
+            _hookHandle = IntPtr.Zero;
+            _keyboardProc = null;
+        }
+    }
+
+    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN))
+        {
+            try
+            {
+                var kbd = System.Runtime.InteropServices.Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                if (IsQuakeHotkeyMatch(kbd.vkCode))
+                {
+                    if (IsHandleCreated && !IsDisposed)
+                    {
+                        BeginInvoke(new Action(ExecuteQuakeHotkeyAction));
+                    }
+                    return (IntPtr)1;
+                }
+            }
+            catch { }
+        }
+        return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+    }
+
+    private bool IsQuakeHotkeyMatch(uint vk)
+    {
+        bool wantHud = StartupHelper.GetPreference("GlobalHudHotkey", true);
+        if (!wantHud) return false;
+
+        string configuredKey = StartupHelper.GetStringPreference("HudHotkeyKey", "F12");
+        uint targetVk = GetVkCodeFromName(configuredKey);
+        if (vk != targetVk) return false;
+
+        string mod = StartupHelper.GetStringPreference("HudHotkeyModifier", "None");
+
+        bool ctrlDown = (GetKeyState(0x11) & 0x8000) != 0; // VK_CONTROL
+        bool altDown = (GetKeyState(0x12) & 0x8000) != 0;  // VK_MENU
+        bool shiftDown = (GetKeyState(0x10) & 0x8000) != 0; // VK_SHIFT
+        bool winDown = (GetKeyState(0x5B) & 0x8000) != 0 || (GetKeyState(0x5C) & 0x8000) != 0; // VK_LWIN / VK_RWIN
+
+        return mod.ToLowerInvariant() switch
+        {
+            "none" => !ctrlDown && !altDown && !shiftDown && !winDown,
+            "alt" => altDown && !ctrlDown && !shiftDown && !winDown,
+            "ctrl" => ctrlDown && !altDown && !shiftDown && !winDown,
+            "shift" => shiftDown && !ctrlDown && !altDown && !winDown,
+            "win" => winDown && !ctrlDown && !altDown && !shiftDown,
+            "ctrl+alt" => ctrlDown && altDown && !shiftDown && !winDown,
+            "ctrl+shift" => ctrlDown && shiftDown && !altDown && !winDown,
+            "alt+shift" => altDown && shiftDown && !ctrlDown && !winDown,
+            _ => true
+        };
+    }
+
+    private static uint GetVkCodeFromName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return 0x7B; // VK_F12 default
+        return name.Trim().ToUpperInvariant() switch
+        {
+            "F1" => 0x70,
+            "F2" => 0x71,
+            "F3" => 0x72,
+            "F4" => 0x73,
+            "F5" => 0x74,
+            "F6" => 0x75,
+            "F7" => 0x76,
+            "F8" => 0x77,
+            "F9" => 0x78,
+            "F10" => 0x79,
+            "F11" => 0x7A,
+            "F12" => 0x7B,
+            "OEM3" or "~" or "`" => 0xC0,
+            "SPACE" => 0x20,
+            "TAB" => 0x09,
+            "Q" => 0x51,
+            "K" => 0x4B,
+            "T" => 0x54,
+            "H" => 0x48,
+            _ => 0x7B
+        };
+    }
+
+    private static uint GetFsModifiersFromName(string mod)
+    {
+        uint flags = 0x4000; // MOD_NOREPEAT
+        return mod.ToLowerInvariant() switch
+        {
+            "alt" => flags | 0x0001,
+            "ctrl" => flags | 0x0002,
+            "shift" => flags | 0x0004,
+            "win" => flags | 0x0008,
+            "ctrl+alt" => flags | 0x0002 | 0x0001,
+            "ctrl+shift" => flags | 0x0002 | 0x0004,
+            "alt+shift" => flags | 0x0001 | 0x0004,
+            _ => flags
+        };
     }
 
     private void UnregisterGlobalHotkey()
@@ -328,23 +518,82 @@ public partial class MainForm : Form
         {
             UnregisterHotKey(Handle, HotkeyId);
         }
-        catch
-        {
-            // Unregistering a handle that is going away is not worth a crash.
-        }
+        catch { }
 
         _globalHotkeyRegistered = false;
     }
 
+    private void UnregisterHudHotkey()
+    {
+        if (!_hudHotkeyRegistered || !IsHandleCreated) return;
+
+        try
+        {
+            UnregisterHotKey(Handle, HotkeyHudId);
+        }
+        catch { }
+
+        _hudHotkeyRegistered = false;
+    }
+
     protected override void WndProc(ref Message m)
     {
-        if (m.Msg == WmHotKey && m.WParam.ToInt32() == HotkeyId)
+        if (m.Msg == WmHotKey)
         {
-            ShowOrHideFromHotkey();
-            return;
+            int hotkeyId = m.WParam.ToInt32();
+            if (hotkeyId == HotkeyId)
+            {
+                ShowOrHideFromHotkey();
+                return;
+            }
+            if (hotkeyId == HotkeyHudId)
+            {
+                ExecuteQuakeHotkeyAction();
+                return;
+            }
         }
 
         base.WndProc(ref m);
+    }
+
+    public void ExecuteQuakeHotkeyAction()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(ExecuteQuakeHotkeyAction));
+            return;
+        }
+
+        string target = StartupHelper.GetStringPreference("HudHotkeyTarget", "cliwebview");
+
+        if (target.Equals("hud", StringComparison.OrdinalIgnoreCase))
+        {
+            ToggleHudDropdown();
+        }
+        else if (target.Equals("both", StringComparison.OrdinalIgnoreCase))
+        {
+            ToggleHudDropdown();
+            _dashboardWebBridge?.ToggleOrShowCliWebview();
+        }
+        else // "cliwebview" - default: Standalone Terminals Window
+        {
+            _dashboardWebBridge?.ToggleOrShowCliWebview();
+        }
+    }
+
+    public void ToggleHudDropdown()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(ToggleHudDropdown));
+            return;
+        }
+
+        if (_hudTerminal == null || _hudTerminal.IsDisposed)
+        {
+            _hudTerminal = new HudTerminalForm(_cliManager, this);
+        }
+        _hudTerminal.Toggle();
     }
 
     private void ShowOrHideFromHotkey()

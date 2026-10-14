@@ -34,6 +34,9 @@
     activeView: 'dashboard',
     activeTerminalCli: 'Hermes',
     selectedProvider: null,
+    workspaces: [],
+    activeWorkspaceId: null,
+    tokenTelemetry: null,
     pendingRequests: new Map()
   };
 
@@ -166,6 +169,29 @@
     }
 
     switch (eventType) {
+      case 'workspaces_updated':
+        if (payload?.workspaces) {
+          state.workspaces = payload.workspaces;
+          if (payload.activeWorkspaceId) state.activeWorkspaceId = payload.activeWorkspaceId;
+          renderWorkspacesDropdown(state.workspaces, state.activeWorkspaceId);
+        }
+        break;
+
+      case 'workspace_activated':
+        if (payload?.activeWorkspaceId) {
+          state.activeWorkspaceId = payload.activeWorkspaceId;
+          renderWorkspacesDropdown(state.workspaces, state.activeWorkspaceId);
+          showToast(`Switched to workspace: ${payload.activeWorkspace?.name || payload.activeWorkspaceId}`, 'info');
+        }
+        break;
+
+      case 'token_telemetry_updated':
+        if (payload) {
+          state.tokenTelemetry = payload;
+          renderTokenTelemetry(payload);
+        }
+        break;
+
       case 'opencode_status_changed':
       case 'opencode_sessions_updated':
         if (payload) {
@@ -1371,6 +1397,10 @@
       const minimizeToTray = document.getElementById('setting-tray-minimize-checkbox')?.checked !== false;
       const notifications = document.getElementById('setting-notifications-checkbox')?.checked !== false;
       const globalHotkey = document.getElementById('setting-global-hotkey-checkbox')?.checked !== false;
+      const globalHudHotkey = document.getElementById('setting-global-hud-hotkey-checkbox')?.checked !== false;
+      const hudHotkeyModifier = document.getElementById('setting-quake-modifier')?.value || 'None';
+      const hudHotkeyKey = document.getElementById('setting-quake-key')?.value || 'F12';
+      const hudHotkeyTarget = document.getElementById('setting-quake-target')?.value || 'cliwebview';
       const maskShortcutPaths = document.getElementById('setting-mask-paths-checkbox')?.checked === true;
       const embedShells = document.getElementById('setting-embed-shells-checkbox')?.checked === true;
       const hideMainOnCliOpen = document.getElementById('setting-hide-main-on-cli-checkbox')?.checked === true;
@@ -1397,7 +1427,24 @@
       renderDashboardShortcuts();
 
       await callBridge('save_general_settings', {
-        settings: { autostart, startMinimized, minimizeToTray, notifications, globalHotkey, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, hideMainOnCliOpen, enableProtonVpnProvider: enableProton, enableHardwareMonitor, theme, accentColor }
+        settings: {
+          autostart,
+          startMinimized,
+          minimizeToTray,
+          notifications,
+          globalHotkey,
+          globalHudHotkey,
+          hudHotkeyKey,
+          hudHotkeyModifier,
+          hudHotkeyTarget,
+          maskShortcutPaths,
+          embedShellsInTerminalWorkspace: embedShells,
+          hideMainOnCliOpen,
+          enableProtonVpnProvider: enableProton,
+          enableHardwareMonitor,
+          theme,
+          accentColor
+        }
       });
 
       feedback.textContent = 'Preferences saved successfully!';
@@ -1694,32 +1741,46 @@
   // Prompt Enhancer View
   function switchPromptSubTab(tabName) {
     const isWorkspace = tabName === 'workspace';
+    const isProviders = tabName === 'providers';
+    const isTelemetry = tabName === 'telemetry';
+
     const btnWorkspace = document.getElementById('tab-btn-prompt-workspace');
     const btnProviders = document.getElementById('tab-btn-prompt-providers');
+    const btnTelemetry = document.getElementById('tab-btn-prompt-telemetry');
     const subviewWorkspace = document.getElementById('subview-prompt-workspace');
     const subviewProviders = document.getElementById('subview-prompt-providers');
+    const subviewTelemetry = document.getElementById('subview-prompt-telemetry');
 
     if (btnWorkspace) {
       btnWorkspace.classList.toggle('active', isWorkspace);
       btnWorkspace.setAttribute('aria-selected', isWorkspace ? 'true' : 'false');
     }
     if (btnProviders) {
-      btnProviders.classList.toggle('active', !isWorkspace);
-      btnProviders.setAttribute('aria-selected', !isWorkspace ? 'true' : 'false');
+      btnProviders.classList.toggle('active', isProviders);
+      btnProviders.setAttribute('aria-selected', isProviders ? 'true' : 'false');
+    }
+    if (btnTelemetry) {
+      btnTelemetry.classList.toggle('active', isTelemetry);
+      btnTelemetry.setAttribute('aria-selected', isTelemetry ? 'true' : 'false');
     }
 
     if (subviewWorkspace) subviewWorkspace.style.display = isWorkspace ? '' : 'none';
-    if (subviewProviders) subviewProviders.style.display = !isWorkspace ? '' : 'none';
+    if (subviewProviders) subviewProviders.style.display = isProviders ? '' : 'none';
+    if (subviewTelemetry) subviewTelemetry.style.display = isTelemetry ? '' : 'none';
 
-    if (!isWorkspace) {
+    if (isProviders) {
       renderProvidersList();
       if (!state.selectedProvider && state.aiConfig && state.aiConfig.providers && state.aiConfig.providers.length > 0) {
         selectProvider(state.aiConfig.providers[0]);
       } else if (state.selectedProvider) {
         selectProvider(state.selectedProvider);
       }
-    } else {
+    } else if (isWorkspace) {
       renderPromptModelsDropdown();
+    } else if (isTelemetry) {
+      callBridge('get_token_telemetry').then(r => {
+        if (r) renderTokenTelemetry(r);
+      }).catch(() => {});
     }
   }
 
@@ -1951,6 +2012,32 @@
 
     document.getElementById('tab-btn-prompt-providers')?.addEventListener('click', () => {
       switchPromptSubTab('providers');
+    });
+
+    document.getElementById('tab-btn-prompt-telemetry')?.addEventListener('click', () => {
+      switchPromptSubTab('telemetry');
+    });
+
+    document.getElementById('quick-telemetry-badge')?.addEventListener('click', () => {
+      switchPromptSubTab('telemetry');
+    });
+
+    document.getElementById('btn-refresh-telemetry')?.addEventListener('click', () => {
+      callBridge('get_token_telemetry').then(r => {
+        if (r) renderTokenTelemetry(r);
+      }).catch(() => {});
+    });
+
+    document.getElementById('btn-reset-telemetry')?.addEventListener('click', async () => {
+      if (confirm('Reset all token telemetry statistics?')) {
+        try {
+          const r = await callBridge('reset_token_telemetry');
+          if (r) renderTokenTelemetry(r);
+          showToast('Token telemetry reset', 'info');
+        } catch (err) {
+          showToast('Failed to reset telemetry: ' + err.message, 'error');
+        }
+      }
     });
 
     document.getElementById('btn-goto-providers-config')?.addEventListener('click', () => {
@@ -5772,11 +5859,20 @@
           const trayCheck = document.getElementById('setting-tray-minimize-checkbox');
           const notifCheck = document.getElementById('setting-notifications-checkbox');
           const hotkeyCheck = document.getElementById('setting-global-hotkey-checkbox');
+          const hudCheck = document.getElementById('setting-global-hud-hotkey-checkbox');
           if (autoCheck) autoCheck.checked = !!res.settings.autostart;
           if (minCheck) minCheck.checked = !!res.settings.startMinimized;
           if (trayCheck) trayCheck.checked = res.settings.minimizeToTray !== false;
           if (notifCheck) notifCheck.checked = res.settings.notifications !== false;
           if (hotkeyCheck) hotkeyCheck.checked = res.settings.globalHotkey !== false;
+          if (hudCheck) hudCheck.checked = res.settings.globalHudHotkey !== false;
+          const hudModSelect = document.getElementById('setting-quake-modifier');
+          if (hudModSelect && res.settings.hudHotkeyModifier) hudModSelect.value = res.settings.hudHotkeyModifier;
+          const hudKeySelect = document.getElementById('setting-quake-key');
+          if (hudKeySelect && res.settings.hudHotkeyKey) hudKeySelect.value = res.settings.hudHotkeyKey;
+          const hudTargetSelect = document.getElementById('setting-quake-target');
+          if (hudTargetSelect && res.settings.hudHotkeyTarget) hudTargetSelect.value = res.settings.hudHotkeyTarget;
+          if (typeof updateHotkeyPreview === 'function') updateHotkeyPreview();
           state.isIpMasked = !!res.settings.maskPublicIp;
           state.isShortcutsMasked = res.settings.maskShortcutPaths !== undefined
             ? !!res.settings.maskShortcutPaths
@@ -5862,6 +5958,16 @@
         if (!state.lanProxyEnabled) {
           state.dashUrlMode = 'local';
           state.lanUrlMode = 'local';
+        }
+
+        if (res.workspaces) {
+          state.workspaces = res.workspaces;
+          state.activeWorkspaceId = res.activeWorkspaceId || (res.workspaces[0] ? res.workspaces[0].id : null);
+          renderWorkspacesDropdown(state.workspaces, state.activeWorkspaceId);
+        }
+        if (res.tokenTelemetry) {
+          state.tokenTelemetry = res.tokenTelemetry;
+          renderTokenTelemetry(state.tokenTelemetry);
         }
 
         updateHeaderStatus();
@@ -6333,6 +6439,558 @@
     loadFreeModelsCount();
   }
 
+  // ==========================================================================
+  // Project Workspaces & Context Profiles
+  // ==========================================================================
+  function renderWorkspacesDropdown(workspaces, activeId) {
+    const list = workspaces || [];
+    const activeWs = list.find(w => w.id === activeId) || list[0] || null;
+
+    // Header badge in Profiles view
+    const badge = document.getElementById('active-workspace-status-badge');
+    if (badge) {
+      badge.textContent = activeWs ? activeWs.name : 'Default Workspace';
+    }
+
+    // Dropdown in Profiles view
+    const select = document.getElementById('profiles-workspace-select');
+    if (select) {
+      select.innerHTML = '';
+      if (list.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = 'default_ws';
+        opt.textContent = 'Default Workspace';
+        select.appendChild(opt);
+      } else {
+        list.forEach(ws => {
+          const opt = document.createElement('option');
+          opt.value = ws.id;
+          opt.textContent = ws.name || ws.id;
+          if (ws.id === activeId) opt.selected = true;
+          select.appendChild(opt);
+        });
+      }
+    }
+
+    // Grid in Profiles view
+    const grid = document.getElementById('profiles-workspaces-grid');
+    if (grid) {
+      grid.innerHTML = '';
+      if (list.length === 0) {
+        grid.innerHTML = '<div style="color: var(--text-dim); font-size: 12px; grid-column: 1 / -1; padding: 10px 0;">No workspaces created yet. Click "New Workspace" to create one.</div>';
+      } else {
+        list.forEach(ws => {
+          const isActive = ws.id === activeId;
+          const card = document.createElement('div');
+          card.className = 'ws-item-card' + (isActive ? ' active' : '');
+          
+          const profileText = ws.antigravityProfile ? ws.antigravityProfile : 'Current Profile';
+          const dirText = ws.workingDirectory ? ws.workingDirectory : 'Default Directory';
+          const splitText = ws.splitMode === 'split' ? `Split (${ws.primaryCli} + ${ws.secondaryCli})` : `Single (${ws.primaryCli})`;
+
+          card.innerHTML = `
+            <div>
+              <div class="ws-item-title">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <svg class="icon-svg" style="width: 14px; height: 14px; color: ${isActive ? 'var(--accent-cyan)' : 'var(--text-muted)'};" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  <span>${escapeHtml(ws.name || ws.id)}</span>
+                </div>
+                ${isActive ? '<span style="font-size: 10px; background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); padding: 1px 6px; border-radius: 4px; font-weight: 700;">ACTIVE</span>' : ''}
+              </div>
+              <div class="ws-item-dir" title="${escapeHtml(dirText)}" style="margin-top: 6px;">
+                📁 ${escapeHtml(dirText)}
+              </div>
+              <div class="ws-item-meta" style="margin-top: 6px;">
+                <span class="ws-item-chip" title="Bound Antigravity Profile">👤 ${escapeHtml(profileText)}</span>
+                <span class="ws-item-chip" title="Terminal layout">💻 ${escapeHtml(splitText)}</span>
+              </div>
+            </div>
+            <div class="ws-item-actions">
+              ${!isActive ? `<button class="btn btn-outline btn-ws-activate" data-id="${escapeHtml(ws.id)}" style="padding: 3px 8px; font-size: 11px;">Activate</button>` : ''}
+              <button class="btn btn-outline btn-ws-edit" data-id="${escapeHtml(ws.id)}" style="padding: 3px 8px; font-size: 11px;">Edit</button>
+              ${!ws.isDefault ? `<button class="btn btn-danger btn-ws-delete" data-id="${escapeHtml(ws.id)}" style="padding: 3px 8px; font-size: 11px;">Delete</button>` : ''}
+            </div>
+          `;
+
+          card.querySelector('.btn-ws-activate')?.addEventListener('click', () => switchWorkspace(ws.id));
+          card.querySelector('.btn-ws-edit')?.addEventListener('click', () => openWorkspaceModal(ws.id));
+          card.querySelector('.btn-ws-delete')?.addEventListener('click', () => deleteWorkspaceDirectly(ws.id, ws.name));
+
+          grid.appendChild(card);
+        });
+      }
+    }
+  }
+
+  async function deleteWorkspaceDirectly(id, name) {
+    if (!id) return;
+    if (!confirm(`Are you sure you want to delete workspace '${name || id}'?`)) return;
+    try {
+      const res = await callBridge('delete_workspace', { id });
+      if (res && res.success) {
+        if (res.workspaces) {
+          state.workspaces = res.workspaces;
+          state.activeWorkspaceId = res.activeWorkspaceId;
+          renderWorkspacesDropdown(state.workspaces, state.activeWorkspaceId);
+        }
+        showToast('Workspace deleted', 'info');
+      }
+    } catch (err) {
+      alert('Failed to delete workspace: ' + err.message);
+    }
+  }
+
+  function openWorkspaceModal(workspaceId = null) {
+    const modal = document.getElementById('modal-workspace');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('modal-ws-title');
+    const idInput = document.getElementById('modal-ws-id');
+    const nameInput = document.getElementById('modal-ws-name');
+    const dirInput = document.getElementById('modal-ws-dir');
+    const profileSelect = document.getElementById('modal-ws-profile');
+    const primaryCliSelect = document.getElementById('modal-ws-primary-cli');
+    const secondaryCliSelect = document.getElementById('modal-ws-secondary-cli');
+    const splitModeSelect = document.getElementById('modal-ws-split-mode');
+    const splitRatioSelect = document.getElementById('modal-ws-split-ratio');
+    const deleteBtn = document.getElementById('btn-delete-ws-modal');
+
+    // Populate profiles dropdown
+    if (profileSelect) {
+      profileSelect.innerHTML = '';
+      const defOpt = document.createElement('option');
+      defOpt.value = '';
+      defOpt.textContent = 'Keep Current Profile';
+      profileSelect.appendChild(defOpt);
+
+      if (state.antigravity && state.antigravity.profiles) {
+        state.antigravity.profiles.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.name || p;
+          opt.textContent = p.name || p;
+          profileSelect.appendChild(opt);
+        });
+      }
+    }
+
+    let ws = null;
+    if (workspaceId && state.workspaces) {
+      ws = state.workspaces.find(w => w.id === workspaceId);
+    }
+
+    if (ws) {
+      if (titleEl) titleEl.textContent = 'Edit Project Workspace';
+      if (idInput) idInput.value = ws.id;
+      if (nameInput) nameInput.value = ws.name || '';
+      if (dirInput) dirInput.value = ws.workingDirectory || '';
+      if (profileSelect) profileSelect.value = ws.antigravityProfile || '';
+      if (primaryCliSelect) primaryCliSelect.value = ws.primaryCli || 'Hermes';
+      if (secondaryCliSelect) secondaryCliSelect.value = ws.secondaryCli || 'none';
+      if (splitModeSelect) splitModeSelect.value = ws.splitMode || 'single';
+      if (splitRatioSelect) splitRatioSelect.value = String(ws.splitRatio || 0.5);
+      if (deleteBtn) {
+        deleteBtn.classList.toggle('hidden', !!ws.isDefault);
+      }
+    } else {
+      if (titleEl) titleEl.textContent = 'New Project Workspace';
+      if (idInput) idInput.value = '';
+      if (nameInput) nameInput.value = '';
+      if (dirInput) dirInput.value = '';
+      if (profileSelect) profileSelect.value = '';
+      if (primaryCliSelect) primaryCliSelect.value = 'Hermes';
+      if (secondaryCliSelect) secondaryCliSelect.value = 'none';
+      if (splitModeSelect) splitModeSelect.value = 'single';
+      if (splitRatioSelect) splitRatioSelect.value = '0.5';
+      if (deleteBtn) deleteBtn.classList.add('hidden');
+    }
+
+    modal.classList.add('active');
+  }
+
+  function closeWorkspaceModal() {
+    const modal = document.getElementById('modal-workspace');
+    if (modal) modal.classList.remove('active');
+  }
+
+  async function saveWorkspaceFromModal() {
+    const idInput = document.getElementById('modal-ws-id');
+    const nameInput = document.getElementById('modal-ws-name');
+    const dirInput = document.getElementById('modal-ws-dir');
+    const profileSelect = document.getElementById('modal-ws-profile');
+    const primaryCliSelect = document.getElementById('modal-ws-primary-cli');
+    const secondaryCliSelect = document.getElementById('modal-ws-secondary-cli');
+    const splitModeSelect = document.getElementById('modal-ws-split-mode');
+    const splitRatioSelect = document.getElementById('modal-ws-split-ratio');
+
+    const name = nameInput?.value.trim();
+    if (!name) {
+      alert('Workspace name is required.');
+      return;
+    }
+
+    const payload = {
+      workspace: {
+        id: idInput?.value || undefined,
+        name: name,
+        workingDirectory: dirInput?.value.trim() || '',
+        antigravityProfile: profileSelect?.value || '',
+        primaryCli: primaryCliSelect?.value || 'Hermes',
+        secondaryCli: secondaryCliSelect?.value || 'none',
+        splitMode: splitModeSelect?.value || 'single',
+        splitRatio: parseFloat(splitRatioSelect?.value || '0.5')
+      }
+    };
+
+    try {
+      const res = await callBridge('save_workspace', payload);
+      if (res && res.success) {
+        closeWorkspaceModal();
+        if (res.workspaces) {
+          state.workspaces = res.workspaces;
+          state.activeWorkspaceId = res.activeWorkspaceId;
+          renderWorkspacesDropdown(state.workspaces, state.activeWorkspaceId);
+        }
+        showToast(`Workspace '${name}' saved`, 'success');
+      }
+    } catch (err) {
+      alert('Failed to save workspace: ' + err.message);
+    }
+  }
+
+  async function deleteWorkspaceFromModal() {
+    const idInput = document.getElementById('modal-ws-id');
+    const id = idInput?.value;
+    if (!id) return;
+
+    if (!confirm('Are you sure you want to delete this workspace?')) return;
+
+    try {
+      const res = await callBridge('delete_workspace', { id });
+      if (res && res.success) {
+        closeWorkspaceModal();
+        if (res.workspaces) {
+          state.workspaces = res.workspaces;
+          state.activeWorkspaceId = res.activeWorkspaceId;
+          renderWorkspacesDropdown(state.workspaces, state.activeWorkspaceId);
+        }
+        showToast('Workspace deleted', 'info');
+      }
+    } catch (err) {
+      alert('Failed to delete workspace: ' + err.message);
+    }
+  }
+
+  async function switchWorkspace(workspaceId) {
+    if (!workspaceId || workspaceId === state.activeWorkspaceId) return;
+    try {
+      const res = await callBridge('activate_workspace', { id: workspaceId });
+      if (res && res.success) {
+        state.activeWorkspaceId = workspaceId;
+        showToast(`Activated workspace: ${res.activeWorkspace?.name || workspaceId}`, 'success');
+      }
+    } catch (err) {
+      showToast('Workspace switch error: ' + err.message, 'error');
+    }
+  }
+
+  // ==========================================================================
+  // Token & Cost Analytics Engine
+  // ==========================================================================
+  function renderTokenTelemetry(data) {
+    if (!data) return;
+
+    // Quick summary pills inside Prompt Enhancer
+    const quickTokens = document.getElementById('quick-tokens-val');
+    const quickSavings = document.getElementById('quick-savings-val');
+    if (quickTokens) quickTokens.textContent = Number(data.totalTokens || 0).toLocaleString();
+    if (quickSavings) quickSavings.textContent = '$' + Number(data.estimatedSavingsDollars || 0).toFixed(2);
+
+    // KPI Cards
+    const totalTokensEl = document.getElementById('telem-total-tokens');
+    const breakdownEl = document.getElementById('telem-token-breakdown');
+    const savingsEl = document.getElementById('telem-estimated-savings');
+    const reqRateEl = document.getElementById('telem-req-rate');
+    const totalReqsEl = document.getElementById('telem-total-requests');
+
+    if (totalTokensEl) totalTokensEl.textContent = Number(data.totalTokens || 0).toLocaleString();
+    if (breakdownEl) {
+      const pT = Number(data.promptTokens || 0).toLocaleString();
+      const cT = Number(data.completionTokens || 0).toLocaleString();
+      breakdownEl.textContent = `Prompt: ${pT} | Completion: ${cT}`;
+    }
+    if (savingsEl) {
+      savingsEl.textContent = '$' + Number(data.estimatedSavingsDollars || 0).toFixed(2);
+    }
+    if (reqRateEl) {
+      reqRateEl.innerHTML = `${data.requestsPerMinute || 0} <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);">req/min</span>`;
+    }
+    if (totalReqsEl) {
+      totalReqsEl.textContent = `Total Requests: ${Number(data.totalRequests || 0).toLocaleString()}`;
+    }
+
+    // Render Throughput SVG Bar Chart
+    renderTelemetryChart(data.timeSeries || []);
+
+    // Render Model Distribution Bars
+    renderTelemetryModels(data.modelsBreakdown || []);
+  }
+
+  function renderTelemetryChart(timeSeries) {
+    const svg = document.getElementById('telem-throughput-svg');
+    if (!svg) return;
+
+    svg.innerHTML = '';
+    const width = 600;
+    const height = 130;
+    const paddingBottom = 22;
+    const chartHeight = height - paddingBottom;
+
+    if (!timeSeries || timeSeries.length === 0) {
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', String(width / 2));
+      text.setAttribute('y', String(height / 2));
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('fill', '#71717a');
+      text.setAttribute('font-size', '12');
+      text.textContent = 'Waiting for proxy and prompt activity...';
+      svg.appendChild(text);
+      return;
+    }
+
+    let maxTokens = 0;
+    timeSeries.forEach(b => {
+      if (b.tokens > maxTokens) maxTokens = b.tokens;
+    });
+    if (maxTokens <= 0) maxTokens = 100;
+
+    const count = timeSeries.length;
+    const barWidth = Math.max(14, (width - (count * 6)) / count);
+    const gap = (width - (count * barWidth)) / (count + 1);
+
+    timeSeries.forEach((bucket, i) => {
+      const x = gap + i * (barWidth + gap);
+      const ratio = bucket.tokens / maxTokens;
+      const barH = Math.max(3, ratio * (chartHeight - 14));
+      const y = chartHeight - barH;
+
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', String(x));
+      rect.setAttribute('y', String(y));
+      rect.setAttribute('width', String(barWidth));
+      rect.setAttribute('height', String(barH));
+      rect.setAttribute('class', 'telem-bar');
+
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = `${bucket.timeLabel}: ${bucket.tokens.toLocaleString()} tokens (${bucket.requests} requests)`;
+      rect.appendChild(title);
+      svg.appendChild(rect);
+
+      // Label every 3rd or 4th bucket
+      if (i % 3 === 0 || i === count - 1) {
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', String(x + barWidth / 2));
+        text.setAttribute('y', String(height - 4));
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('fill', '#71717a');
+        text.setAttribute('font-size', '9.5');
+        text.setAttribute('font-family', 'monospace');
+        text.textContent = bucket.timeLabel || '';
+        svg.appendChild(text);
+      }
+    });
+  }
+
+  function renderTelemetryModels(models) {
+    const container = document.getElementById('telem-models-list');
+    if (!container) return;
+
+    if (!models || models.length === 0) {
+      container.innerHTML = '<div style="font-size: 12px; color: var(--text-dim); text-align: center; padding: 24px 0;">No model telemetry recorded yet. Requests made via proxy or prompt enhancer will appear here.</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    models.forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'telem-model-row';
+
+      const info = document.createElement('div');
+      info.className = 'telem-model-info';
+
+      const name = document.createElement('span');
+      name.className = 'telem-model-name';
+      name.textContent = m.model;
+
+      const stats = document.createElement('span');
+      stats.className = 'telem-model-stats';
+      stats.textContent = `${Number(m.tokens || 0).toLocaleString()} tokens (${m.percentage}%)`;
+
+      info.appendChild(name);
+      info.appendChild(stats);
+
+      const track = document.createElement('div');
+      track.className = 'telem-bar-track';
+
+      const fill = document.createElement('div');
+      fill.className = 'telem-bar-fill';
+      fill.style.width = Math.max(3, Math.min(100, m.percentage || 0)) + '%';
+
+      track.appendChild(fill);
+      row.appendChild(info);
+      row.appendChild(track);
+      container.appendChild(row);
+    });
+  }
+
+  function updateHotkeyPreview() {
+    const hudCheckbox = document.getElementById('setting-global-hud-hotkey-checkbox');
+    const hudModifier = document.getElementById('setting-quake-modifier');
+    const hudKey = document.getElementById('setting-quake-key');
+    const hudPreview = document.getElementById('quake-hotkey-preview');
+    const hudOptions = document.getElementById('quake-hotkey-options');
+
+    const enabled = hudCheckbox ? hudCheckbox.checked : true;
+    if (hudOptions) {
+      hudOptions.style.opacity = enabled ? '1' : '0.4';
+      hudOptions.style.pointerEvents = enabled ? 'auto' : 'none';
+    }
+    if (!hudPreview) return;
+    if (!enabled) {
+      hudPreview.textContent = 'Hotkey Disabled';
+      hudPreview.style.color = 'var(--text-dim)';
+      return;
+    }
+    const mod = hudModifier?.value || 'None';
+    const key = hudKey?.value || 'F12';
+    const keyText = key === 'Oem3' ? '~ (Tilde)' : key;
+    const comboText = mod === 'None' ? keyText : `${mod} + ${keyText}`;
+    hudPreview.textContent = `Active Hotkey: ${comboText}`;
+    hudPreview.style.color = 'var(--accent-cyan)';
+  }
+
+  function setupWorkspaces() {
+    // Collapsible Project Workspaces Card in Profiles View
+    const wsCardHeader = document.getElementById('btn-toggle-workspaces-card');
+    const wsCardBody = document.getElementById('workspaces-card-body');
+    const wsCardChevron = document.getElementById('workspaces-card-chevron-text');
+    const wsCardIcon = document.getElementById('workspaces-card-chevron-icon');
+
+    function setWorkspacesCardOpen(isOpen) {
+      if (wsCardBody) wsCardBody.style.display = isOpen ? '' : 'none';
+      if (wsCardChevron) wsCardChevron.textContent = isOpen ? 'Close' : 'Open';
+      if (wsCardIcon) wsCardIcon.style.transform = isOpen ? 'rotate(180deg)' : '';
+      localStorage.setItem('workspaces_card_open', isOpen ? 'true' : 'false');
+    }
+
+    const savedWsOpen = localStorage.getItem('workspaces_card_open');
+    setWorkspacesCardOpen(savedWsOpen !== 'false');
+
+    wsCardHeader?.addEventListener('click', () => {
+      const isCurrentlyOpen = wsCardBody && wsCardBody.style.display !== 'none';
+      setWorkspacesCardOpen(!isCurrentlyOpen);
+    });
+
+    document.getElementById('btn-collapse-workspaces-card')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isCurrentlyOpen = wsCardBody && wsCardBody.style.display !== 'none';
+      setWorkspacesCardOpen(!isCurrentlyOpen);
+    });
+
+    document.getElementById('btn-profiles-new-workspace')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openWorkspaceModal(null);
+    });
+
+    document.getElementById('btn-profiles-edit-active-workspace')?.addEventListener('click', () => {
+      openWorkspaceModal(state.activeWorkspaceId);
+    });
+
+    document.getElementById('btn-profiles-switch-workspace')?.addEventListener('click', () => {
+      const sel = document.getElementById('profiles-workspace-select');
+      if (sel && sel.value) switchWorkspace(sel.value);
+    });
+
+    document.getElementById('profiles-workspace-select')?.addEventListener('change', (e) => {
+      switchWorkspace(e.target.value);
+    });
+
+    // Workspace Modal Dialog
+    document.getElementById('btn-browse-modal-ws-dir')?.addEventListener('click', async () => {
+      try {
+        const res = await callBridge('browse_directory', { title: 'Select Project Working Directory' });
+        if (res && res.path) {
+          const dirInput = document.getElementById('modal-ws-dir');
+          if (dirInput) dirInput.value = res.path;
+        }
+      } catch { }
+    });
+
+    document.getElementById('btn-save-ws-modal')?.addEventListener('click', saveWorkspaceFromModal);
+    document.getElementById('btn-cancel-ws-modal')?.addEventListener('click', closeWorkspaceModal);
+    document.getElementById('btn-delete-ws-modal')?.addEventListener('click', deleteWorkspaceFromModal);
+
+    // Quake HUD Settings controls
+    const hudCheckbox = document.getElementById('setting-global-hud-hotkey-checkbox');
+    const hudModifier = document.getElementById('setting-quake-modifier');
+    const hudKey = document.getElementById('setting-quake-key');
+    const hudTarget = document.getElementById('setting-quake-target');
+
+    updateHotkeyPreview();
+
+    hudCheckbox?.addEventListener('change', () => {
+      updateHotkeyPreview();
+      callBridge('save_general_settings', {
+        settings: {
+          globalHudHotkey: hudCheckbox.checked,
+          hudHotkeyKey: hudKey?.value || 'F12',
+          hudHotkeyModifier: hudModifier?.value || 'None',
+          hudHotkeyTarget: hudTarget?.value || 'cliwebview'
+        }
+      });
+      showToast(`Global Quake hotkey ${hudCheckbox.checked ? 'enabled' : 'disabled'}`, 'info');
+    });
+
+    hudModifier?.addEventListener('change', () => {
+      updateHotkeyPreview();
+      callBridge('save_general_settings', {
+        settings: {
+          globalHudHotkey: hudCheckbox?.checked !== false,
+          hudHotkeyKey: hudKey?.value || 'F12',
+          hudHotkeyModifier: hudModifier.value,
+          hudHotkeyTarget: hudTarget?.value || 'cliwebview'
+        }
+      });
+    });
+
+    hudKey?.addEventListener('change', () => {
+      updateHotkeyPreview();
+      callBridge('save_general_settings', {
+        settings: {
+          globalHudHotkey: hudCheckbox?.checked !== false,
+          hudHotkeyKey: hudKey.value,
+          hudHotkeyModifier: hudModifier?.value || 'None',
+          hudHotkeyTarget: hudTarget?.value || 'cliwebview'
+        }
+      });
+    });
+
+    hudTarget?.addEventListener('change', () => {
+      callBridge('save_general_settings', {
+        settings: {
+          globalHudHotkey: hudCheckbox?.checked !== false,
+          hudHotkeyKey: hudKey?.value || 'F12',
+          hudHotkeyModifier: hudModifier?.value || 'None',
+          hudHotkeyTarget: hudTarget.value
+        }
+      });
+      showToast(`Quake toggle target set to ${hudTarget.options[hudTarget.selectedIndex].text}`, 'info');
+    });
+
+    document.getElementById('btn-trigger-quake-hud-settings')?.addEventListener('click', () => {
+      callBridge('toggle_quake_hud');
+    });
+  }
+
   // Initialize App on DOM Ready
   window.addEventListener('DOMContentLoaded', () => {
     try {
@@ -6362,7 +7020,8 @@
       ['LogFilters', setupLogFilterListeners],
       ['GlobalActions', setupGlobalActions],
       ['InitialState', loadInitialState],
-      ['HardwareTelemetry', setupHardwareTelemetry]
+      ['HardwareTelemetry', setupHardwareTelemetry],
+      ['Workspaces', setupWorkspaces]
     ];
 
     initSteps.forEach(([name, fn]) => {

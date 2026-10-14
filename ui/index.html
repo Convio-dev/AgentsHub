@@ -589,7 +589,7 @@
 
         <!-- VIEW 3: Prompt Enhancer -->
         <div id="view-prompt-enhancer" class="view-pane">
-          <!-- Subview Switcher: Workspace vs AI Providers -->
+          <!-- Subview Switcher: Workspace vs AI Providers vs Token Analytics -->
           <div class="prompt-view-switcher" role="tablist" aria-label="Prompt Enhancer navigation">
             <button type="button" class="prompt-view-tab active" id="tab-btn-prompt-workspace" data-tab="workspace" role="tab" aria-selected="true">
               <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg>
@@ -599,6 +599,10 @@
               <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 7h10M7 12h10M7 17h10"/></svg>
               <span>AI Providers &amp; Models</span>
             </button>
+            <button type="button" class="prompt-view-tab" id="tab-btn-prompt-telemetry" data-tab="telemetry" role="tab" aria-selected="false">
+              <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <span>Token &amp; Cost Analytics</span>
+            </button>
           </div>
 
           <!-- SUBVIEW A: Prompt Enhancer Workspace -->
@@ -606,9 +610,17 @@
             <div style="display: flex; gap: 12px; margin-bottom: 14px; align-items: flex-end;">
               <div style="flex: 1;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                  <label class="form-label" style="margin-bottom: 0;">Active AI Model:</label>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <label class="form-label" style="margin-bottom: 0;">Active AI Model:</label>
+                    <button type="button" class="quick-telemetry-badge" id="quick-telemetry-badge" title="Live tokens consumed and estimated API value saved. Click to view full analytics.">
+                      <span class="dot-telemetry-live"></span>
+                      <span>Tokens: <b id="quick-tokens-val">0</b></span>
+                      <span style="opacity: 0.5;">|</span>
+                      <span>Saved: <b id="quick-savings-val" style="color: var(--accent-green);">$0.00</b></span>
+                    </button>
+                  </div>
                   <button type="button" class="btn btn-outline" id="btn-goto-providers-config" title="Manage AI Providers, Endpoints &amp; Models" style="padding: 2px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px;">
-                    <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83-2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     <span>Manage Providers</span>
                   </button>
                 </div>
@@ -794,6 +806,75 @@
               </div>
             </div>
           </div>
+
+          <!-- SUBVIEW C: Token & Cost Analytics -->
+          <div id="subview-prompt-telemetry" class="prompt-subview" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; gap: 10px; flex-wrap: wrap;">
+              <div>
+                <div style="font-size: 13px; font-weight: 700; color: var(--text-main); letter-spacing: 0.5px;">AI TOKEN &amp; COST ANALYTICS</div>
+                <div style="font-size: 11.5px; color: var(--text-muted);">Real-time token throughput, estimated savings vs API pricing, and model usage</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button type="button" class="btn btn-outline" id="btn-refresh-telemetry" style="padding: 4px 10px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px;">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>
+                  <span>Refresh</span>
+                </button>
+                <button type="button" class="btn btn-outline" id="btn-reset-telemetry" style="padding: 4px 10px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 5px;">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                  <span>Reset Telemetry</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 3 KPI Cards -->
+            <div class="telemetry-kpi-grid">
+              <div class="telemetry-kpi-card">
+                <div class="kpi-header">
+                  <span class="kpi-label">TOTAL TOKENS PROCESSED</span>
+                  <svg class="icon-svg kpi-icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                </div>
+                <div class="kpi-value" id="telem-total-tokens">0</div>
+                <div class="kpi-subtext" id="telem-token-breakdown">Prompt: 0 | Completion: 0</div>
+              </div>
+
+              <div class="telemetry-kpi-card">
+                <div class="kpi-header">
+                  <span class="kpi-label">ESTIMATED COST SAVED</span>
+                  <svg class="icon-svg kpi-icon" style="color: var(--accent-green);" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                </div>
+                <div class="kpi-value kpi-green" id="telem-estimated-savings">$0.00</div>
+                <div class="kpi-subtext">Calculated vs standard $3.00/M baseline</div>
+              </div>
+
+              <div class="telemetry-kpi-card">
+                <div class="kpi-header">
+                  <span class="kpi-label">THROUGHPUT &amp; REQUESTS</span>
+                  <svg class="icon-svg kpi-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div class="kpi-value" id="telem-req-rate">0 <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);">req/min</span></div>
+                <div class="kpi-subtext" id="telem-total-requests">Total Requests: 0</div>
+              </div>
+            </div>
+
+            <!-- Charts & Breakdown Section -->
+            <div class="telemetry-details-grid">
+              <div class="dashboard-card" style="padding: 16px;">
+                <div class="card-title" style="margin-bottom: 4px;">ROLLING 30-MIN TOKEN THROUGHPUT</div>
+                <div class="card-subtitle" style="margin-bottom: 14px;">Token consumption across 2-minute time buckets</div>
+                <div id="telem-chart-container" class="telem-chart-container">
+                  <svg id="telem-throughput-svg" class="telem-svg" viewBox="0 0 600 130" preserveAspectRatio="none"></svg>
+                </div>
+              </div>
+
+              <div class="dashboard-card" style="padding: 16px;">
+                <div class="card-title" style="margin-bottom: 4px;">MODEL USAGE DISTRIBUTION</div>
+                <div class="card-subtitle" style="margin-bottom: 14px;">Share of tokens across active AI models</div>
+                <div id="telem-models-list" class="telem-models-list">
+                  <div style="font-size: 12px; color: var(--text-dim); text-align: center; padding: 24px 0;">No model telemetry recorded yet. Requests made via proxy or prompt enhancer will appear here.</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- VIEW 4: Antigravity Profiles -->
@@ -898,6 +979,54 @@
                 </div>
               </div>
             </div>
+
+          <!-- Project Workspaces & Context Profiles Card (Collapsible) -->
+          <div class="dashboard-card" id="project-workspaces-card" style="margin-bottom: 16px; padding: 14px 16px;">
+            <!-- Header Bar -->
+            <div style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; flex-wrap: wrap; gap: 8px;" id="btn-toggle-workspaces-card">
+              <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <div class="card-icon" style="color: var(--accent-cyan); display: flex; align-items: center;">
+                  <svg class="icon-svg" style="width: 18px; height: 18px;" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 13.5px; font-weight: 700; color: var(--text-main);">Project Workspaces &amp; Context Profiles</span>
+                  <span id="active-workspace-status-badge" style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); font-family: var(--font-mono); font-weight: 600;">Default Workspace</span>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;" onclick="event.stopPropagation();">
+                <button class="btn btn-outline" id="btn-profiles-new-workspace" type="button" style="padding: 4px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  <span>New Workspace</span>
+                </button>
+                <button class="btn btn-outline" id="btn-collapse-workspaces-card" type="button" style="padding: 4px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 6px;">
+                  <span id="workspaces-card-chevron-text">Close</span>
+                  <svg class="icon-svg" id="workspaces-card-chevron-icon" style="width: 12px; height: 12px; transition: transform 0.2s;" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Collapsible Body -->
+            <div id="workspaces-card-body" style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 12px; color: var(--text-dim);">Active Workspace:</span>
+                  <select id="profiles-workspace-select" class="select-box" style="min-width: 200px; font-weight: 600;"></select>
+                </div>
+                <div style="display: flex; gap: 6px;">
+                  <button class="btn btn-primary" id="btn-profiles-edit-active-workspace" type="button" style="padding: 4px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                    <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83-2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    <span>Edit Active</span>
+                  </button>
+                  <button class="btn btn-outline" id="btn-profiles-switch-workspace" type="button" style="padding: 4px 10px; font-size: 11px;">Switch</button>
+                </div>
+              </div>
+
+              <!-- List of Workspace Cards -->
+              <div id="profiles-workspaces-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 10px;">
+                <!-- Dynamically rendered by JS -->
+              </div>
+            </div>
+          </div>
 
           <div id="profiles-list-container" class="card-grid"></div>
         </div>
@@ -1193,6 +1322,67 @@
                 <input type="checkbox" id="setting-global-hotkey-checkbox" checked>
                 <span>Global hotkey Ctrl+Alt+H to show or hide the window</span>
               </label>
+              <!-- Quake HUD & Global Terminal Hotkey Configuration -->
+              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin: 8px 0 12px 0;">
+                <label class="checkbox-label" style="margin-bottom: 8px; font-weight: 600;">
+                  <input type="checkbox" id="setting-global-hud-hotkey-checkbox" checked>
+                  <span>Enable Global Quake Hotkey Toggle</span>
+                </label>
+                <div id="quake-hotkey-options" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; margin-left: 24px;">
+                  <div>
+                    <label class="form-label" style="font-size: 11px; margin-bottom: 3px;">Hotkey Modifier:</label>
+                    <select id="setting-quake-modifier" class="select-box" style="padding: 4px 8px; font-size: 11.5px; width: 100%;">
+                      <option value="None">None (Key only)</option>
+                      <option value="Alt">Alt</option>
+                      <option value="Ctrl">Ctrl</option>
+                      <option value="Shift">Shift</option>
+                      <option value="Win">Win</option>
+                      <option value="Ctrl+Alt">Ctrl + Alt</option>
+                      <option value="Ctrl+Shift">Ctrl + Shift</option>
+                      <option value="Alt+Shift">Alt + Shift</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="form-label" style="font-size: 11px; margin-bottom: 3px;">Hotkey Key:</label>
+                    <select id="setting-quake-key" class="select-box" style="padding: 4px 8px; font-size: 11.5px; width: 100%;">
+                      <option value="F12">F12</option>
+                      <option value="F11">F11</option>
+                      <option value="F10">F10</option>
+                      <option value="F9">F9</option>
+                      <option value="F8">F8</option>
+                      <option value="F7">F7</option>
+                      <option value="F6">F6</option>
+                      <option value="F5">F5</option>
+                      <option value="F4">F4</option>
+                      <option value="F3">F3</option>
+                      <option value="F2">F2</option>
+                      <option value="F1">F1</option>
+                      <option value="Oem3">~ (Tilde / Backquote)</option>
+                      <option value="Space">Space</option>
+                      <option value="Tab">Tab</option>
+                      <option value="Q">Q</option>
+                      <option value="K">K</option>
+                      <option value="T">T</option>
+                      <option value="H">H</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="form-label" style="font-size: 11px; margin-bottom: 3px;">Trigger Target:</label>
+                    <select id="setting-quake-target" class="select-box" style="padding: 4px 8px; font-size: 11.5px; width: 100%;">
+                      <option value="cliwebview">Standalone Terminals (CliWebview)</option>
+                      <option value="hud">Slide-Down HUD Overlay</option>
+                      <option value="both">Both (HUD + Sync CliWebview)</option>
+                    </select>
+                  </div>
+                </div>
+                <div style="margin-left: 24px; margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-outline" id="btn-trigger-quake-hud-settings" style="font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 5px;">
+                    <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+                    <span>Test Hotkey Action Now</span>
+                  </button>
+                  <span id="quake-hotkey-preview" style="font-size: 11.5px; font-family: var(--font-mono); color: var(--accent-cyan);">Active Hotkey: F12</span>
+                </div>
+              </div>
               <label class="checkbox-label">
                 <input type="checkbox" id="setting-mask-paths-checkbox">
                 <span>Hide / Mask File Target Paths on Dashboard (Show as **)</span>
@@ -1310,6 +1500,79 @@
 
       </section>
     </main>
+  </div>
+
+  <!-- Modal: Project Workspace Editor -->
+  <div id="modal-workspace" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 540px;">
+      <h3 id="modal-ws-title" style="font-size: 15px; font-weight: 700; color: var(--text-main); margin-bottom: 14px;">Edit Project Workspace</h3>
+      <input type="hidden" id="modal-ws-id">
+      <div class="form-group">
+        <label class="form-label">Workspace Name:</label>
+        <input type="text" id="modal-ws-name" class="input-text" placeholder="e.g. HermesHub Dev, Client Portal">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Project Working Directory:</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="modal-ws-dir" class="input-text" placeholder="C:\Projects\MyProject" style="flex: 1; font-family: var(--font-mono); font-size: 12px;">
+          <button class="btn btn-outline" id="btn-browse-modal-ws-dir" type="button" style="white-space: nowrap; padding: 6px 12px;">Browse...</button>
+        </div>
+        <div class="form-hint">Terminals and CLI tools will launch inside this project root.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Associated Antigravity Profile:</label>
+        <select id="modal-ws-profile" class="select-box"></select>
+        <div class="form-hint">Auto-switches Google AI Pro credentials when activating this workspace.</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label class="form-label">Primary CLI Terminal:</label>
+          <select id="modal-ws-primary-cli" class="select-box">
+            <option value="Hermes">Hermes CLI</option>
+            <option value="ClaudeCode">Claude Code</option>
+            <option value="AntigravityCli">Antigravity CLI</option>
+            <option value="powershell">PowerShell</option>
+            <option value="cmd">Command Prompt</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Secondary CLI Terminal:</label>
+          <select id="modal-ws-secondary-cli" class="select-box">
+            <option value="none">None (Single Pane)</option>
+            <option value="powershell">PowerShell</option>
+            <option value="cmd">Command Prompt</option>
+            <option value="Hermes">Hermes CLI</option>
+            <option value="ClaudeCode">Claude Code</option>
+            <option value="AntigravityCli">Antigravity CLI</option>
+          </select>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label class="form-label">Split Mode:</label>
+          <select id="modal-ws-split-mode" class="select-box">
+            <option value="single">Single Pane</option>
+            <option value="horizontal">Horizontal Split (Left / Right)</option>
+            <option value="vertical">Vertical Split (Top / Bottom)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Split Ratio:</label>
+          <select id="modal-ws-split-ratio" class="select-box">
+            <option value="0.5">50% / 50% Even</option>
+            <option value="0.6">60% Primary / 40% Secondary</option>
+            <option value="0.7">70% Primary / 30% Secondary</option>
+          </select>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border-subtle);">
+        <button class="btn btn-danger hidden" id="btn-delete-ws-modal" type="button">Delete Workspace</button>
+        <div style="display: flex; gap: 8px; margin-left: auto;">
+          <button class="btn btn-outline" id="btn-cancel-ws-modal" type="button">Cancel</button>
+          <button class="btn btn-success" id="btn-save-ws-modal" type="button">Save Workspace</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Modal: Add Antigravity Profile -->

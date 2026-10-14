@@ -323,7 +323,12 @@
           break;
 
         case 'clear':
-          term.clear();
+        case 'reset':
+          if (typeof term.reset === 'function') {
+            term.reset();
+          } else {
+            term.clear();
+          }
           break;
 
         case 'focus':

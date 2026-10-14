@@ -136,6 +136,42 @@ public class PromptEnhancerPreset
     public bool IsBuiltIn { get; set; } = false;
 }
 
+public class ProjectWorkspace
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "Default Workspace";
+
+    [JsonPropertyName("workingDirectory")]
+    public string WorkingDirectory { get; set; } = "";
+
+    [JsonPropertyName("antigravityProfile")]
+    public string AntigravityProfile { get; set; } = "";
+
+    [JsonPropertyName("primaryCli")]
+    public string PrimaryCli { get; set; } = "Hermes";
+
+    [JsonPropertyName("secondaryCli")]
+    public string SecondaryCli { get; set; } = "powershell";
+
+    [JsonPropertyName("splitMode")]
+    public string SplitMode { get; set; } = "horizontal";
+
+    [JsonPropertyName("splitRatio")]
+    public double SplitRatio { get; set; } = 0.5;
+
+    [JsonPropertyName("environmentVariables")]
+    public Dictionary<string, string> EnvironmentVariables { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonPropertyName("colorTag")]
+    public string ColorTag { get; set; } = "#10b981";
+
+    [JsonPropertyName("isDefault")]
+    public bool IsDefault { get; set; } = false;
+}
+
 public class AiConfig
 {
     [JsonPropertyName("devTools")]
@@ -149,6 +185,12 @@ public class AiConfig
     public string? SelectedModel { get; set; }
     public List<DashboardShortcut> Shortcuts { get; set; } = [];
     public List<CliWorkspaceConfig> CliWorkspaces { get; set; } = [];
+
+    [JsonPropertyName("workspaces")]
+    public List<ProjectWorkspace> Workspaces { get; set; } = [];
+
+    [JsonPropertyName("activeWorkspaceId")]
+    public string? ActiveWorkspaceId { get; set; }
 
     public string ClaudeEngineMode { get; set; } = "OpenRouter";
     public string ClaudeSelectedModel { get; set; } = "qwen/qwen-2.5-coder-32b-instruct:free";
@@ -1446,6 +1488,104 @@ public class AiConfigService
                 _cachedFreeModels.AddRange(DefaultFallbackFreeModels);
             }
             return [.. _cachedFreeModels];
+        }
+    }
+
+    public List<ProjectWorkspace> GetWorkspaces()
+    {
+        lock (_lock)
+        {
+            _config.Workspaces ??= [];
+            if (_config.Workspaces.Count == 0)
+            {
+                var def = new ProjectWorkspace
+                {
+                    Id = "default_ws",
+                    Name = "Default Workspace",
+                    WorkingDirectory = Environment.CurrentDirectory,
+                    AntigravityProfile = "default",
+                    PrimaryCli = "Hermes",
+                    SecondaryCli = "powershell",
+                    SplitMode = "horizontal",
+                    SplitRatio = 0.5,
+                    IsDefault = true
+                };
+                _config.Workspaces.Add(def);
+                _config.ActiveWorkspaceId = def.Id;
+                SaveConfig(_config);
+            }
+            return [.. _config.Workspaces];
+        }
+    }
+
+    public string GetActiveWorkspaceId()
+    {
+        lock (_lock)
+        {
+            if (string.IsNullOrWhiteSpace(_config.ActiveWorkspaceId))
+            {
+                var list = GetWorkspaces();
+                _config.ActiveWorkspaceId = list.FirstOrDefault()?.Id ?? "default_ws";
+            }
+            return _config.ActiveWorkspaceId;
+        }
+    }
+
+    public void SaveWorkspace(ProjectWorkspace ws)
+    {
+        if (ws == null) return;
+        lock (_lock)
+        {
+            _config.Workspaces ??= [];
+            var existing = _config.Workspaces.FirstOrDefault(w => string.Equals(w.Id, ws.Id, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                existing.Name = ws.Name;
+                existing.WorkingDirectory = ws.WorkingDirectory;
+                existing.AntigravityProfile = ws.AntigravityProfile;
+                existing.PrimaryCli = ws.PrimaryCli;
+                existing.SecondaryCli = ws.SecondaryCli;
+                existing.SplitMode = ws.SplitMode;
+                existing.SplitRatio = ws.SplitRatio;
+                existing.EnvironmentVariables = ws.EnvironmentVariables ?? new(StringComparer.OrdinalIgnoreCase);
+                existing.ColorTag = ws.ColorTag;
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(ws.Id)) ws.Id = Guid.NewGuid().ToString("N");
+                _config.Workspaces.Add(ws);
+            }
+            SaveConfig(_config);
+        }
+    }
+
+    public bool DeleteWorkspace(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        lock (_lock)
+        {
+            _config.Workspaces ??= [];
+            var item = _config.Workspaces.FirstOrDefault(w => string.Equals(w.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (item != null)
+            {
+                _config.Workspaces.Remove(item);
+                if (string.Equals(_config.ActiveWorkspaceId, id, StringComparison.OrdinalIgnoreCase))
+                {
+                    _config.ActiveWorkspaceId = _config.Workspaces.FirstOrDefault()?.Id;
+                }
+                SaveConfig(_config);
+                return true;
+            }
+            return false;
+        }
+    }
+
+    public void SetActiveWorkspaceId(string id)
+    {
+        lock (_lock)
+        {
+            _config.ActiveWorkspaceId = id;
+            SaveConfig(_config);
         }
     }
 }
