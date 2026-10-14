@@ -803,6 +803,12 @@
   }
 
   function switchView(viewName) {
+    if (viewName === 'providers') {
+      switchView('prompt-enhancer');
+      switchPromptSubTab('providers');
+      return;
+    }
+
     state.activeView = viewName;
     document.querySelectorAll('.nav-item').forEach(i => {
       i.classList.toggle('active', i.dataset.view === viewName);
@@ -1589,6 +1595,37 @@
   }
 
   // Prompt Enhancer View
+  function switchPromptSubTab(tabName) {
+    const isWorkspace = tabName === 'workspace';
+    const btnWorkspace = document.getElementById('tab-btn-prompt-workspace');
+    const btnProviders = document.getElementById('tab-btn-prompt-providers');
+    const subviewWorkspace = document.getElementById('subview-prompt-workspace');
+    const subviewProviders = document.getElementById('subview-prompt-providers');
+
+    if (btnWorkspace) {
+      btnWorkspace.classList.toggle('active', isWorkspace);
+      btnWorkspace.setAttribute('aria-selected', isWorkspace ? 'true' : 'false');
+    }
+    if (btnProviders) {
+      btnProviders.classList.toggle('active', !isWorkspace);
+      btnProviders.setAttribute('aria-selected', !isWorkspace ? 'true' : 'false');
+    }
+
+    if (subviewWorkspace) subviewWorkspace.style.display = isWorkspace ? '' : 'none';
+    if (subviewProviders) subviewProviders.style.display = !isWorkspace ? '' : 'none';
+
+    if (!isWorkspace) {
+      renderProvidersList();
+      if (!state.selectedProvider && state.aiConfig && state.aiConfig.providers && state.aiConfig.providers.length > 0) {
+        selectProvider(state.aiConfig.providers[0]);
+      } else if (state.selectedProvider) {
+        selectProvider(state.selectedProvider);
+      }
+    } else {
+      renderPromptModelsDropdown();
+    }
+  }
+
   function renderPromptModelsDropdown() {
     const select = document.getElementById('enhance-model-select');
     if (!select) return;
@@ -1598,7 +1635,7 @@
 
     if (enabledProviders.length === 0) {
       const opt = document.createElement('option');
-      opt.textContent = '(All providers disabled - go to AI Providers to enable)';
+      opt.textContent = '(No providers enabled - configure in AI Providers tab)';
       opt.disabled = true;
       select.appendChild(opt);
       return;
@@ -1808,6 +1845,23 @@
         statusLbl.textContent = 'Copied to clipboard!';
         setTimeout(() => statusLbl.textContent = 'Ready', 2000);
       }
+    });
+
+    // Subview Switching: Workspace vs AI Providers
+    document.getElementById('tab-btn-prompt-workspace')?.addEventListener('click', () => {
+      switchPromptSubTab('workspace');
+    });
+
+    document.getElementById('tab-btn-prompt-providers')?.addEventListener('click', () => {
+      switchPromptSubTab('providers');
+    });
+
+    document.getElementById('btn-goto-providers-config')?.addEventListener('click', () => {
+      switchPromptSubTab('providers');
+    });
+
+    document.getElementById('btn-back-to-enhancer')?.addEventListener('click', () => {
+      switchPromptSubTab('workspace');
     });
 
     // Iterative refinement: push the enhanced result back into the raw input.
