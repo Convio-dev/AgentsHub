@@ -615,9 +615,13 @@ public sealed partial class DashboardWebBridge : IDisposable
                 break;
 
             case "switch_antigravity_profile":
-                if (data.TryGetProperty("profile", out var profProp))
                 {
-                    var pName = profProp.GetString();
+                    string? pName = null;
+                    if (data.TryGetProperty("profile", out var profProp))
+                        pName = profProp.GetString();
+                    else if (data.TryGetProperty("profileName", out var profNameProp))
+                        pName = profNameProp.GetString();
+
                     if (!string.IsNullOrWhiteSpace(pName))
                     {
                         await _cliManager.SwitchAntigravityProfileAsync(pName);

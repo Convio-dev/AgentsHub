@@ -142,7 +142,28 @@
         }
         inferredTag = 'Network';
       } else if (eventType === 'running_ports_updated') {
-        const ports = payload?.runningPorts ? Object.entries(payload.runningPorts).map(([k, v]) => `${k}:${v}`).join(', ') : 'none';
+        let ports = 'none';
+        if (Array.isArray(payload?.runningPorts)) {
+          ports = payload.runningPorts.length > 0
+            ? payload.runningPorts.map(p => {
+                if (typeof p === 'object' && p) {
+                  const name = p.name || p.id || 'CLI';
+                  const port = p.port || p.lanPort;
+                  return port ? `${name}: ${port}` : name;
+                }
+                return String(p);
+              }).join(', ')
+            : 'none';
+        } else if (payload?.runningPorts && typeof payload.runningPorts === 'object') {
+          ports = Object.entries(payload.runningPorts).map(([k, v]) => {
+            if (typeof v === 'object' && v) {
+              const name = v.name || v.id || k;
+              const port = v.port || v.lanPort;
+              return port ? `${name}: ${port}` : name;
+            }
+            return `${k}:${v}`;
+          }).join(', ');
+        }
         friendlySummary = `Running ports updated: ${ports || 'none'}`;
         inferredTag = 'System';
       } else if (eventType === 'profile_changed' || eventType === 'profile_saved') {
@@ -643,19 +664,22 @@
 
     // Antigravity profiles are what people switch between most, so they get a row too.
     (state.antigravity && Array.isArray(state.antigravity.profiles) ? state.antigravity.profiles : []).forEach(p => {
+      const pName = typeof p === 'object' && p ? (p.name || '') : String(p || '');
+      if (!pName) return;
+      const email = typeof p === 'object' && p && p.email ? p.email : '';
       out.push({
         group: 'Switch profile',
-        label: 'Switch to Antigravity profile ' + p,
-        hint: 'The active account and its tab',
+        label: 'Switch to Antigravity profile ' + pName,
+        hint: email ? `Account: ${email}` : 'The active account and its tab',
         run: async () => {
           try {
-            await callBridge('switch_antigravity_profile', { profileName: p });
+            await callBridge('switch_antigravity_profile', { profile: pName, profileName: pName });
             loadInitialState();
           } catch (err) {
-            showToast('Could not switch to ' + p + '.', 'error', 5000);
+            showToast('Could not switch to ' + pName + '.', 'error', 5000);
           }
         },
-        search: ('profile ' + p + ' antigravity account switch').toLowerCase()
+        search: ('profile ' + pName + ' ' + email + ' antigravity account switch').toLowerCase()
       });
     });
 
