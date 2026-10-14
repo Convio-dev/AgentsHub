@@ -6666,7 +6666,12 @@
           
           const profileText = ws.antigravityProfile ? ws.antigravityProfile : 'Current Profile';
           const dirText = ws.workingDirectory ? ws.workingDirectory : 'Default Directory';
-          const splitText = ws.splitMode === 'split' ? `Split (${ws.primaryCli} + ${ws.secondaryCli})` : `Single (${ws.primaryCli})`;
+          // Stored values are single / horizontal / vertical. The old check for "split" never
+          // matched, so every split workspace was labelled Single on its card.
+          const isSplit = !!ws.splitMode && ws.splitMode !== 'single';
+          const splitText = isSplit
+            ? `${ws.splitMode === 'vertical' ? 'Vertical' : 'Horizontal'} split (${ws.primaryCli} + ${ws.secondaryCli})`
+            : `Single (${ws.primaryCli})`;
 
           card.innerHTML = `
             <div>
@@ -6784,12 +6789,16 @@
       if (deleteBtn) deleteBtn.classList.add('hidden');
     }
 
-    modal.classList.add('active');
+    // "open" is the class .modal-overlay is styled for, the same one every other modal uses.
+    // "active" matched no rule, so the dialog stayed at display:none and every workspace button
+    // looked dead.
+    modal.classList.add('open');
+    if (nameInput) setTimeout(() => nameInput.focus(), 60);
   }
 
   function closeWorkspaceModal() {
     const modal = document.getElementById('modal-workspace');
-    if (modal) modal.classList.remove('active');
+    if (modal) modal.classList.remove('open');
   }
 
   async function saveWorkspaceFromModal() {
@@ -6861,7 +6870,11 @@
   }
 
   async function switchWorkspace(workspaceId) {
-    if (!workspaceId || workspaceId === state.activeWorkspaceId) return;
+    if (!workspaceId) return;
+    if (workspaceId === state.activeWorkspaceId) {
+      showToast('That workspace is already active.', 'info');
+      return;
+    }
     try {
       const res = await callBridge('activate_workspace', { id: workspaceId });
       if (res && res.success) {
@@ -7108,6 +7121,15 @@
     document.getElementById('btn-save-ws-modal')?.addEventListener('click', saveWorkspaceFromModal);
     document.getElementById('btn-cancel-ws-modal')?.addEventListener('click', closeWorkspaceModal);
     document.getElementById('btn-delete-ws-modal')?.addEventListener('click', deleteWorkspaceFromModal);
+
+    // Same dismissal as the other editors: click the backdrop or press Escape.
+    const wsModal = document.getElementById('modal-workspace');
+    wsModal?.addEventListener('click', (e) => {
+      if (e.target === wsModal) closeWorkspaceModal();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && wsModal?.classList.contains('open')) closeWorkspaceModal();
+    });
 
     // Quake HUD Settings controls
     const hudCheckbox = document.getElementById('setting-global-hud-hotkey-checkbox');
