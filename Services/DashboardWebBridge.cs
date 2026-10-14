@@ -1069,14 +1069,17 @@ public sealed partial class DashboardWebBridge : IDisposable
                     var configured = AiConfigService.Instance.CurrentConfig.DevTools ?? [];
                     var offers = found
                         .Where(f => !configured.Any(d =>
-                            string.Equals(Path.GetFileName(f.Target), Path.GetFileName(d.Target ?? ""), StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(f.Target, d.Target ?? "", StringComparison.OrdinalIgnoreCase)))
+                            !string.IsNullOrWhiteSpace(d.Target) &&
+                            (string.Equals(Path.GetFileName(f.Target), Path.GetFileName(d.Target), StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(f.Target, d.Target, StringComparison.OrdinalIgnoreCase))))
                         .Select(f => new
                         {
                             name = f.Name,
                             target = f.Target,
                             alreadyConfigured = configured.Any(d =>
-                                string.Equals(Path.GetFileName(f.Target), Path.GetFileName(d.Target ?? ""), StringComparison.OrdinalIgnoreCase))
+                                !string.IsNullOrWhiteSpace(d.Target) &&
+                                (string.Equals(Path.GetFileName(f.Target), Path.GetFileName(d.Target), StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(f.Target, d.Target, StringComparison.OrdinalIgnoreCase)))
                         })
                         .ToList();
 

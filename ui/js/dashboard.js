@@ -3407,15 +3407,43 @@
     const head = document.createElement('div');
     head.className = 'devtool-offers-head';
     const headText = document.createElement('span');
-    headText.textContent = found.length + (found.length === 1 ? ' client found' : ' clients found');
+    headText.textContent = found.length + (found.length === 1 ? ' tool/client found' : ' tools/clients found');
+
+    const actionsWrap = document.createElement('div');
+    actionsWrap.style.cssText = 'display: flex; gap: 6px; align-items: center;';
+
+    if (found.length > 1) {
+      const addAll = document.createElement('button');
+      addAll.type = 'button';
+      addAll.className = 'btn btn-primary';
+      addAll.style.cssText = 'padding: 3px 10px; font-size: 11px;';
+      addAll.textContent = 'Add All (' + found.length + ')';
+      addAll.addEventListener('click', async () => {
+        addAll.disabled = true;
+        addAll.textContent = 'Adding all...';
+        for (const f of found) {
+          await addDiscoveredClient(f, false);
+        }
+        try {
+          await callBridge('save_ai_config', { config: state.aiConfig });
+        } catch { }
+        await loadDevTools();
+        container.style.display = 'none';
+        showToast('All ' + found.length + ' discovered tools added.', 'success', 3500);
+      });
+      actionsWrap.appendChild(addAll);
+    }
+
     const dismiss = document.createElement('button');
     dismiss.type = 'button';
     dismiss.className = 'btn btn-outline';
     dismiss.style.cssText = 'padding: 3px 10px; font-size: 11px;';
     dismiss.textContent = 'Dismiss';
     dismiss.addEventListener('click', () => { container.style.display = 'none'; });
+    actionsWrap.appendChild(dismiss);
+
     head.appendChild(headText);
-    head.appendChild(dismiss);
+    head.appendChild(actionsWrap);
     container.appendChild(head);
 
     found.forEach(f => {
@@ -3438,8 +3466,11 @@
       add.textContent = 'Add';
       add.addEventListener('click', async () => {
         add.disabled = true;
-        await addDiscoveredClient(f);
-        add.disabled = false;
+        add.textContent = 'Adding...';
+        await addDiscoveredClient(f, true);
+        add.textContent = 'Added \u2713';
+        add.classList.remove('btn-primary');
+        add.classList.add('btn-outline');
       });
 
       row.appendChild(name);
@@ -3449,15 +3480,24 @@
     });
   }
 
-  async function addDiscoveredClient(found) {
+  async function addDiscoveredClient(found, shouldReload = true) {
     if (!state.aiConfig) state.aiConfig = {};
 
     const id = found.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-    const already = (state.aiConfig.devTools || []).some(d =>
-      d.id === id || (d.target || '') === found.target);
-
     state.aiConfig.devTools = state.aiConfig.devTools || [];
-    if (!already) {
+
+    const existing = state.aiConfig.devTools.find(d =>
+      d.id === id ||
+      (d.name && d.name.toLowerCase() === found.name.toLowerCase()) ||
+      (d.target && d.target.toLowerCase() === found.target.toLowerCase())
+    );
+
+    if (existing) {
+      existing.target = found.target;
+      existing.name = existing.name || found.name;
+      existing.isEnabled = true;
+      if (shouldReload) showToast(found.name + ' path updated.', 'success', 3500);
+    } else {
       state.aiConfig.devTools.push({
         id,
         name: found.name,
@@ -3467,14 +3507,16 @@
         workingDirectory: '',
         isEnabled: true
       });
-      showToast(found.name + ' added to AI Dev Tools.', 'success', 3500);
+      if (shouldReload) showToast(found.name + ' added to AI Dev Tools.', 'success', 3500);
     }
 
-    try {
-      await callBridge('save_ai_config', { config: state.aiConfig });
-    } catch { }
+    if (shouldReload) {
+      try {
+        await callBridge('save_ai_config', { config: state.aiConfig });
+      } catch { }
 
-    await loadDevTools();
+      await loadDevTools();
+    }
   }
 
   async function loadDevTools() {
