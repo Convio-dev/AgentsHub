@@ -20,14 +20,9 @@ public sealed partial class DashboardWebBridge : IDisposable
     private CoreWebView2? _coreWebView;
     private CliWebviewForm? _cliWebviewForm;
 
-    // Debounced terminal output buffers per CLI type (Constraint 3)
+    // Debounced terminal output buffers per CLI session ID
     private readonly Lock _streamLock = new();
-    private readonly Dictionary<CliType, System.Text.StringBuilder> _terminalBuffers = new()
-    {
-        [CliType.Hermes] = new System.Text.StringBuilder(),
-        [CliType.ClaudeCode] = new System.Text.StringBuilder(),
-        [CliType.AntigravityCli] = new System.Text.StringBuilder()
-    };
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder> _terminalStreamBuffers = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Windows.Forms.Timer _streamFlushTimer;
     private readonly System.Windows.Forms.Timer _metricsTimer;
 
@@ -119,14 +114,23 @@ public sealed partial class DashboardWebBridge : IDisposable
             }
         };
 
-        _cliManager.TerminalDataReceived += (type, data) =>
+        _cliManager.TerminalDataReceivedId += (id, data) =>
         {
             // Append incoming stream data into debounced buffer
             lock (_streamLock)
             {
-                if (_terminalBuffers.TryGetValue(type, out var sb))
+                var sb = _terminalStreamBuffers.GetOrAdd(id, _ => new System.Text.StringBuilder());
+                sb.Append(data);
+
+                // Also mirror to canonical aliases so UI listeners with normalized or legacy IDs receive data
+                if (CliManagerService.IsAntigravityProfileId(id, out _))
                 {
-                    sb.Append(data);
+                    _terminalStreamBuffers.GetOrAdd("antigravity_cli", _ => new System.Text.StringBuilder()).Append(data);
+                    _terminalStreamBuffers.GetOrAdd("AntigravityCli", _ => new System.Text.StringBuilder()).Append(data);
+                }
+                else if (string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase))
+                {
+                    _terminalStreamBuffers.GetOrAdd("ClaudeCode", _ => new System.Text.StringBuilder()).Append(data);
                 }
             }
         };
@@ -224,7 +228,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
         lock (_streamLock)
         {
-            foreach (var (cliType, sb) in _terminalBuffers)
+            foreach (var (cliId, sb) in _terminalStreamBuffers)
             {
                 if (sb.Length > 0)
                 {
@@ -233,12 +237,17 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                     PostEventToUi("terminal_data", new
                     {
-                        cli = cliType.ToString(),
+                        cli = cliId,
                         data = chunk
                     });
                 }
             }
         }
+    }
+
+    public void NotifyStandaloneTabSwitched(string cliId)
+    {
+        PostEventToUi("terminal_tab_switched", new { cli = cliId });
     }
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
@@ -565,43 +574,98 @@ public sealed partial class DashboardWebBridge : IDisposable
                 break;
 
             case "toggle_cli":
-                if (data.TryGetProperty("cli", out var cliProp) && Enum.TryParse<CliType>(cliProp.GetString(), out var cliType))
+                if (data.TryGetProperty("cli", out var cliProp))
                 {
-                    var info = _cliManager.GetInfo(cliType);
+                    string targetCli = cliProp.GetString() ?? string.Empty;
+                    var info = _cliManager.GetInfo(targetCli);
                     if (info.State == CliState.Running)
                     {
-                        await _cliManager.StopAsync(cliType);
+                        await _cliManager.StopAsync(targetCli);
                     }
                     else
                     {
-                        _cliManager.Start(cliType);
+                        _cliManager.Start(targetCli);
                     }
-                    SendResponse(requestId, true, new { state = _cliManager.GetInfo(cliType).State.ToString() });
+                    SendResponse(requestId, true, new { state = _cliManager.GetInfo(targetCli).State.ToString() });
                 }
                 break;
 
             case "restart_cli":
-                if (data.TryGetProperty("cli", out var rCli) && Enum.TryParse<CliType>(rCli.GetString(), out var rType))
+                if (data.TryGetProperty("cli", out var rCli))
                 {
-                    await _cliManager.RestartAsync(rType);
+                    string targetCli = rCli.GetString() ?? string.Empty;
+                    await _cliManager.RestartAsync(targetCli);
+                    SendResponse(requestId, true, new { success = true });
+                }
+                break;
+
+            case "get_terminal_session":
+                {
+                    string reqCli = data.TryGetProperty("cli", out var gCli) ? (gCli.GetString() ?? "hermes") : "hermes";
+                    string normId = AiConfigService.NormalizeCliId(reqCli);
+
+                    if (string.Equals(normId, "hermes", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var hermesInfo = _cliManager.GetInfo("hermes");
+                        int hermesPort = _cliManager.HermesService.Port;
+                        SendResponse(requestId, true, new
+                        {
+                            cli = "hermes",
+                            isRunning = hermesInfo.State == CliState.Running,
+                            status = hermesInfo.StatusText,
+                            history = string.Empty,
+                            isWebUi = true,
+                            webUrl = $"http://127.0.0.1:{hermesPort}/",
+                            port = hermesPort,
+                            displayName = hermesInfo.DisplayName
+                        });
+                    }
+                    else
+                    {
+                        var resolvedId = _cliManager.ResolveSessionId(normId);
+                        var info = _cliManager.GetInfo(resolvedId);
+                        var history = _cliManager.GetTerminalHistory(resolvedId);
+                        SendResponse(requestId, true, new
+                        {
+                            cli = normId,
+                            resolvedId,
+                            isRunning = info.State == CliState.Running,
+                            status = info.StatusText,
+                            history,
+                            isWebUi = false,
+                            webUrl = info.WebUrl ?? (info.Port != null ? $"http://127.0.0.1:{info.Port}" : string.Empty),
+                            port = info.Port,
+                            displayName = info.DisplayName
+                        });
+                    }
+                }
+                break;
+
+            case "clear_terminal_history":
+                if (data.TryGetProperty("cli", out var clrCli))
+                {
+                    string target = clrCli.GetString() ?? string.Empty;
+                    _cliManager.ClearTerminalHistory(target);
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
 
             case "send_terminal_input":
-                if (data.TryGetProperty("cli", out var inCli) && Enum.TryParse<CliType>(inCli.GetString(), out var inType) &&
+                if ((data.TryGetProperty("cli", out var inCli) || data.TryGetProperty("id", out inCli)) &&
                     data.TryGetProperty("input", out var inData))
                 {
-                    _cliManager.SendInput(inType, inData.GetString() ?? string.Empty);
+                    string target = inCli.GetString() ?? string.Empty;
+                    _cliManager.SendInput(target, inData.GetString() ?? string.Empty);
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
 
             case "resize_terminal":
-                if (data.TryGetProperty("cli", out var szCli) && Enum.TryParse<CliType>(szCli.GetString(), out var szType) &&
+                if ((data.TryGetProperty("cli", out var szCli) || data.TryGetProperty("id", out szCli)) &&
                     data.TryGetProperty("cols", out var cols) && data.TryGetProperty("rows", out var rows))
                 {
-                    _cliManager.Resize(szType, (short)cols.GetInt32(), (short)rows.GetInt32());
+                    string target = szCli.GetString() ?? string.Empty;
+                    _cliManager.Resize(target, (short)cols.GetInt32(), (short)rows.GetInt32());
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
@@ -1413,6 +1477,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "open_standalone_terminals":
                 try
                 {
+                    string targetTab = data.TryGetProperty("cli", out var popCli) ? (popCli.GetString() ?? string.Empty) : string.Empty;
                     _mainForm.Invoke(() =>
                     {
                         if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
@@ -1423,6 +1488,12 @@ public sealed partial class DashboardWebBridge : IDisposable
                         {
                             _cliWebviewForm.SetMainForm(_mainForm);
                         }
+
+                        if (!string.IsNullOrWhiteSpace(targetTab))
+                        {
+                            _cliWebviewForm.SwitchTab(targetTab);
+                        }
+
                         _cliWebviewForm.ApplyTheme();
                         if (_cliWebviewForm.WindowState == FormWindowState.Minimized)
                         {
@@ -1443,6 +1514,22 @@ public sealed partial class DashboardWebBridge : IDisposable
                 {
                     Debug.WriteLine($"[DashboardWebBridge] open_standalone_terminals error: {ex}");
                     SendResponse(requestId, false, ex.Message);
+                }
+                break;
+
+            case "sync_terminal_tab":
+                if (data.TryGetProperty("cli", out var syncCliProp))
+                {
+                    string syncCli = syncCliProp.GetString() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(syncCli) && _cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                    {
+                        try
+                        {
+                            _mainForm.Invoke(() => _cliWebviewForm.SwitchTab(syncCli));
+                        }
+                        catch { }
+                    }
+                    SendResponse(requestId, true, new { success = true });
                 }
                 break;
 

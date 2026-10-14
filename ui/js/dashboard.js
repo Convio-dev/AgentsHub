@@ -32,7 +32,7 @@
     aiConfig: { providers: [], toolTargets: {}, devTools: [], shortcuts: [], selectedProviderId: null, selectedModel: null, promptPresets: [], builtInPromptPresets: [], activePromptPresetId: 'preset_general', promptEnhancerTemperature: 0.6 },
     settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', enableHardwareMonitor: localStorage.getItem('agents_hub_enable_hardware_monitor') === 'true', theme: 'dark', accentColor: '#4049B9' },
     activeView: 'dashboard',
-    activeTerminalCli: 'Hermes',
+    activeTerminalCli: 'hermes',
     selectedProvider: null,
     workspaces: [],
     activeWorkspaceId: null,
@@ -301,6 +301,12 @@
           updateHeaderStatus();
           updateDashboardCliRows();
           renderRunningPorts();
+          if (state.activeView === 'terminals') {
+            const normUpdated = normalizeCliKey(payload.cli);
+            if (normUpdated === normalizeCliKey(state.activeTerminalCli)) {
+              switchInteractiveTerminalTab(state.activeTerminalCli, false);
+            }
+          }
         }
         break;
 
@@ -318,9 +324,17 @@
 
       case 'terminal_data':
         if (payload && payload.data) {
-          if (termInstance && payload.cli === state.activeTerminalCli) {
-            termInstance.write(payload.data);
+          const normKey = normalizeCliKey(payload.cli);
+          const session = terminalSessions[normKey];
+          if (session && session.term) {
+            session.term.write(payload.data);
           }
+        }
+        break;
+
+      case 'terminal_tab_switched':
+        if (payload && payload.cli) {
+          switchInteractiveTerminalTab(payload.cli, false);
         }
         break;
 
@@ -882,7 +896,7 @@
 
     if (viewName === 'terminals') {
       setTimeout(() => {
-        if (fitAddonInstance) fitAddonInstance.fit();
+        switchInteractiveTerminalTab(state.activeTerminalCli || 'hermes', false);
       }, 50);
     }
 
@@ -1522,15 +1536,31 @@
     });
   }
 
-  // Terminal (xterm.js) Management
-  let termInstance = null;
-  let fitAddonInstance = null;
+  // Terminal (xterm.js) Management & Multi-Session Panes
+  const terminalSessions = {};
 
-  function initTerminal() {
-    const container = document.getElementById('xterm-container');
-    if (!container || typeof Terminal === 'undefined') return;
+  function normalizeCliKey(key) {
+    if (!key) return 'hermes';
+    const lk = String(key).toLowerCase();
+    if (lk === 'hermes') return 'hermes';
+    if (lk === 'claudecode' || lk === 'claude_code' || lk === 'claude') return 'claude_code';
+    if (lk === 'antigravitycli' || lk === 'antigravity_cli' || lk === 'agy' || lk.startsWith('antigravity_cli:')) return 'antigravity_cli';
+    return key;
+  }
 
-    termInstance = new Terminal({
+  function getOrCreateTerminalSession(cliId) {
+    const normId = normalizeCliKey(cliId);
+    if (terminalSessions[normId]) return terminalSessions[normId];
+
+    const wrapper = document.getElementById('term-panes-wrapper');
+    if (!wrapper || typeof Terminal === 'undefined') return null;
+
+    const container = document.createElement('div');
+    container.id = `term-pane-${normId}`;
+    container.className = 'term-pane-instance hidden';
+    wrapper.appendChild(container);
+
+    const term = new Terminal({
       cursorBlink: true,
       fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
       fontSize: 13,
@@ -1542,52 +1572,205 @@
       }
     });
 
+    let fitAddon = null;
     if (typeof FitAddon !== 'undefined' && FitAddon.FitAddon) {
-      fitAddonInstance = new FitAddon.FitAddon();
-      termInstance.loadAddon(fitAddonInstance);
+      fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
     }
 
-    termInstance.open(container);
-    if (fitAddonInstance) fitAddonInstance.fit();
+    term.open(container);
 
-    termInstance.onData(data => {
+    term.onData(data => {
       callBridge('send_terminal_input', {
-        cli: state.activeTerminalCli,
+        cli: normId,
         input: data
       });
     });
 
-    window.addEventListener('resize', () => {
-      if (fitAddonInstance && state.activeView === 'terminals') {
-        fitAddonInstance.fit();
-        callBridge('resize_terminal', {
-          cli: state.activeTerminalCli,
-          cols: termInstance.cols,
-          rows: termInstance.rows
-        });
+    const session = {
+      cliId: normId,
+      term,
+      fitAddon,
+      container,
+      isLoaded: false,
+      isRunning: false,
+      info: null
+    };
+
+    terminalSessions[normId] = session;
+    return session;
+  }
+
+  async function switchInteractiveTerminalTab(cliId, syncToStandalone = true) {
+    const normId = normalizeCliKey(cliId);
+    state.activeTerminalCli = normId;
+
+    document.querySelectorAll('#interactive-terminal-tabs .term-tab, .terminal-tabs .term-tab').forEach(t => {
+      const tabTerm = normalizeCliKey(t.dataset.term);
+      t.classList.toggle('active', tabTerm === normId);
+    });
+
+    const webFrame = document.getElementById('terminal-web-frame');
+    const panesWrapper = document.getElementById('term-panes-wrapper');
+    const overlay = document.getElementById('terminal-offline-overlay');
+    const overlayStatus = document.getElementById('terminal-offline-status');
+    const overlayTitle = document.getElementById('terminal-offline-title');
+    const overlayBadge = document.getElementById('terminal-offline-badge');
+    const startBtn = document.getElementById('btn-terminal-start-cli');
+
+    if (syncToStandalone) {
+      callBridge('sync_terminal_tab', { cli: normId }).catch(() => {});
+    }
+
+    let sessionInfo = null;
+    try {
+      sessionInfo = await callBridge('get_terminal_session', { cli: normId });
+    } catch (e) {
+      console.warn('Failed to get terminal session info:', e);
+    }
+
+    if (!sessionInfo) {
+      sessionInfo = {
+        cli: normId,
+        isRunning: false,
+        isWebUi: normId === 'hermes',
+        webUrl: normId === 'hermes' ? 'http://127.0.0.1:9119/' : '',
+        status: 'Offline',
+        history: ''
+      };
+    }
+
+    if (sessionInfo.isWebUi) {
+      if (overlay) overlay.classList.add('hidden');
+      if (panesWrapper) panesWrapper.style.display = 'none';
+      if (webFrame) {
+        webFrame.style.display = 'block';
+        const targetUrl = sessionInfo.isRunning ? (sessionInfo.webUrl || 'http://127.0.0.1:9119/') : 'hermes-offline.html';
+        if (!webFrame.src || !webFrame.src.includes(targetUrl)) {
+          webFrame.src = targetUrl;
+        }
+      }
+      return;
+    }
+
+    if (webFrame) webFrame.style.display = 'none';
+    if (panesWrapper) panesWrapper.style.display = 'block';
+
+    Object.values(terminalSessions).forEach(s => {
+      if (s.container) {
+        s.container.classList.toggle('hidden', s.cliId !== normId);
       }
     });
 
-    // Terminal Tabs
-    document.querySelectorAll('.term-tab').forEach(tab => {
+    const session = getOrCreateTerminalSession(normId);
+    if (!session) return;
+
+    session.isRunning = !!sessionInfo.isRunning;
+    session.info = sessionInfo;
+
+    if (!session.isLoaded) {
+      session.isLoaded = true;
+      if (sessionInfo.history) {
+        session.term.write(sessionInfo.history);
+      } else {
+        session.term.writeln(`\x1b[32m[Connected to ${sessionInfo.displayName || normId} Terminal]\x1b[0m\r\n`);
+      }
+    }
+
+    if (!session.isRunning) {
+      if (overlay) {
+        overlay.classList.remove('hidden');
+        if (overlayBadge) overlayBadge.textContent = `${sessionInfo.displayName || normId} Offline`;
+        if (overlayTitle) overlayTitle.textContent = `${sessionInfo.displayName || normId} is not running`;
+        if (overlayStatus) overlayStatus.textContent = sessionInfo.status || 'The process is currently stopped.';
+        if (startBtn) {
+          startBtn.textContent = `Start ${sessionInfo.displayName || normId}`;
+          startBtn.onclick = async () => {
+            startBtn.disabled = true;
+            try {
+              await callBridge('toggle_cli', { cli: normId });
+              setTimeout(() => switchInteractiveTerminalTab(normId, true), 300);
+            } catch (err) {
+              showToast('Failed to start CLI: ' + err.message, 'error', 4000);
+            } finally {
+              startBtn.disabled = false;
+            }
+          };
+        }
+      }
+    } else {
+      if (overlay) overlay.classList.add('hidden');
+      setTimeout(() => {
+        if (session.fitAddon) {
+          session.fitAddon.fit();
+          callBridge('resize_terminal', {
+            cli: normId,
+            cols: session.term.cols,
+            rows: session.term.rows
+          }).catch(() => {});
+        }
+        session.term.focus();
+      }, 50);
+    }
+  }
+
+  function initTerminal() {
+    window.addEventListener('resize', () => {
+      if (state.activeView === 'terminals') {
+        const normId = normalizeCliKey(state.activeTerminalCli);
+        const session = terminalSessions[normId];
+        if (session && session.fitAddon) {
+          session.fitAddon.fit();
+          callBridge('resize_terminal', {
+            cli: normId,
+            cols: session.term.cols,
+            rows: session.term.rows
+          }).catch(() => {});
+        }
+      }
+    });
+
+    document.querySelectorAll('#interactive-terminal-tabs .term-tab, .terminal-tabs .term-tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.term-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        state.activeTerminalCli = tab.dataset.term;
-        termInstance.clear();
-        termInstance.writeln(`\x1b[32m[Connected to ${state.activeTerminalCli} Terminal]\x1b[0m\r\n`);
+        const targetCli = tab.dataset.term;
+        switchInteractiveTerminalTab(targetCli, true);
       });
     });
 
-    document.getElementById('btn-clear-terminal')?.addEventListener('click', () => {
-      if (termInstance) termInstance.clear();
+    document.getElementById('btn-clear-terminal')?.addEventListener('click', async () => {
+      const normId = normalizeCliKey(state.activeTerminalCli);
+      const session = terminalSessions[normId];
+      if (session && session.term) {
+        session.term.clear();
+      }
+      await callBridge('clear_terminal_history', { cli: normId }).catch(() => {});
     });
 
-    document.getElementById('btn-term-open-browser')?.addEventListener('click', () => {
-      const port = state.activeTerminalCli === 'Hermes' ? 9095 : (state.activeTerminalCli === 'ClaudeCode' ? 9229 : 9339);
-      const themeParam = currentThemeParam();
-      callBridge('open_url_external', { url: `http://127.0.0.1:${port}/${themeParam}` });
+    document.getElementById('btn-term-open-browser')?.addEventListener('click', async () => {
+      const normId = normalizeCliKey(state.activeTerminalCli);
+      try {
+        const sessionInfo = await callBridge('get_terminal_session', { cli: normId });
+        let url = '';
+        if (sessionInfo && sessionInfo.webUrl) {
+          url = sessionInfo.webUrl;
+        } else if (sessionInfo && sessionInfo.port) {
+          url = `http://127.0.0.1:${sessionInfo.port}/`;
+        } else if (normId === 'hermes') {
+          url = 'http://127.0.0.1:9119/';
+        } else if (normId === 'claude_code') {
+          url = 'http://127.0.0.1:9229/';
+        } else {
+          url = 'http://127.0.0.1:9339/';
+        }
+        const themeParam = currentThemeParam();
+        const sep = url.includes('?') ? '&' : '?';
+        callBridge('open_url_external', { url: `${url}${themeParam ? sep + themeParam.replace('?', '') : ''}` });
+      } catch (err) {
+        console.warn('Failed to open external browser for terminal:', err);
+      }
     });
+
+    switchInteractiveTerminalTab(state.activeTerminalCli || 'hermes', false);
   }
 
   async function launchAntigravityAppFromDash() {
@@ -5818,7 +6001,7 @@
     });
 
     // Standalone Terminals Window Popouts
-    const openStandalone = () => callBridge('open_standalone_terminals');
+    const openStandalone = () => callBridge('open_standalone_terminals', { cli: normalizeCliKey(state.activeTerminalCli) });
     document.getElementById('btn-popout-terminals')?.addEventListener('click', openStandalone);
     document.getElementById('btn-popout-terminals-dash')?.addEventListener('click', openStandalone);
     document.getElementById('btn-open-standalone-hdr')?.addEventListener('click', openStandalone);
