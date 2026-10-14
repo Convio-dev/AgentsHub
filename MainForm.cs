@@ -24,8 +24,24 @@ public partial class MainForm : Form
     private NotifyIcon? _notifyIcon;
     private ContextMenuStrip? _trayContextMenu;
     private ToolStripMenuItem? _trayOpenItem;
+    private ToolStripMenuItem? _trayCliWorkspaceItem;
+    private ToolStripMenuItem? _trayHudItem;
+    private ToolStripMenuItem? _trayBrowserDashboardItem;
+    private ToolStripMenuItem? _trayCopyLanItem;
+    private ToolStripMenuItem? _trayPresetsMenu;
+    private ToolStripMenuItem? _trayPresetDuoItem;
+    private ToolStripMenuItem? _trayPresetAllItem;
+    private ToolStripMenuItem? _trayPresetCleanItem;
+    private ToolStripMenuItem? _trayProfilesMenu;
+    private ToolStripMenuItem? _trayCliControlsMenu;
     private ToolStripMenuItem? _trayStartAllItem;
     private ToolStripMenuItem? _trayStopAllItem;
+    private ToolStripMenuItem? _trayRestartAllItem;
+    private ToolStripMenuItem? _trayCliHermesItem;
+    private ToolStripMenuItem? _trayCliClaudeItem;
+    private ToolStripMenuItem? _trayCliAntigravityItem;
+    private ToolStripMenuItem? _trayToggleThemeItem;
+    private ToolStripMenuItem? _trayRestartAppItem;
     private ToolStripMenuItem? _trayExitItem;
 
     private bool _isExiting;
@@ -94,6 +110,18 @@ public partial class MainForm : Form
 
         // Setup System Tray
         SetupSystemTray();
+
+        ThemeManager.ThemeChanged += () =>
+        {
+            if (IsHandleCreated && !IsDisposed)
+            {
+                BeginInvoke(new Action(() =>
+                {
+                    ThemeManager.ApplyDwmTitleBarTheme(Handle);
+                    ApplyTrayTheme();
+                }));
+            }
+        };
 
         // Setup WebView2 Workspace
         _ = InitializeWebViewAsync(startMinimized);
@@ -165,11 +193,54 @@ public partial class MainForm : Form
     private void SetupSystemTray()
     {
         _trayContextMenu = new ContextMenuStrip();
+        _trayContextMenu.Opening += TrayContextMenu_Opening;
 
         _trayOpenItem = new ToolStripMenuItem("Open Agents Hub", null, (_, _) => ShowAndActivate())
         {
             Font = new Font("Segoe UI", 9F, FontStyle.Bold)
         };
+
+        _trayCliWorkspaceItem = new ToolStripMenuItem("CLI Terminal Workspace", null, (_, _) =>
+        {
+            _dashboardWebBridge?.ToggleOrShowCliWebview();
+        });
+
+        _trayHudItem = new ToolStripMenuItem("Quake HUD Terminal [F12]", null, (_, _) =>
+        {
+            ToggleHudDropdown();
+        });
+
+        _trayBrowserDashboardItem = new ToolStripMenuItem("Open Web Dashboard in Browser", null, (_, _) =>
+        {
+            OpenDashboardInBrowser();
+        });
+
+        _trayCopyLanItem = new ToolStripMenuItem("Copy Mobile / LAN Link", null, (_, _) =>
+        {
+            CopyLanDashboardLink();
+        });
+
+        _trayPresetsMenu = new ToolStripMenuItem("Workspace Presets");
+        _trayPresetDuoItem = new ToolStripMenuItem("AI Duo (Claude + agy)", null, (_, _) =>
+        {
+            ApplyWorkspacePresetFromTray("Preset_Duo", "AI Duo (Claude + agy)");
+        });
+        _trayPresetAllItem = new ToolStripMenuItem("Full Suite (All CLIs)", null, (_, _) =>
+        {
+            ApplyWorkspacePresetFromTray("Preset_All", "Full Suite (All CLIs)");
+        });
+        _trayPresetCleanItem = new ToolStripMenuItem("Clean Slate", null, (_, _) =>
+        {
+            ApplyWorkspacePresetFromTray("Preset_Clean", "Clean Slate");
+        });
+        _trayPresetsMenu.DropDownItems.Add(_trayPresetDuoItem);
+        _trayPresetsMenu.DropDownItems.Add(_trayPresetAllItem);
+        _trayPresetsMenu.DropDownItems.Add(_trayPresetCleanItem);
+
+        _trayProfilesMenu = new ToolStripMenuItem("Switch Antigravity Profile");
+
+        _trayCliControlsMenu = new ToolStripMenuItem("CLI Engines & Controls");
+
         _trayStartAllItem = new ToolStripMenuItem("Start All CLIs", null, (_, _) =>
         {
             if (_cliManager != null)
@@ -177,8 +248,10 @@ public partial class MainForm : Form
                 _cliManager.Start(CliType.Hermes);
                 _cliManager.Start(CliType.ClaudeCode);
                 _cliManager.Start(CliType.AntigravityCli);
+                ShowTrayBalloon("CLI Engines", "Started all CLIs.");
             }
         });
+
         _trayStopAllItem = new ToolStripMenuItem("Stop All CLIs", null, async (_, _) =>
         {
             if (_cliManager != null)
@@ -186,16 +259,86 @@ public partial class MainForm : Form
                 await _cliManager.StopAsync(CliType.Hermes);
                 await _cliManager.StopAsync(CliType.ClaudeCode);
                 await _cliManager.StopAsync(CliType.AntigravityCli);
+                ShowTrayBalloon("CLI Engines", "Stopped all CLIs.");
             }
         });
+
+        _trayRestartAllItem = new ToolStripMenuItem("Restart All CLIs", null, async (_, _) =>
+        {
+            await RestartAllClisAsync();
+        });
+
+        _trayCliHermesItem = new ToolStripMenuItem("Hermes Web", null, async (_, _) =>
+        {
+            if (_cliManager == null) return;
+            if (_cliManager.GetInfo(CliType.Hermes).State == CliState.Running)
+            {
+                await _cliManager.StopAsync(CliType.Hermes);
+            }
+            else
+            {
+                _cliManager.Start(CliType.Hermes);
+            }
+        });
+
+        _trayCliClaudeItem = new ToolStripMenuItem("Claude Code", null, async (_, _) =>
+        {
+            if (_cliManager == null) return;
+            if (_cliManager.GetInfo(CliType.ClaudeCode).State == CliState.Running)
+            {
+                await _cliManager.StopAsync(CliType.ClaudeCode);
+            }
+            else
+            {
+                _cliManager.Start(CliType.ClaudeCode);
+            }
+        });
+
+        _trayCliAntigravityItem = new ToolStripMenuItem("Antigravity CLI", null, async (_, _) =>
+        {
+            if (_cliManager == null) return;
+            if (_cliManager.GetInfo(CliType.AntigravityCli).State == CliState.Running)
+            {
+                await _cliManager.StopAsync(CliType.AntigravityCli);
+            }
+            else
+            {
+                _cliManager.Start(CliType.AntigravityCli);
+            }
+        });
+
+        _trayCliControlsMenu.DropDownItems.Add(_trayStartAllItem);
+        _trayCliControlsMenu.DropDownItems.Add(_trayStopAllItem);
+        _trayCliControlsMenu.DropDownItems.Add(_trayRestartAllItem);
+        _trayCliControlsMenu.DropDownItems.Add(new ToolStripSeparator());
+        _trayCliControlsMenu.DropDownItems.Add(_trayCliHermesItem);
+        _trayCliControlsMenu.DropDownItems.Add(_trayCliClaudeItem);
+        _trayCliControlsMenu.DropDownItems.Add(_trayCliAntigravityItem);
+
+        _trayToggleThemeItem = new ToolStripMenuItem("Switch Theme", null, (_, _) =>
+        {
+            ThemeManager.ToggleTheme();
+        });
+
+        _trayRestartAppItem = new ToolStripMenuItem("Restart Agents Hub", null, (_, _) => RestartApplication());
         _trayExitItem = new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication());
 
         _trayContextMenu.Items.Add(_trayOpenItem);
         _trayContextMenu.Items.Add(new ToolStripSeparator());
-        _trayContextMenu.Items.Add(_trayStartAllItem);
-        _trayContextMenu.Items.Add(_trayStopAllItem);
+        _trayContextMenu.Items.Add(_trayCliWorkspaceItem);
+        _trayContextMenu.Items.Add(_trayHudItem);
+        _trayContextMenu.Items.Add(_trayBrowserDashboardItem);
+        _trayContextMenu.Items.Add(_trayCopyLanItem);
         _trayContextMenu.Items.Add(new ToolStripSeparator());
+        _trayContextMenu.Items.Add(_trayPresetsMenu);
+        _trayContextMenu.Items.Add(_trayProfilesMenu);
+        _trayContextMenu.Items.Add(_trayCliControlsMenu);
+        _trayContextMenu.Items.Add(new ToolStripSeparator());
+        _trayContextMenu.Items.Add(_trayToggleThemeItem);
+        _trayContextMenu.Items.Add(_trayRestartAppItem);
         _trayContextMenu.Items.Add(_trayExitItem);
+
+        ApplyTrayTheme();
 
         _notifyIcon = new NotifyIcon
         {
@@ -206,6 +349,265 @@ public partial class MainForm : Form
         };
 
         _notifyIcon.DoubleClick += (_, _) => ShowAndActivate();
+    }
+
+    private void TrayContextMenu_Opening(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        bool hudEnabled = StartupHelper.GetPreference("GlobalHudHotkey", true);
+        if (_trayHudItem != null)
+        {
+            if (hudEnabled)
+            {
+                string key = StartupHelper.GetStringPreference("HudHotkeyKey", "F12");
+                string mod = StartupHelper.GetStringPreference("HudHotkeyModifier", "None");
+                string hkLabel = mod.Equals("None", StringComparison.OrdinalIgnoreCase) ? key : $"{mod}+{key}";
+                _trayHudItem.Text = $"Quake HUD Terminal [{hkLabel}]";
+            }
+            else
+            {
+                _trayHudItem.Text = "Quake HUD Terminal (Disabled)";
+            }
+        }
+
+        string activePreset = AiConfigService.Instance.GetTerminalWorkspacePreset();
+        if (_trayPresetDuoItem != null)
+            _trayPresetDuoItem.Checked = string.Equals(activePreset, "Preset_Duo", StringComparison.OrdinalIgnoreCase);
+        if (_trayPresetAllItem != null)
+            _trayPresetAllItem.Checked = string.Equals(activePreset, "Preset_All", StringComparison.OrdinalIgnoreCase);
+        if (_trayPresetCleanItem != null)
+            _trayPresetCleanItem.Checked = string.Equals(activePreset, "Preset_Clean", StringComparison.OrdinalIgnoreCase);
+
+        if (_trayProfilesMenu != null)
+        {
+            _trayProfilesMenu.DropDownItems.Clear();
+            var profiles = _cliManager?.ProfileService.GetProfiles() ?? [];
+            string activeProf = _cliManager?.ProfileService.ActiveProfile ?? string.Empty;
+
+            if (profiles.Count == 0)
+            {
+                _trayProfilesMenu.DropDownItems.Add(new ToolStripMenuItem("(No profiles configured)") { Enabled = false });
+            }
+            else
+            {
+                foreach (var prof in profiles)
+                {
+                    string p = prof;
+                    bool isAct = string.Equals(p, activeProf, StringComparison.OrdinalIgnoreCase);
+                    var pItem = new ToolStripMenuItem(p, null, async (_, _) =>
+                    {
+                        if (_cliManager != null)
+                        {
+                            await _cliManager.SwitchAntigravityProfileAsync(p);
+                            ShowTrayBalloon("Antigravity Profile", $"Switched active profile to '{p}'");
+                        }
+                    })
+                    {
+                        Checked = isAct
+                    };
+                    _trayProfilesMenu.DropDownItems.Add(pItem);
+                }
+            }
+        }
+
+        if (_cliManager != null)
+        {
+            var hermesState = _cliManager.GetInfo(CliType.Hermes).State;
+            bool hermesRunning = hermesState == CliState.Running;
+            if (_trayCliHermesItem != null)
+                _trayCliHermesItem.Text = $"Hermes Web ({(hermesRunning ? "● Running" : "○ Stopped")})";
+
+            var claudeState = _cliManager.GetInfo(CliType.ClaudeCode).State;
+            bool claudeRunning = claudeState == CliState.Running;
+            if (_trayCliClaudeItem != null)
+                _trayCliClaudeItem.Text = $"Claude Code ({(claudeRunning ? "● Running" : "○ Stopped")})";
+
+            var agyState = _cliManager.GetInfo(CliType.AntigravityCli).State;
+            bool agyRunning = agyState == CliState.Running;
+            if (_trayCliAntigravityItem != null)
+                _trayCliAntigravityItem.Text = $"Antigravity CLI ({(agyRunning ? "● Running" : "○ Stopped")})";
+        }
+
+        if (_trayToggleThemeItem != null)
+        {
+            _trayToggleThemeItem.Text = ThemeManager.CurrentTheme == AppTheme.Dark
+                ? "Switch to Light Theme"
+                : "Switch to Dark Theme";
+        }
+
+        ApplyTrayTheme();
+    }
+
+    private void ApplyWorkspacePresetFromTray(string presetName, string friendlyName)
+    {
+        AiConfigService.Instance.ApplyWorkspacePreset(presetName);
+        try
+        {
+            if (_dashboardWebBridge?.CliWebviewForm != null && !_dashboardWebBridge.CliWebviewForm.IsDisposed)
+            {
+                _dashboardWebBridge.CliWebviewForm.RebuildTabs();
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[MainForm] RebuildTabs error: {ex.Message}");
+        }
+
+        ShowTrayBalloon("Workspace Preset", $"Applied '{friendlyName}' preset");
+    }
+
+    private async Task RestartAllClisAsync()
+    {
+        if (_cliManager == null) return;
+        ShowTrayBalloon("CLI Engines", "Restarting CLI engines...");
+        await _cliManager.StopAsync(CliType.Hermes);
+        await _cliManager.StopAsync(CliType.ClaudeCode);
+        await _cliManager.StopAsync(CliType.AntigravityCli);
+        await Task.Delay(400);
+        _cliManager.Start(CliType.Hermes);
+        _cliManager.Start(CliType.ClaudeCode);
+        _cliManager.Start(CliType.AntigravityCli);
+        ShowTrayBalloon("CLI Engines", "All active CLI engines restarted.");
+    }
+
+    private void OpenDashboardInBrowser()
+    {
+        try
+        {
+            int lanPort = _lanProxyService?.ListenPort ?? StartupHelper.GetIntPreference("LanPort", 9191);
+            string url = $"http://127.0.0.1:{lanPort}/";
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowTrayBalloon("Error", $"Could not open browser: {ex.Message}");
+        }
+    }
+
+    private void CopyLanDashboardLink()
+    {
+        try
+        {
+            string lanIp = NetworkHelper.GetLocalIPv4();
+            int lanPort = _lanProxyService?.ListenPort ?? StartupHelper.GetIntPreference("LanPort", 9191);
+            string url = $"http://{lanIp}:{lanPort}/";
+            Clipboard.SetText(url);
+            ShowTrayBalloon("LAN Link Copied", url);
+        }
+        catch (Exception ex)
+        {
+            ShowTrayBalloon("Copy Error", $"Could not copy link: {ex.Message}");
+        }
+    }
+
+    private void RestartApplication()
+    {
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(exePath))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    UseShellExecute = true
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[MainForm] RestartApplication error: {ex.Message}");
+        }
+
+        ExitApplication();
+    }
+
+    private void ApplyTrayTheme()
+    {
+        if (_trayContextMenu == null) return;
+
+        var c = ThemeManager.Colors;
+        _trayContextMenu.Renderer = new TrayMenuRenderer();
+        _trayContextMenu.BackColor = c.CardBackground;
+        _trayContextMenu.ForeColor = c.TextPrimary;
+
+        ApplyThemeToMenuItems(_trayContextMenu.Items, c);
+    }
+
+    private static void ApplyThemeToMenuItems(ToolStripItemCollection items, ThemeColors c)
+    {
+        foreach (ToolStripItem item in items)
+        {
+            item.BackColor = c.CardBackground;
+            item.ForeColor = c.TextPrimary;
+
+            if (item is ToolStripDropDownItem dropDownItem && dropDownItem.HasDropDownItems)
+            {
+                dropDownItem.DropDown.BackColor = c.CardBackground;
+                dropDownItem.DropDown.ForeColor = c.TextPrimary;
+                ApplyThemeToMenuItems(dropDownItem.DropDownItems, c);
+            }
+        }
+    }
+
+    private sealed class TrayColorTable : ProfessionalColorTable
+    {
+        public override Color MenuItemSelected => ThemeManager.Colors.ButtonHover;
+        public override Color MenuItemSelectedGradientBegin => ThemeManager.Colors.ButtonHover;
+        public override Color MenuItemSelectedGradientEnd => ThemeManager.Colors.ButtonHover;
+        public override Color MenuBorder => ThemeManager.Colors.CardBorder;
+        public override Color MenuItemBorder => Color.Transparent;
+        public override Color ToolStripDropDownBackground => ThemeManager.Colors.CardBackground;
+        public override Color ImageMarginGradientBegin => ThemeManager.Colors.CardBackground;
+        public override Color ImageMarginGradientMiddle => ThemeManager.Colors.CardBackground;
+        public override Color ImageMarginGradientEnd => ThemeManager.Colors.CardBackground;
+        public override Color SeparatorDark => ThemeManager.Colors.CardBorder;
+        public override Color SeparatorLight => ThemeManager.Colors.CardBorder;
+        public override Color CheckBackground => ThemeManager.Colors.ButtonHover;
+        public override Color CheckSelectedBackground => ThemeManager.Colors.AccentGreen;
+        public override Color CheckPressedBackground => ThemeManager.Colors.AccentGreen;
+        public override Color ButtonSelectedHighlight => ThemeManager.Colors.ButtonHover;
+        public override Color ButtonCheckedHighlight => ThemeManager.Colors.AccentGreen;
+    }
+
+    private sealed class TrayMenuRenderer : ToolStripProfessionalRenderer
+    {
+        public TrayMenuRenderer() : base(new TrayColorTable())
+        {
+            RoundedEdges = false;
+        }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            e.TextColor = ThemeManager.Colors.TextPrimary;
+            base.OnRenderItemText(e);
+        }
+
+        protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+        {
+            e.ArrowColor = ThemeManager.Colors.TextSecondary;
+            base.OnRenderArrow(e);
+        }
+
+        protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+        {
+            var g = e.Graphics;
+            var r = e.ImageRectangle;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            var checkRect = new Rectangle(r.X + 2, r.Y + 2, Math.Max(12, r.Width - 4), Math.Max(12, r.Height - 4));
+            using var bgBrush = new SolidBrush(ThemeManager.Colors.AccentGreen);
+            g.FillRectangle(bgBrush, checkRect);
+
+            using var pen = new Pen(ThemeManager.Colors.AccentGreenText, 1.8f);
+            var p1 = new Point(checkRect.Left + 3, checkRect.Top + checkRect.Height / 2);
+            var p2 = new Point(checkRect.Left + checkRect.Width / 2 - 1, checkRect.Bottom - 4);
+            var p3 = new Point(checkRect.Right - 3, checkRect.Top + 3);
+            g.DrawLines(pen, new[] { p1, p2, p3 });
+        }
     }
 
     public void ShowAndActivate()
@@ -263,6 +665,7 @@ public partial class MainForm : Form
         {
             ThemeManager.ApplyDwmTitleBarTheme(Handle);
         }
+        ApplyTrayTheme();
     }
 
     public void ShowTrayBalloon(string title, string text)
