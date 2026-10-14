@@ -134,7 +134,7 @@ public partial class MainForm : Form
             // surface, not a browser. AreDevToolsEnabled = false removes the DevTools window
             // itself, the context-menu "Inspect" entry, and the F12 / Ctrl+Shift+I shortcuts.
             _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-            _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
             _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             _webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
 
@@ -386,7 +386,8 @@ public partial class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (!_isExiting && e.CloseReason == CloseReason.UserClosing)        {
+        if (!_isExiting && e.CloseReason == CloseReason.UserClosing)
+        {
             var minimizeToTray = StartupHelper.GetPreference("MinimizeToTray", true);
             if (minimizeToTray)
             {

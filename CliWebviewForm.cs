@@ -35,7 +35,34 @@ public partial class CliWebviewForm : Form
     }
 
     private readonly CliManagerService? _cliManager;
-    private string _activeTabId = "hermes";
+    private string _primaryTabId = "hermes";
+    private string _secondaryTabId = "claude_code";
+    private bool _isSplitActive;
+    private int _splitterDragOffset = 3;
+    private WorkspacePane _focusedPane = WorkspacePane.Primary;
+
+    public enum WorkspacePane
+    {
+        Primary,
+        Secondary
+    }
+
+    private string _activeTabId
+    {
+        get => _isSplitActive && _focusedPane == WorkspacePane.Secondary ? _secondaryTabId : _primaryTabId;
+        set
+        {
+            if (_isSplitActive && _focusedPane == WorkspacePane.Secondary)
+            {
+                _secondaryTabId = value;
+            }
+            else
+            {
+                _primaryTabId = value;
+            }
+        }
+    }
+
     private bool _hermesInitialized;
     private readonly string _terminalHtmlPath = string.Empty;
     private readonly string _hermesOfflineHtmlPath = string.Empty;
@@ -46,6 +73,13 @@ public partial class CliWebviewForm : Form
     private Microsoft.Web.WebView2.WinForms.WebView2 claudeWebView = null!;
     private Microsoft.Web.WebView2.WinForms.WebView2 antigravityWebView = null!;
     private readonly Dictionary<string, Microsoft.Web.WebView2.WinForms.WebView2> _customWebViews = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Microsoft.Web.WebView2.WinForms.WebView2> _secondaryCloneWebViews = new(StringComparer.OrdinalIgnoreCase);
+    private bool _isUpdatingPaneCombos;
+
+    private sealed record PaneTabItem(string Id, string DisplayName)
+    {
+        public override string ToString() => DisplayName;
+    }
     private CoreWebView2Environment? _webViewEnv;
     private readonly TaskCompletionSource<bool> _envInitTcs = new();
 
@@ -74,17 +108,24 @@ public partial class CliWebviewForm : Form
     // Rebuilt on every right-click so a stale tab id can never be actioned.
     private ContextMenuStrip? _tabContextMenu;
 
+    private Form? _mainForm;
+    private bool _didWeHideMainForm;
+    private ContextMenuStrip? _mainWindowContextMenu;
+
     public CliWebviewForm()
     {
         InitializeComponent();
     }
 
-    public CliWebviewForm(CliManagerService? cliManager, CliType initialTab = CliType.Hermes) : this()
+    public CliWebviewForm(CliManagerService? cliManager, CliType initialTab = CliType.Hermes, Form? mainForm = null) : this()
     {
         if (System.ComponentModel.LicenseManager.UsageMode != System.ComponentModel.LicenseUsageMode.Designtime && cliManager != null)
         {
             _cliManager = cliManager;
-            _activeTabId = AiConfigService.NormalizeCliId(CliTypeToId(initialTab));
+            string reqTab = AiConfigService.NormalizeCliId(CliTypeToId(initialTab));
+            _primaryTabId = ResolveDefaultInitialTab(reqTab);
+            _secondaryTabId = ResolveDefaultSecondaryTab(_primaryTabId);
+            SetMainForm(mainForm);
 
             // ui/ is always copied next to the executable, so it is the only place these live.
             // The assets/web fallback that used to sit behind this check has been removed.
@@ -143,6 +184,63 @@ public partial class CliWebviewForm : Form
         string norm = AiConfigService.NormalizeCliId(id);
         return string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase) ||
                CliManagerService.IsAntigravityProfileId(norm, out _);
+    }
+
+    private string ResolveDefaultInitialTab(string requestedId)
+    {
+        var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+        var enabled = workspaces.Where(w => w.IsEnabled).ToList();
+        if (enabled.Count == 0) return requestedId;
+
+        var match = enabled.FirstOrDefault(w => string.Equals(AiConfigService.NormalizeCliId(w.Id), requestedId, StringComparison.OrdinalIgnoreCase));
+        if (match != null)
+        {
+            if (string.Equals(match.Id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+            {
+                var prof = _cliManager?.ProfileService.ActiveProfile ?? "Default";
+                return CliManagerService.FormatAntigravityProfileId(prof);
+            }
+            return requestedId;
+        }
+
+        var first = enabled[0];
+        string firstNorm = AiConfigService.NormalizeCliId(first.Id);
+        if (string.Equals(firstNorm, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        {
+            var prof = _cliManager?.ProfileService.ActiveProfile ?? "Default";
+            return CliManagerService.FormatAntigravityProfileId(prof);
+        }
+        return firstNorm;
+    }
+
+    private string ResolveDefaultSecondaryTab(string primaryId)
+    {
+        var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+        var enabled = workspaces.Where(w => w.IsEnabled).ToList();
+        if (enabled.Count == 0) return "claude_code";
+
+        foreach (var ws in enabled)
+        {
+            string norm = AiConfigService.NormalizeCliId(ws.Id);
+            if (string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+            {
+                var allProfs = _cliManager?.ProfileService.GetProfiles() ?? [];
+                foreach (var p in allProfs)
+                {
+                    string pId = CliManagerService.FormatAntigravityProfileId(p);
+                    if (!string.Equals(pId, primaryId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return pId;
+                    }
+                }
+            }
+            else if (!string.Equals(norm, primaryId, StringComparison.OrdinalIgnoreCase))
+            {
+                return norm;
+            }
+        }
+
+        return primaryId;
     }
 
     private void SetupStyles()
@@ -294,6 +392,115 @@ public partial class CliWebviewForm : Form
         openBrowserButton.Paint += DrawBrowserIcon;
         SetupButtonHover(openBrowserButton);
 
+        toggleMainWindowButton.Size = new Size(32, 32);
+        toggleMainWindowButton.Text = "";
+        toggleMainWindowButton.Paint += DrawToggleMainWindowIcon;
+        SetupButtonHover(toggleMainWindowButton);
+        toggleMainWindowButton.Click += (_, _) => ToggleMainWindowVisibility();
+        toggleMainWindowButton.MouseUp += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Right) ShowMainWindowContextMenu();
+        };
+
+        toggleSplitButton.Size = new Size(32, 32);
+        toggleSplitButton.Text = "";
+        toggleSplitButton.Paint += DrawToggleSplitIcon;
+        SetupButtonHover(toggleSplitButton);
+        toggleSplitButton.Click += (_, _) => ToggleSplitMode();
+
+        paneHeaderLeft.Click += (_, _) => SetFocusedPane(WorkspacePane.Primary);
+        paneTitleLeft.Click += (_, _) => SetFocusedPane(WorkspacePane.Primary);
+        paneHeaderRight.Click += (_, _) => SetFocusedPane(WorkspacePane.Secondary);
+        paneTitleRight.Click += (_, _) => SetFocusedPane(WorkspacePane.Secondary);
+        paneCloseRightButton.Click += (_, _) => ToggleSplitMode(false);
+        SetupButtonHover(paneCloseRightButton);
+
+        paneComboLeft.DrawMode = DrawMode.OwnerDrawFixed;
+        paneComboLeft.ItemHeight = 22;
+        paneComboLeft.DrawItem += PaneComboBox_DrawItem;
+        paneComboLeft.SelectedIndexChanged += (_, _) =>
+        {
+            if (_isUpdatingPaneCombos) return;
+            if (paneComboLeft.SelectedItem is PaneTabItem item)
+            {
+                _primaryTabId = item.Id;
+                SetFocusedPane(WorkspacePane.Primary);
+                ApplyPaneLayout();
+                UpdateTabButtonsUi();
+                UpdateToolbarUi();
+            }
+        };
+
+        paneComboRight.DrawMode = DrawMode.OwnerDrawFixed;
+        paneComboRight.ItemHeight = 22;
+        paneComboRight.DrawItem += PaneComboBox_DrawItem;
+        paneComboRight.SelectedIndexChanged += (_, _) =>
+        {
+            if (_isUpdatingPaneCombos) return;
+            if (paneComboRight.SelectedItem is PaneTabItem item)
+            {
+                _secondaryTabId = item.Id;
+                SetFocusedPane(WorkspacePane.Secondary);
+                ApplyPaneLayout();
+                UpdateTabButtonsUi();
+                UpdateToolbarUi();
+            }
+        };
+
+        paneHeaderLeft.Resize += (_, _) => LayoutPaneHeaders();
+        paneHeaderRight.Resize += (_, _) => LayoutPaneHeaders();
+
+        splitWorkspaceContainer.MouseDown += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                int offset = e.X - splitWorkspaceContainer.SplitterDistance;
+                _splitterDragOffset = (offset >= 0 && offset <= splitWorkspaceContainer.SplitterWidth)
+                    ? offset
+                    : splitWorkspaceContainer.SplitterWidth / 2;
+            }
+        };
+
+        splitWorkspaceContainer.SplitterMoving += (_, e) =>
+        {
+            var clientPos = splitWorkspaceContainer.PointToClient(Cursor.Position);
+            int mouseX = clientPos.X;
+            int target = mouseX - _splitterDragOffset;
+
+            int min1 = splitWorkspaceContainer.Panel1MinSize;
+            int min2 = splitWorkspaceContainer.Panel2MinSize;
+            int maxDist = splitWorkspaceContainer.Width - min2 - splitWorkspaceContainer.SplitterWidth;
+            if (maxDist > min1)
+            {
+                target = Math.Clamp(target, min1, maxDist);
+                e.SplitX = target;
+                try
+                {
+                    if (splitWorkspaceContainer.SplitterDistance != target)
+                    {
+                        splitWorkspaceContainer.SplitterDistance = target;
+                        splitWorkspaceContainer.Update();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[SplitterMoving] {ex.Message}");
+                }
+            }
+        };
+        splitWorkspaceContainer.SplitterMoved += (_, _) => TriggerTerminalFit();
+        splitWorkspaceContainer.Resize += (_, _) =>
+        {
+            if (_isSplitActive) UpdateSplitMinSizes();
+        };
+
+        SetDoubleBuffered(this);
+        SetDoubleBuffered(splitWorkspaceContainer);
+        SetDoubleBuffered(panelLeft);
+        SetDoubleBuffered(panelRight);
+        SetDoubleBuffered(paneHostLeft);
+        SetDoubleBuffered(paneHostRight);
+
         contentPanel.Padding = new Padding(0, 10, 0, 0);
         contentPanel.BackColor = ThemeManager.Colors.WindowBackground;
 
@@ -315,10 +522,19 @@ public partial class CliWebviewForm : Form
 
     private void TriggerTerminalFit()
     {
-        var targetWv = GetWebViewForId(_activeTabId);
-        if (targetWv?.CoreWebView2 != null)
+        var primaryWv = GetWebViewForId(_primaryTabId);
+        if (primaryWv?.CoreWebView2 != null)
         {
-            PostToWebView(targetWv, "{\"type\":\"fit\"}");
+            PostToWebView(primaryWv, "{\"type\":\"fit\"}");
+        }
+
+        if (_isSplitActive)
+        {
+            var secondaryWv = GetWebViewForPane(_secondaryTabId, WorkspacePane.Secondary);
+            if (secondaryWv?.CoreWebView2 != null && secondaryWv != primaryWv)
+            {
+                PostToWebView(secondaryWv, "{\"type\":\"fit\"}");
+            }
         }
     }
 
@@ -472,6 +688,47 @@ public partial class CliWebviewForm : Form
             text,
             e.Font ?? cb.Font,
             new Rectangle(e.Bounds.X + 4, e.Bounds.Y + 2, e.Bounds.Width - 8, e.Bounds.Height - 4),
+            fg,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
+    private void LayoutPaneHeaders()
+    {
+        if (paneHeaderLeft == null || paneHeaderRight == null) return;
+        paneComboLeft.Width = Math.Max(120, paneHeaderLeft.Width - 60);
+        paneCloseRightButton.Left = Math.Max(0, paneHeaderRight.Width - 28);
+        paneComboRight.Width = Math.Max(120, paneCloseRightButton.Left - 66);
+    }
+
+    private static void SetDoubleBuffered(Control? control)
+    {
+        if (control == null) return;
+        try
+        {
+            typeof(Control).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                ?.SetValue(control, true);
+        }
+        catch { }
+    }
+
+    private static void PaneComboBox_DrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (sender is not ComboBox cb || e.Index < 0 || e.Index >= cb.Items.Count) return;
+        var c = ThemeManager.Colors;
+        bool isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        var bg = isSelected ? c.ButtonHover : c.WellBackground;
+
+        using var brush = new SolidBrush(bg);
+        e.Graphics.FillRectangle(brush, e.Bounds);
+
+        string text = cb.Items[e.Index] is PaneTabItem it ? it.DisplayName : (cb.Items[e.Index]?.ToString() ?? "");
+        var fg = isSelected ? c.TextPrimary : c.TextSecondary;
+
+        TextRenderer.DrawText(
+            e.Graphics,
+            text,
+            e.Font ?? cb.Font,
+            new Rectangle(e.Bounds.X + 4, e.Bounds.Y + 1, e.Bounds.Width - 8, e.Bounds.Height - 2),
             fg,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
@@ -649,6 +906,657 @@ public partial class CliWebviewForm : Form
         g.FillRectangle(brush, cx + 1, cy + 2, 3, 5);
     }
 
+    private void DrawToggleMainWindowIcon(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        var main = GetMainForm();
+        bool isMainVisible = main != null && !main.IsDisposed && main.Visible && main.WindowState != FormWindowState.Minimized;
+
+        Color glyphColor = !isMainVisible
+            ? ThemeManager.Colors.AccentGreen
+            : (toggleMainWindowButton.Enabled ? ThemeManager.Colors.TextPrimary : ThemeManager.Colors.TextMuted);
+
+        using var pen = new Pen(glyphColor, 1.6f);
+
+        int cx = toggleMainWindowButton.Width / 2;
+        int cy = toggleMainWindowButton.Height / 2;
+
+        if (isMainVisible)
+        {
+            // Main window is currently visible: Draw window frame + downward arrow into tray line
+            g.DrawRectangle(pen, cx - 7, cy - 8, 14, 10);
+            g.DrawLine(pen, cx - 7, cy - 5, cx + 7, cy - 5);
+
+            // Tray base line
+            g.DrawLine(pen, cx - 7, cy + 7, cx + 7, cy + 7);
+
+            // Downward arrow into tray
+            g.DrawLine(pen, cx, cy - 2, cx, cy + 4);
+            Point[] pts =
+            [
+                new Point(cx - 3, cy + 2),
+                new Point(cx, cy + 5),
+                new Point(cx + 3, cy + 2)
+            ];
+            g.DrawLines(pen, pts);
+        }
+        else
+        {
+            // Main window is hidden in tray: Draw tray line + restored window frame with upward arrow
+            g.DrawLine(pen, cx - 7, cy + 7, cx + 7, cy + 7);
+
+            g.DrawRectangle(pen, cx - 7, cy - 8, 14, 10);
+            g.DrawLine(pen, cx - 7, cy - 5, cx + 7, cy - 5);
+
+            // Upward arrow to restore window
+            g.DrawLine(pen, cx, cy + 4, cx, cy - 2);
+            Point[] pts =
+            [
+                new Point(cx - 3, cy),
+                new Point(cx, cy - 3),
+                new Point(cx + 3, cy)
+            ];
+            g.DrawLines(pen, pts);
+        }
+    }
+
+    public void ToggleMainWindowVisibility()
+    {
+        var main = GetMainForm();
+        if (main == null || main.IsDisposed) return;
+
+        if (main.Visible && main.WindowState != FormWindowState.Minimized)
+        {
+            HideMainFormNow();
+        }
+        else
+        {
+            RestoreMainFormNow();
+        }
+    }
+
+    public void HideMainFormNow()
+    {
+        var main = GetMainForm();
+        if (main == null || main.IsDisposed) return;
+
+        _didWeHideMainForm = true;
+        main.Hide();
+        UpdateToggleMainWindowButtonState();
+    }
+
+    public void RestoreMainFormNow()
+    {
+        var main = GetMainForm();
+        if (main == null || main.IsDisposed) return;
+
+        _didWeHideMainForm = false;
+        if (main is MainForm mf)
+        {
+            mf.ShowAndActivate();
+        }
+        else
+        {
+            main.Show();
+            if (main.WindowState == FormWindowState.Minimized)
+            {
+                main.WindowState = FormWindowState.Normal;
+            }
+            main.BringToFront();
+            main.Activate();
+        }
+        UpdateToggleMainWindowButtonState();
+    }
+
+    private void UpdateToggleMainWindowButtonState()
+    {
+        if (toggleMainWindowButton == null || toggleMainWindowButton.IsDisposed) return;
+
+        var main = GetMainForm();
+        bool isMainVisible = main != null && !main.IsDisposed && main.Visible && main.WindowState != FormWindowState.Minimized;
+
+        var c = ThemeManager.Colors;
+        if (isMainVisible)
+        {
+            _actionToolTip.SetToolTip(toggleMainWindowButton, "Hide Main Hub to Tray (Show only this Terminal window)\nRight-click for options");
+            toggleMainWindowButton.BackColor = c.ButtonBg;
+            toggleMainWindowButton.FlatAppearance.BorderColor = c.ButtonBorder;
+        }
+        else
+        {
+            _actionToolTip.SetToolTip(toggleMainWindowButton, "Main Hub is in Tray (Click to Restore Dashboard)\nRight-click for options");
+            toggleMainWindowButton.BackColor = c.WellBackground;
+            toggleMainWindowButton.FlatAppearance.BorderColor = c.AccentGreen;
+        }
+
+        toggleMainWindowButton.Invalidate();
+    }
+
+    private void ShowMainWindowContextMenu()
+    {
+        _mainWindowContextMenu?.Dispose();
+        _mainWindowContextMenu = new ContextMenuStrip
+        {
+            ShowImageMargin = false,
+            Renderer = new ToolStripProfessionalRenderer(new ShellColorTable())
+        };
+
+        var c = ThemeManager.Colors;
+        _mainWindowContextMenu.BackColor = c.CardBackground;
+        _mainWindowContextMenu.ForeColor = c.TextPrimary;
+
+        var main = GetMainForm();
+        bool isMainVisible = main != null && !main.IsDisposed && main.Visible && main.WindowState != FormWindowState.Minimized;
+
+        var toggleItem = new ToolStripMenuItem(
+            isMainVisible ? "Hide Main Hub to Tray" : "Show Main Hub Window",
+            null,
+            (_, _) => ToggleMainWindowVisibility()
+        )
+        {
+            ForeColor = c.TextPrimary,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+        };
+
+        bool autoHide = StartupHelper.GetPreference("HideMainOnCliOpen", false);
+        var autoHideItem = new ToolStripMenuItem(
+            "Auto-hide Main Hub when Opening Terminal",
+            null,
+            (_, _) =>
+            {
+                bool next = !StartupHelper.GetPreference("HideMainOnCliOpen", false);
+                StartupHelper.SetPreference("HideMainOnCliOpen", next);
+                if (next && isMainVisible)
+                {
+                    HideMainFormNow();
+                }
+            }
+        )
+        {
+            Checked = autoHide,
+            CheckOnClick = true,
+            ForeColor = c.TextPrimary
+        };
+
+        _mainWindowContextMenu.Items.Add(toggleItem);
+        _mainWindowContextMenu.Items.Add(new ToolStripSeparator());
+        _mainWindowContextMenu.Items.Add(autoHideItem);
+
+        _mainWindowContextMenu.Show(toggleMainWindowButton, new Point(0, toggleMainWindowButton.Height + 2));
+    }
+
+    public void SetMainForm(Form? mainForm)
+    {
+        if (_mainForm == mainForm && _mainForm != null) return;
+        if (_mainForm != null)
+        {
+            _mainForm.VisibleChanged -= MainForm_VisibleChanged;
+        }
+        _mainForm = mainForm;
+        if (_mainForm != null)
+        {
+            _mainForm.VisibleChanged += MainForm_VisibleChanged;
+        }
+        UpdateToggleMainWindowButtonState();
+    }
+
+    private Form? GetMainForm()
+    {
+        if (_mainForm != null && !_mainForm.IsDisposed) return _mainForm;
+        var found = Application.OpenForms.OfType<MainForm>().FirstOrDefault();
+        if (found != null && _mainForm != found)
+        {
+            SetMainForm(found);
+        }
+        return found;
+    }
+
+    private void MainForm_VisibleChanged(object? sender, EventArgs e)
+    {
+        if (IsDisposed) return;
+        if (InvokeRequired)
+        {
+            try { BeginInvoke(new Action(UpdateToggleMainWindowButtonState)); } catch { }
+            return;
+        }
+        UpdateToggleMainWindowButtonState();
+    }
+
+    private void DrawToggleSplitIcon(object? sender, PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        Color glyphColor = _isSplitActive
+            ? ThemeManager.Colors.AccentGreen
+            : (toggleSplitButton.Enabled ? ThemeManager.Colors.TextPrimary : ThemeManager.Colors.TextMuted);
+
+        using var pen = new Pen(glyphColor, 1.6f);
+
+        int cx = toggleSplitButton.Width / 2;
+        int cy = toggleSplitButton.Height / 2;
+
+        // Outer window frame
+        g.DrawRectangle(pen, cx - 7, cy - 6, 14, 12);
+
+        // Vertical split line
+        g.DrawLine(pen, cx, cy - 6, cx, cy + 6);
+
+        if (_isSplitActive)
+        {
+            using var fillBrush = new SolidBrush(Color.FromArgb(50, ThemeManager.Colors.AccentGreen));
+            g.FillRectangle(fillBrush, cx + 1, cy - 5, 5, 10);
+        }
+    }
+
+    private void UpdateToggleSplitButtonState()
+    {
+        if (toggleSplitButton == null || toggleSplitButton.IsDisposed) return;
+        var c = ThemeManager.Colors;
+
+        if (_isSplitActive)
+        {
+            _actionToolTip.SetToolTip(toggleSplitButton, "Close Split Workspace (Return to Single Pane)");
+            toggleSplitButton.BackColor = c.WellBackground;
+            toggleSplitButton.FlatAppearance.BorderColor = c.AccentGreen;
+        }
+        else
+        {
+            _actionToolTip.SetToolTip(toggleSplitButton, "Split Workspace (Dual Side-by-Side Sessions)");
+            toggleSplitButton.BackColor = c.ButtonBg;
+            toggleSplitButton.FlatAppearance.BorderColor = c.ButtonBorder;
+        }
+        toggleSplitButton.Invalidate();
+    }
+
+    public void ToggleSplitMode(bool? forceState = null)
+    {
+        bool nextState = forceState ?? !_isSplitActive;
+        if (_isSplitActive == nextState) return;
+
+        _isSplitActive = nextState;
+
+        if (_isSplitActive)
+        {
+            if (string.IsNullOrEmpty(_secondaryTabId))
+            {
+                var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+                var candidate = workspaces.FirstOrDefault(w => w.IsEnabled && !string.Equals(AiConfigService.NormalizeCliId(w.Id), _primaryTabId, StringComparison.OrdinalIgnoreCase));
+                if (candidate != null)
+                {
+                    _secondaryTabId = AiConfigService.NormalizeCliId(candidate.Id);
+                }
+                else
+                {
+                    _secondaryTabId = ResolveDefaultSecondaryTab(_primaryTabId);
+                }
+            }
+
+            if (splitWorkspaceContainer.Width > 400)
+            {
+                try
+                {
+                    splitWorkspaceContainer.SplitterDistance = splitWorkspaceContainer.Width / 2;
+                }
+                catch { }
+            }
+        }
+        else
+        {
+            _focusedPane = WorkspacePane.Primary;
+        }
+
+        ApplyPaneLayout();
+        UpdatePaneCombosItems();
+    }
+
+    public void SplitWithTab(string tabId)
+    {
+        _secondaryTabId = tabId;
+        _isSplitActive = true;
+        _focusedPane = WorkspacePane.Secondary;
+
+        if (splitWorkspaceContainer.Width > 400)
+        {
+            try
+            {
+                splitWorkspaceContainer.SplitterDistance = splitWorkspaceContainer.Width / 2;
+            }
+            catch { }
+        }
+
+        ApplyPaneLayout();
+        UpdatePaneCombosItems();
+    }
+
+    public void SetFocusedPane(WorkspacePane pane)
+    {
+        if (_focusedPane == pane && _isSplitActive) return;
+        _focusedPane = pane;
+
+        UpdatePaneHeaderUi();
+        UpdateTabButtonsUi();
+        UpdateToolbarUi();
+
+        if (IsAntigravityTab(_activeTabId))
+        {
+            RefreshProfileCombo();
+        }
+        else if (string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
+        {
+            UpdateClaudeControlsUi();
+        }
+
+        LayoutToolbar();
+
+        var focusedWv = GetWebViewForPane(_activeTabId, _focusedPane);
+        focusedWv?.Focus();
+    }
+
+    private void UpdatePaneHeaderUi()
+    {
+        if (!_isSplitActive) return;
+        var c = ThemeManager.Colors;
+
+        bool isLeftFocused = _focusedPane == WorkspacePane.Primary;
+        paneTitleLeft.Text = isLeftFocused ? "● Left (Active):" : "Left:";
+        paneHeaderLeft.BackColor = isLeftFocused ? c.WellBackground : c.HeaderBackground;
+        paneTitleLeft.ForeColor = isLeftFocused ? c.AccentGreen : c.TextSecondary;
+
+        bool isRightFocused = _focusedPane == WorkspacePane.Secondary;
+        paneTitleRight.Text = isRightFocused ? "● Right (Active):" : "Right:";
+        paneHeaderRight.BackColor = isRightFocused ? c.WellBackground : c.HeaderBackground;
+        paneTitleRight.ForeColor = isRightFocused ? c.AccentGreen : c.TextSecondary;
+
+        UpdatePaneCombosSelection();
+    }
+
+    private void UpdatePaneCombosItems()
+    {
+        if (paneComboLeft == null || paneComboRight == null || _cliManager == null) return;
+
+        _isUpdatingPaneCombos = true;
+        try
+        {
+            var items = new List<PaneTabItem>();
+
+            var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+            var enabledWorkspaces = workspaces.Where(w => w.IsEnabled).ToList();
+
+            foreach (var ws in enabledWorkspaces)
+            {
+                string normId = AiConfigService.NormalizeCliId(ws.Id);
+                if (string.Equals(normId, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+                {
+                    var allProfiles = _cliManager.ProfileService.GetProfiles();
+                    if (allProfiles.Count == 0) allProfiles = ["Default"];
+                    foreach (var prof in allProfiles)
+                    {
+                        string profId = CliManagerService.FormatAntigravityProfileId(prof);
+                        items.Add(new PaneTabItem(profId, $"agy: {prof}"));
+                    }
+                }
+                else
+                {
+                    items.Add(new PaneTabItem(normId, ws.Name));
+                }
+            }
+
+            paneComboLeft.Items.Clear();
+            paneComboRight.Items.Clear();
+
+            foreach (var it in items)
+            {
+                paneComboLeft.Items.Add(it);
+                paneComboRight.Items.Add(it);
+            }
+
+            UpdatePaneCombosSelection();
+        }
+        finally
+        {
+            _isUpdatingPaneCombos = false;
+        }
+    }
+
+    private void UpdatePaneCombosSelection()
+    {
+        if (paneComboLeft == null || paneComboRight == null) return;
+        _isUpdatingPaneCombos = true;
+        try
+        {
+            SelectComboItem(paneComboLeft, _primaryTabId);
+            SelectComboItem(paneComboRight, _secondaryTabId);
+        }
+        finally
+        {
+            _isUpdatingPaneCombos = false;
+        }
+    }
+
+    private static void SelectComboItem(ComboBox combo, string targetId)
+    {
+        for (int i = 0; i < combo.Items.Count; i++)
+        {
+            if (combo.Items[i] is PaneTabItem it && string.Equals(it.Id, targetId, StringComparison.OrdinalIgnoreCase))
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+        }
+        if (combo.Items.Count > 0 && combo.SelectedIndex < 0)
+        {
+            combo.SelectedIndex = 0;
+        }
+    }
+
+    private void EnsureTabWebViewAsync(string tabId, WorkspacePane pane)
+    {
+        if (string.Equals(tabId, "hermes", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(tabId, "claude_code", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (CliManagerService.IsAntigravityProfileId(tabId, out _))
+        {
+            _ = EnsureProfileWebViewAsync(tabId);
+        }
+        else if (!IsBuiltInCli(tabId))
+        {
+            var ws = AiConfigService.Instance.GetCliWorkspaces().FirstOrDefault(w =>
+                string.Equals(AiConfigService.NormalizeCliId(w.Id), tabId, StringComparison.OrdinalIgnoreCase));
+            if (ws != null) _ = EnsureCustomWebViewAsync(ws);
+        }
+
+        if (pane == WorkspacePane.Secondary && string.Equals(_primaryTabId, _secondaryTabId, StringComparison.OrdinalIgnoreCase))
+        {
+            _ = EnsureCloneWebViewAsync(tabId);
+        }
+    }
+
+    private async Task EnsureCloneWebViewAsync(string id)
+    {
+        if (_secondaryCloneWebViews.ContainsKey(id)) return;
+        if (_webViewEnv == null)
+        {
+            await _envInitTcs.Task;
+        }
+        if (_webViewEnv == null) return;
+
+        try
+        {
+            var wv = CreateHostedWebView();
+            wv.Dock = DockStyle.Fill;
+            paneHostRight.Controls.Add(wv);
+            _secondaryCloneWebViews[id] = wv;
+
+            await wv.EnsureCoreWebView2Async(_webViewEnv);
+            ConfigureWebViewSettings(wv.CoreWebView2);
+            wv.CoreWebView2.WebMessageReceived += (s, e) => TerminalWebView_WebMessageReceived(id, e);
+            wv.CoreWebView2.NavigationCompleted += (_, _) =>
+            {
+                NotifyWebViewsTheme();
+                SendTerminalInit(id);
+            };
+
+            if (File.Exists(_terminalHtmlPath))
+            {
+                wv.CoreWebView2.Navigate(new Uri(_terminalHtmlPath).AbsoluteUri);
+            }
+            NotifyWebViewsTheme();
+            ApplyPaneLayout();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[CliWebviewForm] Clone WebView creation failed for '{id}': {ex.Message}");
+        }
+    }
+
+    private Microsoft.Web.WebView2.WinForms.WebView2? GetWebViewForPane(string id, WorkspacePane pane)
+    {
+        bool isSameAsPrimary = _isSplitActive && string.Equals(_primaryTabId, _secondaryTabId, StringComparison.OrdinalIgnoreCase);
+        if (pane == WorkspacePane.Secondary && isSameAsPrimary)
+        {
+            if (_secondaryCloneWebViews.TryGetValue(id, out var cloneWv))
+            {
+                return cloneWv;
+            }
+            _ = EnsureCloneWebViewAsync(id);
+            return null;
+        }
+
+        return GetWebViewForId(id);
+    }
+
+    private void ApplyPaneLayout()
+    {
+        if (IsInDesignMode) return;
+
+        EnsureTabWebViewAsync(_primaryTabId, WorkspacePane.Primary);
+        if (_isSplitActive)
+        {
+            EnsureTabWebViewAsync(_secondaryTabId, WorkspacePane.Secondary);
+        }
+
+        var primaryWv = GetWebViewForPane(_primaryTabId, WorkspacePane.Primary);
+        if (primaryWv != null)
+        {
+            if (primaryWv.Parent != paneHostLeft)
+            {
+                primaryWv.Parent = paneHostLeft;
+                primaryWv.Dock = DockStyle.Fill;
+            }
+            primaryWv.Visible = true;
+            primaryWv.BringToFront();
+        }
+
+        if (_isSplitActive)
+        {
+            UpdateSplitMinSizes();
+            splitWorkspaceContainer.Panel2Collapsed = false;
+            paneHeaderLeft.Visible = true;
+            paneHeaderRight.Visible = true;
+            paneHeaderLeft.BringToFront();
+            paneHeaderRight.BringToFront();
+            LayoutPaneHeaders();
+
+            int availWidth = splitWorkspaceContainer.Width;
+            int min1 = splitWorkspaceContainer.Panel1MinSize;
+            int min2 = splitWorkspaceContainer.Panel2MinSize;
+            if (availWidth > min1 + min2 && min1 >= 0 && min2 >= 0)
+            {
+                int curDist = splitWorkspaceContainer.SplitterDistance;
+                int maxDist = availWidth - min2;
+                if (curDist < min1 || curDist > maxDist || curDist < 180)
+                {
+                    int target = Math.Clamp(availWidth / 2, min1, maxDist);
+                    try
+                    {
+                        splitWorkspaceContainer.SplitterDistance = target;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[CliWebviewForm] SplitterDistance layout warning: {ex.Message}");
+                    }
+                }
+            }
+
+            var secondaryWv = GetWebViewForPane(_secondaryTabId, WorkspacePane.Secondary);
+            if (secondaryWv != null)
+            {
+                if (secondaryWv.Parent != paneHostRight)
+                {
+                    secondaryWv.Parent = paneHostRight;
+                    secondaryWv.Dock = DockStyle.Fill;
+                }
+                secondaryWv.Visible = true;
+                secondaryWv.BringToFront();
+            }
+
+            UpdatePaneHeaderUi();
+        }
+        else
+        {
+            splitWorkspaceContainer.Panel2Collapsed = true;
+            paneHeaderLeft.Visible = false;
+            paneHeaderRight.Visible = false;
+        }
+
+        var activeSecWv = _isSplitActive ? GetWebViewForPane(_secondaryTabId, WorkspacePane.Secondary) : null;
+
+        if (hermesWebView != null && hermesWebView != primaryWv && hermesWebView != activeSecWv)
+            hermesWebView.Visible = false;
+        if (claudeWebView != null && claudeWebView != primaryWv && claudeWebView != activeSecWv)
+            claudeWebView.Visible = false;
+        if (antigravityWebView != null && antigravityWebView != primaryWv && antigravityWebView != activeSecWv)
+            antigravityWebView.Visible = false;
+
+        foreach (var kvp in _customWebViews)
+        {
+            if (kvp.Value != primaryWv && kvp.Value != activeSecWv)
+            {
+                kvp.Value.Visible = false;
+            }
+        }
+
+        foreach (var kvp in _secondaryCloneWebViews)
+        {
+            if (kvp.Value != primaryWv && kvp.Value != activeSecWv)
+            {
+                kvp.Value.Visible = false;
+            }
+        }
+
+        UpdateTabButtonsUi();
+        UpdateToolbarUi();
+        UpdateToggleSplitButtonState();
+        TriggerTerminalFit();
+    }
+
+    private void UpdateSplitMinSizes()
+    {
+        if (splitWorkspaceContainer == null || splitWorkspaceContainer.IsDisposed) return;
+        int w = splitWorkspaceContainer.Width;
+        if (w >= 560)
+        {
+            splitWorkspaceContainer.Panel1MinSize = 220;
+            splitWorkspaceContainer.Panel2MinSize = 220;
+        }
+        else if (w >= 300)
+        {
+            splitWorkspaceContainer.Panel1MinSize = 80;
+            splitWorkspaceContainer.Panel2MinSize = 80;
+        }
+        else
+        {
+            splitWorkspaceContainer.Panel1MinSize = 25;
+            splitWorkspaceContainer.Panel2MinSize = 25;
+        }
+    }
+
     public void RebuildTabs()
     {
         tabsPanel.SuspendLayout();
@@ -756,6 +1664,7 @@ public partial class CliWebviewForm : Form
         UpdateTabButtonsUi();
         UpdateToolbarUi();
         LayoutToolbar();
+        UpdatePaneCombosItems();
     }
 
     private void AddTabButton(string tabId, string displayName, ref int curX)
@@ -834,6 +1743,33 @@ public partial class CliWebviewForm : Form
         {
             LaunchExternalCmdForTab(tabId);
         }));
+
+        menu.Items.Add(new ToolStripSeparator());
+
+        if (!_isSplitActive)
+        {
+            menu.Items.Add(new ToolStripMenuItem("Split with this in Right Pane", null, (_, _) =>
+            {
+                SplitWithTab(tabId);
+            }));
+        }
+        else
+        {
+            menu.Items.Add(new ToolStripMenuItem("Open in Left Pane (Pane 1)", null, (_, _) =>
+            {
+                SetFocusedPane(WorkspacePane.Primary);
+                SwitchTab(tabId);
+            }));
+            menu.Items.Add(new ToolStripMenuItem("Open in Right Pane (Pane 2)", null, (_, _) =>
+            {
+                SetFocusedPane(WorkspacePane.Secondary);
+                SwitchTab(tabId);
+            }));
+            menu.Items.Add(new ToolStripMenuItem("Close Split (Single Pane)", null, (_, _) =>
+            {
+                ToggleSplitMode(false);
+            }));
+        }
 
         menu.Items.Add(new ToolStripSeparator());
 
@@ -1356,6 +2292,8 @@ public partial class CliWebviewForm : Form
 
             // 1. Compute Minimum Action Bar Width
             int actionControlsWidth = 10;
+            if (toggleMainWindowButton.Visible) actionControlsWidth += toggleMainWindowButton.Width + 6;
+            if (toggleSplitButton.Visible) actionControlsWidth += toggleSplitButton.Width + 6;
             if (openBrowserButton.Visible) actionControlsWidth += openBrowserButton.Width + 6;
             actionControlsWidth += clearTerminalButton.Width + 6;
             actionControlsWidth += restartCliButton.Width + 6;
@@ -1387,6 +2325,18 @@ public partial class CliWebviewForm : Form
             int right = toolsPanel.ClientSize.Width - 10;
 
             // Action buttons laid out from right to left
+            if (toggleMainWindowButton.Visible)
+            {
+                toggleMainWindowButton.Location = new Point(Math.Max(0, right - toggleMainWindowButton.Width), 7);
+                right = toggleMainWindowButton.Left - 6;
+            }
+
+            if (toggleSplitButton.Visible)
+            {
+                toggleSplitButton.Location = new Point(Math.Max(0, right - toggleSplitButton.Width), 7);
+                right = toggleSplitButton.Left - 6;
+            }
+
             if (openBrowserButton.Visible)
             {
                 openBrowserButton.Location = new Point(Math.Max(0, right - openBrowserButton.Width), 7);
@@ -1536,6 +2486,33 @@ public partial class CliWebviewForm : Form
         openBrowserButton.ForeColor = c.ButtonText;
         openBrowserButton.FlatAppearance.BorderColor = c.ButtonBorder;
 
+        toggleMainWindowButton.BackColor = c.ButtonBg;
+        toggleMainWindowButton.ForeColor = c.ButtonText;
+        toggleMainWindowButton.FlatAppearance.BorderColor = c.ButtonBorder;
+        UpdateToggleMainWindowButtonState();
+
+        toggleSplitButton.BackColor = c.ButtonBg;
+        toggleSplitButton.ForeColor = c.ButtonText;
+        toggleSplitButton.FlatAppearance.BorderColor = c.ButtonBorder;
+        UpdateToggleSplitButtonState();
+
+        splitWorkspaceContainer.BackColor = c.CardBorder;
+        panelLeft.BackColor = c.WindowBackground;
+        panelRight.BackColor = c.WindowBackground;
+        paneHeaderLeft.BackColor = _focusedPane == WorkspacePane.Primary ? c.WellBackground : c.HeaderBackground;
+        paneHeaderRight.BackColor = _focusedPane == WorkspacePane.Secondary ? c.WellBackground : c.HeaderBackground;
+        paneTitleLeft.ForeColor = _focusedPane == WorkspacePane.Primary ? c.AccentGreen : c.TextSecondary;
+        paneTitleRight.ForeColor = _focusedPane == WorkspacePane.Secondary ? c.AccentGreen : c.TextSecondary;
+        paneComboLeft.BackColor = c.WellBackground;
+        paneComboLeft.ForeColor = c.TextPrimary;
+        paneComboRight.BackColor = c.WellBackground;
+        paneComboRight.ForeColor = c.TextPrimary;
+        paneCloseRightButton.ForeColor = c.TextMuted;
+        paneCloseRightButton.BackColor = c.ButtonBg;
+        paneCloseRightButton.FlatAppearance.BorderColor = c.ButtonBorder;
+        paneHostLeft.BackColor = c.WindowBackground;
+        paneHostRight.BackColor = c.WindowBackground;
+
         if (_manageClisButton != null)
         {
             _manageClisButton.BackColor = c.ButtonBg;
@@ -1626,11 +2603,57 @@ public partial class CliWebviewForm : Form
         {
             ApplyTheme();
             TriggerTerminalFit();
+
+            // Default is split tabs closed. Do not auto-open on launch.
+
+            if (StartupHelper.GetPreference("HideMainOnCliOpen", false))
+            {
+                var main = GetMainForm();
+                if (main != null && !main.IsDisposed && main.Visible)
+                {
+                    HideMainFormNow();
+                }
+            }
+        }
+    }
+
+    protected override void OnVisibleChanged(EventArgs e)
+    {
+        base.OnVisibleChanged(e);
+        if (IsInDesignMode) return;
+
+        if (Visible)
+        {
+            UpdateToggleMainWindowButtonState();
+            if (StartupHelper.GetPreference("HideMainOnCliOpen", false))
+            {
+                var main = GetMainForm();
+                if (main != null && !main.IsDisposed && main.Visible)
+                {
+                    HideMainFormNow();
+                }
+            }
+        }
+        else
+        {
+            if (_didWeHideMainForm)
+            {
+                RestoreMainFormNow();
+            }
         }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (_didWeHideMainForm)
+        {
+            var main = GetMainForm();
+            if (main != null && !main.IsDisposed && !main.Visible)
+            {
+                RestoreMainFormNow();
+            }
+        }
+
         if (e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
@@ -1843,7 +2866,24 @@ public partial class CliWebviewForm : Form
             id = AiConfigService.NormalizeCliId(id);
         }
 
-        _activeTabId = id;
+        if (_isSplitActive)
+        {
+            if (_focusedPane == WorkspacePane.Secondary)
+            {
+                _secondaryTabId = id;
+            }
+            else
+            {
+                _primaryTabId = id;
+            }
+        }
+        else
+        {
+            _primaryTabId = id;
+        }
+
+        ApplyPaneLayout();
+        UpdatePaneCombosSelection();
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
@@ -1858,15 +2898,6 @@ public partial class CliWebviewForm : Form
         }
 
         LayoutToolbar();
-
-        if (hermesWebView != null) hermesWebView.Visible = string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase);
-        if (claudeWebView != null) claudeWebView.Visible = string.Equals(_activeTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
-        if (antigravityWebView != null) antigravityWebView.Visible = string.Equals(_activeTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
-
-        foreach (var kvp in _customWebViews)
-        {
-            kvp.Value.Visible = string.Equals(kvp.Key, _activeTabId, StringComparison.OrdinalIgnoreCase);
-        }
 
         if (string.Equals(_activeTabId, "hermes", StringComparison.OrdinalIgnoreCase) && _hermesInitialized)
         {
@@ -1903,7 +2934,7 @@ public partial class CliWebviewForm : Form
         {
             var wv = CreateHostedWebView();
             wv.Visible = string.Equals(_activeTabId, profileId, StringComparison.OrdinalIgnoreCase);
-            contentPanel.Controls.Add(wv);
+            paneHostLeft.Controls.Add(wv);
             _customWebViews[profileId] = wv;
 
             await wv.EnsureCoreWebView2Async(_webViewEnv);
@@ -1993,7 +3024,7 @@ public partial class CliWebviewForm : Form
         {
             var wv = CreateHostedWebView();
             wv.Visible = string.Equals(_activeTabId, ws.Id, StringComparison.OrdinalIgnoreCase);
-            contentPanel.Controls.Add(wv);
+            paneHostLeft.Controls.Add(wv);
             _customWebViews[ws.Id] = wv;
 
             await wv.EnsureCoreWebView2Async(_webViewEnv);
@@ -2041,9 +3072,9 @@ public partial class CliWebviewForm : Form
             claudeWebView = CreateHostedWebView();
             antigravityWebView = CreateHostedWebView();
 
-            contentPanel.Controls.Add(hermesWebView);
-            contentPanel.Controls.Add(claudeWebView);
-            contentPanel.Controls.Add(antigravityWebView);
+            paneHostLeft.Controls.Add(hermesWebView);
+            paneHostLeft.Controls.Add(claudeWebView);
+            paneHostLeft.Controls.Add(antigravityWebView);
 
             var baseLocalApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             var legacyUserFolder = Path.Combine(baseLocalApp, "HermesHub", "WebView2Data");
@@ -2230,16 +3261,42 @@ public partial class CliWebviewForm : Form
         var history = _cliManager.GetTerminalHistory(cliId);
 
         var payload = new TerminalInitPayload("init", info.ShortName, info.State == CliState.Running, info.StatusText, history);
-        targetWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalInitPayload));
+        string json = JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalInitPayload);
+
+        var primaryWv = GetWebViewForPane(cliId, WorkspacePane.Primary);
+        if (primaryWv?.CoreWebView2 != null)
+        {
+            primaryWv.CoreWebView2.PostWebMessageAsJson(json);
+        }
+
+        if (_isSplitActive && string.Equals(cliId, _secondaryTabId, StringComparison.OrdinalIgnoreCase))
+        {
+            var secWv = GetWebViewForPane(cliId, WorkspacePane.Secondary);
+            if (secWv != null && secWv != primaryWv && secWv.CoreWebView2 != null)
+            {
+                secWv.CoreWebView2.PostWebMessageAsJson(json);
+            }
+        }
     }
 
     private void ForwardTerminalData(string cliId, string text)
     {
-        var targetWv = GetWebViewForId(cliId);
-        if (targetWv?.CoreWebView2 == null) return;
+        var primaryWv = GetWebViewForPane(cliId, WorkspacePane.Primary);
+        if (primaryWv?.CoreWebView2 != null)
+        {
+            var payload = new TerminalOutputPayload("output", text);
+            primaryWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalOutputPayload));
+        }
 
-        var payload = new TerminalOutputPayload("output", text);
-        targetWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalOutputPayload));
+        if (_isSplitActive && string.Equals(cliId, _secondaryTabId, StringComparison.OrdinalIgnoreCase))
+        {
+            var secWv = GetWebViewForPane(cliId, WorkspacePane.Secondary);
+            if (secWv != null && secWv != primaryWv && secWv.CoreWebView2 != null)
+            {
+                var payload = new TerminalOutputPayload("output", text);
+                secWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalOutputPayload));
+            }
+        }
     }
 
     private void OnCliStatusChanged(string cliId, CliState state, string message)
@@ -2265,11 +3322,21 @@ public partial class CliWebviewForm : Form
         }
         else
         {
-            var targetWv = GetWebViewForId(cliId);
-            if (targetWv?.CoreWebView2 != null)
+            var primaryWv = GetWebViewForPane(cliId, WorkspacePane.Primary);
+            if (primaryWv?.CoreWebView2 != null)
             {
                 var payload = new TerminalStatusPayload("status", state == CliState.Running, message);
-                targetWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalStatusPayload));
+                primaryWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalStatusPayload));
+            }
+
+            if (_isSplitActive && string.Equals(cliId, _secondaryTabId, StringComparison.OrdinalIgnoreCase))
+            {
+                var secWv = GetWebViewForPane(cliId, WorkspacePane.Secondary);
+                if (secWv != null && secWv != primaryWv && secWv.CoreWebView2 != null)
+                {
+                    var payload = new TerminalStatusPayload("status", state == CliState.Running, message);
+                    secWv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload, CliJsonContext.Default.TerminalStatusPayload));
+                }
             }
         }
     }
@@ -2284,7 +3351,9 @@ public partial class CliWebviewForm : Form
             if (btn.Tag is not string id) continue;
 
             var info = _cliManager.GetInfo(id);
-            bool isSelected = string.Equals(_activeTabId, id, StringComparison.OrdinalIgnoreCase);
+            bool isPrimary = string.Equals(_primaryTabId, id, StringComparison.OrdinalIgnoreCase);
+            bool isSecondary = _isSplitActive && string.Equals(_secondaryTabId, id, StringComparison.OrdinalIgnoreCase);
+            bool isFocused = string.Equals(_activeTabId, id, StringComparison.OrdinalIgnoreCase);
 
             var dotColor = info.State switch
             {
@@ -2298,13 +3367,25 @@ public partial class CliWebviewForm : Form
                 ? $"agy: {prof}"
                 : info.ShortName;
 
+            if (_isSplitActive)
+            {
+                if (isPrimary) title = $"{title} [L]";
+                else if (isSecondary) title = $"{title} [R]";
+            }
+
             btn.Text = $"{dotColor} {title}";
 
-            if (isSelected)
+            if (isFocused)
             {
                 btn.BackColor = c.ButtonHover;
                 btn.ForeColor = c.TextPrimary;
                 btn.FlatAppearance.BorderColor = c.AccentGreen;
+            }
+            else if (_isSplitActive && (isPrimary || isSecondary))
+            {
+                btn.BackColor = c.WellBackground;
+                btn.ForeColor = c.TextPrimary;
+                btn.FlatAppearance.BorderColor = c.AccentIndigo;
             }
             else
             {

@@ -1241,18 +1241,39 @@ public sealed partial class DashboardWebBridge : IDisposable
                 break;
 
             case "open_standalone_terminals":
-                _mainForm.Invoke(() =>
+                try
                 {
-                    if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
+                    _mainForm.Invoke(() =>
                     {
-                        _cliWebviewForm = new CliWebviewForm(_cliManager);
-                    }
-                    _cliWebviewForm.ApplyTheme();
-                    _cliWebviewForm.Show();
-                    _cliWebviewForm.BringToFront();
-                    _cliWebviewForm.Activate();
-                });
-                SendResponse(requestId, true, new { success = true });
+                        if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
+                        {
+                            _cliWebviewForm = new CliWebviewForm(_cliManager, CliType.Hermes, _mainForm);
+                        }
+                        else
+                        {
+                            _cliWebviewForm.SetMainForm(_mainForm);
+                        }
+                        _cliWebviewForm.ApplyTheme();
+                        if (_cliWebviewForm.WindowState == FormWindowState.Minimized)
+                        {
+                            _cliWebviewForm.WindowState = FormWindowState.Normal;
+                        }
+                        _cliWebviewForm.Show();
+                        _cliWebviewForm.BringToFront();
+                        _cliWebviewForm.Activate();
+
+                        if (StartupHelper.GetPreference("HideMainOnCliOpen", false))
+                        {
+                            _cliWebviewForm.HideMainFormNow();
+                        }
+                    });
+                    SendResponse(requestId, true, new { success = true });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[DashboardWebBridge] open_standalone_terminals error: {ex}");
+                    SendResponse(requestId, false, ex.Message);
+                }
                 break;
 
             case "open_system_shell":
@@ -1267,7 +1288,11 @@ public sealed partial class DashboardWebBridge : IDisposable
                         {
                             if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
                             {
-                                _cliWebviewForm = new CliWebviewForm(_cliManager);
+                                _cliWebviewForm = new CliWebviewForm(_cliManager, CliType.Hermes, _mainForm);
+                            }
+                            else
+                            {
+                                _cliWebviewForm.SetMainForm(_mainForm);
                             }
                             if (shellName.Equals("powershell", StringComparison.OrdinalIgnoreCase))
                             {
@@ -1276,6 +1301,11 @@ public sealed partial class DashboardWebBridge : IDisposable
                             else
                             {
                                 _cliWebviewForm.OpenEmbeddedShell("cmd", "Command Prompt", "cmd.exe");
+                            }
+
+                            if (StartupHelper.GetPreference("HideMainOnCliOpen", false))
+                            {
+                                _cliWebviewForm.HideMainFormNow();
                             }
                         });
                     }
@@ -1357,6 +1387,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                     if (stProp.TryGetProperty("embedShellsInTerminalWorkspace", out var embedEl))
                     {
                         StartupHelper.SetPreference("EmbedShellsInTerminalWorkspace", embedEl.GetBoolean());
+                    }
+                    if (stProp.TryGetProperty("hideMainOnCliOpen", out var hideMainEl))
+                    {
+                        StartupHelper.SetPreference("HideMainOnCliOpen", hideMainEl.GetBoolean());
                     }
                     if (stProp.TryGetProperty("enableProtonVpnProvider", out var protonEl))
                     {
@@ -1931,6 +1965,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 maskPublicIp = StartupHelper.GetPreference("MaskPublicIp", false),
                 maskShortcutPaths = StartupHelper.GetPreference("MaskShortcutPaths", false),
                 embedShellsInTerminalWorkspace = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false),
+                hideMainOnCliOpen = StartupHelper.GetPreference("HideMainOnCliOpen", false),
                 enableProtonVpnProvider = StartupHelper.GetPreference("EnableProtonVpnProvider", false),
                 enableHardwareMonitor = StartupHelper.GetPreference("EnableHardwareMonitor", false),
                 theme = StartupHelper.GetStringPreference("Theme", "dark"),

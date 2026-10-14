@@ -1311,6 +1311,7 @@
       const globalHotkey = document.getElementById('setting-global-hotkey-checkbox')?.checked !== false;
       const maskShortcutPaths = document.getElementById('setting-mask-paths-checkbox')?.checked === true;
       const embedShells = document.getElementById('setting-embed-shells-checkbox')?.checked === true;
+      const hideMainOnCliOpen = document.getElementById('setting-hide-main-on-cli-checkbox')?.checked === true;
       const enableProton = (document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox'))?.checked === true;
       const enableHardwareMonitor = (document.getElementById('pref-enable-hardware-monitor') || document.getElementById('setting-enable-hardware-monitor-checkbox'))?.checked === true;
       const theme = document.documentElement.getAttribute('data-theme') || 'dark';
@@ -1334,7 +1335,7 @@
       renderDashboardShortcuts();
 
       await callBridge('save_general_settings', {
-        settings: { autostart, startMinimized, minimizeToTray, notifications, globalHotkey, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, enableProtonVpnProvider: enableProton, enableHardwareMonitor, theme, accentColor }
+        settings: { autostart, startMinimized, minimizeToTray, notifications, globalHotkey, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, hideMainOnCliOpen, enableProtonVpnProvider: enableProton, enableHardwareMonitor, theme, accentColor }
       });
 
       feedback.textContent = 'Preferences saved successfully!';
@@ -1378,6 +1379,12 @@
     document.getElementById('setting-embed-shells-checkbox')?.addEventListener('change', async (e) => {
       await callBridge('save_general_settings', {
         settings: { embedShellsInTerminalWorkspace: e.target.checked }
+      });
+    });
+
+    document.getElementById('setting-hide-main-on-cli-checkbox')?.addEventListener('change', async (e) => {
+      await callBridge('save_general_settings', {
+        settings: { hideMainOnCliOpen: e.target.checked }
       });
     });
   }
@@ -5164,6 +5171,8 @@
           if (maskPathsCheck) maskPathsCheck.checked = state.isShortcutsMasked;
           const embedShellsCheck = document.getElementById('setting-embed-shells-checkbox');
           if (embedShellsCheck) embedShellsCheck.checked = !!res.settings.embedShellsInTerminalWorkspace;
+          const hideMainCheck = document.getElementById('setting-hide-main-on-cli-checkbox');
+          if (hideMainCheck) hideMainCheck.checked = !!res.settings.hideMainOnCliOpen;
 
           // Proton VPN Provider preference
           const protonEnabled = res.settings.enableProtonVpnProvider === true;
