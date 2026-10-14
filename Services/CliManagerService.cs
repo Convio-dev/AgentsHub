@@ -791,31 +791,15 @@ public class CliManagerService : IDisposable
         Start(id);
     }
 
-    public string ResolveSessionId(string id)
-    {
-        if (string.IsNullOrWhiteSpace(id)) return id;
-        if (IsAntigravityProfileId(id, out _)) return id;
-
-        string norm = AiConfigService.NormalizeCliId(id);
-        if (string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
-        {
-            var activeProf = _profileService.ActiveProfile;
-            if (string.IsNullOrWhiteSpace(activeProf))
-            {
-                var allProfs = _profileService.GetProfiles();
-                activeProf = allProfs.Count > 0 ? allProfs[0] : "Default";
-            }
-            return FormatAntigravityProfileId(activeProf);
-        }
-        return norm;
-    }
-
     public void SendInput(CliType type, string data) => SendInput(CliTypeToNormalizedId(type), data);
 
     public void SendInput(string id, string data)
     {
-        var resolvedId = ResolveSessionId(id);
-        if (_terminalSessions.TryGetValue(resolvedId, out var session) && session.IsRunning)
+        if (!IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
+        if (_terminalSessions.TryGetValue(id, out var session) && session.IsRunning)
         {
             session.Write(data);
         }
@@ -825,8 +809,11 @@ public class CliManagerService : IDisposable
 
     public void Resize(string id, short cols, short rows)
     {
-        var resolvedId = ResolveSessionId(id);
-        if (_terminalSessions.TryGetValue(resolvedId, out var session) && session.IsRunning)
+        if (!IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
+        if (_terminalSessions.TryGetValue(id, out var session) && session.IsRunning)
         {
             session.Resize(cols, rows);
         }
@@ -836,8 +823,11 @@ public class CliManagerService : IDisposable
 
     public string GetTerminalHistory(string id)
     {
-        var resolvedId = ResolveSessionId(id);
-        if (_terminalBuffers.TryGetValue(resolvedId, out var buf))
+        if (!IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
+        if (_terminalBuffers.TryGetValue(id, out var buf))
         {
             lock (buf)
             {
@@ -852,8 +842,11 @@ public class CliManagerService : IDisposable
 
     public void ClearTerminalHistory(string id)
     {
-        var resolvedId = ResolveSessionId(id);
-        if (_terminalBuffers.TryGetValue(resolvedId, out var buf))
+        if (!IsAntigravityProfileId(id, out _))
+        {
+            id = AiConfigService.NormalizeCliId(id);
+        }
+        if (_terminalBuffers.TryGetValue(id, out var buf))
         {
             lock (buf)
             {

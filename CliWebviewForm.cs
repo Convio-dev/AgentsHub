@@ -2920,13 +2920,9 @@ public partial class CliWebviewForm : Form
 
         TriggerTerminalFit();
 
-        if (_mainForm is MainForm mf)
+        if (_mainForm is MainForm mf && mf.HudTerminal is HudTerminalForm hud && hud.IsHudOpen)
         {
-            if (mf.HudTerminal is HudTerminalForm hud && hud.IsHudOpen)
-            {
-                hud.SwitchCli(_activeTabId, syncToWebview: false);
-            }
-            mf.DashboardBridge?.NotifyStandaloneTabSwitched(_activeTabId);
+            hud.SwitchCli(_activeTabId, syncToWebview: false);
         }
     }
 
