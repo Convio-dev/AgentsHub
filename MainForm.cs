@@ -225,6 +225,7 @@ public partial class MainForm : Form
     private void ExitApplication()
     {
         _isExiting = true;
+        UnregisterGlobalHotkey();
 
         if (_cliManager != null)
         {
@@ -269,6 +270,107 @@ public partial class MainForm : Form
         _notifyIcon?.ShowBalloonTip(1500, title, text, ToolTipIcon.Info);
     }
 
+    // ---------------------------------------------------------------
+    // Global hotkey: show or hide the window from anywhere.
+    //
+    // The app spends most of its life in the tray, and the tray menu is the only way back in.
+    // A hotkey is the difference between "click the tray icon" and "press it and keep typing".
+    // Ctrl+Alt+H is registered as a system-wide hotkey, so it only works while one instance is
+    // running, which the single-instance mutex already guarantees.
+    // ---------------------------------------------------------------
+    private const int WmHotKey = 0x0312;
+    private const int HotkeyId = 0x4C31;
+    private const uint ModControl = 0x0002;
+    private const uint ModAlt = 0x0001;
+    private const uint VkH = 0x48;
+    private bool _globalHotkeyRegistered;
+
+    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static partial bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static partial bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        ApplyGlobalHotkey();
+    }
+
+    /// <summary>
+    /// Registers or unregisters the hotkey to match the stored preference.
+    /// </summary>
+    public void ApplyGlobalHotkey()
+    {
+        bool wantEnabled = StartupHelper.GetPreference("GlobalHotkey", true);
+
+        if (wantEnabled && IsHandleCreated)
+        {
+            if (_globalHotkeyRegistered) UnregisterGlobalHotkey();
+
+            // Registration can fail when another process already holds the combination. That is
+            // not fatal: the window is still reachable from the tray.
+            _globalHotkeyRegistered = RegisterHotKey(Handle, HotkeyId, ModControl | ModAlt, VkH);
+        }
+        else
+        {
+            UnregisterGlobalHotkey();
+        }
+    }
+
+    private void UnregisterGlobalHotkey()
+    {
+        if (!_globalHotkeyRegistered || !IsHandleCreated) return;
+
+        try
+        {
+            UnregisterHotKey(Handle, HotkeyId);
+        }
+        catch
+        {
+            // Unregistering a handle that is going away is not worth a crash.
+        }
+
+        _globalHotkeyRegistered = false;
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WmHotKey && m.WParam.ToInt32() == HotkeyId)
+        {
+            ShowOrHideFromHotkey();
+            return;
+        }
+
+        base.WndProc(ref m);
+    }
+
+    private void ShowOrHideFromHotkey()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(ShowOrHideFromHotkey));
+            return;
+        }
+
+        if (Visible && WindowState != FormWindowState.Minimized)
+        {
+            Hide();
+        }
+        else
+        {
+            Show();
+            if (WindowState == FormWindowState.Minimized)
+            {
+                WindowState = FormWindowState.Normal;
+            }
+            BringToFront();
+            Activate();
+        }
+    }
+
     protected override void OnResize(EventArgs e)
     {
         base.OnResize(e);
@@ -284,8 +386,7 @@ public partial class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (!_isExiting && e.CloseReason == CloseReason.UserClosing)
-        {
+        if (!_isExiting && e.CloseReason == CloseReason.UserClosing)        {
             var minimizeToTray = StartupHelper.GetPreference("MinimizeToTray", true);
             if (minimizeToTray)
             {

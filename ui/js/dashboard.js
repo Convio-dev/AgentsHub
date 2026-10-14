@@ -146,6 +146,32 @@
         }
         break;
 
+      case 'dependency_install_all_progress':
+        if (payload && payload.name) {
+          dependencyInstallAllProgress = 'Installing ' + ((payload.index || 0) + 1) + '/' + (payload.total || '?');
+          dependencyInstallAllProgress = dependencyInstallAllProgress + ': ' + payload.name;
+          updateInstallAllButton();
+        }
+        break;
+
+      case 'dependency_install_all_complete':
+        {
+          dependencyInstallAllRunning = false;
+          dependencyInstallAllProgress = '';
+          updateInstallAllButton();
+
+          const ok = (payload && payload.succeeded) || [];
+          const failed = (payload && payload.failed) || [];
+          const parts = [];
+          if (ok.length > 0) parts.push('installed ' + ok.join(', '));
+          if (failed.length > 0) parts.push('failed: ' + failed.join(', '));
+          showToast(parts.length > 0 ? 'Batch install finished. ' + parts.join('; ') + '.'
+            : 'The batch install finished with nothing to report.', failed.length > 0 ? 'warning' : 'success', 7000);
+          appendLog('Batch install finished: ' + (parts.join('; ') || 'nothing to do'));
+          loadDependencies(true);
+        }
+        break;
+
       case 'dependency_install_complete':
         if (payload && payload.id) {
           if (payload.dependency) {
@@ -459,6 +485,243 @@
   }
 
   // Navigation Logic & Collapsible Sidebar
+  // ---- Command palette (Ctrl+K) ----
+
+  const cpState = { open: false, query: '', items: [], selected: 0 };
+
+  // Views are read from the sidebar rather than a second list, so the palette can never
+  // disagree with the nav about what exists.
+  function cpViewCommands() {
+    const out = [];
+    document.querySelectorAll('.nav-item').forEach(nav => {
+      const view = nav.dataset.view;
+      const label = (nav.querySelector('.nav-text') || {}).textContent || view;
+      if (view) out.push({ group: 'Go to', label: 'Open ' + label, hint: view, run: () => switchView(view), search: (label + ' ' + view).toLowerCase() });
+    });
+    return out;
+  }
+
+  function cpActionCommands() {
+    const out = [];
+    const add = (label, hint, run) => out.push({ group: 'Action', label, hint, run, search: (label + ' ' + (hint || '')).toLowerCase() });
+
+    add('Toggle LAN access', 'Start or stop sharing these services', () => {
+      document.getElementById('btn-toggle-lan-network')?.click();
+    });
+    add('Copy the LAN link', 'Put the current link on the clipboard', () => {
+      document.getElementById('btn-copy-lan-tab-url')?.click();
+    });
+    add('Open the LAN link in a browser', 'Test the link on this machine', () => {
+      document.getElementById('btn-open-lan-tab-url')?.click();
+    });
+    add('Recheck the firewall and ports', 'Re-read the LAN state', () => loadLanState(true));
+    add('Refresh everything', 'Re-read the state from the backend', () => loadInitialState());
+    add('Recheck dependencies', 'Scan for installed runtimes', () => loadDependencies(true));
+    add('Install all missing dependencies', 'Run every missing installer', () => installAllDependencies());
+    add('Find installed AI clients', 'Scan the usual install folders', () => {
+      switchView('devtools');
+      findInstalledClients();
+    });
+    add('Add an AI dev tool', 'Register an external executable', () => {
+      switchView('devtools');
+      openDevToolModal(null);
+    });
+    add('Open standalone terminals', 'Detach the CLI workspace', () => {
+      document.getElementById('btn-open-standalone-hdr')?.click();
+    });
+    add('Switch theme', 'Light or dark', () => {
+      const next = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark';
+      applyAdaptiveTheme(next, localStorage.getItem('agents_hub_accent_color') || '#10b981');
+      callBridge('save_general_settings', { settings: { theme: next } }).catch(() => {});
+    });
+    add('Show notification history', 'Read a notification you missed', () => toggleToastHistory(true));
+    add('Clear notification history', 'Empty the list', () => clearToastHistory());
+    return out;
+  }
+
+  function cpToolCommands() {
+    const out = [];
+    (state.aiConfig && Array.isArray(state.aiConfig.devTools) ? state.aiConfig.devTools : []).forEach(t => {
+      out.push({
+        group: 'Launch tool',
+        label: 'Launch ' + t.name,
+        hint: t.target,
+        run: async () => {
+          switchView('devtools');
+          try {
+            const res = await callBridge('launch_tool', { toolId: t.id, toolName: t.name, target: t.target });
+            showToast((res && res.message) || (t.name + ' started.'), 'success', 3500);
+          } catch (err) {
+            showToast('Could not start ' + t.name + '.', 'error', 5000);
+          }
+        },
+        search: (t.name + ' ' + (t.target || '') + ' launch').toLowerCase()
+      });
+    });
+
+    // Antigravity profiles are what people switch between most, so they get a row too.
+    (state.antigravity && Array.isArray(state.antigravity.profiles) ? state.antigravity.profiles : []).forEach(p => {
+      out.push({
+        group: 'Switch profile',
+        label: 'Switch to Antigravity profile ' + p,
+        hint: 'The active account and its tab',
+        run: async () => {
+          try {
+            await callBridge('switch_antigravity_profile', { profileName: p });
+            loadInitialState();
+          } catch (err) {
+            showToast('Could not switch to ' + p + '.', 'error', 5000);
+          }
+        },
+        search: ('profile ' + p + ' antigravity account switch').toLowerCase()
+      });
+    });
+
+    return out;
+  }
+
+  function cpAllCommands() {
+    return [].concat(cpViewCommands(), cpActionCommands(), cpToolCommands());
+  }
+
+  function cpRender() {
+    const list = document.getElementById('cp-list');
+    if (!list) return;
+
+    const q = cpState.query.trim().toLowerCase();
+    const all = cpAllCommands();
+    cpState.items = q ? all.filter(c => c.search.indexOf(q) >= 0) : all;
+
+    if (cpState.selected >= cpState.items.length) cpState.selected = cpState.items.length - 1;
+    if (cpState.selected < 0) cpState.selected = 0;
+
+    list.innerHTML = '';
+
+    if (cpState.items.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'cp-empty';
+      empty.textContent = 'Nothing matches "' + cpState.query + '".';
+      list.appendChild(empty);
+      return;
+    }
+
+    let lastGroup = null;
+    cpState.items.forEach((item, index) => {
+      if (item.group !== lastGroup) {
+        lastGroup = item.group;
+        const header = document.createElement('div');
+        header.className = 'cp-group';
+        header.textContent = item.group;
+        list.appendChild(header);
+      }
+
+      const row = document.createElement('div');
+      row.className = 'cp-item' + (index === cpState.selected ? ' is-selected' : '');
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', index === cpState.selected ? 'true' : 'false');
+
+      const label = document.createElement('span');
+      label.className = 'cp-item-label';
+      label.textContent = item.label;
+
+      const hint = document.createElement('span');
+      hint.className = 'cp-item-hint';
+      hint.textContent = item.hint || '';
+
+      row.appendChild(label);
+      row.appendChild(hint);
+      row.addEventListener('click', () => {
+        cpState.selected = index;
+        cpRunSelected();
+      });
+      row.addEventListener('mousemove', () => {
+        if (cpState.selected !== index) {
+          cpState.selected = index;
+          cpRender();
+        }
+      });
+      list.appendChild(row);
+    });
+  }
+
+  function cpOpen() {
+    cpState.open = true;
+    cpState.query = '';
+    cpState.selected = 0;
+
+    const overlay = document.getElementById('cp-overlay');
+    const input = document.getElementById('cp-input');
+    if (overlay) overlay.style.display = '';
+    if (input) {
+      input.value = '';
+      setTimeout(() => input.focus(), 30);
+    }
+    cpRender();
+  }
+
+  function cpClose() {
+    cpState.open = false;
+    const overlay = document.getElementById('cp-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  async function cpRunSelected() {
+    const item = cpState.items[cpState.selected];
+    if (!item) return;
+    cpClose();
+    try {
+      await item.run();
+    } catch (err) {
+      showToast('That command failed: ' + (err && err.message ? err.message : err), 'error', 5000);
+    }
+  }
+
+  function setupCommandPalette() {
+    const input = document.getElementById('cp-input');
+    const overlay = document.getElementById('cp-overlay');
+
+    input?.addEventListener('input', () => {
+      cpState.query = input.value;
+      cpState.selected = 0;
+      cpRender();
+    });
+
+    input?.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        cpState.selected = Math.min(cpState.selected + 1, cpState.items.length - 1);
+        cpRender();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        cpState.selected = Math.max(cpState.selected - 1, 0);
+        cpRender();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        cpRunSelected();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cpClose();
+      }
+
+      const selected = document.querySelector('.cp-item.is-selected');
+      if (selected) selected.scrollIntoView({ block: 'nearest' });
+    });
+
+    overlay?.addEventListener('click', (e) => {
+      if (e.target === overlay) cpClose();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        if (cpState.open) cpClose();
+        else cpOpen();
+      } else if (e.key === 'Escape' && cpState.open) {
+        cpClose();
+      }
+    });
+  }
+
   function setupNavigation() {
     const navItems = document.querySelectorAll('.nav-item');
     navItems.forEach(item => {
@@ -800,10 +1063,38 @@
     return row;
   }
 
+  // Install-all state. Kept outside dependencyState.busy so a batch in flight disables the
+  // batch button even though nothing is busy on any single row yet.
+  let dependencyInstallAllRunning = false;
+  let dependencyInstallAllProgress = '';
+
+  function updateInstallAllButton() {
+    const btn = document.getElementById('btn-install-all-dependencies');
+    if (!btn) return;
+
+    const label = btn.querySelector('span');
+    const missing = dependencyState.items.filter(i => !i.isInstalled);
+
+    if (dependencyInstallAllRunning) {
+      btn.disabled = true;
+      if (label) label.textContent = dependencyInstallAllProgress || 'Installing...';
+      return;
+    }
+
+    btn.disabled = missing.length === 0;
+    if (label) {
+      label.textContent = missing.length === 0
+        ? 'Nothing missing'
+        : 'Install all missing (' + missing.length + ')';
+    }
+  }
+
   function renderDependencies() {
     const runtimeContainer = document.getElementById('runtimes-list-container');
     const agentContainer = document.getElementById('agents-list-container');
     if (!runtimeContainer || !agentContainer) return;
+
+    updateInstallAllButton();
 
     runtimeContainer.innerHTML = '';
     agentContainer.innerHTML = '';
@@ -848,6 +1139,37 @@
     }
   }
 
+  async function installAllDependencies() {
+    if (dependencyInstallAllRunning) return;
+
+    const missing = dependencyState.items.filter(i => !i.isInstalled);
+    if (missing.length === 0) {
+      showToast('Every detected tool is already installed.', 'info', 3500);
+      return;
+    }
+
+    dependencyInstallAllRunning = true;
+    dependencyInstallAllProgress = '';
+    updateInstallAllButton();
+
+    try {
+      const res = await callBridge('install_all_dependencies');
+      if (res && res.started === false) {
+        showToast('Every detected tool is already installed.', 'info', 3500);
+        dependencyInstallAllRunning = false;
+        updateInstallAllButton();
+        return;
+      }
+
+      const total = (res && res.total) || missing.length;
+      showToast('Installing ' + total + ' item(s). This takes a few minutes and streams its output below.', 'info', 6000);
+    } catch (err) {
+      showToast('The batch install could not start: ' + (err.message || err), 'error', 6000);
+      dependencyInstallAllRunning = false;
+      updateInstallAllButton();
+    }
+  }
+
   async function handleDependencyAction(item) {
     if (dependencyState.busy[item.id] === 'running') return;
 
@@ -875,6 +1197,7 @@
 
   function setupDependencies() {
     document.getElementById('btn-recheck-dependencies')?.addEventListener('click', () => loadDependencies(true));
+    document.getElementById('btn-install-all-dependencies')?.addEventListener('click', () => installAllDependencies());
   }
 
   // Keep the About card's version in step with the version the backend reports, so it is not
@@ -985,6 +1308,7 @@
       const startMinimized = document.getElementById('setting-minimized-checkbox').checked;
       const minimizeToTray = document.getElementById('setting-tray-minimize-checkbox')?.checked !== false;
       const notifications = document.getElementById('setting-notifications-checkbox')?.checked !== false;
+      const globalHotkey = document.getElementById('setting-global-hotkey-checkbox')?.checked !== false;
       const maskShortcutPaths = document.getElementById('setting-mask-paths-checkbox')?.checked === true;
       const embedShells = document.getElementById('setting-embed-shells-checkbox')?.checked === true;
       const enableProton = (document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox'))?.checked === true;
@@ -1010,7 +1334,7 @@
       renderDashboardShortcuts();
 
       await callBridge('save_general_settings', {
-        settings: { autostart, startMinimized, minimizeToTray, notifications, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, enableProtonVpnProvider: enableProton, enableHardwareMonitor, theme, accentColor }
+        settings: { autostart, startMinimized, minimizeToTray, notifications, globalHotkey, maskShortcutPaths, embedShellsInTerminalWorkspace: embedShells, enableProtonVpnProvider: enableProton, enableHardwareMonitor, theme, accentColor }
       });
 
       feedback.textContent = 'Preferences saved successfully!';
@@ -2815,6 +3139,123 @@
     });
   }
 
+  // ---- finding installed clients ----
+
+  async function findInstalledClients() {
+    const btn = document.getElementById('btn-find-clients');
+    const original = btn ? btn.textContent : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Searching';
+    }
+
+    try {
+      const res = await callBridge('detect_ai_clients', {});
+      renderDevToolOffers(res);
+    } catch (err) {
+      appendLog('Could not scan for installed tools: ' + (err.message || err));
+      showToast('The scan for installed tools failed.', 'error', 5000);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    }
+  }
+
+  function renderDevToolOffers(res) {
+    const container = document.getElementById('devtool-offers');
+    if (!container) return;
+
+    const found = (res && Array.isArray(res.found)) ? res.found : [];
+    const alreadyConfigured = (res && res.alreadyConfigured) || 0;
+
+    container.innerHTML = '';
+    if (found.length === 0) {
+      container.style.display = 'none';
+      if (alreadyConfigured > 0) {
+        showToast('Every tool found on this machine is already configured.', 'info', 4000);
+      } else {
+        showToast('None of the recognised clients were found in the usual install folders.', 'info', 5000);
+      }
+      return;
+    }
+
+    container.style.display = '';
+
+    const head = document.createElement('div');
+    head.className = 'devtool-offers-head';
+    const headText = document.createElement('span');
+    headText.textContent = found.length + (found.length === 1 ? ' client found' : ' clients found');
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'btn btn-outline';
+    dismiss.style.cssText = 'padding: 3px 10px; font-size: 11px;';
+    dismiss.textContent = 'Dismiss';
+    dismiss.addEventListener('click', () => { container.style.display = 'none'; });
+    head.appendChild(headText);
+    head.appendChild(dismiss);
+    container.appendChild(head);
+
+    found.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'devtool-offer';
+
+      const name = document.createElement('span');
+      name.className = 'devtool-offer-name';
+      name.textContent = f.name;
+
+      const path = document.createElement('span');
+      path.className = 'devtool-offer-path';
+      path.textContent = f.target;
+      path.title = f.target;
+
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'btn btn-primary';
+      add.style.cssText = 'padding: 4px 12px; font-size: 11.5px;';
+      add.textContent = 'Add';
+      add.addEventListener('click', async () => {
+        add.disabled = true;
+        await addDiscoveredClient(f);
+        add.disabled = false;
+      });
+
+      row.appendChild(name);
+      row.appendChild(path);
+      row.appendChild(add);
+      container.appendChild(row);
+    });
+  }
+
+  async function addDiscoveredClient(found) {
+    if (!state.aiConfig) state.aiConfig = {};
+
+    const id = found.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    const already = (state.aiConfig.devTools || []).some(d =>
+      d.id === id || (d.target || '') === found.target);
+
+    state.aiConfig.devTools = state.aiConfig.devTools || [];
+    if (!already) {
+      state.aiConfig.devTools.push({
+        id,
+        name: found.name,
+        description: '',
+        target: found.target,
+        arguments: '',
+        workingDirectory: '',
+        isEnabled: true
+      });
+      showToast(found.name + ' added to AI Dev Tools.', 'success', 3500);
+    }
+
+    try {
+      await callBridge('save_ai_config', { config: state.aiConfig });
+    } catch { }
+
+    await loadDevTools();
+  }
+
   async function loadDevTools() {
     const btn = document.getElementById('btn-recheck-devtools');
     if (btn) {
@@ -2846,6 +3287,8 @@
     const nameInp = document.getElementById('modal-devtool-name');
     const descInp = document.getElementById('modal-devtool-desc');
     const targetInp = document.getElementById('modal-devtool-target');
+    const argsInp = document.getElementById('modal-devtool-args');
+    const workdirInp = document.getElementById('modal-devtool-workdir');
     const enabledInp = document.getElementById('modal-devtool-enabled');
 
     if (tool) {
@@ -2854,6 +3297,8 @@
       if (nameInp) nameInp.value = tool.name || '';
       if (descInp) descInp.value = tool.description || '';
       if (targetInp) targetInp.value = tool.target || '';
+      if (argsInp) argsInp.value = tool.arguments || '';
+      if (workdirInp) workdirInp.value = tool.workingDirectory || '';
       if (enabledInp) enabledInp.checked = tool.isEnabled !== false;
     } else {
       if (title) title.textContent = 'Add AI Dev Tool';
@@ -2861,6 +3306,8 @@
       if (nameInp) nameInp.value = '';
       if (descInp) descInp.value = '';
       if (targetInp) targetInp.value = '';
+      if (argsInp) argsInp.value = '';
+      if (workdirInp) workdirInp.value = '';
       if (enabledInp) enabledInp.checked = true;
     }
 
@@ -2874,6 +3321,7 @@
     });
 
     document.getElementById('btn-recheck-devtools')?.addEventListener('click', () => loadDevTools());
+    document.getElementById('btn-find-clients')?.addEventListener('click', () => findInstalledClients());
 
     const modal = document.getElementById('modal-devtool-editor');
     if (!modal) return;
@@ -2904,12 +3352,24 @@
       } catch { }
     });
 
+    document.getElementById('btn-browse-modal-devtool-workdir')?.addEventListener('click', async () => {
+      try {
+        const res = await callBridge('browse_directory', { title: 'Select the folder the tool starts in' });
+        if (res && res.path) {
+          const wd = document.getElementById('modal-devtool-workdir');
+          if (wd) wd.value = res.path;
+        }
+      } catch { }
+    });
+
     document.getElementById('btn-save-devtool-modal')?.addEventListener('click', async () => {
       const idInp = document.getElementById('modal-devtool-id');
       const nameInp = document.getElementById('modal-devtool-name');
       const descInp = document.getElementById('modal-devtool-desc');
       const targetInp = document.getElementById('modal-devtool-target');
       const enabledInp = document.getElementById('modal-devtool-enabled');
+      const argsInp = document.getElementById('modal-devtool-args');
+      const workdirInp = document.getElementById('modal-devtool-workdir');
 
       const name = nameInp ? nameInp.value.trim() : '';
       if (!name) {
@@ -2921,6 +3381,8 @@
       const id = idInp && idInp.value ? idInp.value : ('tool_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4));
       const desc = descInp ? descInp.value.trim() : '';
       const target = targetInp ? targetInp.value.trim() : '';
+      const argumentsText = argsInp ? argsInp.value.trim() : '';
+      const workingDirectory = workdirInp ? workdirInp.value.trim() : '';
       const isEnabled = enabledInp ? enabledInp.checked : true;
 
       if (!state.aiConfig) state.aiConfig = {};
@@ -2929,9 +3391,9 @@
 
       const existingIndex = state.aiConfig.devTools.findIndex(t => t.id === id);
       if (existingIndex >= 0) {
-        state.aiConfig.devTools[existingIndex] = { id, name, description: desc, target, isEnabled };
+        state.aiConfig.devTools[existingIndex] = { id, name, description: desc, target, arguments: argumentsText, workingDirectory, isEnabled };
       } else {
-        state.aiConfig.devTools.push({ id, name, description: desc, target, isEnabled });
+        state.aiConfig.devTools.push({ id, name, description: desc, target, arguments: argumentsText, workingDirectory, isEnabled });
       }
 
       state.aiConfig.toolTargets[name] = target;
@@ -4019,6 +4481,10 @@
 
     container.appendChild(toast);
 
+    // A toast that has already gone cannot be read, so every message goes into a capped
+    // history behind the bell in the header.
+    recordToast(cleanMessage, type);
+
     setTimeout(() => {
       toast.classList.add('toast-out');
       setTimeout(() => {
@@ -4027,6 +4493,74 @@
         }
       }, 250);
     }, durationMs);
+  }
+
+  const toastHistoryState = { items: [] };
+
+  function recordToast(message, type) {
+    toastHistoryState.items.unshift({ message, type: type || 'info', at: new Date().toISOString() });
+    if (toastHistoryState.items.length > 50) toastHistoryState.items.length = 50;
+    updateToastBadge();
+  }
+
+  function updateToastBadge() {
+    const badge = document.getElementById('toast-history-count');
+    if (badge) {
+      const n = toastHistoryState.items.length;
+      badge.textContent = String(n);
+      badge.style.display = n > 0 ? '' : 'none';
+    }
+  }
+
+  function toggleToastHistory(forceOpen) {
+    const panel = document.getElementById('toast-history-panel');
+    const badge = document.getElementById('toast-history-count');
+    if (!panel) return;
+
+    const willOpen = typeof forceOpen === 'boolean' ? forceOpen : panel.classList.contains('open') === false;
+    panel.classList.toggle('open', willOpen);
+    if (willOpen) {
+      renderToastHistory();
+      if (badge) badge.style.display = 'none';
+    }
+  }
+
+  function renderToastHistory() {
+    const list = document.getElementById('toast-history-list');
+    if (!list) return;
+
+    list.innerHTML = '';
+    if (toastHistoryState.items.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'toast-history-empty';
+      empty.textContent = 'No notifications yet.';
+      list.appendChild(empty);
+      return;
+    }
+
+    toastHistoryState.items.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'toast-history-item is-' + item.type;
+
+      const when = document.createElement('span');
+      when.className = 'toast-history-time';
+      const d = new Date(item.at);
+      when.textContent = isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
+
+      const body = document.createElement('span');
+      body.className = 'toast-history-message';
+      body.textContent = item.message;
+
+      row.appendChild(when);
+      row.appendChild(body);
+      list.appendChild(row);
+    });
+  }
+
+  function clearToastHistory() {
+    toastHistoryState.items = [];
+    renderToastHistory();
+    updateToastBadge();
   }
 
   // AI Providers & Models Setup View
@@ -4438,6 +4972,22 @@
     });
 
     document.getElementById('btn-refresh-state')?.addEventListener('click', loadInitialState);
+    document.getElementById('btn-toast-history')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleToastHistory();
+      document.getElementById('btn-toast-history')?.setAttribute('aria-expanded', String(document.getElementById('toast-history-panel').classList.contains('open')));
+    });
+    document.getElementById('btn-clear-toast-history')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearToastHistory();
+    });
+    // Clicking anywhere else closes the panel, the same way the other header overlays work.
+    document.addEventListener('click', (e) => {
+      const panel = document.getElementById('toast-history-panel');
+      if (!panel || !panel.classList.contains('open')) return;
+      if (e.target.closest('.toast-history-wrap')) return;
+      panel.classList.remove('open');
+    });
 
     document.getElementById('btn-copy-lan-url')?.addEventListener('click', () => {
       const urlText = document.getElementById('dash-lan-url')?.textContent || '';
@@ -4600,10 +5150,12 @@
           const minCheck = document.getElementById('setting-minimized-checkbox');
           const trayCheck = document.getElementById('setting-tray-minimize-checkbox');
           const notifCheck = document.getElementById('setting-notifications-checkbox');
+          const hotkeyCheck = document.getElementById('setting-global-hotkey-checkbox');
           if (autoCheck) autoCheck.checked = !!res.settings.autostart;
           if (minCheck) minCheck.checked = !!res.settings.startMinimized;
           if (trayCheck) trayCheck.checked = res.settings.minimizeToTray !== false;
           if (notifCheck) notifCheck.checked = res.settings.notifications !== false;
+          if (hotkeyCheck) hotkeyCheck.checked = res.settings.globalHotkey !== false;
           state.isIpMasked = !!res.settings.maskPublicIp;
           state.isShortcutsMasked = res.settings.maskShortcutPaths !== undefined
             ? !!res.settings.maskShortcutPaths
@@ -5059,6 +5611,7 @@
       ['SettingsView', setupSettingsView],
       ['ShortcutEditor', setupShortcutEditor],
       ['DevToolsEditor', setupDevToolsEditor],
+      ['CommandPalette', setupCommandPalette],
       ['QuotaAndIpWidget', setupQuotaAndIpWidget],
       ['RenderOpenCode', renderOpenCodeCard],
       ['PromptModal', setupPromptModalListeners],

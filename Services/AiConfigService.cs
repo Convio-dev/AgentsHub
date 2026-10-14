@@ -76,6 +76,17 @@ public class DevToolItem
     [JsonPropertyName("target")]
     public string Target { get; set; } = "";
 
+    /// <summary>
+    /// Command-line arguments appended to the target. The shortcut model has always carried
+    /// arguments; dev tools did not, which meant a tool that needs a flag could not be launched.
+    /// </summary>
+    [JsonPropertyName("arguments")]
+    public string Arguments { get; set; } = "";
+
+    /// <summary>Directory to start the executable in. Empty means "inherited from the app".</summary>
+    [JsonPropertyName("workingDirectory")]
+    public string WorkingDirectory { get; set; } = "";
+
     [JsonPropertyName("isEnabled")]
     public bool IsEnabled { get; set; } = true;
 }

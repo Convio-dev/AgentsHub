@@ -992,16 +992,77 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "install_all_dependencies":
+                {
+                    var statuses = await DependencyCheckerService.GetDependenciesStatusAsync();
+                    var missing = statuses.Where(s => !s.IsInstalled).ToList();
+
+                    if (missing.Count == 0)
+                    {
+                        SendResponse(requestId, true, new { started = false, total = 0, names = Array.Empty<string>() });
+                        break;
+                    }
+
+                    List<DependencyDefinition> queue = [];
+                    foreach (var status in missing)
+                    {
+                        var found = DependencyCheckerService.Find(status.Id);
+                        if (found != null) queue.Add(found);
+                    }
+
+                    SendResponse(requestId, true, new
+                    {
+                        started = true,
+                        total = queue.Count,
+                        names = queue.Select(d => d!.Name).ToArray()
+                    });
+
+                    // One at a time on purpose: parallel winget installs contend for the same
+                    // package manager and log files, and the outcome becomes unreadable.
+                    _ = RunAllDependencyInstallsAsync(queue);
+                }
+                break;
+
             case "get_dev_tools":
                 // Local reads only: File.Exists per tool. Cheap enough to call whenever the view
                 // opens, so the path health on screen is never stale.
                 SendResponse(requestId, true, new { devTools = BuildDevToolDtos() });
                 break;
 
+            case "detect_ai_clients":
+                {
+                    // A bounded directory walk, so it runs off the UI thread and reports how far
+                    // it got rather than pretending to be exhaustive.
+                    var found = await Task.Run(() => InstalledClients.FindInstalledClients());
+
+                    var configured = AiConfigService.Instance.CurrentConfig.DevTools ?? [];
+                    var offers = found
+                        .Where(f => !configured.Any(d =>
+                            string.Equals(Path.GetFileName(f.Target), Path.GetFileName(d.Target ?? ""), StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(f.Target, d.Target ?? "", StringComparison.OrdinalIgnoreCase)))
+                        .Select(f => new
+                        {
+                            name = f.Name,
+                            target = f.Target,
+                            alreadyConfigured = configured.Any(d =>
+                                string.Equals(Path.GetFileName(f.Target), Path.GetFileName(d.Target ?? ""), StringComparison.OrdinalIgnoreCase))
+                        })
+                        .ToList();
+
+                    SendResponse(requestId, true, new
+                    {
+                        found = offers,
+                        scannedFor = InstalledClients.KnownClientNames,
+                        alreadyConfigured = found.Count - offers.Count
+                    });
+                }
+                break;
+
             case "launch_tool":
                 {
                     string? target = null;
                     string? toolName = null;
+                    string? toolId = null;
                     if (data.TryGetProperty("target", out var targetProp))
                     {
                         target = targetProp.GetString();
@@ -1012,7 +1073,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                     }
                     if (data.TryGetProperty("toolId", out var idProp))
                     {
-                        var toolId = idProp.GetString();
+                        toolId = idProp.GetString();
                         if (string.IsNullOrWhiteSpace(target) && !string.IsNullOrWhiteSpace(toolId))
                         {
                             var cfg = AiConfigService.Instance.CurrentConfig;
@@ -1033,7 +1094,23 @@ public sealed partial class DashboardWebBridge : IDisposable
                         break;
                     }
 
-                    var (launched, launchMessage) = LaunchExecutableTarget(target, toolName ?? "Tool");
+                    string? toolArguments = data.TryGetProperty("arguments", out var argsProp) ? argsProp.GetString() : null;
+                    string? toolWorkingDirectory = data.TryGetProperty("workingDirectory", out var wdProp) ? wdProp.GetString() : null;
+
+                    // The UI sends the tool it launched, so fall back to the stored values.
+                    if (!string.IsNullOrWhiteSpace(toolId))
+                    {
+                        var stored = AiConfigService.Instance.CurrentConfig.DevTools?
+                            .FirstOrDefault(d => string.Equals(d.Id, toolId, StringComparison.OrdinalIgnoreCase));
+                        if (stored != null)
+                        {
+                            toolArguments ??= stored.Arguments;
+                            toolWorkingDirectory ??= stored.WorkingDirectory;
+                        }
+                    }
+
+                    var (launched, launchMessage) = LaunchExecutableTarget(
+                        target, toolName ?? "Tool", toolArguments ?? "", toolWorkingDirectory ?? "");
                     SendResponse(requestId, launched, new { success = launched, target, message = launchMessage });
                 }
                 break;
@@ -1086,6 +1163,31 @@ public sealed partial class DashboardWebBridge : IDisposable
                         }
                         AiConfigService.Instance.SaveConfig(cfg);
                         SendResponse(requestId, true, new { toolName = tool, toolId, path = selectedPath });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Selection cancelled");
+                    }
+                }
+                break;
+
+            case "browse_directory":
+                {
+                    string title = data.TryGetProperty("title", out var bdTitle) ? bdTitle.GetString() ?? "Select a folder" : "Select a folder";
+
+                    string? selectedFolder = null;
+                    _mainForm.Invoke(() =>
+                    {
+                        using var fbd = new FolderBrowserDialog { Description = title };
+                        if (fbd.ShowDialog(_mainForm) == DialogResult.OK)
+                        {
+                            selectedFolder = fbd.SelectedPath;
+                        }
+                    });
+
+                    if (!string.IsNullOrWhiteSpace(selectedFolder))
+                    {
+                        SendResponse(requestId, true, new { path = selectedFolder });
                     }
                     else
                     {
@@ -1227,6 +1329,22 @@ public sealed partial class DashboardWebBridge : IDisposable
                     if (stProp.TryGetProperty("notifications", out var notifEl))
                     {
                         StartupHelper.SetPreference("WindowsNotifications", notifEl.GetBoolean());
+                    }
+                    if (stProp.TryGetProperty("globalHotkey", out var hotkeyEl))
+                    {
+                        StartupHelper.SetPreference("GlobalHotkey", hotkeyEl.GetBoolean());
+                        // The field is typed as Form, so the hotkey is reached through the
+                        // concrete type. The form can be closing while a setting is saved.
+                        if (_mainForm is MainForm mainForm)
+                        {
+                            try
+                            {
+                                mainForm.Invoke(() => mainForm.ApplyGlobalHotkey());
+                            }
+                            catch
+                            {
+                            }
+                        }
                     }
                     if (stProp.TryGetProperty("maskPublicIp", out var maskEl))
                     {
@@ -1630,10 +1748,62 @@ public sealed partial class DashboardWebBridge : IDisposable
     }
 
     /// <summary>
+    /// Installs every missing dependency in sequence.
+    ///
+    /// The per-tool installer already exists and streams its own progress events, so this only
+    /// has to serialise the queue and report where it is. Sequential rather than parallel because
+    /// two winget installs at once fight over the same package manager and the output becomes
+    /// impossible to read.
+    /// </summary>
+    private async Task RunAllDependencyInstallsAsync(List<DependencyDefinition> queue)
+    {
+        var succeeded = new List<string>();
+        var failed = new List<string>();
+
+        for (int i = 0; i < queue.Count; i++)
+        {
+            var definition = queue[i];
+            PostEventToUi("dependency_install_all_progress", new
+            {
+                index = i,
+                total = queue.Count,
+                id = definition.Id,
+                name = definition.Name
+            });
+
+            try
+            {
+                await RunDependencyInstallAsync(definition);
+
+                // RunDependencyInstallAsync reports its own completion; re-reading the status is
+                // the only honest way to know whether it actually took.
+                var after = await DependencyCheckerService.GetDependenciesStatusAsync();
+                var status = after.FirstOrDefault(s => string.Equals(s.Id, definition.Id, StringComparison.OrdinalIgnoreCase));
+
+                if (status?.IsInstalled == true) succeeded.Add(definition.Name);
+                else failed.Add(definition.Name);
+            }
+            catch (Exception ex)
+            {
+                failed.Add(definition.Name);
+                PostDependencyInstallComplete(definition.Id, false, ex.Message, null);
+            }
+        }
+
+        PostEventToUi("dependency_install_all_complete", new
+        {
+            total = queue.Count,
+            succeeded,
+            failed
+        });
+    }
+
+    /// <summary>
     /// Starts an external target. Returns the outcome rather than showing a dialog, so the
     /// dashboard can report it through the same toast channel as everything else.
     /// </summary>
-    private static (bool Launched, string Message) LaunchExecutableTarget(string target, string toolName)
+    private static (bool Launched, string Message) LaunchExecutableTarget(
+        string target, string toolName, string arguments = "", string workingDirectory = "")
     {
         if (string.IsNullOrWhiteSpace(target))
         {
@@ -1647,11 +1817,25 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             if (resolved.StartsWith("shell:AppsFolder\\", StringComparison.OrdinalIgnoreCase))
             {
+                // A UWP entry point is handed to explorer, which ignores arguments and a
+                // working directory of its own, so neither is applied here.
                 Process.Start(new ProcessStartInfo("explorer.exe", resolved) { UseShellExecute = true });
             }
             else
             {
-                Process.Start(new ProcessStartInfo(resolved) { UseShellExecute = true });
+                var startInfo = new ProcessStartInfo(resolved) { UseShellExecute = true };
+
+                if (!string.IsNullOrWhiteSpace(arguments))
+                {
+                    startInfo.Arguments = arguments.Trim();
+                }
+
+                if (!string.IsNullOrWhiteSpace(workingDirectory) && Directory.Exists(workingDirectory.Trim()))
+                {
+                    startInfo.WorkingDirectory = workingDirectory.Trim();
+                }
+
+                Process.Start(startInfo);
             }
             return (true, $"{toolName} started.");
         }
@@ -1743,6 +1927,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 startMinimized = StartupHelper.GetPreference("StartMinimized", false),
                 minimizeToTray = StartupHelper.GetPreference("MinimizeToTray", true),
                 notifications = StartupHelper.GetPreference("WindowsNotifications", true),
+                globalHotkey = StartupHelper.GetPreference("GlobalHotkey", true),
                 maskPublicIp = StartupHelper.GetPreference("MaskPublicIp", false),
                 maskShortcutPaths = StartupHelper.GetPreference("MaskShortcutPaths", false),
                 embedShellsInTerminalWorkspace = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false),
@@ -2041,6 +2226,8 @@ public sealed partial class DashboardWebBridge : IDisposable
                 name = d.Name,
                 description = d.Description,
                 target = d.Target,
+                arguments = d.Arguments,
+                workingDirectory = d.WorkingDirectory,
                 isEnabled = d.IsEnabled,
                 health = new
                 {
