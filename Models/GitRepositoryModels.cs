@@ -513,3 +513,54 @@ public sealed class GitHubPullRequestListResult
     [JsonPropertyName("pullRequests")]
     public List<GitHubPullRequest> PullRequests { get; set; } = [];
 }
+
+public sealed class GitMergePreviewResult
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("sourceBranch")]
+    public string SourceBranch { get; set; } = "";
+
+    [JsonPropertyName("targetBranch")]
+    public string TargetBranch { get; set; } = "";
+
+    [JsonPropertyName("canMerge")]
+    public bool CanMerge { get; set; }
+
+    [JsonPropertyName("isFastForward")]
+    public bool IsFastForward { get; set; }
+
+    [JsonPropertyName("hasConflicts")]
+    public bool HasConflicts { get; set; }
+
+    [JsonPropertyName("incomingCommitCount")]
+    public int IncomingCommitCount { get; set; }
+
+    [JsonPropertyName("incomingCommits")]
+    public List<string> IncomingCommits { get; set; } = [];
+
+    [JsonPropertyName("conflictingFiles")]
+    public List<string> ConflictingFiles { get; set; } = [];
+
+    [JsonPropertyName("changedFiles")]
+    public List<string> ChangedFiles { get; set; } = [];
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = "";
+}
+
+public sealed class GitMergeExecutionResult
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("hasConflicts")]
+    public bool HasConflicts { get; set; }
+
+    [JsonPropertyName("output")]
+    public string Output { get; set; } = "";
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = "";
+}

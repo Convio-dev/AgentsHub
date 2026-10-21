@@ -62,6 +62,7 @@ public sealed class AntigravityProfileService : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, FileSystemWatcher> _virtualHomeWatchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Threading.Timer> _virtualHomeDebounceTimers = new(StringComparer.OrdinalIgnoreCase);
     private string _activeProfile = string.Empty;
+    private volatile bool _isApplyingProfile = false;
 
     public string ActiveProfile
     {
@@ -501,50 +502,76 @@ public sealed class AntigravityProfileService : IDisposable
                 string targetDir = Path.Combine(ProfilesBaseDir, profileName);
                 Directory.CreateDirectory(targetDir);
 
+                // Isolation Guard: ensure live credential matches target profile's expected identity!
+                string? expectedEmail = GetAccountEmail(profileName);
+                string? credSecret = ReadWindowsCredential();
+                string? credEmail = !string.IsNullOrWhiteSpace(credSecret) ? ExtractEmailFromTokenBlob(credSecret) : null;
+                string? liveAccountsPath = ResolveGoogleAccountsPath(GeminiDir);
+                string? diskEmail = liveAccountsPath != null && File.Exists(liveAccountsPath) ? TryExtractAccountEmail(liveAccountsPath) : null;
+                string resolvedLiveEmail = credEmail ?? diskEmail ?? string.Empty;
+
+                if (!string.IsNullOrWhiteSpace(expectedEmail) && !string.IsNullOrWhiteSpace(resolvedLiveEmail))
+                {
+                    if (!string.Equals(expectedEmail, resolvedLiveEmail, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"[Isolation Guard] Blocked session export for '{profileName}': Live credential belongs to '{resolvedLiveEmail}', but profile '{profileName}' is registered to '{expectedEmail}'. Overwrite aborted to prevent cross-contamination.");
+                        return false;
+                    }
+                }
+
                 string email = string.Empty;
 
                 // 1. Export Windows Credential 'gemini:antigravity'
-                string? credSecret = ReadWindowsCredential();
                 if (!string.IsNullOrWhiteSpace(credSecret))
                 {
-                    string credDest = Path.Combine(targetDir, "gemini_credential.json");
-                    File.WriteAllText(credDest, credSecret);
-
-                    var extracted = ExtractEmailFromTokenBlob(credSecret);
-                    if (!string.IsNullOrWhiteSpace(extracted))
+                    // Guard against saving foreign secret into gemini_credential.json
+                    if (string.IsNullOrWhiteSpace(credEmail) || string.IsNullOrWhiteSpace(expectedEmail) || string.Equals(expectedEmail, credEmail, StringComparison.OrdinalIgnoreCase))
                     {
-                        email = extracted;
-                    }
-
-                    try
-                    {
-                        using var doc = JsonDocument.Parse(credSecret);
-                        if (doc.RootElement.TryGetProperty("token", out var tokenProp))
+                        string credDest = Path.Combine(targetDir, "gemini_credential.json");
+                        File.WriteAllText(credDest, credSecret);
+                        if (!string.IsNullOrWhiteSpace(credEmail))
                         {
-                            File.WriteAllText(Path.Combine(targetDir, "oauth_creds.json"), tokenProp.GetRawText());
+                            email = credEmail;
                         }
+
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(credSecret);
+                            if (doc.RootElement.TryGetProperty("token", out var tokenProp))
+                            {
+                                File.WriteAllText(Path.Combine(targetDir, "oauth_creds.json"), tokenProp.GetRawText());
+                            }
+                        }
+                        catch { }
                     }
-                    catch { }
+                    else
+                    {
+                        Log($"[Isolation Guard] Refused to write mismatched Windows Credential ({credEmail}) to '{profileName}' ({expectedEmail}).");
+                    }
                 }
 
                 // 2. Export disk oauth_creds if present
                 string? liveOAuth = ResolveOAuthCredsPath(GeminiDir);
                 if (liveOAuth != null && File.Exists(liveOAuth))
                 {
-                    string destOAuth = Path.Combine(targetDir, "oauth_creds.json");
-                    RobustCopyFile(liveOAuth, destOAuth);
+                    if (string.IsNullOrWhiteSpace(expectedEmail) || string.IsNullOrWhiteSpace(resolvedLiveEmail) || string.Equals(expectedEmail, resolvedLiveEmail, StringComparison.OrdinalIgnoreCase))
+                    {
+                        string destOAuth = Path.Combine(targetDir, "oauth_creds.json");
+                        RobustCopyFile(liveOAuth, destOAuth);
+                    }
                 }
 
                 // 3. Export disk google_accounts if present
-                string? liveAccounts = ResolveGoogleAccountsPath(GeminiDir);
-                if (liveAccounts != null && File.Exists(liveAccounts))
+                if (liveAccountsPath != null && File.Exists(liveAccountsPath))
                 {
-                    string destAccounts = Path.Combine(targetDir, "google_accounts.json");
-                    RobustCopyFile(liveAccounts, destAccounts);
-                    var diskEmail = TryExtractAccountEmail(destAccounts);
-                    if (!string.IsNullOrWhiteSpace(diskEmail))
+                    if (string.IsNullOrWhiteSpace(expectedEmail) || string.IsNullOrWhiteSpace(diskEmail) || string.Equals(expectedEmail, diskEmail, StringComparison.OrdinalIgnoreCase))
                     {
-                        email = diskEmail;
+                        string destAccounts = Path.Combine(targetDir, "google_accounts.json");
+                        RobustCopyFile(liveAccountsPath, destAccounts);
+                        if (!string.IsNullOrWhiteSpace(diskEmail))
+                        {
+                            email = diskEmail;
+                        }
                     }
                 }
 
@@ -626,6 +653,7 @@ public sealed class AntigravityProfileService : IDisposable
 
         lock (_lock)
         {
+            _isApplyingProfile = true;
             try
             {
                 // Step 1: Capture the live session into the outgoing profile, but ONLY when that
@@ -658,15 +686,44 @@ public sealed class AntigravityProfileService : IDisposable
                 if (HasValidSavedCredentials(profileName))
                 {
                     // Case A: Target has saved credentials
+                    string targetEmail = GetAccountEmail(profileName) ?? string.Empty;
                     string credFile = Path.Combine(targetDir, "gemini_credential.json");
-                    if (File.Exists(credFile))
+                    string? credSecret = File.Exists(credFile) ? File.ReadAllText(credFile) : null;
+                    string? credEmail = !string.IsNullOrWhiteSpace(credSecret) ? ExtractEmailFromTokenBlob(credSecret) : null;
+                    string? srcOAuth = ResolveOAuthCredsPath(targetDir);
+
+                    // Auto-heal check: if credFile is missing, or contains mismatched email while target has a known email
+                    bool needsHeal = string.IsNullOrWhiteSpace(credSecret) ||
+                        (!string.IsNullOrWhiteSpace(targetEmail) && !string.IsNullOrWhiteSpace(credEmail) && !string.Equals(targetEmail, credEmail, StringComparison.OrdinalIgnoreCase));
+
+                    if (needsHeal && srcOAuth != null && File.Exists(srcOAuth))
                     {
-                        string secret = File.ReadAllText(credFile);
-                        WriteWindowsCredential(secret);
+                        try
+                        {
+                            string oauthRaw = File.ReadAllText(srcOAuth);
+                            using var doc = JsonDocument.Parse(oauthRaw);
+                            var credObj = new
+                            {
+                                token = doc.RootElement,
+                                email = targetEmail,
+                                auth_method = "consumer"
+                            };
+                            credSecret = JsonSerializer.Serialize(credObj, new JsonSerializerOptions { WriteIndented = true });
+                            File.WriteAllText(credFile, credSecret);
+                            Log($"[Auto-Heal] Repaired Windows Credential for profile '{profileName}' ({targetEmail}) from oauth_creds.json.");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"[Auto-Heal] Warning repairing credential for '{profileName}': {ex.Message}");
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(credSecret))
+                    {
+                        WriteWindowsCredential(credSecret);
                         Log($"Restored Windows Credential for profile '{profileName}'.");
                     }
 
-                    string? srcOAuth = ResolveOAuthCredsPath(targetDir);
                     if (srcOAuth != null && File.Exists(srcOAuth))
                     {
                         RobustCopyFile(srcOAuth, GeminiOAuthCredsFile);
@@ -722,6 +779,10 @@ public sealed class AntigravityProfileService : IDisposable
             {
                 Log($"Failed to apply profile '{profileName}': {ex.Message}");
                 return false;
+            }
+            finally
+            {
+                _ = Task.Delay(500).ContinueWith(_ => _isApplyingProfile = false);
             }
         }
     }
@@ -1164,6 +1225,7 @@ public sealed class AntigravityProfileService : IDisposable
 
     private void OnGeminiFileChanged(object sender, FileSystemEventArgs e)
     {
+        if (_isApplyingProfile) return;
         if (e.ChangeType == WatcherChangeTypes.Deleted) return;
 
         // Strictly ignore anything inside antigravity-ide
@@ -1539,15 +1601,39 @@ public sealed class AntigravityProfileService : IDisposable
                 if (!Directory.Exists(virtualGemini)) return;
 
                 string email = string.Empty;
+                string expected = GetAccountEmail(profileName) ?? string.Empty;
 
                 // 1. Sync gemini_credential.json
                 string virtCred = Path.Combine(virtualGemini, "gemini_credential.json");
                 if (File.Exists(virtCred) && CheckFileHasContentSafe(virtCred, 10))
                 {
-                    RobustCopyFile(virtCred, Path.Combine(profileDir, "gemini_credential.json"));
                     string json = File.ReadAllText(virtCred);
                     var em = ExtractEmailFromTokenBlob(json);
-                    if (!string.IsNullOrWhiteSpace(em)) email = em;
+                    if (string.IsNullOrWhiteSpace(expected) || string.IsNullOrWhiteSpace(em) || string.Equals(expected, em, StringComparison.OrdinalIgnoreCase))
+                    {
+                        RobustCopyFile(virtCred, Path.Combine(profileDir, "gemini_credential.json"));
+                        if (!string.IsNullOrWhiteSpace(em)) email = em;
+                    }
+                    else
+                    {
+                        Log($"[Isolation Guard] VirtualHome gemini_credential for '{profileName}' has foreign email '{em}'. Sync skipped.");
+                    }
+                }
+                else
+                {
+                    // If virtCred is absent, but Windows Credential Manager has fresh token matching profile email:
+                    string? liveSecret = ReadWindowsCredential();
+                    if (!string.IsNullOrWhiteSpace(liveSecret))
+                    {
+                        var liveEmail = ExtractEmailFromTokenBlob(liveSecret);
+                        if (!string.IsNullOrWhiteSpace(expected) && string.Equals(expected, liveEmail, StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.WriteAllText(Path.Combine(profileDir, "gemini_credential.json"), liveSecret);
+                            File.WriteAllText(virtCred, liveSecret);
+                            email = liveEmail ?? expected;
+                            Log($"Synced refreshed Windows Credential back to profile '{profileName}'.");
+                        }
+                    }
                 }
 
                 // 2. Sync oauth_creds.json

@@ -3104,9 +3104,14 @@ public partial class CliWebviewForm : Form
         {
             RefreshHermesNavigation();
         }
-        else if (CliManagerService.IsAntigravityProfileId(ActivePaneTabId, out _))
+        else if (CliManagerService.IsAntigravityProfileId(ActivePaneTabId, out var activeTabProf))
         {
             _ = EnsureProfileWebViewAsync(ActivePaneTabId);
+            if (_cliManager != null && !string.IsNullOrWhiteSpace(activeTabProf) &&
+                !string.Equals(activeTabProf, _cliManager.ProfileService.ActiveProfile, StringComparison.OrdinalIgnoreCase))
+            {
+                _ = _cliManager.SwitchAntigravityProfileAsync(activeTabProf);
+            }
         }
         else if (!IsBuiltInCli(ActivePaneTabId))
         {

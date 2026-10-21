@@ -181,6 +181,15 @@ public sealed class GitRepositoryManagerService
         }
     }
 
+    public RepositoryItem? GetWorkingProject()
+    {
+        lock (_lock)
+        {
+            if (string.IsNullOrEmpty(_workingProjectId)) return null;
+            return _repositories.FirstOrDefault(r => string.Equals(r.Id, _workingProjectId, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     public void SetWorkingProject(string? projectId)
     {
         lock (_lock)
@@ -804,6 +813,155 @@ public sealed class GitRepositoryManagerService
             branches = [.. outText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(b => b.Trim())];
         }
         return branches;
+    }
+
+    public async Task<GitMergePreviewResult> PreviewMergeAsync(string repoPath, string sourceBranch, string? targetBranch = null, CancellationToken ct = default)
+    {
+        var result = new GitMergePreviewResult
+        {
+            SourceBranch = sourceBranch?.Trim() ?? "",
+            TargetBranch = targetBranch?.Trim() ?? ""
+        };
+
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath))
+        {
+            result.Message = "Invalid repository path.";
+            return result;
+        }
+
+        if (string.IsNullOrWhiteSpace(result.SourceBranch))
+        {
+            result.Message = "Source branch is required.";
+            return result;
+        }
+
+        // If targetBranch is empty, resolve HEAD / current branch
+        if (string.IsNullOrWhiteSpace(result.TargetBranch))
+        {
+            var (rcHead, outHead) = await RunGitAsync(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"], ct).ConfigureAwait(false);
+            if (rcHead == 0 && !string.IsNullOrWhiteSpace(outHead))
+                result.TargetBranch = outHead.Trim();
+            else
+                result.TargetBranch = "main";
+        }
+
+        // 1. Get incoming commits between targetBranch and sourceBranch
+        var (rcLog, outLog) = await RunGitAsync(repoPath, ["log", "--oneline", $"{result.TargetBranch}..{result.SourceBranch}"], ct).ConfigureAwait(false);
+        if (rcLog == 0 && !string.IsNullOrWhiteSpace(outLog))
+        {
+            result.IncomingCommits = [.. outLog.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim())];
+            result.IncomingCommitCount = result.IncomingCommits.Count;
+        }
+
+        // 2. Get changed files
+        var (rcDiff, outDiff) = await RunGitAsync(repoPath, ["diff", "--name-status", $"{result.TargetBranch}...{result.SourceBranch}"], ct).ConfigureAwait(false);
+        if (rcDiff == 0 && !string.IsNullOrWhiteSpace(outDiff))
+        {
+            result.ChangedFiles = [.. outDiff.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim())];
+        }
+
+        // 3. Find merge base
+        var (rcBase, outBase) = await RunGitAsync(repoPath, ["merge-base", result.TargetBranch, result.SourceBranch], ct).ConfigureAwait(false);
+        if (rcBase != 0 || string.IsNullOrWhiteSpace(outBase))
+        {
+            result.Message = "Branches have unrelated histories or merge base could not be determined.";
+            result.CanMerge = false;
+            return result;
+        }
+
+        string mergeBase = outBase.Trim();
+
+        // 4. Check if fast-forward is possible (mergeBase == target's HEAD)
+        var (rcRev, outRev) = await RunGitAsync(repoPath, ["rev-parse", result.TargetBranch], ct).ConfigureAwait(false);
+        if (rcRev == 0 && string.Equals(outRev.Trim(), mergeBase, StringComparison.OrdinalIgnoreCase))
+        {
+            result.IsFastForward = true;
+            result.CanMerge = true;
+            result.HasConflicts = false;
+            result.Success = true;
+            result.Message = "Fast-forward merge possible without conflicts.";
+            return result;
+        }
+
+        // 5. Check conflicts via git merge-tree
+        var (rcTree, outTree) = await RunGitAsync(repoPath, ["merge-tree", mergeBase, result.TargetBranch, result.SourceBranch], ct).ConfigureAwait(false);
+        if (rcTree == 0 && !string.IsNullOrWhiteSpace(outTree))
+        {
+            if (outTree.Contains("changed in both") || outTree.Contains("<<<<<") || outTree.Contains("CONFLICT"))
+            {
+                result.HasConflicts = true;
+                result.CanMerge = false;
+                result.Message = "Merge conflicts detected.";
+
+                var conflictLines = outTree.Split('\n');
+                var conflicts = new List<string>();
+                foreach (var cl in conflictLines)
+                {
+                    if (cl.Contains("changed in both"))
+                    {
+                        var parts = cl.Split(' ');
+                        if (parts.Length > 0) conflicts.Add(parts[^1].Trim());
+                    }
+                }
+                result.ConflictingFiles = [.. conflicts.Distinct()];
+            }
+            else
+            {
+                result.CanMerge = true;
+                result.HasConflicts = false;
+                result.Message = "Automatic 3-way merge cleanly possible.";
+            }
+        }
+        else
+        {
+            result.CanMerge = true;
+            result.Message = "Merge preview calculated.";
+        }
+
+        result.Success = true;
+        return result;
+    }
+
+    public async Task<GitMergeExecutionResult> ExecuteMergeAsync(
+        string repoPath,
+        string sourceBranch,
+        bool fastForwardOnly = false,
+        string? message = null,
+        CancellationToken ct = default)
+    {
+        var result = new GitMergeExecutionResult();
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath))
+        {
+            result.Message = "Invalid repository path.";
+            return result;
+        }
+
+        var args = new List<string> { "merge", sourceBranch.Trim() };
+        if (fastForwardOnly)
+        {
+            args.Add("--ff-only");
+        }
+        else if (!string.IsNullOrWhiteSpace(message))
+        {
+            args.Add("-m");
+            args.Add(message.Trim());
+        }
+
+        var (rc, output) = await RunGitAsync(repoPath, [.. args], ct).ConfigureAwait(false);
+        result.Output = output;
+        if (rc == 0)
+        {
+            result.Success = true;
+            result.Message = "Merge completed successfully.";
+        }
+        else
+        {
+            result.Success = false;
+            result.HasConflicts = output.Contains("CONFLICT") || output.Contains("Automatic merge failed");
+            result.Message = result.HasConflicts ? "Merge failed with conflicts." : $"Merge failed: {output}";
+        }
+
+        return result;
     }
 
     public async Task<(bool success, string message, string? newCommitHash)> RevertCommitAsync(

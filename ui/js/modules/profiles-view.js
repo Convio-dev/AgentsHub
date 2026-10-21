@@ -267,7 +267,15 @@
         const name = b.dataset.name;
         b.disabled = true;
         try {
-          await callBridge('start_antigravity_instance', { profile: name });
+          const res = await callBridge('start_antigravity_instance', { profile: name });
+          if (res && res.profiles) {
+            state.antigravity.profiles = res.profiles;
+            renderProfiles();
+            renderQuickProfileSelect();
+            updateHeaderStatus();
+          }
+        } catch (e) {
+          console.error('Start instance failed:', e);
         } finally {
           b.disabled = false;
         }
@@ -279,7 +287,15 @@
         const name = b.dataset.name;
         b.disabled = true;
         try {
-          await callBridge('stop_antigravity_instance', { profile: name });
+          const res = await callBridge('stop_antigravity_instance', { profile: name });
+          if (res && res.profiles) {
+            state.antigravity.profiles = res.profiles;
+            renderProfiles();
+            renderQuickProfileSelect();
+            updateHeaderStatus();
+          }
+        } catch (e) {
+          console.error('Stop instance failed:', e);
         } finally {
           b.disabled = false;
         }
@@ -291,7 +307,18 @@
         const name = b.dataset.name;
         b.disabled = true;
         try {
-          await callBridge('switch_antigravity_profile', { profile: name });
+          const res = await callBridge('switch_antigravity_profile', { profile: name });
+          if (res) {
+            if (res.activeProfile !== undefined) state.antigravity.activeProfile = res.activeProfile;
+            if (res.profiles) state.antigravity.profiles = res.profiles;
+            renderProfiles();
+            renderQuickProfileSelect();
+            updateProfileEmailUi();
+            updateHeaderStatus();
+            updateAntigravityAppCardUi();
+          }
+        } catch (e) {
+          console.error('Switch profile failed:', e);
         } finally {
           b.disabled = false;
         }
@@ -380,8 +407,11 @@
         if (summary) summary.textContent = `Antigravity Profile: ${chosen}`;
         if (sel && sel !== dropdown) sel.value = chosen;
         if (cardSel && cardSel !== dropdown) cardSel.value = chosen;
+        renderProfiles();
+        renderQuickProfileSelect();
         updateAntigravityAppCardUi();
         updateProfileEmailUi();
+        updateHeaderStatus();
       };
     });
 

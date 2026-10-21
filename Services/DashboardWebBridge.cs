@@ -1650,6 +1650,152 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "preview_git_merge":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? sourceBranch = data.TryGetProperty("sourceBranch", out var sbProp) ? sbProp.GetString() : null;
+                    string? targetBranch = data.TryGetProperty("targetBranch", out var tbProp) ? tbProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(sourceBranch))
+                    {
+                        var preview = await GitRepositoryManagerService.Instance.PreviewMergeAsync(repoPath, sourceBranch, targetBranch).ConfigureAwait(false);
+                        SendResponse(requestId, preview.Success, preview);
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath and sourceBranch are required");
+                    }
+                }
+                break;
+
+            case "execute_git_merge":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? sourceBranch = data.TryGetProperty("sourceBranch", out var sbProp) ? sbProp.GetString() : null;
+                    bool ffOnly = data.TryGetProperty("fastForwardOnly", out var ffProp) && ffProp.GetBoolean();
+                    string? msg = data.TryGetProperty("message", out var mProp) ? mProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(sourceBranch))
+                    {
+                        var res = await GitRepositoryManagerService.Instance.ExecuteMergeAsync(repoPath, sourceBranch, ffOnly, msg).ConfigureAwait(false);
+                        SendResponse(requestId, res.Success, res);
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath and sourceBranch are required");
+                    }
+                }
+                break;
+
+            case "get_workspace_memories":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var memories = await AgentSessionMemoryService.Instance.GetMemoriesAsync(repoPath).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { memories });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "search_workspace_memories":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string query = data.TryGetProperty("query", out var qProp) ? qProp.GetString() ?? "" : "";
+                    int topK = data.TryGetProperty("topK", out var kProp) && kProp.TryGetInt32(out var kVal) ? kVal : 10;
+
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var matches = await AgentSessionMemoryService.Instance.SearchMemoriesAsync(repoPath, query, topK).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { memories = matches });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "delete_workspace_memory":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? memoryId = data.TryGetProperty("memoryId", out var mProp) ? mProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(memoryId))
+                    {
+                        var (ok, msg) = await AgentSessionMemoryService.Instance.DeleteMemoryAsync(repoPath, memoryId).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = msg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath and memoryId are required");
+                    }
+                }
+                break;
+
+            case "clear_workspace_memories":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var (ok, count, msg) = await AgentSessionMemoryService.Instance.ClearAllMemoriesAsync(repoPath).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, count, message = msg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "add_workspace_memory":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? title = data.TryGetProperty("title", out var tProp) ? tProp.GetString() : null;
+                    string summary = data.TryGetProperty("summary", out var sProp) ? sProp.GetString() ?? "" : "";
+                    var tags = new List<string>();
+                    if (data.TryGetProperty("tags", out var tagListProp) && tagListProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var el in tagListProp.EnumerateArray())
+                        {
+                            var s = el.GetString();
+                            if (!string.IsNullOrEmpty(s)) tags.Add(s);
+                        }
+                    }
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(title))
+                    {
+                        var (ok, entry, msg) = await AgentSessionMemoryService.Instance.AddManualMemoryAsync(repoPath, title, summary, tags).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, entry, message = msg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath and title are required");
+                    }
+                }
+                break;
+
+            case "inject_session_context":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string prompt = data.TryGetProperty("prompt", out var pProp) ? pProp.GetString() ?? "" : "";
+
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var snippet = await AgentSessionMemoryService.Instance.GetContextInjectionSnippetAsync(repoPath, prompt).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { snippet });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
             case "batch_repo_action":
                 {
                     var idList = new List<string>();

@@ -24,7 +24,13 @@
     prFilterState: 'open',
     isLoadingPrs: false,
     commitAction: localStorage.getItem('repo_commit_action') || 'local',
-    gitHubAuth: null
+    gitHubAuth: null,
+    memories: [],
+    memoryQuery: '',
+    memoryDebounceTimer: null,
+    repoBranches: [],
+    branchFilter: '',
+    isBranchPopoverOpen: false
   };
 
   async function initRepositoriesModule() {
@@ -88,6 +94,13 @@
 
     window.addEventListener('repos_updated', (e) => {
       window.handleReposUpdated(e.detail);
+    });
+
+    window.addEventListener('session_memory_updated', () => {
+      const repo = getSelectedRepo();
+      if (repo && repoState.activeDetailTab === 'memory') {
+        loadWorkspaceMemories(repo.path);
+      }
     });
   }
 
@@ -324,6 +337,54 @@
           toggleWideChanges(false);
         }
       }
+    });
+
+    // Branch switcher popover
+    document.getElementById('detail-branch-pill')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleBranchSwitcherPopover();
+    });
+    document.getElementById('input-branch-search')?.addEventListener('input', (e) => {
+      filterBranchList(e.target.value);
+    });
+    document.addEventListener('click', (e) => {
+      const popover = document.getElementById('branch-switcher-popover');
+      if (popover && !popover.contains(e.target) && e.target.id !== 'detail-branch-pill' && !document.getElementById('detail-branch-pill')?.contains(e.target)) {
+        popover.style.display = 'none';
+        repoState.isBranchPopoverOpen = false;
+      }
+    });
+
+    // Merge Preview modal events
+    document.getElementById('btn-meta-merge')?.addEventListener('click', openGitMergeModal);
+    document.getElementById('btn-history-open-merge')?.addEventListener('click', openGitMergeModal);
+    document.getElementById('btn-close-merge-modal')?.addEventListener('click', closeGitMergeModal);
+    document.getElementById('btn-cancel-merge-modal')?.addEventListener('click', closeGitMergeModal);
+    document.getElementById('btn-execute-merge-modal')?.addEventListener('click', executeGitMerge);
+    document.getElementById('select-merge-source-branch')?.addEventListener('change', (e) => {
+      updateMergePreview(e.target.value);
+    });
+    document.getElementById('chk-merge-ff-only')?.addEventListener('change', () => {
+      const select = document.getElementById('select-merge-source-branch');
+      if (select) updateMergePreview(select.value);
+    });
+
+    // Knowledge & Memory events
+    document.getElementById('btn-add-memory-note')?.addEventListener('click', openAddMemoryModal);
+    document.getElementById('btn-close-add-memory-modal')?.addEventListener('click', closeAddMemoryModal);
+    document.getElementById('btn-cancel-add-memory-modal')?.addEventListener('click', closeAddMemoryModal);
+    document.getElementById('btn-submit-add-memory-modal')?.addEventListener('click', submitAddMemoryModal);
+    document.getElementById('btn-refresh-memories')?.addEventListener('click', () => {
+      const repo = getSelectedRepo();
+      if (repo) loadWorkspaceMemories(repo.path);
+    });
+    document.getElementById('btn-clear-memories')?.addEventListener('click', clearAllWorkspaceMemories);
+    document.getElementById('btn-inject-to-cli')?.addEventListener('click', copyContextPromptSnippet);
+    document.getElementById('memory-search-input')?.addEventListener('input', (e) => {
+      clearTimeout(repoState.memoryDebounceTimer);
+      repoState.memoryDebounceTimer = setTimeout(() => {
+        searchWorkspaceMemories(e.target.value);
+      }, 300);
     });
 
     // Modals setup
@@ -695,6 +756,9 @@
         break;
       case 'notes':
         loadRepoNotes(repo.id);
+        break;
+      case 'memory':
+        loadWorkspaceMemories(repo.path);
         break;
     }
   }
@@ -1222,7 +1286,12 @@
     const maxLanes = Math.min(8, Math.max(1, ...rowsData.map(r => r.lane + 1)));
     const svgWidth = maxLanes * 16 + 14;
 
-    rowsData.forEach(({ commit, lane }) => {
+    const commitRowMap = new Map();
+    rowsData.forEach(({ commit, lane }, idx) => {
+      commitRowMap.set(commit.hash, { index: idx, lane, color: colors[lane % colors.length] });
+    });
+
+    rowsData.forEach(({ commit, lane }, rowIndex) => {
       const row = document.createElement('div');
       row.className = `commit-row ${commit.hash === repoState.selectedCommitHash ? 'selected' : ''}`;
       row.dataset.hash = commit.hash;
@@ -1238,20 +1307,55 @@
       if (commit.branchRefs && commit.branchRefs.length > 0) {
         commit.branchRefs.forEach(b => {
           const isRemote = b.includes('/');
-          badgesHtml += `<span class="commit-ref-pill ${isRemote ? 'remote' : 'branch'}">${escapeHtml(b)}</span>`;
+          badgesHtml += `<span class="commit-ref-pill ${isRemote ? 'remote' : 'branch'}" title="Branch: ${escapeHtml(b)}">${escapeHtml(b)}</span>`;
         });
       }
       if (commit.tagRefs && commit.tagRefs.length > 0) {
         commit.tagRefs.forEach(t => {
-          badgesHtml += `<span class="commit-ref-pill tag">tag: ${escapeHtml(t)}</span>`;
+          badgesHtml += `<span class="commit-ref-pill tag" title="Tag: ${escapeHtml(t)}">tag: ${escapeHtml(t)}</span>`;
         });
+      }
+
+      // Generate DAG SVG connectors
+      let svgPaths = '';
+
+      // 1. Line from top into this commit node
+      if (rowIndex > 0) {
+        svgPaths += `<line x1="${cx}" y1="0" x2="${cx}" y2="${cy}" stroke="${nodeColor}" stroke-width="2" opacity="0.6"/>`;
+      }
+
+      // 2. Connector curves/lines to parents
+      const parents = commit.parentHashes || [];
+      if (parents.length === 0) {
+        // Initial commit, no downward line
+      } else {
+        parents.forEach(pHash => {
+          const parentInfo = commitRowMap.get(pHash);
+          if (parentInfo) {
+            const pCx = parentInfo.lane * 16 + 12;
+            if (parentInfo.lane === lane) {
+              svgPaths += `<line x1="${cx}" y1="${cy}" x2="${cx}" y2="36" stroke="${nodeColor}" stroke-width="2" opacity="0.6"/>`;
+            } else {
+              // Cubic Bezier curve linking branches
+              svgPaths += `<path d="M ${cx} ${cy} C ${cx} 27, ${pCx} 27, ${pCx} 36" stroke="${nodeColor}" stroke-width="2" fill="none" opacity="0.65"/>`;
+            }
+          } else {
+            // Older parent beyond max count
+            svgPaths += `<line x1="${cx}" y1="${cy}" x2="${cx}" y2="36" stroke="${nodeColor}" stroke-width="2" stroke-dasharray="2,2" opacity="0.4"/>`;
+          }
+        });
+      }
+
+      // 3. Node Circle
+      svgPaths += `<circle cx="${cx}" cy="${cy}" r="${commit.isHead ? '5.5' : '4.5'}" fill="${nodeColor}" stroke="var(--bg-card)" stroke-width="2"/>`;
+      if (commit.isHead) {
+        svgPaths += `<circle cx="${cx}" cy="${cy}" r="7.5" fill="none" stroke="${nodeColor}" stroke-width="1.2" opacity="0.75"/>`;
       }
 
       row.innerHTML = `
         <div class="commit-graph-canvas-cell">
           <svg width="${svgWidth}" height="36" viewBox="0 0 ${svgWidth} 36" style="display: block;">
-            <line x1="${cx}" y1="0" x2="${cx}" y2="36" stroke="${nodeColor}" stroke-width="2" opacity="0.6"/>
-            <circle cx="${cx}" cy="${cy}" r="4.5" fill="${nodeColor}" stroke="var(--bg-card)" stroke-width="2"/>
+            ${svgPaths}
           </svg>
         </div>
         <div class="commit-info">
@@ -1581,6 +1685,10 @@
           <span class="worktree-path" title="${escapeHtml(wt.path)}">${escapeHtml(wt.path)}</span>
         </div>
         <div class="worktree-actions">
+          <button class="btn btn-primary btn-xs btn-wt-agent" title="Launch AI Agent in this worktree">
+            <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>Start Agent</span>
+          </button>
           <button class="btn btn-outline btn-xs btn-wt-editor" title="Open worktree in External Code Editor">
             <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M16.5 9.4 7.55 2.81a1.5 1.5 0 0 0-1.85.1L2.3 5.4a1.5 1.5 0 0 0-.1 2.22L6 11.2l-3.8 3.58a1.5 1.5 0 0 0 .1 2.22l3.4 2.49a1.5 1.5 0 0 0 1.85.1L16.5 13"/></svg>
             <span>Editor</span>
@@ -1596,6 +1704,12 @@
           </button>` : ''}
         </div>
       `;
+
+      card.querySelector('.btn-wt-agent')?.addEventListener('click', () => {
+        const cli = repoState.scanSettings.defaultAgent || 'claude';
+        callBridge('launch_agent_in_repo', { repoPath: wt.path, cliType: cli });
+        showToast(`Launching ${cli} in worktree: ${wt.branch || 'detached'}...`, 'info');
+      });
 
       card.querySelector('.btn-wt-editor')?.addEventListener('click', () => {
         callBridge('open_repo_in_editor', { repoPath: wt.path, target: 'editor' });
@@ -3174,6 +3288,555 @@
       await loadGitHubAuthStatus();
     } catch (e) {
       showToast('Error disconnecting: ' + e.message, 'error');
+    }
+  }
+
+  // =========================================================================
+  // Branch Switcher Popover (Option C)
+  // =========================================================================
+  async function toggleBranchSwitcherPopover() {
+    const popover = document.getElementById('branch-switcher-popover');
+    if (!popover) return;
+
+    if (popover.style.display === 'block') {
+      popover.style.display = 'none';
+      repoState.isBranchPopoverOpen = false;
+      return;
+    }
+
+    const repo = getSelectedRepo();
+    if (!repo) {
+      showToast('Select a repository first', 'warn');
+      return;
+    }
+
+    popover.style.display = 'block';
+    repoState.isBranchPopoverOpen = true;
+    const searchInput = document.getElementById('input-branch-search');
+    if (searchInput) {
+      searchInput.value = '';
+      setTimeout(() => searchInput.focus(), 50);
+    }
+
+    const listEl = document.getElementById('branch-popover-list');
+    if (listEl) {
+      listEl.innerHTML = '<div style="padding: 10px; font-size: 11px; text-align: center; color: var(--text-dim);"><span class="spinner" style="width: 12px; height: 12px;"></span> Loading branches...</div>';
+    }
+
+    try {
+      const res = await callBridge('list_repo_branches', { repoPath: repo.path });
+      repoState.repoBranches = (res && res.branches) ? res.branches : [];
+      renderBranchPopoverList(repoState.repoBranches, repo.branch);
+    } catch (e) {
+      if (listEl) {
+        listEl.innerHTML = `<div style="padding: 10px; font-size: 11px; text-align: center; color: #ef4444;">Failed to load branches: ${escapeHtml(e.message || String(e))}</div>`;
+      }
+    }
+  }
+
+  function renderBranchPopoverList(branches, currentBranch) {
+    const listEl = document.getElementById('branch-popover-list');
+    if (!listEl) return;
+
+    if (!branches || branches.length === 0) {
+      listEl.innerHTML = '<div style="padding: 10px; font-size: 11px; text-align: center; color: var(--text-dim);">No branches found.</div>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+    branches.forEach(b => {
+      const isCurrent = stringEquals(b, currentBranch);
+      const isRemote = b.includes('/') || b.startsWith('origin/');
+      const item = document.createElement('div');
+      item.className = `branch-popover-item ${isCurrent ? 'current' : ''}`;
+      item.innerHTML = `
+        <svg class="icon-svg" style="width: 11px; height: 11px; color: ${isCurrent ? 'var(--accent-cyan)' : 'var(--text-dim)'};" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+        <span class="branch-name" style="flex: 1; font-family: var(--font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(b)}</span>
+        ${isCurrent ? '<span class="branch-tag current" style="font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(6,182,212,0.15); color: var(--accent-cyan); font-weight: 700;">CURRENT</span>' : ''}
+        ${isRemote ? '<span class="branch-tag" style="font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(255,255,255,0.06); color: var(--text-dim);">REMOTE</span>' : ''}
+      `;
+
+      if (!isCurrent) {
+        item.style.cursor = 'pointer';
+        item.addEventListener('click', () => switchBranchTo(b));
+      }
+      listEl.appendChild(item);
+    });
+  }
+
+  function filterBranchList(query) {
+    const q = (query || '').toLowerCase().trim();
+    const currentBranch = getSelectedRepo()?.branch;
+    const filtered = repoState.repoBranches.filter(b => b.toLowerCase().includes(q));
+    renderBranchPopoverList(filtered, currentBranch);
+  }
+
+  async function switchBranchTo(branchName) {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const popover = document.getElementById('branch-switcher-popover');
+    if (popover) popover.style.display = 'none';
+    repoState.isBranchPopoverOpen = false;
+
+    let target = branchName;
+    if (target.startsWith('origin/')) target = target.substring(7);
+
+    try {
+      showToast(`Switching to branch '${target}'...`, 'info');
+      const res = await callBridge('switch_repo_branch', { repoPath: repo.path, branch: target });
+      if (res && res.success) {
+        showToast(`Switched to branch '${target}' successfully`, 'success');
+        await loadRepoManagerState();
+        if (repoState.activeDetailTab === 'history') loadCommitGraph(repo.path);
+        if (repoState.activeDetailTab === 'changes') loadRepoChanges(repo.path);
+      } else {
+        showToast(`Failed to switch branch: ${res?.output || 'Working directory may have uncommitted changes.'}`, 'error', 7000);
+      }
+    } catch (e) {
+      showToast(`Error switching branch: ${e.message}`, 'error');
+    }
+  }
+
+  function stringEquals(a, b) {
+    return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+  }
+
+  // =========================================================================
+  // Git Branch Merge & Conflict Preview Modal (Option C)
+  // =========================================================================
+  async function openGitMergeModal() {
+    const repo = getSelectedRepo();
+    if (!repo) {
+      showToast('Select a repository first', 'warn');
+      return;
+    }
+
+    const modal = document.getElementById('modal-git-merge');
+    const repoNameEl = document.getElementById('lbl-merge-repo-name');
+    const targetBranchEl = document.getElementById('lbl-merge-target-branch');
+    const sourceSelect = document.getElementById('select-merge-source-branch');
+    const customMsgInput = document.getElementById('input-merge-custom-msg');
+    const executeBtn = document.getElementById('btn-execute-merge-modal');
+
+    if (!modal) return;
+
+    if (repoNameEl) repoNameEl.textContent = repo.name;
+    if (targetBranchEl) targetBranchEl.textContent = repo.branch || 'main';
+    if (customMsgInput) customMsgInput.value = '';
+    if (executeBtn) executeBtn.disabled = true;
+
+    if (sourceSelect) {
+      sourceSelect.innerHTML = '<option value="">Loading branches...</option>';
+      try {
+        const res = await callBridge('list_repo_branches', { repoPath: repo.path });
+        const branches = (res && res.branches) ? res.branches : [];
+        repoState.repoBranches = branches;
+        const otherBranches = branches.filter(b => !stringEquals(b, repo.branch));
+
+        sourceSelect.innerHTML = '';
+        if (otherBranches.length === 0) {
+          sourceSelect.innerHTML = '<option value="">No other branches found to merge</option>';
+        } else {
+          otherBranches.forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b;
+            opt.textContent = b;
+            sourceSelect.appendChild(opt);
+          });
+          updateMergePreview(otherBranches[0]);
+        }
+      } catch (e) {
+        sourceSelect.innerHTML = '<option value="">Failed to load branches</option>';
+      }
+    }
+
+    modal.classList.add('active');
+  }
+
+  function closeGitMergeModal() {
+    document.getElementById('modal-git-merge')?.classList.remove('active');
+  }
+
+  async function updateMergePreview(sourceBranch) {
+    const repo = getSelectedRepo();
+    if (!repo || !sourceBranch) return;
+
+    const statusBadge = document.getElementById('badge-merge-status');
+    const analysisMsg = document.getElementById('merge-analysis-msg');
+    const commitsCountEl = document.getElementById('lbl-merge-commits-count');
+    const commitsListEl = document.getElementById('merge-commits-list');
+    const wrapConflicts = document.getElementById('wrap-merge-conflicts');
+    const conflictsList = document.getElementById('merge-conflicts-list');
+    const executeBtn = document.getElementById('btn-execute-merge-modal');
+    const ffOnlyChk = document.getElementById('chk-merge-ff-only');
+
+    if (statusBadge) {
+      statusBadge.textContent = 'Evaluating...';
+      statusBadge.style.background = 'rgba(255,255,255,0.08)';
+      statusBadge.style.color = 'var(--text-dim)';
+    }
+    if (analysisMsg) analysisMsg.textContent = `Analyzing merge from '${sourceBranch}' into '${repo.branch || 'current'}'...`;
+    if (executeBtn) executeBtn.disabled = true;
+
+    try {
+      const res = await callBridge('preview_git_merge', {
+        repoPath: repo.path,
+        sourceBranch,
+        targetBranch: repo.branch
+      });
+
+      if (res && res.success) {
+        if (commitsCountEl) commitsCountEl.textContent = res.incomingCommitCount || 0;
+
+        if (commitsListEl) {
+          if (res.incomingCommits && res.incomingCommits.length > 0) {
+            commitsListEl.innerHTML = res.incomingCommits.map(c => `<div>${escapeHtml(c)}</div>`).join('');
+          } else {
+            commitsListEl.innerHTML = '<div style="color: var(--text-dim);">No incoming commits to merge (branches already synchronized).</div>';
+          }
+        }
+
+        const isFf = !!res.isFastForward;
+        const hasConflicts = !!res.hasConflicts;
+        const canMerge = !!res.canMerge && (!ffOnlyChk?.checked || isFf);
+
+        if (hasConflicts) {
+          if (statusBadge) {
+            statusBadge.textContent = 'Conflicts Detected';
+            statusBadge.style.background = 'rgba(239, 68, 68, 0.15)';
+            statusBadge.style.color = '#ef4444';
+          }
+          if (analysisMsg) analysisMsg.textContent = 'Cannot merge cleanly. Conflicting changes found in files below.';
+          if (wrapConflicts) wrapConflicts.style.display = 'block';
+          if (conflictsList) {
+            conflictsList.innerHTML = (res.conflictingFiles && res.conflictingFiles.length > 0)
+              ? res.conflictingFiles.map(f => `<div>&bull; ${escapeHtml(f)}</div>`).join('')
+              : '<div>Conflicting files detected in merge tree.</div>';
+          }
+        } else if (isFf) {
+          if (statusBadge) {
+            statusBadge.textContent = 'Fast-Forward Clean';
+            statusBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+            statusBadge.style.color = '#10b981';
+          }
+          if (analysisMsg) analysisMsg.textContent = 'Fast-forward merge possible without extra merge commit.';
+          if (wrapConflicts) wrapConflicts.style.display = 'none';
+        } else {
+          if (statusBadge) {
+            statusBadge.textContent = '3-Way Merge Clean';
+            statusBadge.style.background = 'rgba(6, 182, 212, 0.15)';
+            statusBadge.style.color = 'var(--accent-cyan)';
+          }
+          if (analysisMsg) analysisMsg.textContent = 'Automatic 3-way merge cleanly possible without conflicts.';
+          if (wrapConflicts) wrapConflicts.style.display = 'none';
+        }
+
+        if (executeBtn) executeBtn.disabled = !canMerge;
+      } else {
+        if (statusBadge) {
+          statusBadge.textContent = 'Error';
+          statusBadge.style.background = 'rgba(239, 68, 68, 0.15)';
+          statusBadge.style.color = '#ef4444';
+        }
+        if (analysisMsg) analysisMsg.textContent = res?.message || 'Failed to calculate merge preview.';
+      }
+    } catch (e) {
+      if (analysisMsg) analysisMsg.textContent = 'Preview error: ' + (e.message || String(e));
+    }
+  }
+
+  async function executeGitMerge() {
+    const repo = getSelectedRepo();
+    const sourceSelect = document.getElementById('select-merge-source-branch');
+    const customMsgInput = document.getElementById('input-merge-custom-msg');
+    const ffOnlyChk = document.getElementById('chk-merge-ff-only');
+    const sourceBranch = sourceSelect?.value;
+
+    if (!repo || !sourceBranch) return;
+
+    if (!confirm(`Are you sure you want to merge '${sourceBranch}' into '${repo.branch || 'current'}'?`)) return;
+
+    try {
+      showToast(`Executing merge: ${sourceBranch} -> ${repo.branch}...`, 'info');
+      const res = await callBridge('execute_git_merge', {
+        repoPath: repo.path,
+        sourceBranch,
+        fastForwardOnly: !!ffOnlyChk?.checked,
+        message: customMsgInput?.value.trim() || null
+      });
+
+      if (res && res.success) {
+        showToast('Merge completed successfully!', 'success', 5000);
+        closeGitMergeModal();
+        await loadRepoManagerState();
+        if (repoState.activeDetailTab === 'history') loadCommitGraph(repo.path);
+        if (repoState.activeDetailTab === 'changes') loadRepoChanges(repo.path);
+      } else {
+        showToast(`Merge failed: ${res?.message || res?.output || 'Conflicts occurred'}`, 'error', 7000);
+        updateMergePreview(sourceBranch);
+      }
+    } catch (e) {
+      showToast(`Merge execution error: ${e.message}`, 'error');
+    }
+  }
+
+  // =========================================================================
+  // Knowledge & Memory Subtab Logic (Option D)
+  // =========================================================================
+  async function loadWorkspaceMemories(repoPath) {
+    const container = document.getElementById('memory-cards-container');
+    const badge = document.getElementById('lbl-repo-memory-badge');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;">
+        <span class="spinner" style="width: 14px; height: 14px; margin-bottom: 8px;"></span>
+        <div>Loading workspace memories and solutions...</div>
+      </div>
+    `;
+
+    try {
+      const res = await callBridge('get_workspace_memories', { repoPath });
+      const memories = (res && res.memories) ? res.memories : [];
+      repoState.memories = memories;
+      if (badge) {
+        badge.textContent = memories.length;
+        badge.style.display = memories.length > 0 ? 'inline-block' : 'none';
+      }
+      renderMemoryCards(memories, repoPath);
+    } catch (e) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: #ef4444;">
+          Failed to load memories: ${escapeHtml(e.message || String(e))}
+        </div>
+      `;
+    }
+  }
+
+  function renderMemoryCards(memories, repoPath) {
+    const container = document.getElementById('memory-cards-container');
+    if (!container) return;
+
+    if (!memories || memories.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 40px 20px; font-size: 12px; text-align: center; color: var(--text-dim); line-height: 1.6;">
+          <svg class="icon-svg" style="width: 32px; height: 32px; opacity: 0.3; margin-bottom: 8px;" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10M6 10h10M6 14h6"/></svg>
+          <div style="font-weight: 600; color: var(--text-main); margin-bottom: 4px;">No Knowledge Records Yet</div>
+          <div>When CLI agents complete tasks in this workspace, solutions and architectural lessons will be automatically recorded in <code style="font-family: var(--font-mono); color: var(--accent-cyan);">.agents/memory/</code>.</div>
+          <div style="margin-top: 8px;">Click <strong>Add Note</strong> above to manually record an architectural decision or fix.</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = '';
+    memories.forEach(m => {
+      const card = document.createElement('div');
+      card.className = 'memory-entry-card';
+
+      let tagsHtml = '';
+      if (m.tags && m.tags.length > 0) {
+        tagsHtml = m.tags.map(t => `<span class="memory-tag-chip">${escapeHtml(t)}</span>`).join('');
+      }
+
+      let filesHtml = '';
+      if (m.affectedFiles && m.affectedFiles.length > 0) {
+        filesHtml = `
+          <div class="memory-files-strip">
+            <span style="font-size: 10px; color: var(--text-dim); font-weight: 600;">Files:</span>
+            ${m.affectedFiles.slice(0, 4).map(f => `<span class="memory-file-pill">${escapeHtml(f)}</span>`).join('')}
+            ${m.affectedFiles.length > 4 ? `<span style="font-size: 10px; color: var(--text-dim);">+${m.affectedFiles.length - 4} more</span>` : ''}
+          </div>
+        `;
+      }
+
+      const scoreHtml = m.relevanceScore > 0
+        ? `<span class="memory-score-badge" title="Search match relevance score">Score: ${m.relevanceScore}</span>`
+        : '';
+
+      card.innerHTML = `
+        <div class="memory-card-header">
+          <div class="memory-card-title-group">
+            <span class="memory-source-badge ${m.isManual ? 'manual' : 'agent'}">${escapeHtml(m.sourceEngine || (m.isManual ? 'Note' : 'Agent'))}</span>
+            <span class="memory-card-title" title="${escapeHtml(m.title)}">${escapeHtml(m.title)}</span>
+            ${scoreHtml}
+          </div>
+          <div class="memory-card-actions">
+            <button class="btn-icon btn-sm btn-copy-single-memory" title="Copy memory snippet to clipboard">
+              <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            </button>
+            <button class="btn-icon btn-sm btn-delete-single-memory" style="color: #ef4444;" title="Delete this memory record">
+              <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="memory-card-summary">${escapeHtml(m.summary || 'No summary text available.')}</div>
+
+        ${filesHtml}
+
+        <div class="memory-card-footer">
+          <div class="memory-tags-strip">${tagsHtml}</div>
+          <span class="memory-card-date">${formatDate(m.timestamp)}</span>
+        </div>
+      `;
+
+      card.querySelector('.btn-copy-single-memory')?.addEventListener('click', () => {
+        const text = `[AGENTS_HUB_MEMORY]\n# ${m.title}\n${m.summary}\nFiles: ${(m.affectedFiles || []).join(', ')}\n[/AGENTS_HUB_MEMORY]`;
+        navigator.clipboard.writeText(text);
+        showToast('Memory snippet copied to clipboard', 'success');
+      });
+
+      card.querySelector('.btn-delete-single-memory')?.addEventListener('click', () => {
+        deleteWorkspaceMemory(repoPath, m.id, m.title);
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  async function deleteWorkspaceMemory(repoPath, memoryId, title) {
+    if (!confirm(`Are you sure you want to delete this memory record?\n\n"${title || memoryId}"\n\nThis will permanently delete the Markdown file from .agents/memory/.`)) {
+      return;
+    }
+
+    try {
+      showToast('Deleting memory record...', 'info');
+      const res = await callBridge('delete_workspace_memory', { repoPath, memoryId });
+      if (res && res.success) {
+        showToast(res.message || 'Memory deleted successfully', 'success');
+        await loadWorkspaceMemories(repoPath);
+      } else {
+        showToast(`Failed to delete memory: ${res?.message || 'Unknown error'}`, 'error');
+      }
+    } catch (e) {
+      showToast(`Error deleting memory: ${e.message}`, 'error');
+    }
+  }
+
+  async function clearAllWorkspaceMemories() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    if (!confirm(`CAUTION: Are you sure you want to delete ALL session memories and knowledge files in this workspace?\n\nDirectory: ${repo.path}/.agents/memory/`)) {
+      return;
+    }
+
+    try {
+      showToast('Clearing workspace memories...', 'info');
+      const res = await callBridge('clear_workspace_memories', { repoPath: repo.path });
+      if (res && res.success) {
+        showToast(res.message || 'All memories cleared', 'success');
+        await loadWorkspaceMemories(repo.path);
+      } else {
+        showToast(`Failed to clear memories: ${res?.message || 'Unknown error'}`, 'error');
+      }
+    } catch (e) {
+      showToast(`Error clearing memories: ${e.message}`, 'error');
+    }
+  }
+
+  async function searchWorkspaceMemories(query) {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    repoState.memoryQuery = (query || '').trim();
+    if (!repoState.memoryQuery) {
+      renderMemoryCards(repoState.memories, repo.path);
+      return;
+    }
+
+    try {
+      const res = await callBridge('search_workspace_memories', {
+        repoPath: repo.path,
+        query: repoState.memoryQuery,
+        topK: 20
+      });
+      const matches = (res && res.memories) ? res.memories : [];
+      renderMemoryCards(matches, repo.path);
+    } catch (e) {
+      console.warn('Memory search failed:', e);
+    }
+  }
+
+  async function copyContextPromptSnippet() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const query = document.getElementById('memory-search-input')?.value.trim() || '';
+    try {
+      const res = await callBridge('inject_session_context', {
+        repoPath: repo.path,
+        prompt: query
+      });
+
+      if (res && res.snippet) {
+        await navigator.clipboard.writeText(res.snippet);
+        showToast('Context injection snippet copied to clipboard! Paste into your agent prompt.', 'success', 5000);
+      } else {
+        showToast('No relevant memories found to generate snippet', 'info');
+      }
+    } catch (e) {
+      showToast(`Error generating prompt snippet: ${e.message}`, 'error');
+    }
+  }
+
+  function openAddMemoryModal() {
+    const modal = document.getElementById('modal-add-memory');
+    const titleInput = document.getElementById('input-memory-title');
+    const tagsInput = document.getElementById('input-memory-tags');
+    const contentInput = document.getElementById('input-memory-content');
+
+    if (!modal) return;
+    if (titleInput) titleInput.value = '';
+    if (tagsInput) tagsInput.value = '';
+    if (contentInput) contentInput.value = '';
+
+    modal.classList.add('active');
+    setTimeout(() => titleInput?.focus(), 50);
+  }
+
+  function closeAddMemoryModal() {
+    document.getElementById('modal-add-memory')?.classList.remove('active');
+  }
+
+  async function submitAddMemoryModal() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const titleInput = document.getElementById('input-memory-title');
+    const tagsInput = document.getElementById('input-memory-tags');
+    const contentInput = document.getElementById('input-memory-content');
+
+    const title = titleInput?.value.trim();
+    const summary = contentInput?.value.trim() || '';
+    const rawTags = tagsInput?.value.split(',').map(t => t.trim()).filter(Boolean) || [];
+
+    if (!title) {
+      showToast('Title is required for the knowledge note', 'warn');
+      titleInput?.focus();
+      return;
+    }
+
+    try {
+      showToast('Saving knowledge note...', 'info');
+      const res = await callBridge('add_workspace_memory', {
+        repoPath: repo.path,
+        title,
+        summary,
+        tags: rawTags
+      });
+
+      if (res && res.success) {
+        showToast('Knowledge note saved successfully', 'success');
+        closeAddMemoryModal();
+        await loadWorkspaceMemories(repo.path);
+      } else {
+        showToast(`Failed to save note: ${res?.message || 'Unknown error'}`, 'error');
+      }
+    } catch (e) {
+      showToast(`Error saving note: ${e.message}`, 'error');
     }
   }
 

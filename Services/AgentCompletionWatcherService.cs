@@ -516,6 +516,21 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
             isApproval,
             timestamp = DateTime.UtcNow
         });
+
+        // 4. Record into Workspace Session Memory (Option D)
+        if (!isApproval)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await AgentSessionMemoryService.Instance.RecordSessionCompletionAsync(
+                        null, sessionId, rawBrainId, summary, isError).ConfigureAwait(false);
+                    _postEventToUi?.Invoke("session_memory_updated", new { sessionId, timestamp = DateTime.UtcNow });
+                }
+                catch { }
+            });
+        }
     }
 
     private string ResolveBrainSessionId(string sessionId)
