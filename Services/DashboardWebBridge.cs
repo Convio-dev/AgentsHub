@@ -84,6 +84,20 @@ public sealed partial class DashboardWebBridge : IDisposable
             PostOpenCodeUpdate(stateDto);
         }
 
+        // Warm up firewall check in background at launch so cache is ready without blocking the UI
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var req = GetRequiredLanPorts();
+                await GetFirewallStatusAsync(req, force: false).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Background warmup failure is non-fatal
+            }
+        });
+
         // Silent background update check after 6 seconds
         _ = Task.Run(async () =>
         {
@@ -254,6 +268,12 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             PostEventToUi("token_telemetry_updated", ProxyTelemetryService.Instance.GetSummary());
         };
+
+        // Initialize automated agent CLI completion and Discord webhook dispatcher
+        AgentCompletionWatcherService.Instance.Initialize(_cliManager, (evtName, payload) =>
+        {
+            PostEventToUi(evtName, payload);
+        });
     }
 
     private void OnStreamFlushTimerTick(object? sender, EventArgs e)
@@ -650,6 +670,279 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string? path = data.TryGetProperty("path", out var pProp) ? pProp.GetString() : null;
                     bool opened = !string.IsNullOrEmpty(path) && McpSkillsService.OpenInEditor(path);
                     SendResponse(requestId, opened, new { success = opened });
+                }
+                break;
+
+            case "get_agent_sessions":
+                {
+                    string? wsDir = data.TryGetProperty("workspaceDir", out var wdProp) ? wdProp.GetString() : null;
+                    var sessions = await TranscriptInspectorService.Instance.GetSessionsAsync(wsDir).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { sessions });
+                }
+                break;
+
+            case "get_session_steps":
+            case "get_transcript_steps":
+                {
+                    string? transcriptPath = data.TryGetProperty("transcriptPath", out var tpProp) ? tpProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(transcriptPath))
+                    {
+                        var steps = await TranscriptInspectorService.Instance.GetSessionStepsAsync(transcriptPath).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { steps });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Transcript path is required");
+                    }
+                }
+                break;
+
+            case "delete_agent_session":
+                {
+                    string? transcriptPath = data.TryGetProperty("transcriptPath", out var delTpProp) ? delTpProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(transcriptPath))
+                    {
+                        bool deleted = TranscriptInspectorService.Instance.DeleteSession(transcriptPath);
+                        SendResponse(requestId, deleted, new { success = deleted });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Transcript path is required");
+                    }
+                }
+                break;
+
+            case "get_workspace_snapshots":
+                {
+                    string? wsId = data.TryGetProperty("workspaceId", out var snapWsProp) ? snapWsProp.GetString() : null;
+                    var snapshots = await WorkspaceSnapshotService.Instance.GetSnapshotsAsync(wsId).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { snapshots });
+                }
+                break;
+
+            case "create_workspace_snapshot":
+                {
+                    string? wsId = data.TryGetProperty("workspaceId", out var crSnapWsProp) ? crSnapWsProp.GetString() : null;
+                    string? title = data.TryGetProperty("title", out var tProp) ? tProp.GetString() : "Manual Snapshot";
+                    string? trigger = data.TryGetProperty("trigger", out var trProp) ? trProp.GetString() : "Manual";
+
+                    var snapshot = await WorkspaceSnapshotService.Instance.CreateSnapshotAsync(wsId, title ?? "Manual Snapshot", trigger ?? "Manual").ConfigureAwait(false);
+                    if (snapshot != null)
+                    {
+                        SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created", "modern", 50);
+                        SendResponse(requestId, true, new { success = true, snapshot });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Failed to create snapshot");
+                    }
+                }
+                break;
+
+            case "rollback_workspace_snapshot":
+                {
+                    string? snapshotId = data.TryGetProperty("snapshotId", out var sIdProp) ? sIdProp.GetString() : null;
+                    string? wsId = data.TryGetProperty("workspaceId", out var rbSnapWsProp) ? rbSnapWsProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(snapshotId))
+                    {
+                        var (success, restoredCount) = await WorkspaceSnapshotService.Instance.RollbackSnapshotAsync(snapshotId, wsId).ConfigureAwait(false);
+                        if (success)
+                        {
+                            SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created", "modern", 60);
+                            SendResponse(requestId, true, new { success = true, restoredCount });
+                        }
+                        else
+                        {
+                            SendResponse(requestId, false, "Failed to rollback snapshot");
+                        }
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Snapshot ID is required");
+                    }
+                }
+                break;
+
+            case "delete_workspace_snapshot":
+                {
+                    string? snapshotId = data.TryGetProperty("snapshotId", out var sIdProp) ? sIdProp.GetString() : null;
+                    string? wsId = data.TryGetProperty("workspaceId", out var delWsProp) ? delWsProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(snapshotId))
+                    {
+                        bool deleted = WorkspaceSnapshotService.Instance.DeleteSnapshot(snapshotId, wsId);
+                        SendResponse(requestId, deleted, new { success = deleted });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Snapshot ID is required");
+                    }
+                }
+                break;
+
+            case "get_soundpack_config":
+                {
+                    var cfg = SoundpackAudioService.Instance.GetConfig();
+                    SendResponse(requestId, true, cfg);
+                }
+                break;
+
+            case "save_soundpack_config":
+                {
+                    if (data.TryGetProperty("config", out var spCfgProp))
+                    {
+                        var cfg = JsonSerializer.Deserialize<SoundpackAudioConfig>(spCfgProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        if (cfg != null)
+                        {
+                            SoundpackAudioService.Instance.SaveConfig(cfg);
+                            SendResponse(requestId, true, new { success = true, config = cfg });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid soundpack config payload");
+                }
+                break;
+
+            case "play_sound_event":
+                {
+                    string? eventName = data.TryGetProperty("eventName", out var evProp) ? evProp.GetString() : "task_done";
+                    string? theme = data.TryGetProperty("theme", out var thProp) ? thProp.GetString() : null;
+                    int? volume = data.TryGetProperty("volume", out var volProp) ? volProp.GetInt32() : null;
+                    bool force = data.TryGetProperty("force", out var fProp) && fProp.GetBoolean();
+
+                    SoundpackAudioService.Instance.PlaySoundEvent(eventName ?? "task_done", theme, volume, force);
+                    SendResponse(requestId, true, new { success = true });
+                }
+                break;
+
+            case "inject_voice_command":
+                {
+                    string? text = data.TryGetProperty("text", out var txtProp) ? txtProp.GetString() : null;
+                    string? sessionName = data.TryGetProperty("sessionName", out var sNameProp) ? sNameProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        bool injected = await VoiceCommanderService.Instance.InjectCommandToActiveCliAsync(_cliManager, text, sessionName).ConfigureAwait(false);
+                        SendResponse(requestId, injected, new { success = injected });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Text is required");
+                    }
+                }
+                break;
+
+            case "get_scheduled_automations":
+                {
+                    string? wsId = data.TryGetProperty("workspaceId", out var sAutoWsProp) ? sAutoWsProp.GetString() : null;
+                    var tasks = ScheduledAutomationService.Instance.GetTasks(wsId);
+                    SendResponse(requestId, true, new { tasks });
+                }
+                break;
+
+            case "save_scheduled_automation":
+                {
+                    if (data.TryGetProperty("task", out var taskProp))
+                    {
+                        var task = JsonSerializer.Deserialize<ScheduledAutomationTask>(taskProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        if (task != null)
+                        {
+                            ScheduledAutomationService.Instance.SaveTask(task);
+                            SendResponse(requestId, true, new { success = true, task });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid automation task payload");
+                }
+                break;
+
+            case "delete_scheduled_automation":
+                {
+                    string? taskId = data.TryGetProperty("taskId", out var tIdProp) ? tIdProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(taskId))
+                    {
+                        bool deleted = ScheduledAutomationService.Instance.DeleteTask(taskId);
+                        SendResponse(requestId, deleted, new { success = deleted });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Task ID is required");
+                    }
+                }
+                break;
+
+            case "trigger_scheduled_automation":
+                {
+                    string? taskId = data.TryGetProperty("taskId", out var tIdProp) ? tIdProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(taskId))
+                    {
+                        bool triggered = await ScheduledAutomationService.Instance.TriggerTaskNowAsync(taskId).ConfigureAwait(false);
+                        SendResponse(requestId, triggered, new { success = triggered });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Task ID is required");
+                    }
+                }
+                break;
+
+            case "audit_workspace_security":
+                {
+                    string? wsDir = data.TryGetProperty("workspaceDir", out var wsDirProp) ? wsDirProp.GetString() : null;
+                    var audit = await PreCommitSecurityService.Instance.AuditWorkspaceAsync(wsDir).ConfigureAwait(false);
+                    SendResponse(requestId, true, audit);
+                }
+                break;
+
+            case "get_remote_webhook_config":
+                {
+                    var cfg = RemoteWebhookService.Instance.GetConfig();
+                    SendResponse(requestId, true, cfg);
+                }
+                break;
+
+            case "save_remote_webhook_config":
+                {
+                    if (data.TryGetProperty("config", out var rCfgProp))
+                    {
+                        var cfg = JsonSerializer.Deserialize<RemoteWebhookConfig>(rCfgProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        if (cfg != null)
+                        {
+                            RemoteWebhookService.Instance.SaveConfig(cfg);
+                            SendResponse(requestId, true, new { success = true, config = cfg });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid webhook config payload");
+                }
+                break;
+
+            case "test_remote_webhook":
+                {
+                    string? title = data.TryGetProperty("title", out var titProp) ? titProp.GetString() : "Test Notification";
+                    string? desc = data.TryGetProperty("description", out var descProp) ? descProp.GetString() : "Agents Hub webhook test.";
+
+                    bool sent = await RemoteWebhookService.Instance.SendDiscordNotificationAsync(title ?? "Test", desc ?? "Test").ConfigureAwait(false);
+                    SendResponse(requestId, sent, new { success = sent });
+                }
+                break;
+
+            case "save_timelapse_clip":
+                {
+                    string? base64 = data.TryGetProperty("base64Data", out var b64Prop) ? b64Prop.GetString() : null;
+                    string? wsId = data.TryGetProperty("workspaceId", out var tlWsProp) ? tlWsProp.GetString() : null;
+                    string? clipName = data.TryGetProperty("clipName", out var cnProp) ? cnProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(base64))
+                    {
+                        var filePath = await TimelapseCaptureService.Instance.SaveTimelapseClipAsync(base64, wsId, clipName).ConfigureAwait(false);
+                        SendResponse(requestId, !string.IsNullOrEmpty(filePath), new { success = !string.IsNullOrEmpty(filePath), filePath });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Base64 data is required");
+                    }
                 }
                 break;
 
@@ -1076,19 +1369,60 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "get_lan_state":
                 {
                     // The firewall probe spawns PowerShell, so it is cached and only forced
-                    // when the UI asks for a recheck.
+                    // when the UI asks for an explicit recheck.
                     bool forceFirewall = data.TryGetProperty("refresh", out var refreshEl)
                         && refreshEl.ValueKind == JsonValueKind.True;
 
                     var required = GetRequiredLanPorts();
-                    var firewall = await GetFirewallStatusAsync(required, forceFirewall);
 
-                    SendResponse(requestId, true, new
+                    if (!forceFirewall && _cachedFirewall != null)
                     {
-                        lan = BuildLanStateDto(required),
-                        firewall = ToFirewallDto(firewall, required),
-                        clients = ToClientDtos(_lanProxyService?.GetActiveClients())
-                    });
+                        SendResponse(requestId, true, new
+                        {
+                            lan = BuildLanStateDto(required),
+                            firewall = ToFirewallDto(_cachedFirewall, required),
+                            clients = ToClientDtos(_lanProxyService?.GetActiveClients())
+                        });
+                    }
+                    else if (!forceFirewall)
+                    {
+                        // Return LAN networking details immediately so WebView2 does not block
+                        SendResponse(requestId, true, new
+                        {
+                            lan = BuildLanStateDto(required),
+                            firewall = new
+                            {
+                                querySucceeded = true,
+                                state = "checking",
+                                detail = "Probing Windows Firewall in background...",
+                                requiredPorts = required
+                            },
+                            clients = ToClientDtos(_lanProxyService?.GetActiveClients())
+                        });
+
+                        // Run firewall probe in background and push update
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var fw = await GetFirewallStatusAsync(required, force: false).ConfigureAwait(false);
+                                PostEventToUi("lan_firewall_updated", ToFirewallDto(fw, required));
+                            }
+                            catch { }
+                        });
+                    }
+                    else
+                    {
+                        // User explicitly clicked "Recheck"
+                        var firewall = await GetFirewallStatusAsync(required, force: true).ConfigureAwait(false);
+
+                        SendResponse(requestId, true, new
+                        {
+                            lan = BuildLanStateDto(required),
+                            firewall = ToFirewallDto(firewall, required),
+                            clients = ToClientDtos(_lanProxyService?.GetActiveClients())
+                        });
+                    }
                 }
                 break;
 

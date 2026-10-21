@@ -1,0 +1,70 @@
+        <!-- VIEW 8: Live Logs -->
+        <div id="view-logs" class="view-pane">
+          <div class="logs-toolbar-top">
+            <div class="logs-header-left">
+              <div class="logs-view-title-group">
+                <span class="logs-title-icon">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                </span>
+                <b class="logs-view-title">System &amp; CLI Execution Logs</b>
+              </div>
+              <div class="logs-stream-meta">
+                <span class="logs-live-badge">
+                  <span class="logs-live-dot"></span>
+                  <span>Live Streaming</span>
+                </span>
+                <span class="logs-counter-badge" id="logs-total-count">1 entry</span>
+              </div>
+            </div>
+
+            <div class="logs-actions-right">
+              <div class="logs-search-box">
+                <svg class="icon-svg logs-search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="logs-search-input" class="logs-search-input" placeholder="Search logs or errors..." autocomplete="off" spellcheck="false" />
+                <button type="button" class="logs-search-clear" id="btn-clear-log-search" title="Clear search" style="display: none;">✕</button>
+              </div>
+              <button class="btn btn-outline logs-tool-btn active" id="btn-toggle-autoscroll" title="Toggle automatic scrolling to latest log">
+                <svg class="icon-svg" viewBox="0 0 24 24"><polyline points="7 13 12 18 17 13"/><polyline points="7 6 12 11 17 6"/></svg>
+                <span id="lbl-autoscroll">Auto-Scroll</span>
+              </button>
+              <button class="btn btn-outline logs-tool-btn" id="btn-copy-logs" title="Copy filtered logs to clipboard">
+                <svg class="icon-svg" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                <span>Copy</span>
+              </button>
+              <button class="btn btn-outline logs-tool-btn" id="btn-clear-logs" title="Clear log entries">
+                <svg class="icon-svg" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                <span>Clear</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="log-filter-bar">
+            <button class="log-filter-pill active" data-filter="all">All <span class="pill-count" id="count-pill-all">1</span></button>
+            <button class="log-filter-pill pill-error" data-filter="error">Errors <span class="pill-count" id="count-pill-error">0</span></button>
+            <button class="log-filter-pill pill-warn" data-filter="warn">Warnings <span class="pill-count" id="count-pill-warn">0</span></button>
+            <button class="log-filter-pill" data-filter="system">System <span class="pill-count" id="count-pill-system">1</span></button>
+            <button class="log-filter-pill" data-filter="cli">CLIs <span class="pill-count" id="count-pill-cli">0</span></button>
+            <button class="log-filter-pill" data-filter="opencode">OpenCode <span class="pill-count" id="count-pill-opencode">0</span></button>
+            <button class="log-filter-pill" data-filter="warp">WARP &amp; VPN <span class="pill-count" id="count-pill-warp">0</span></button>
+          </div>
+
+          <div class="logs-console-window">
+            <div class="logs-console-header">
+              <span class="col-hdr col-hdr-time">TIME</span>
+              <span class="col-hdr col-hdr-level">LEVEL</span>
+              <span class="col-hdr col-hdr-source">SOURCE</span>
+              <span class="col-hdr col-hdr-msg">MESSAGE &amp; PAYLOAD</span>
+            </div>
+            <div id="logs-container" class="logs-console-body">
+              <div class="log-line log-level-info">
+                <span class="log-time">[Boot]</span>
+                <span class="log-level-badge level-info">INFO</span>
+                <span class="log-tag log-tag-system">System</span>
+                <div class="log-msg-wrap">
+                  <span class="log-text" id="boot-log-line">Agents Hub active and ready.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+

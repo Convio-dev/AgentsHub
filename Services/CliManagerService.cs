@@ -71,6 +71,7 @@ public class CliManagerService : IDisposable
     public event Action<CliType, string>? TerminalDataReceived;
     public event Action<string, CliState, string>? StatusChangedId;
     public event Action<string, string>? TerminalDataReceivedId;
+    public event Action<string, string>? InputSentId;
     public event Action<string, string>? LogMessage;
 
     public CliManagerService(HermesProcessService hermesService)
@@ -875,6 +876,7 @@ public class CliManagerService : IDisposable
         if (_terminalSessions.TryGetValue(id, out var session) && session.IsRunning)
         {
             session.Write(data);
+            InputSentId?.Invoke(id, data);
         }
     }
 

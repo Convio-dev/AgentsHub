@@ -1,0 +1,244 @@
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
+using HermesHub.Models;
+
+namespace HermesHub.Services;
+
+public sealed class WorkspaceSnapshotService
+{
+    public static WorkspaceSnapshotService Instance { get; } = new();
+
+    private readonly System.Threading.Lock _gate = new();
+    private readonly JsonSerializerOptions _jsonOpts = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true
+    };
+
+    public async Task<List<WorkspaceSnapshotItem>> GetSnapshotsAsync(string? workspaceId = null)
+    {
+        var list = new List<WorkspaceSnapshotItem>();
+        var ws = ResolveWorkspace(workspaceId);
+        if (ws == null || string.IsNullOrWhiteSpace(ws.WorkingDirectory) || !Directory.Exists(ws.WorkingDirectory))
+            return list;
+
+        var snapshotsDir = Path.Combine(ws.WorkingDirectory, ".agents", "snapshots");
+        if (!Directory.Exists(snapshotsDir)) return list;
+
+        foreach (var dir in Directory.GetDirectories(snapshotsDir))
+        {
+            var metaFile = Path.Combine(dir, "snapshot.json");
+            if (File.Exists(metaFile))
+            {
+                try
+                {
+                    var text = await File.ReadAllTextAsync(metaFile).ConfigureAwait(false);
+                    var item = JsonSerializer.Deserialize<WorkspaceSnapshotItem>(text, _jsonOpts);
+                    if (item != null)
+                    {
+                        item.SnapshotPath = dir;
+                        list.Add(item);
+                    }
+                }
+                catch { }
+            }
+        }
+
+        return [.. list.OrderByDescending(s => s.TimestampUtc)];
+    }
+
+    public async Task<WorkspaceSnapshotItem?> CreateSnapshotAsync(string? workspaceId, string title, string triggerType = "Manual")
+    {
+        var ws = ResolveWorkspace(workspaceId);
+        if (ws == null || string.IsNullOrWhiteSpace(ws.WorkingDirectory) || !Directory.Exists(ws.WorkingDirectory))
+            return null;
+
+        var id = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + Guid.NewGuid().ToString("N")[..6];
+        var snapshotsDir = Path.Combine(ws.WorkingDirectory, ".agents", "snapshots");
+        var snapshotDir = Path.Combine(snapshotsDir, id);
+        var filesDir = Path.Combine(snapshotDir, "files");
+
+        lock (_gate)
+        {
+            Directory.CreateDirectory(filesDir);
+        }
+
+        var changedFiles = GetGitChangedFiles(ws.WorkingDirectory);
+        if (changedFiles.Count == 0)
+        {
+            // If no git changes, snapshot recently modified code files (last 24 hours)
+            changedFiles = GetRecentModifiedFiles(ws.WorkingDirectory);
+        }
+
+        int copiedCount = 0;
+        lock (_gate)
+        {
+            foreach (var relPath in changedFiles)
+            {
+                try
+                {
+                    var fullSrc = Path.Combine(ws.WorkingDirectory, relPath);
+                    if (File.Exists(fullSrc))
+                    {
+                        var fullDest = Path.Combine(filesDir, relPath);
+                        var destSub = Path.GetDirectoryName(fullDest);
+                        if (!string.IsNullOrEmpty(destSub) && !Directory.Exists(destSub))
+                            Directory.CreateDirectory(destSub);
+
+                        File.Copy(fullSrc, fullDest, true);
+                        copiedCount++;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        var snapshot = new WorkspaceSnapshotItem
+        {
+            Id = id,
+            WorkspaceId = ws.Id,
+            TimestampUtc = DateTime.UtcNow,
+            Title = string.IsNullOrWhiteSpace(title) ? $"Snapshot ({triggerType})" : title,
+            TriggerType = triggerType,
+            ModifiedFilesCount = copiedCount,
+            SnapshotPath = snapshotDir
+        };
+
+        var metaPath = Path.Combine(snapshotDir, "snapshot.json");
+        await File.WriteAllTextAsync(metaPath, JsonSerializer.Serialize(snapshot, _jsonOpts)).ConfigureAwait(false);
+
+        return snapshot;
+    }
+
+    public async Task<(bool success, int restoredCount)> RollbackSnapshotAsync(string snapshotId, string? workspaceId = null)
+    {
+        var ws = ResolveWorkspace(workspaceId);
+        if (ws == null || string.IsNullOrWhiteSpace(ws.WorkingDirectory))
+            return (false, 0);
+
+        var snapshotDir = Path.Combine(ws.WorkingDirectory, ".agents", "snapshots", snapshotId);
+        var filesDir = Path.Combine(snapshotDir, "files");
+        if (!Directory.Exists(filesDir)) return (false, 0);
+
+        return await Task.Run(() =>
+        {
+            int restored = 0;
+            lock (_gate)
+            {
+                foreach (var file in Directory.GetFiles(filesDir, "*.*", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        var relPath = Path.GetRelativePath(filesDir, file);
+                        var destPath = Path.Combine(ws.WorkingDirectory, relPath);
+
+                        var destDir = Path.GetDirectoryName(destPath);
+                        if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                            Directory.CreateDirectory(destDir);
+
+                        File.Copy(file, destPath, true);
+                        restored++;
+                    }
+                    catch { }
+                }
+            }
+            return (true, restored);
+        }).ConfigureAwait(false);
+    }
+
+    public bool DeleteSnapshot(string snapshotId, string? workspaceId = null)
+    {
+        lock (_gate)
+        {
+            var ws = ResolveWorkspace(workspaceId);
+            if (ws == null || string.IsNullOrWhiteSpace(ws.WorkingDirectory)) return false;
+
+            var snapshotDir = Path.Combine(ws.WorkingDirectory, ".agents", "snapshots", snapshotId);
+            if (Directory.Exists(snapshotDir))
+            {
+                try
+                {
+                    Directory.Delete(snapshotDir, true);
+                    return true;
+                }
+                catch { }
+            }
+            return false;
+        }
+    }
+
+    private static ProjectWorkspace? ResolveWorkspace(string? workspaceId)
+    {
+        var workspaces = AiConfigService.Instance.GetWorkspaces();
+        return !string.IsNullOrEmpty(workspaceId)
+            ? workspaces.FirstOrDefault(w => string.Equals(w.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
+            : AiConfigService.Instance.GetActiveWorkspace();
+    }
+
+    private static List<string> GetGitChangedFiles(string workDir)
+    {
+        var files = new List<string>();
+        try
+        {
+            var psi = new ProcessStartInfo("git", "status --porcelain -uall")
+            {
+                WorkingDirectory = workDir,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc != null)
+            {
+                string output = proc.StandardOutput.ReadToEnd();
+                proc.WaitForExit();
+
+                foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (line.Length > 3)
+                    {
+                        var path = line[3..].Trim().Trim('"');
+                        if (!path.StartsWith(".agents", StringComparison.OrdinalIgnoreCase))
+                        {
+                            files.Add(path);
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+
+        return files;
+    }
+
+    private static List<string> GetRecentModifiedFiles(string workDir)
+    {
+        var files = new List<string>();
+        var cutoff = DateTime.UtcNow.AddHours(-24);
+
+        try
+        {
+            foreach (var f in Directory.GetFiles(workDir, "*.*", SearchOption.AllDirectories))
+            {
+                var rel = Path.GetRelativePath(workDir, f).Replace('\\', '/');
+                if (rel.StartsWith("bin/") || rel.StartsWith("obj/") || rel.StartsWith("node_modules/") || rel.StartsWith(".git/") || rel.StartsWith(".agents/"))
+                    continue;
+
+                if (File.GetLastWriteTimeUtc(f) >= cutoff)
+                {
+                    files.Add(rel);
+                }
+            }
+        }
+        catch { }
+
+        return files;
+    }
+}
