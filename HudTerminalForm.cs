@@ -4,12 +4,12 @@ using System.Drawing.Drawing2D;
 using System.IO;
 using System.Text.Json;
 using System.Windows.Forms;
-using HermesHub.Helpers;
-using HermesHub.Services;
+using AgentsHub.Helpers;
+using AgentsHub.Services;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-namespace HermesHub;
+namespace AgentsHub;
 
 public sealed class HudTerminalForm : Form
 {
@@ -495,7 +495,7 @@ public sealed class HudTerminalForm : Form
     {
         try
         {
-            string userDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HermesHub", "HudWebView");
+            string userDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AgentsHub", "HudWebView");
             Directory.CreateDirectory(userDataDir);
 
             var env = await CoreWebView2Environment.CreateAsync(null, userDataDir);

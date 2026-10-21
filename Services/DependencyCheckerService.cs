@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 /// <summary>Static description of a tool the hub depends on.</summary>
 public sealed class DependencyDefinition

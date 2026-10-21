@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 /// <summary>
 /// Samples network throughput on a background timer.

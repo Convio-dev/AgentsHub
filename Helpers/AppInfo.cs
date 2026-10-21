@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace HermesHub.Helpers;
+namespace AgentsHub.Helpers;
 
 /// <summary>
 /// The running version, read from the assembly so the project file stays the single place it is

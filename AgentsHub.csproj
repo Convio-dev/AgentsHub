@@ -7,9 +7,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <StartupObject>HermesHub.Program</StartupObject>
-    <RootNamespace>HermesHub</RootNamespace>
-    <AssemblyName>HermesHub</AssemblyName>
+    <StartupObject>AgentsHub.Program</StartupObject>
+    <RootNamespace>AgentsHub</RootNamespace>
+    <AssemblyName>AgentsHub</AssemblyName>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
 
     <!-- إعدادات التوافق مع المصمم -->
@@ -49,7 +49,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <TrimmerRootAssembly Include="HermesHub" />
+    <TrimmerRootAssembly Include="AgentsHub" />
     <TrimmerRootAssembly Include="Microsoft.Web.WebView2.Core" />
     <TrimmerRootAssembly Include="Microsoft.Web.WebView2.WinForms" />
     <RuntimeHostConfigurationOption Include="System.Runtime.InteropServices.BuiltInComInterop.IsSupported" Value="true" />
@@ -75,7 +75,7 @@
 
   <!-- Terminate any running instance before build to prevent MSB3021 file lock -->
   <Target Name="CloseRunningInstance" BeforeTargets="BeforeBuild" Condition="'$(OS)' == 'Windows_NT'">
-    <Exec Command="powershell -Command &quot;Get-Process -Name 'HermesHub' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue&quot;" IgnoreExitCode="true" />
+    <Exec Command="powershell -Command &quot;Get-Process -Name 'AgentsHub' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue&quot;" IgnoreExitCode="true" />
   </Target>
 
 </Project>

@@ -1,5 +1,5 @@
 /**
- * HermesHub - Native OpenCode Engine & Supercharged Quota Automation
+ * AgentsHub - Native OpenCode Engine & Supercharged Quota Automation
  * Pipeline: Redundant IP Fetch -> WARP Disconnect -> Key Rotation -> WARP Connect -> DNS Flush -> IP Verification -> Sidecar Teardown
  */
 
@@ -250,7 +250,7 @@ async function syncOpenCodeSidecar(credentials) {
           headers: {
             'Authorization': `Basic ${basicAuth}`,
             'Connection': 'close',
-            'User-Agent': 'HermesHub-QuotaEngine/1.0'
+            'User-Agent': 'AgentsHub-QuotaEngine/1.0'
           },
           signal: AbortSignal.timeout(3000)
         });

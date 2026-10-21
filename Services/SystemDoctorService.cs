@@ -6,7 +6,7 @@ using System.IO;
 using System.Net.NetworkInformation;
 using System.Threading.Tasks;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed class DiagnosticCheckItem
 {

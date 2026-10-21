@@ -2,9 +2,9 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using HermesHub.Services.ConPty;
+using AgentsHub.Services.ConPty;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public enum CliType
 {

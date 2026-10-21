@@ -1,6 +1,6 @@
 using System.Drawing;
 
-namespace HermesHub.Helpers;
+namespace AgentsHub.Helpers;
 
 public enum AppTheme
 {

@@ -2,13 +2,13 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using HermesHub.Helpers;
-using HermesHub.Services;
-using HermesHub.Forms;
+using AgentsHub.Helpers;
+using AgentsHub.Services;
+using AgentsHub.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-namespace HermesHub;
+namespace AgentsHub;
 
 public partial class MainForm : Form
 {

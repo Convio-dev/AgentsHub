@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
-using HermesHub.Helpers;
+using AgentsHub.Helpers;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed class ProtonVpnRotationResult
 {

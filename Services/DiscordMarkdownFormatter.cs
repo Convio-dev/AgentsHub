@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public static partial class DiscordMarkdownFormatter
 {

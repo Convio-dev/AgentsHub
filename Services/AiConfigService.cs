@@ -1,9 +1,9 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HermesHub.Helpers;
+using AgentsHub.Helpers;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public class AiProvider
 {
@@ -263,26 +263,7 @@ public class AiConfigService
     public AiConfigService()
     {
         var baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AgentsHub");
-        var legacyDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "HermesHub");
-
-        if (!Directory.Exists(baseDir) && Directory.Exists(legacyDir))
-        {
-            try
-            {
-                Directory.CreateDirectory(baseDir);
-                var legacyFile = Path.Combine(legacyDir, "ai_config.json");
-                var newFile = Path.Combine(baseDir, "ai_config.json");
-                if (File.Exists(legacyFile) && !File.Exists(newFile))
-                {
-                    File.Copy(legacyFile, newFile, true);
-                }
-            }
-            catch
-            {
-                // Fallback silently if migration fails
-            }
-        }
-        else if (!Directory.Exists(baseDir))
+        if (!Directory.Exists(baseDir))
         {
             Directory.CreateDirectory(baseDir);
         }

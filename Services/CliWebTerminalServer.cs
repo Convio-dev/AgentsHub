@@ -7,9 +7,9 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-using HermesHub.Helpers;
+using AgentsHub.Helpers;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed partial class CliWebTerminalServer : IDisposable
 {

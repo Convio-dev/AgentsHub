@@ -3,7 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public class PromptEnhancerService
 {
@@ -64,7 +64,7 @@ public class PromptEnhancerService
         // OpenRouter optional identification headers
         if (provider.BaseUrl.Contains("openrouter.ai", StringComparison.OrdinalIgnoreCase))
         {
-            request.Headers.TryAddWithoutValidation("HTTP-Referer", "https://github.com/ZerroDevs/HermesOn");
+            request.Headers.TryAddWithoutValidation("HTTP-Referer", "https://github.com/ZerroDevs/AgentsHub");
             request.Headers.TryAddWithoutValidation("X-Title", "Agents Hub");
         }
 

@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
-namespace HermesHub.Services.ConPty;
+namespace AgentsHub.Services.ConPty;
 
 public class ConPtySession : IDisposable
 {

@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 /// <summary>
 /// Whether a configured dev tool target can actually be launched.

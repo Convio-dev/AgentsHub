@@ -1,6 +1,6 @@
 #nullable enable
 
-namespace HermesHub;
+namespace AgentsHub;
 
 partial class CliWebviewForm
 {

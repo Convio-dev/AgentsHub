@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
-namespace HermesHub.Models;
+namespace AgentsHub.Models;
 
 public sealed class AgentSessionSummary
 {

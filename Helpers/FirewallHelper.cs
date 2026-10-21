@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 
-namespace HermesHub.Helpers;
+namespace AgentsHub.Helpers;
 
 /// <summary>
 /// How well Windows Firewall is set up for the LAN feature.

@@ -4,9 +4,9 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
-using HermesHub.Helpers;
+using AgentsHub.Helpers;
 
-namespace HermesHub.Forms;
+namespace AgentsHub.Forms;
 
 public sealed partial class MiniBarForm : Form
 {

@@ -9,9 +9,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using HermesHub.Helpers;
+using AgentsHub.Helpers;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed partial class AgentCompletionWatcherService : IDisposable
 {

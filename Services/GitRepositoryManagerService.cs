@@ -9,10 +9,10 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using HermesHub.Helpers;
-using HermesHub.Models;
+using AgentsHub.Helpers;
+using AgentsHub.Models;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed class GitRepositoryManagerService
 {
@@ -44,7 +44,7 @@ public sealed class GitRepositoryManagerService
     public GitRepositoryManagerService()
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _storageDir = Path.Combine(appData, "HermesHub", "repositories");
+        _storageDir = Path.Combine(appData, "AgentsHub", "repositories");
         _registryFile = Path.Combine(_storageDir, "registry.json");
         _settingsFile = Path.Combine(_storageDir, "settings.json");
         _notesDir = Path.Combine(_storageDir, "notes");

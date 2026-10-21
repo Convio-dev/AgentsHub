@@ -8,9 +8,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-using HermesHub.Helpers;
+using AgentsHub.Helpers;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public enum UpdateCheckResult
 {

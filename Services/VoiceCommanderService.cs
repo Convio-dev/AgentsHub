@@ -2,7 +2,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed class VoiceCommanderService
 {

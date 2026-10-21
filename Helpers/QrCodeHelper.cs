@@ -2,7 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using Net.Codecrete.QrCodeGenerator;
 
-namespace HermesHub.Helpers;
+namespace AgentsHub.Helpers;
 
 public static class QrCodeHelper
 {

@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 
-namespace HermesHub.Helpers;
+namespace AgentsHub.Helpers;
 
 public static class ShellLauncher
 {

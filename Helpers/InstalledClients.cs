@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
-using HermesHub.Services;
+using AgentsHub.Services;
 
-namespace HermesHub.Helpers;
+namespace AgentsHub.Helpers;
 
 /// <summary>
 /// A desktop AI or developer client/VPN found on this machine but not yet on the Dev Tools page.

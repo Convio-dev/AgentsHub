@@ -2,7 +2,7 @@
 using System;
 using System.Text.Json.Serialization;
 
-namespace HermesHub.Models;
+namespace AgentsHub.Models;
 
 public sealed class AgentRuleItem
 {

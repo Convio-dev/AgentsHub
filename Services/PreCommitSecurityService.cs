@@ -5,9 +5,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using HermesHub.Models;
+using AgentsHub.Models;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed class PreCommitSecurityService
 {

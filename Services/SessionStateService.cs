@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed class SessionSnapshotData
 {

@@ -7,9 +7,9 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using HermesHub.Models;
+using AgentsHub.Models;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed class ScheduledAutomationService : IDisposable
 {

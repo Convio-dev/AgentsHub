@@ -6,9 +6,9 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using HermesHub.Models;
+using AgentsHub.Models;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed partial class AgentRulesService
 {

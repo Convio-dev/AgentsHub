@@ -25,9 +25,9 @@ if not defined ISCC_EXE (
 rem The project file is the one source of truth for the version. Read it here and hand it to
 rem the installer script, which no longer carries its own copy.
 set "APP_VERSION="
-for /f "usebackq tokens=2 delims=<>" %%v in (`findstr /r /c:"<Version>[0-9]" HermesHub.csproj`) do set "APP_VERSION=%%v"
+for /f "usebackq tokens=2 delims=<>" %%v in (`findstr /r /c:"<Version>[0-9]" AgentsHub.csproj`) do set "APP_VERSION=%%v"
 if not defined APP_VERSION (
-    echo [ERROR] Could not read ^<Version^> from HermesHub.csproj.
+    echo [ERROR] Could not read ^<Version^> from AgentsHub.csproj.
     exit /b 1
 )
 echo      Version: %APP_VERSION%

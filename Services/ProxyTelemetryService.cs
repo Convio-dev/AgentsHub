@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json.Serialization;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed record TokenRequestRecord(
     DateTime Timestamp,

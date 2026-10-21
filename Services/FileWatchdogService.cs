@@ -8,7 +8,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed class FileChangeEventItem
 {

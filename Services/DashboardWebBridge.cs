@@ -6,12 +6,12 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HermesHub.Helpers;
-using HermesHub.Models;
-using HermesHub.Forms;
+using AgentsHub.Helpers;
+using AgentsHub.Models;
+using AgentsHub.Forms;
 using Microsoft.Web.WebView2.Core;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed partial class DashboardWebBridge : IDisposable
 {
@@ -3917,7 +3917,7 @@ public sealed partial class DashboardWebBridge : IDisposable
     /// defaults by any unrelated dashboard save. Copying only the properties actually present
     /// means a field the dashboard does not own cannot be clobbered by it.
     ///
-    /// Reflection is safe here because the csproj roots the whole HermesHub assembly
+    /// Reflection is safe here because the csproj roots the whole AgentsHub assembly
     /// (TrimmerRootAssembly) and reflection-based JSON is already enabled.
     /// </summary>
     private static void ApplyConfigPatch(AiConfig target, JsonElement payload)

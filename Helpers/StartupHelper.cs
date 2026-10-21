@@ -1,21 +1,19 @@
 using Microsoft.Win32;
 
-namespace HermesHub.Helpers;
+namespace AgentsHub.Helpers;
 
 public static class StartupHelper
 {
     private const string RunRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string AppRegistryKey = @"Software\AgentsHub";
-    private const string LegacyAppRegistryKey = @"Software\HermesHub";
     private const string AppValueName = "AgentsHub";
-    private const string LegacyAppValueName = "HermesHub";
 
     public static bool IsWindowsStartupEnabled()
     {
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(RunRegistryKey, false);
-            var value = (key?.GetValue(AppValueName) ?? key?.GetValue(LegacyAppValueName)) as string;
+            var value = key?.GetValue(AppValueName) as string;
             return !string.IsNullOrWhiteSpace(value);
         }
         catch
@@ -35,12 +33,10 @@ public static class StartupHelper
             {
                 var exePath = Environment.ProcessPath ?? Application.ExecutablePath;
                 key.SetValue(AppValueName, $"\"{exePath}\" --tray");
-                try { key.DeleteValue(LegacyAppValueName, false); } catch { }
             }
             else
             {
                 key.DeleteValue(AppValueName, false);
-                try { key.DeleteValue(LegacyAppValueName, false); } catch { }
             }
         }
         catch
@@ -55,11 +51,6 @@ public static class StartupHelper
         {
             using var key = Registry.CurrentUser.OpenSubKey(AppRegistryKey, false);
             var val = key?.GetValue(name);
-            if (val == null)
-            {
-                using var legacyKey = Registry.CurrentUser.OpenSubKey(LegacyAppRegistryKey, false);
-                val = legacyKey?.GetValue(name);
-            }
             if (val == null) return defaultValue;
 
             if (val is int intVal) return intVal == 1;
@@ -92,11 +83,6 @@ public static class StartupHelper
         {
             using var key = Registry.CurrentUser.OpenSubKey(AppRegistryKey, false);
             var val = key?.GetValue(name);
-            if (val == null)
-            {
-                using var legacyKey = Registry.CurrentUser.OpenSubKey(LegacyAppRegistryKey, false);
-                val = legacyKey?.GetValue(name);
-            }
             if (val == null) return defaultValue;
 
             if (val is int intVal) return intVal;
@@ -129,11 +115,6 @@ public static class StartupHelper
         {
             using var key = Registry.CurrentUser.OpenSubKey(AppRegistryKey, false);
             var val = key?.GetValue(name);
-            if (val == null)
-            {
-                using var legacyKey = Registry.CurrentUser.OpenSubKey(LegacyAppRegistryKey, false);
-                val = legacyKey?.GetValue(name);
-            }
             if (val == null) return defaultValue;
 
             if (val is string strVal) return strVal;

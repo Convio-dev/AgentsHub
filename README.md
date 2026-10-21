@@ -163,7 +163,7 @@ dotnet publish -c Release
 Output:
 
 ```text
-bin\Release\net10.0-windows\win-x64\publish\HermesHub.exe
+bin\Release\net10.0-windows\win-x64\publish\AgentsHub.exe
 ```
 
 **Build the installer**
@@ -189,7 +189,7 @@ dist\AgentsHub-Setup-v1.0.3.exe
 ## Project structure
 
 ```text
-HermesOn/
+AgentsHub/
 ├── Program.cs                          # Single-instance guard and startup
 ├── MainForm.cs                         # WebView2 host, global hotkeys, and tray lifecycle
 ├── CliWebviewForm.cs                   # Standalone terminal workspace window with split view
@@ -233,7 +233,7 @@ HermesOn/
 
 **Application config**: `%AppData%\AgentsHub\ai_config.json`
 
-Holds providers and models, project workspaces, CLI workspaces, dashboard shortcuts, dev tool targets, Claude gateway settings, prompt presets, and active workspace configurations. Legacy `%AppData%\HermesHub` configs are migrated automatically.
+Holds providers and models, project workspaces, CLI workspaces, dashboard shortcuts, dev tool targets, Claude gateway settings, prompt presets, and active workspace configurations. Legacy configs are migrated automatically.
 
 **Preferences**: `HKCU\Software\AgentsHub`
 

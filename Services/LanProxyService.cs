@@ -4,9 +4,9 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 
-using HermesHub.Helpers;
+using AgentsHub.Helpers;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public class ConnectedClientInfo
 {

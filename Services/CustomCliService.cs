@@ -5,9 +5,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using HermesHub.Models;
+using AgentsHub.Models;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public sealed class CustomCliService
 {

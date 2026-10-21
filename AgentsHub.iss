@@ -2,15 +2,15 @@
 ; Agents Hub Installer Configuration
 
 #define MyAppName "Agents Hub"
-; The version comes from the build. build-installer.cmd reads <Version> out of HermesHub.csproj
+; The version comes from the build. build-installer.cmd reads <Version> out of AgentsHub.csproj
 ; and passes it as /DMyAppVersion, so the project file stays the single source of truth. The
 ; fallback keeps a bare ISCC run working instead of failing on an undefined symbol.
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
 #define MyAppPublisher "ZeroNuxs"
-#define MyAppURL "https://github.com/ZerroDevs/HermesOn"
-#define MyAppExeName "HermesHub.exe"
+#define MyAppURL "https://github.com/ZerroDevs/AgentsHub"
+#define MyAppExeName "AgentsHub.exe"
 
 [Setup]
 ; Unique AppId identifier (do not change across versions to allow seamless upgrades)
@@ -43,7 +43,7 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog commandline
 
 ; Detect running instances via mutex and close cleanly
-AppMutex=Global\AgentsHub_SingleInstance_Mutex,AgentsHub_SingleInstance_Mutex,Global\HermesHub_SingleInstance_Mutex,HermesHub_SingleInstance_Mutex
+AppMutex=Global\AgentsHub_SingleInstance_Mutex,AgentsHub_SingleInstance_Mutex
 CloseApplications=yes
 RestartApplications=no
 

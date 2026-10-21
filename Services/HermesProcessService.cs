@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
-namespace HermesHub.Services;
+namespace AgentsHub.Services;
 
 public enum HermesStatus
 {

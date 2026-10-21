@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace HermesHub.Models;
+namespace AgentsHub.Models;
 
 public sealed class CustomCliConfig
 {

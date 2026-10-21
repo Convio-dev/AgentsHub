@@ -3,11 +3,11 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using HermesHub.Helpers;
-using HermesHub.Services;
+using AgentsHub.Helpers;
+using AgentsHub.Services;
 using Microsoft.Web.WebView2.Core;
 
-namespace HermesHub;
+namespace AgentsHub;
 
 public partial class CliWebviewForm : Form
 {
@@ -3288,9 +3288,7 @@ public partial class CliWebviewForm : Form
             paneHostLeft.Controls.Add(antigravityWebView);
 
             var baseLocalApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var legacyUserFolder = Path.Combine(baseLocalApp, "HermesHub", "WebView2Data");
-            var newUserFolder = Path.Combine(baseLocalApp, "AgentsHub", "WebView2Data");
-            var userDataFolder = Directory.Exists(legacyUserFolder) && !Directory.Exists(newUserFolder) ? legacyUserFolder : newUserFolder;
+            var userDataFolder = Path.Combine(baseLocalApp, "AgentsHub", "WebView2Data");
             _webViewEnv = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
             _envInitTcs.TrySetResult(true);
 

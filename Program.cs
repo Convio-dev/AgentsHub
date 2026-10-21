@@ -1,4 +1,4 @@
-namespace HermesHub;
+namespace AgentsHub;
 
 internal static partial class Program
 {

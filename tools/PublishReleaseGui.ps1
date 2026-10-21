@@ -80,9 +80,9 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = (Get-Item "$scriptDir\..").FullName
 Set-Location $rootDir
 
-# 1. Resolve current version from HermesHub.csproj
+# 1. Resolve current version from AgentsHub.csproj
 $currentVersion = "1.0.3"
-$csprojPath = Join-Path $rootDir "HermesHub.csproj"
+$csprojPath = Join-Path $rootDir "AgentsHub.csproj"
 if (Test-Path $csprojPath) {
     $content = Get-Content $csprojPath -Raw
     if ($content -match '<Version>([^<]+)</Version>') {
@@ -302,13 +302,13 @@ function Sync-VersionToCsproj($verTag) {
     $cleanVer = $verTag.Trim().TrimStart('v', 'V')
     if (-not $cleanVer) { return $currentVersion }
 
-    $csproj = Join-Path $rootDir "HermesHub.csproj"
+    $csproj = Join-Path $rootDir "AgentsHub.csproj"
     if (Test-Path $csproj) {
         $raw = Get-Content $csproj -Raw
         if ($raw -match '<Version>([^<]+)</Version>') {
             $existingVer = $matches[1].Trim()
             if ($existingVer -ne $cleanVer) {
-                Write-LogMessage "[*] Updating HermesHub.csproj Version tag: $existingVer -> $cleanVer"
+                Write-LogMessage "[*] Updating AgentsHub.csproj Version tag: $existingVer -> $cleanVer"
                 $updated = $raw -replace '<Version>[^<]+</Version>', "<Version>$cleanVer</Version>"
                 Set-Content -Path $csproj -Value $updated -NoNewline
             }

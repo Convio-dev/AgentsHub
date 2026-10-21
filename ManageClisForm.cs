@@ -1,8 +1,8 @@
 using System.IO;
-using HermesHub.Helpers;
-using HermesHub.Services;
+using AgentsHub.Helpers;
+using AgentsHub.Services;
 
-namespace HermesHub;
+namespace AgentsHub;
 
 public class ManageClisForm : Form
 {
