@@ -64,6 +64,7 @@
       });
       localStorage.setItem('agents_hub_active_settings_tab', targetTab);
     }
+    window.switchSettingsTab = switchSettingsTab;
 
     navItems.forEach(item => {
       item.addEventListener('click', () => {

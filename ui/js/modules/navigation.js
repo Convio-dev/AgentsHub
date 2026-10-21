@@ -40,6 +40,13 @@
       switchPromptSubTab('providers');
       return;
     }
+    if (viewName === 'logs') {
+      switchView('settings');
+      if (typeof window.switchSettingsTab === 'function') {
+        window.switchSettingsTab('logs');
+      }
+      return;
+    }
 
     const targetPane = document.getElementById(`view-${viewName}`);
     if (!targetPane && viewName !== 'dashboard') {

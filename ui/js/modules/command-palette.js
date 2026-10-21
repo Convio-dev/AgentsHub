@@ -36,6 +36,10 @@
     add('Open standalone terminals', 'Detach the CLI workspace', () => {
       document.getElementById('btn-open-standalone-hdr')?.click();
     });
+    add('Open live logs', 'Inspect real-time system and execution events in Settings', () => {
+      switchView('settings');
+      window.switchSettingsTab?.('logs');
+    });
     add('Switch theme', 'Light or dark', () => {
       const next = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark';
       applyAdaptiveTheme(next, localStorage.getItem('agents_hub_accent_color') || '#10b981');

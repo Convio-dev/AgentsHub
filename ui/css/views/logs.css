@@ -224,12 +224,17 @@
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  height: calc(100vh - 215px);
-  min-height: 380px;
+  height: calc(100vh - 270px);
+  min-height: 400px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+#pane-settings-logs .logs-console-window {
+  height: calc(100vh - 270px);
+  min-height: 420px;
 }
 
 .logs-console-header {
