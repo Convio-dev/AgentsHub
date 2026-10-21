@@ -11,6 +11,8 @@ Agents Hub runs Hermes, Claude Code, and Antigravity side by side in a unified d
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square)](https://dotnet.microsoft.com/)
 [![UI](https://img.shields.io/badge/UI-WebView2-0284c7?style=flat-square)]()
 [![Git](https://img.shields.io/badge/Git-Integrated%20Repo%20Manager-f05032?style=flat-square&logo=git&logoColor=white)]()
+[![Security Policy](https://img.shields.io/badge/Security-Policy-blue?style=flat-square)](SECURITY.md)
+[![Contributing](https://img.shields.io/badge/Contributing-Guidelines-orange?style=flat-square)](CONTRIBUTING.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/ZerroDevs/AgentsHub/pulls)
 
 ---
@@ -251,11 +253,13 @@ AgentsHub/
 - **Safe Modifications**: External tool configuration edits (e.g. Claude Code proxy redirection) create automatic backups before saving.
 - **Opt-In Network Exposure**: All server sockets bind strictly to `127.0.0.1` by default; LAN broadcast binds only when explicitly toggled.
 
+For vulnerability disclosure, reporting policies, and architecture details, see **[SECURITY.md](SECURITY.md)**.
+
 ---
 
 ## Contributing
 
-Contributions, bug reports, and suggestions are welcome. Please ensure that code compiles cleanly with `dotnet build` without warnings before submitting a pull request.
+Contributions, bug reports, and feature proposals are welcome. Please read our **[CONTRIBUTING.md](CONTRIBUTING.md)** guide for development setup, code standards, Conventional Commits formatting, and pull request procedures. All C# code must compile cleanly with `dotnet build` with zero warnings.
 
 ---
 
