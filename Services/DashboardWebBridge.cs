@@ -1128,11 +1128,12 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
                     string? message = data.TryGetProperty("message", out var msgProp) ? msgProp.GetString() : null;
                     bool stageAll = data.TryGetProperty("stageAll", out var saProp) && saProp.GetBoolean();
+                    bool pushToRemote = data.TryGetProperty("pushToRemote", out var ptrProp) && ptrProp.GetBoolean();
 
                     if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(message))
                     {
-                        var (success, output) = await GitRepositoryManagerService.Instance.CreateCommitAsync(repoPath, message, stageAll).ConfigureAwait(false);
-                        SendResponse(requestId, success, new { success, output });
+                        var (success, output, pushed, pushOutput) = await GitRepositoryManagerService.Instance.CreateCommitAsync(repoPath, message, stageAll, pushToRemote).ConfigureAwait(false);
+                        SendResponse(requestId, success, new { success, output, pushed, pushOutput });
                     }
                     else
                     {
@@ -1399,6 +1400,44 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "revert_commit":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? commitHash = data.TryGetProperty("commitHash", out var hProp) ? hProp.GetString() : null;
+                    string mode = data.TryGetProperty("mode", out var mProp) ? mProp.GetString() ?? "new_branch" : "new_branch";
+                    string? newBranchName = data.TryGetProperty("newBranchName", out var nbProp) ? nbProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(commitHash))
+                    {
+                        var (ok, msg, newHash) = await GitRepositoryManagerService.Instance.RevertCommitAsync(repoPath, commitHash, mode, newBranchName).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = msg, newCommitHash = newHash });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath and commitHash are required");
+                    }
+                }
+                break;
+
+            case "create_branch_at_commit":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? commitHash = data.TryGetProperty("commitHash", out var hProp) ? hProp.GetString() : null;
+                    string? branchName = data.TryGetProperty("branchName", out var bProp) ? bProp.GetString() : null;
+                    bool checkout = !data.TryGetProperty("checkout", out var cProp) || cProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(commitHash) && !string.IsNullOrEmpty(branchName))
+                    {
+                        var (ok, msg) = await GitRepositoryManagerService.Instance.CreateBranchAtCommitAsync(repoPath, commitHash, branchName, checkout).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = msg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath, commitHash, and branchName are required");
+                    }
+                }
+                break;
+
             case "get_worktrees":
                 {
                     string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
@@ -1546,10 +1585,67 @@ public sealed partial class DashboardWebBridge : IDisposable
                             if (!string.IsNullOrEmpty(s)) idList.Add(s);
                         }
                     }
-                    string batchAction = data.TryGetProperty("action", out var actProp) ? actProp.GetString() ?? "fetch" : "fetch";
+                    string batchAction = data.TryGetProperty("batchAction", out var actProp)
+                        ? actProp.GetString() ?? "fetch"
+                        : (data.TryGetProperty("action", out var aProp) ? aProp.GetString() ?? "fetch" : "fetch");
 
                     var results = await GitRepositoryManagerService.Instance.BatchActionAsync(idList, batchAction).ConfigureAwait(false);
                     SendResponse(requestId, true, new { results });
+                }
+                break;
+
+            case "get_github_auth_status":
+                {
+                    var status = await GitHubService.Instance.GetAuthStatusAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, status);
+                }
+                break;
+
+            case "auto_detect_github_git_credentials":
+                {
+                    var (ok, msg, status) = await GitHubService.Instance.AutoConnectFromGitAsync().ConfigureAwait(false);
+                    SendResponse(requestId, ok, new { success = ok, message = msg, status });
+                }
+                break;
+
+            case "save_github_pat":
+                {
+                    string? token = data.TryGetProperty("token", out var tokProp) ? tokProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        var (ok, msg, status) = await GitHubService.Instance.SavePatAsync(token).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = msg, status });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Token is required");
+                    }
+                }
+                break;
+
+            case "disconnect_github":
+                {
+                    bool disconnected = GitHubService.Instance.Disconnect();
+                    SendResponse(requestId, disconnected, new { success = disconnected });
+                }
+                break;
+
+            case "publish_repo_to_github":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rpProp) ? rpProp.GetString() : null;
+                    string? repoName = data.TryGetProperty("repoName", out var rnProp) ? rnProp.GetString() : null;
+                    string? desc = data.TryGetProperty("description", out var dProp) ? dProp.GetString() : "";
+                    bool isPrivate = data.TryGetProperty("isPrivate", out var ipProp) && ipProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var result = await GitHubService.Instance.PublishRepositoryAsync(repoPath, repoName ?? "", desc ?? "", isPrivate).ConfigureAwait(false);
+                        SendResponse(requestId, result.Success, result);
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
                 }
                 break;
 

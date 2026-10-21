@@ -19,12 +19,16 @@
     selectedCommitHash: null,
     worktrees: [],
     stashes: [],
-    selectedStashIndex: null
+    selectedStashIndex: null,
+    commitAction: localStorage.getItem('repo_commit_action') || 'local',
+    gitHubAuth: null
   };
 
   async function initRepositoriesModule() {
     setupRepoEventListeners();
     setupRepoBridgeEvents();
+    setCommitActionPreference(repoState.commitAction);
+    loadGitHubAuthStatus();
     await loadRepoManagerState();
   }
 
@@ -128,6 +132,16 @@
     });
 
     // Detail Tabs
+    const tabsBar = document.querySelector('.detail-tabs-bar');
+    if (tabsBar) {
+      tabsBar.addEventListener('wheel', (e) => {
+        if (e.deltaY !== 0) {
+          e.preventDefault();
+          tabsBar.scrollLeft += e.deltaY;
+        }
+      }, { passive: false });
+    }
+
     document.querySelectorAll('.detail-tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         switchDetailTab(btn.dataset.tab);
@@ -185,7 +199,40 @@
     document.getElementById('btn-stage-selected')?.addEventListener('click', () => stageCheckedFiles(false));
     document.getElementById('btn-unstage-selected')?.addEventListener('click', () => stageCheckedFiles(true));
     document.getElementById('btn-stage-all')?.addEventListener('click', stageAllFiles);
-    document.getElementById('btn-create-commit')?.addEventListener('click', () => createLocalCommit(false));
+    document.getElementById('btn-create-commit')?.addEventListener('click', () => createLocalCommit());
+
+    // Dual Split Commit Dropdown Handlers
+    const btnCommitChevron = document.getElementById('btn-commit-split-menu');
+    const menuCommitAction = document.getElementById('menu-commit-action');
+    const btnModalCommitChevron = document.getElementById('btn-modal-commit-split-menu');
+    const menuModalCommitAction = document.getElementById('menu-modal-commit-action');
+
+    btnCommitChevron?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (menuCommitAction) {
+        menuCommitAction.style.display = menuCommitAction.style.display === 'none' ? 'flex' : 'none';
+      }
+    });
+
+    btnModalCommitChevron?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (menuModalCommitAction) {
+        menuModalCommitAction.style.display = menuModalCommitAction.style.display === 'none' ? 'flex' : 'none';
+      }
+    });
+
+    document.querySelectorAll('.commit-dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = item.dataset.action;
+        setCommitActionPreference(action);
+      });
+    });
+
+    document.addEventListener('click', () => {
+      if (menuCommitAction) menuCommitAction.style.display = 'none';
+      if (menuModalCommitAction) menuModalCommitAction.style.display = 'none';
+    });
 
     // Git Network action buttons
     document.getElementById('btn-git-fetch')?.addEventListener('click', () => openGitNetworkModal('fetch'));
@@ -208,6 +255,23 @@
       if (diffViewer) diffViewer.style.display = 'none';
       document.querySelectorAll('.commit-row.selected').forEach(r => r.classList.remove('selected'));
       repoState.selectedCommitHash = null;
+    });
+    document.getElementById('btn-diff-revert')?.addEventListener('click', () => {
+      if (repoState.activeDiffCommit) {
+        openRevertCommitModal(repoState.activeDiffCommit.hash, repoState.activeDiffCommit.meta);
+      } else if (repoState.selectedCommitHash) {
+        openRevertCommitModal(repoState.selectedCommitHash, { subject: `Commit ${repoState.selectedCommitHash.substring(0, 7)}` });
+      } else {
+        showToast('Please select a commit to revert', 'info');
+      }
+    });
+
+    // Revert Modal events
+    document.getElementById('btn-close-revert-modal')?.addEventListener('click', closeRevertCommitModal);
+    document.getElementById('btn-cancel-revert-modal')?.addEventListener('click', closeRevertCommitModal);
+    document.getElementById('btn-submit-revert-modal')?.addEventListener('click', submitRevertCommit);
+    document.querySelectorAll('input[name="revert-strategy"]').forEach(radio => {
+      radio.addEventListener('change', (e) => updateRevertStrategyUI(e.target.value));
     });
 
     // Worktrees action buttons
@@ -453,7 +517,7 @@
     showToast(`${actionLabels[actionName] || 'Processing'} ${selectedIds.length} repositories...`, 'info');
 
     try {
-      const res = await callBridge('batch_repo_action', { action: actionName, repoIds: selectedIds });
+      const res = await callBridge('batch_repo_action', { batchAction: actionName, repoIds: selectedIds });
       if (res && res.results) {
         const results = res.results;
         const successCount = results.filter(r => r.success).length;
@@ -535,6 +599,29 @@
         <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>
         <span>${isWorking ? 'Active Context' : 'Work on this'}</span>
       `;
+    }
+
+    // GitHub Actions in Header
+    const btnOpenGh = document.getElementById('btn-open-github');
+    const btnPublishGh = document.getElementById('btn-publish-github');
+    if (btnOpenGh && btnPublishGh) {
+      if (repo.gitHubUrl) {
+        btnOpenGh.style.display = 'inline-flex';
+        btnPublishGh.style.display = 'none';
+        btnOpenGh.onclick = () => {
+          const targetUrl = repo.branch && repo.branch !== 'HEAD' && !repo.branch.startsWith('(')
+            ? `${repo.gitHubUrl.replace(/\.git$/, '')}/tree/${encodeURIComponent(repo.branch)}`
+            : repo.gitHubUrl.replace(/\.git$/, '');
+          callBridge('open_url_external', { url: targetUrl });
+        };
+      } else if (!repo.remotes || repo.remotes.length === 0) {
+        btnOpenGh.style.display = 'none';
+        btnPublishGh.style.display = 'inline-flex';
+        btnPublishGh.onclick = () => openGitHubPublishModal();
+      } else {
+        btnOpenGh.style.display = 'none';
+        btnPublishGh.style.display = 'none';
+      }
     }
 
     // Load active tab content
@@ -803,15 +890,30 @@
       return;
     }
 
+    const pushToRemote = repoState.commitAction === 'push';
+    if (pushToRemote) {
+      showToast('Creating commit and pushing to live GitHub...', 'info');
+    }
+
     try {
       const res = await callBridge('create_repo_commit', {
         repoPath: repo.path,
         message,
-        stageAll: !!stageAllChk?.checked
+        stageAll: !!stageAllChk?.checked,
+        pushToRemote
       });
 
       if (res && res.success) {
-        showToast('Local commit created successfully', 'success');
+        if (pushToRemote) {
+          if (res.pushed) {
+            showToast('Committed & pushed live to origin successfully!', 'success', 5000);
+          } else {
+            showToast(`Commit saved locally, but live push failed: ${res.pushOutput || res.output}`, 'warn', 7000);
+          }
+        } else {
+          showToast('Local commit created successfully', 'success');
+        }
+
         if (msgInput) msgInput.value = '';
         if (stageAllChk) stageAllChk.checked = false;
         await loadRepoChanges(repo.path);
@@ -1101,7 +1203,18 @@
             <span class="commit-date">${formatDate(commit.date)}</span>
           </div>
         </div>
+        <div class="commit-row-actions">
+          <button class="btn-commit-row-revert" type="button" title="Revert commit or branch from it">
+            <svg class="icon-svg" style="width: 10px; height: 10px;" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            <span>Revert...</span>
+          </button>
+        </div>
       `;
+
+      row.querySelector('.btn-commit-row-revert')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openRevertCommitModal(commit.hash, commit);
+      });
 
       row.addEventListener('click', () => {
         container.querySelectorAll('.commit-row').forEach(r => r.classList.remove('selected'));
@@ -1124,6 +1237,8 @@
     const patchEl = document.getElementById('diff-commit-patch');
 
     if (!viewer || !patchEl) return;
+
+    repoState.activeDiffCommit = { hash: commitHash, meta: commitMeta };
 
     viewer.style.display = 'flex';
     if (hashEl) hashEl.textContent = commitHash.substring(0, 8);
@@ -1160,6 +1275,188 @@
       }
       return `<span>${esc}</span>`;
     }).join('');
+  }
+
+  // =========================================================================
+  // Revert Commit & Branching Modal
+  // =========================================================================
+  function openRevertCommitModal(commitHash, commitMeta) {
+    const modal = document.getElementById('modal-revert-commit');
+    const repo = getSelectedRepo();
+    if (!modal || !repo) {
+      showToast('Select a repository and commit first', 'warn');
+      return;
+    }
+
+    const shortHash = (commitHash || '').substring(0, 7);
+    const subject = commitMeta?.subject || `Commit ${shortHash}`;
+
+    repoState.revertTarget = {
+      hash: commitHash,
+      shortHash,
+      subject,
+      author: commitMeta?.authorName || '',
+      date: commitMeta?.date || ''
+    };
+
+    // Update Modal Commit Card
+    const hashEl = document.getElementById('revert-modal-hash');
+    const subjectEl = document.getElementById('revert-modal-subject');
+    const authorEl = document.getElementById('revert-modal-author');
+    const dateEl = document.getElementById('revert-modal-date');
+    const branchLabelEl = document.getElementById('revert-modal-current-branch-label');
+
+    if (hashEl) hashEl.textContent = shortHash;
+    if (subjectEl) subjectEl.textContent = subject;
+    if (authorEl) authorEl.textContent = commitMeta?.authorName ? `Authored by ${commitMeta.authorName}` : '';
+    if (dateEl) dateEl.textContent = commitMeta?.date ? formatDate(commitMeta.date) : '';
+    if (branchLabelEl) branchLabelEl.textContent = repo.branch || 'main';
+
+    // Working Tree Status Check
+    const statusBox = document.getElementById('revert-modal-status-box');
+    const statusText = document.getElementById('revert-modal-status-text');
+    const isDirty = repo.isDirty || (repo.stagedCount > 0) || (repo.unstagedCount > 0);
+
+    if (statusBox && statusText) {
+      if (isDirty) {
+        statusBox.style.background = 'rgba(245, 158, 11, 0.08)';
+        statusBox.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+        statusBox.style.color = '#f59e0b';
+        statusText.textContent = 'Uncommitted changes detected. Stash or commit changes before reverting.';
+      } else {
+        statusBox.style.background = 'rgba(16, 185, 129, 0.08)';
+        statusBox.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+        statusBox.style.color = '#34d399';
+        statusText.textContent = 'Working tree is clean. Safe to revert.';
+      }
+    }
+
+    // Prefill branch suggestions
+    const safeSubjectSlug = (commitMeta?.subject || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .substring(0, 20);
+    const defaultBranchName = safeSubjectSlug ? `revert-${shortHash}-${safeSubjectSlug}` : `revert-${shortHash}`;
+
+    const branchInput = document.getElementById('input-revert-branch-name');
+    if (branchInput) branchInput.value = defaultBranchName;
+
+    const branchOnlyInput = document.getElementById('input-branch-only-name');
+    if (branchOnlyInput) branchOnlyInput.value = `branch-${shortHash}`;
+
+    // Reset to default option: new_branch
+    const radioNewBranch = document.getElementById('radio-revert-new-branch');
+    if (radioNewBranch) radioNewBranch.checked = true;
+    updateRevertStrategyUI('new_branch');
+
+    modal.classList.add('active');
+  }
+
+  function updateRevertStrategyUI(selectedMode) {
+    const cardNewBranch = document.getElementById('label-strat-new-branch');
+    const cardCurrent = document.getElementById('label-strat-current');
+    const cardBranchOnly = document.getElementById('label-strat-branch-only');
+    const wrapNewBranchInput = document.getElementById('wrap-revert-new-branch-input');
+    const wrapBranchOnlyInput = document.getElementById('wrap-branch-only-input');
+    const lblSubmit = document.getElementById('lbl-submit-revert');
+
+    if (cardNewBranch) cardNewBranch.classList.toggle('active', selectedMode === 'new_branch');
+    if (cardCurrent) cardCurrent.classList.toggle('active', selectedMode === 'current');
+    if (cardBranchOnly) cardBranchOnly.classList.toggle('active', selectedMode === 'branch_only');
+
+    if (wrapNewBranchInput) wrapNewBranchInput.style.display = selectedMode === 'new_branch' ? 'block' : 'none';
+    if (wrapBranchOnlyInput) wrapBranchOnlyInput.style.display = selectedMode === 'branch_only' ? 'block' : 'none';
+
+    if (lblSubmit) {
+      if (selectedMode === 'new_branch') lblSubmit.textContent = 'Revert on New Branch';
+      else if (selectedMode === 'current') lblSubmit.textContent = 'Revert on Current Branch';
+      else if (selectedMode === 'branch_only') lblSubmit.textContent = 'Create & Switch Branch';
+    }
+  }
+
+  function closeRevertCommitModal() {
+    document.getElementById('modal-revert-commit')?.classList.remove('active');
+  }
+
+  async function submitRevertCommit() {
+    const repo = getSelectedRepo();
+    if (!repo || !repoState.revertTarget) {
+      showToast('No commit selected for revert', 'warn');
+      return;
+    }
+
+    const selectedRadio = document.querySelector('input[name="revert-strategy"]:checked');
+    const mode = selectedRadio ? selectedRadio.value : 'new_branch';
+    const commitHash = repoState.revertTarget.hash;
+
+    const btnSubmit = document.getElementById('btn-submit-revert-modal');
+    const originalText = btnSubmit?.innerHTML;
+    if (btnSubmit) {
+      btnSubmit.disabled = true;
+      btnSubmit.innerHTML = '<span class="spinner" style="width: 12px; height: 12px; margin-right: 6px;"></span>Processing...';
+    }
+
+    try {
+      if (mode === 'branch_only') {
+        const branchName = document.getElementById('input-branch-only-name')?.value?.trim();
+        if (!branchName) {
+          showToast('Please enter a branch name', 'warn');
+          if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.innerHTML = originalText; }
+          return;
+        }
+
+        const res = await callBridge('create_branch_at_commit', {
+          repoPath: repo.path,
+          commitHash,
+          branchName,
+          checkout: true
+        });
+
+        if (res && res.success) {
+          showToast(res.message || `Branch '${branchName}' created successfully.`, 'success');
+          closeRevertCommitModal();
+          await loadRepoManagerState();
+          await loadCommitGraph(repo.path);
+        } else {
+          showToast(res?.message || 'Failed to create branch.', 'error', 6000);
+        }
+      } else {
+        // Revert mode: new_branch or current
+        let newBranchName = null;
+        if (mode === 'new_branch') {
+          newBranchName = document.getElementById('input-revert-branch-name')?.value?.trim();
+          if (!newBranchName) {
+            showToast('Please enter a branch name for the revert', 'warn');
+            if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.innerHTML = originalText; }
+            return;
+          }
+        }
+
+        const res = await callBridge('revert_commit', {
+          repoPath: repo.path,
+          commitHash,
+          mode,
+          newBranchName
+        });
+
+        if (res && res.success) {
+          showToast(res.message || 'Revert completed successfully.', 'success', 6000);
+          closeRevertCommitModal();
+          await loadRepoManagerState();
+          await loadCommitGraph(repo.path);
+        } else {
+          showToast(res?.message || 'Revert failed.', 'error', 8000);
+        }
+      }
+    } catch (err) {
+      showToast('Error during operation: ' + (err.message || err), 'error', 8000);
+    } finally {
+      if (btnSubmit) {
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = originalText;
+      }
+    }
   }
 
   // =========================================================================
@@ -1969,15 +2266,30 @@
       return;
     }
 
+    const pushToRemote = repoState.commitAction === 'push';
+    if (pushToRemote) {
+      showToast('Creating commit and pushing to live GitHub...', 'info');
+    }
+
     try {
       const res = await callBridge('create_repo_commit', {
         repoPath: modalRepoState.repoPath,
         message,
-        stageAll: !!stageAllChk?.checked
+        stageAll: !!stageAllChk?.checked,
+        pushToRemote
       });
 
       if (res && res.success) {
-        showToast('Local commit created successfully', 'success');
+        if (pushToRemote) {
+          if (res.pushed) {
+            showToast('Committed & pushed live to origin successfully!', 'success', 5000);
+          } else {
+            showToast(`Commit saved locally, but live push failed: ${res.pushOutput || res.output}`, 'warn', 7000);
+          }
+        } else {
+          showToast('Local commit created successfully', 'success');
+        }
+
         if (msgInput) msgInput.value = '';
         if (stageAllChk) stageAllChk.checked = false;
         await loadModalRepoChanges(modalRepoState.repoPath);
@@ -2086,6 +2398,27 @@
     document.getElementById('btn-close-stash-modal')?.addEventListener('click', closeCreateStashModal);
     document.getElementById('btn-cancel-stash-modal')?.addEventListener('click', closeCreateStashModal);
     document.getElementById('btn-submit-stash-modal')?.addEventListener('click', submitCreateStashModal);
+
+    // GitHub Authentication in Settings
+    document.getElementById('btn-auto-connect-gh')?.addEventListener('click', autoConnectGitHubFromGit);
+    document.getElementById('btn-open-gh-token-gen')?.addEventListener('click', () => {
+      callBridge('open_url_external', {
+        url: 'https://github.com/settings/tokens/new?description=AgentsHub&scopes=repo,read:user,workflow'
+      });
+    });
+    document.getElementById('btn-toggle-gh-guide')?.addEventListener('click', () => {
+      const guide = document.getElementById('wrap-gh-guide');
+      if (guide) {
+        guide.style.display = guide.style.display === 'none' ? 'block' : 'none';
+      }
+    });
+    document.getElementById('btn-save-gh-pat')?.addEventListener('click', saveGitHubPatFromInput);
+    document.getElementById('btn-gh-disconnect')?.addEventListener('click', disconnectGitHubAccount);
+
+    // GitHub Publish Modal
+    document.getElementById('btn-close-gh-publish')?.addEventListener('click', closeGitHubPublishModal);
+    document.getElementById('btn-cancel-gh-publish')?.addEventListener('click', closeGitHubPublishModal);
+    document.getElementById('btn-submit-gh-publish')?.addEventListener('click', submitGitHubPublish);
   }
 
   function openRepoSettingsModal() {
@@ -2099,6 +2432,8 @@
     const customEditorInput = document.getElementById('input-custom-editor-path');
 
     if (!modal) return;
+
+    loadGitHubAuthStatus();
 
     if (depthSelect) depthSelect.value = String(repoState.scanSettings.depth || 4);
     if (agentSelect) agentSelect.value = repoState.scanSettings.defaultAgent || 'claude';
@@ -2364,6 +2699,215 @@
       }
     } catch (e) {
       showToast('Failed to export inventory: ' + e.message, 'error');
+    }
+  }
+
+  // =========================================================================
+  // GitHub Integration & Split Commit Preferences
+  // =========================================================================
+  function setCommitActionPreference(action) {
+    repoState.commitAction = action || 'local';
+    try { localStorage.setItem('repo_commit_action', repoState.commitAction); } catch { }
+
+    const isPush = repoState.commitAction === 'push';
+    const label = isPush ? 'Commit & Push Live' : 'Create Local Commit';
+
+    const lblMain = document.getElementById('lbl-commit-action');
+    const lblModal = document.getElementById('lbl-modal-commit-action');
+    if (lblMain) lblMain.textContent = label;
+    if (lblModal) lblModal.textContent = label;
+
+    document.querySelectorAll('.commit-dropdown-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.action === repoState.commitAction);
+    });
+
+    const menuMain = document.getElementById('menu-commit-action');
+    const menuModal = document.getElementById('menu-modal-commit-action');
+    if (menuMain) menuMain.style.display = 'none';
+    if (menuModal) menuModal.style.display = 'none';
+  }
+
+  async function loadGitHubAuthStatus() {
+    try {
+      const res = await callBridge('get_github_auth_status');
+      if (res) {
+        repoState.gitHubAuth = res;
+        renderGitHubSettingsStatus(res);
+        renderGitHubPublishModalAccount(res);
+      }
+    } catch (e) {
+      console.warn('[Repositories] Failed to get GitHub auth status:', e);
+    }
+  }
+
+  function renderGitHubSettingsStatus(auth) {
+    const badge = document.getElementById('gh-settings-status-badge');
+    const userCard = document.getElementById('gh-settings-user-card');
+    const unconnectedWrap = document.getElementById('gh-settings-unconnected-wrap');
+    const avatar = document.getElementById('gh-settings-avatar');
+    const usernameEl = document.getElementById('gh-settings-username');
+    const methodEl = document.getElementById('gh-settings-method');
+
+    if (!badge) return;
+
+    if (auth && auth.isAuthenticated) {
+      const methodLabel = auth.authMethod === 'gcm'
+        ? 'Git Credential Manager'
+        : (auth.authMethod === 'cli' ? 'GitHub CLI' : 'Personal Access Token');
+
+      badge.textContent = `Connected (${methodLabel})`;
+      badge.style.background = 'rgba(16, 185, 129, 0.15)';
+      badge.style.color = '#34d399';
+
+      if (userCard) userCard.style.display = 'flex';
+      if (unconnectedWrap) unconnectedWrap.style.display = 'none';
+
+      if (usernameEl) usernameEl.textContent = `@${auth.username || 'User'}` + (auth.name ? ` (${auth.name})` : '');
+      if (methodEl) methodEl.textContent = `Authenticated via ${methodLabel}`;
+      if (avatar && auth.avatarUrl) {
+        avatar.src = auth.avatarUrl;
+        avatar.style.display = 'block';
+      }
+    } else {
+      badge.textContent = 'Not connected';
+      badge.style.background = 'rgba(255, 255, 255, 0.05)';
+      badge.style.color = 'var(--text-dim)';
+
+      if (userCard) userCard.style.display = 'none';
+      if (unconnectedWrap) unconnectedWrap.style.display = 'flex';
+    }
+  }
+
+  function renderGitHubPublishModalAccount(auth) {
+    const badge = document.getElementById('gh-auth-account-badge');
+    if (!badge) return;
+
+    if (auth && auth.isAuthenticated) {
+      const methodLabel = auth.authMethod === 'gcm'
+        ? 'Git Credential Manager'
+        : (auth.authMethod === 'cli' ? 'GitHub CLI' : 'PAT');
+
+      badge.innerHTML = `
+        <svg class="icon-svg" style="width: 14px; height: 14px; color: #34d399;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        <span>Publishing under <strong>@${escapeHtml(auth.username || 'User')}</strong> (${methodLabel})</span>
+      `;
+    } else {
+      badge.innerHTML = `
+        <svg class="icon-svg" style="width: 14px; height: 14px; color: #f59e0b;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>No GitHub account linked. Configure in <strong>Folders &amp; Scope &gt; GitHub</strong> first.</span>
+      `;
+    }
+  }
+
+  async function autoConnectGitHubFromGit() {
+    try {
+      showToast('Searching for GitHub credentials in Windows Git...', 'info');
+      const res = await callBridge('auto_detect_github_git_credentials');
+      if (res && res.success) {
+        showToast(res.message || 'Auto-connected to GitHub successfully!', 'success', 5000);
+        await loadGitHubAuthStatus();
+        await loadRepoManagerState();
+      } else {
+        showToast(res?.message || 'Could not auto-connect from Git. Try generating a token.', 'warn', 6000);
+      }
+    } catch (e) {
+      showToast('Auto-connect error: ' + e.message, 'error');
+    }
+  }
+
+  function openGitHubPublishModal() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const modal = document.getElementById('modal-github-publish');
+    const nameInput = document.getElementById('input-gh-repo-name');
+    const descInput = document.getElementById('input-gh-repo-desc');
+    const radPublic = document.getElementById('rad-gh-public');
+
+    if (!modal) return;
+
+    if (nameInput) nameInput.value = repo.name || '';
+    if (descInput) descInput.value = '';
+    if (radPublic) radPublic.checked = true;
+
+    loadGitHubAuthStatus();
+    modal.classList.add('active');
+  }
+
+  function closeGitHubPublishModal() {
+    document.getElementById('modal-github-publish')?.classList.remove('active');
+  }
+
+  async function submitGitHubPublish() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const nameInput = document.getElementById('input-gh-repo-name');
+    const descInput = document.getElementById('input-gh-repo-desc');
+    const radPrivate = document.getElementById('rad-gh-private');
+
+    const repoName = nameInput?.value.trim();
+    const description = descInput?.value.trim() || '';
+    const isPrivate = !!radPrivate?.checked;
+
+    if (!repoName) {
+      showToast('Repository name is required', 'warn');
+      nameInput?.focus();
+      return;
+    }
+
+    try {
+      showToast('Creating GitHub repository and pushing code...', 'info');
+      const res = await callBridge('publish_repo_to_github', {
+        repoPath: repo.path,
+        repoName,
+        description,
+        isPrivate
+      });
+
+      if (res && res.success) {
+        showToast('Repository published to GitHub successfully!', 'success', 6000);
+        closeGitHubPublishModal();
+        await loadRepoManagerState();
+      } else {
+        showToast(`Publish failed: ${res?.message || 'Unknown error'}`, 'error', 7000);
+      }
+    } catch (e) {
+      showToast('Failed to publish: ' + e.message, 'error');
+    }
+  }
+
+  async function saveGitHubPatFromInput() {
+    const inp = document.getElementById('input-gh-settings-pat');
+    const token = inp?.value.trim();
+    if (!token) {
+      showToast('Please enter a GitHub token', 'warn');
+      return;
+    }
+
+    try {
+      showToast('Validating token with GitHub...', 'info');
+      const res = await callBridge('save_github_pat', { token });
+      if (res && res.success) {
+        showToast(res.message || 'GitHub account linked successfully', 'success');
+        if (inp) inp.value = '';
+        await loadGitHubAuthStatus();
+      } else {
+        showToast(`GitHub validation failed: ${res?.message || 'Invalid token'}`, 'error');
+      }
+    } catch (e) {
+      showToast('Error saving token: ' + e.message, 'error');
+    }
+  }
+
+  async function disconnectGitHubAccount() {
+    if (!confirm('Disconnect linked GitHub account?')) return;
+    try {
+      await callBridge('disconnect_github');
+      showToast('Disconnected GitHub account', 'info');
+      await loadGitHubAuthStatus();
+    } catch (e) {
+      showToast('Error disconnecting: ' + e.message, 'error');
     }
   }
 

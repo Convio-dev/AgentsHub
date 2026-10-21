@@ -81,6 +81,9 @@ public sealed class RepositoryItem
 
     [JsonPropertyName("worktreeCount")]
     public int WorktreeCount { get; set; } = 1;
+
+    [JsonPropertyName("gitHubUrl")]
+    public string? GitHubUrl { get; set; }
 }
 
 public sealed class RepositoryRemoteItem
@@ -407,4 +410,46 @@ public sealed class BatchRepoActionResult
 
     [JsonPropertyName("output")]
     public string Output { get; set; } = "";
+}
+
+public sealed class GitHubAuthStatus
+{
+    [JsonPropertyName("isAuthenticated")]
+    public bool IsAuthenticated { get; set; }
+
+    [JsonPropertyName("authMethod")]
+    public string AuthMethod { get; set; } = "none"; // "cli", "pat", "none"
+
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("avatarUrl")]
+    public string? AvatarUrl { get; set; }
+
+    [JsonPropertyName("htmlUrl")]
+    public string? HtmlUrl { get; set; }
+
+    [JsonPropertyName("scopes")]
+    public List<string> Scopes { get; set; } = [];
+
+    [JsonPropertyName("errorMessage")]
+    public string? ErrorMessage { get; set; }
+}
+
+public sealed class GitHubPublishResult
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("repoUrl")]
+    public string? RepoUrl { get; set; }
+
+    [JsonPropertyName("cloneUrl")]
+    public string? CloneUrl { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = "";
 }

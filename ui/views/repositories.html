@@ -178,6 +178,14 @@
                 <svg class="icon-svg" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 <span id="lbl-quick-run">Run</span>
               </button>
+              <button class="btn btn-outline" id="btn-open-github" title="Open repository on GitHub" style="display: none; gap: 6px;">
+                <svg class="icon-svg" viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor;"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
+                <span>GitHub</span>
+              </button>
+              <button class="btn btn-outline" id="btn-publish-github" title="Publish this local repository to GitHub" style="display: none; gap: 6px; border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);">
+                <svg class="icon-svg" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M12 5v14M5 12l7-7 7 7"/></svg>
+                <span>Publish</span>
+              </button>
               <button class="btn btn-outline" id="btn-set-focus-project" title="Set this project as 'Working on now'">
                 <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>
                 <span>Work on this</span>
@@ -229,7 +237,7 @@
           </button>
           <button class="detail-tab-btn" data-tab="run">
             <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            <span>Run / Launchers</span>
+            <span>Run</span>
           </button>
           <button class="detail-tab-btn" data-tab="health">
             <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
@@ -352,10 +360,25 @@
                     <input type="checkbox" id="chk-stage-all-commit" />
                     <span>Stage all changes before committing</span>
                   </label>
-                  <button class="btn btn-primary" id="btn-create-commit">
-                    <svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
-                    <span>Create Local Commit</span>
-                  </button>
+                  <div class="commit-split-btn-group">
+                    <button class="btn btn-primary btn-commit-main" id="btn-create-commit">
+                      <svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+                      <span id="lbl-commit-action">Create Local Commit</span>
+                    </button>
+                    <button class="btn btn-primary btn-commit-chevron" id="btn-commit-split-menu" title="Choose commit action">
+                      <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                    </button>
+                    <div class="commit-dropdown-menu" id="menu-commit-action" style="display: none;">
+                      <div class="commit-dropdown-item active" data-action="local" id="opt-commit-local">
+                        <div class="opt-title">Create Local Commit</div>
+                        <div class="opt-desc">Record commit to local branch without pushing</div>
+                      </div>
+                      <div class="commit-dropdown-item" data-action="push" id="opt-commit-push">
+                        <div class="opt-title">Commit &amp; Push to Live GitHub</div>
+                        <div class="opt-desc">Record commit and immediately push to remote origin</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -418,7 +441,13 @@
                   <div class="commit-diff-title-row">
                     <span class="commit-diff-hash" id="diff-commit-hash"></span>
                     <span class="commit-diff-subject" id="diff-commit-subject"></span>
-                    <button class="btn-icon btn-sm" id="btn-close-commit-diff" title="Close diff view">&times;</button>
+                    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                      <button class="btn btn-outline btn-xs" id="btn-diff-revert" title="Revert this commit or branch from it" style="display: inline-flex; align-items: center; gap: 4px; color: var(--accent-cyan); font-weight: 600;">
+                        <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                        <span>Revert...</span>
+                      </button>
+                      <button class="btn-icon btn-sm" id="btn-close-commit-diff" title="Close diff view">&times;</button>
+                    </div>
                   </div>
                   <div class="commit-diff-meta-row">
                     <span id="diff-commit-author"></span>

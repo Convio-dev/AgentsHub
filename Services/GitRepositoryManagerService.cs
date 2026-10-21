@@ -576,6 +576,16 @@ public sealed class GitRepositoryManagerService
                 FetchUrl = kvp.Value.fetch,
                 PushUrl = string.IsNullOrEmpty(kvp.Value.push) ? kvp.Value.fetch : kvp.Value.push
             })];
+
+            foreach (var rem in repo.Remotes)
+            {
+                var norm = GitHubService.NormalizeGitHubWebUrl(rem.FetchUrl);
+                if (norm != null)
+                {
+                    repo.GitHubUrl = norm;
+                    break;
+                }
+            }
         }
 
         // 6. Worktrees
@@ -711,22 +721,43 @@ public sealed class GitRepositoryManagerService
         return (rc == 0, outText);
     }
 
-    public async Task<(bool success, string output)> CreateCommitAsync(string repoPath, string message, bool stageAll)
+    public async Task<(bool success, string output, bool pushed, string pushOutput)> CreateCommitAsync(
+        string repoPath, string message, bool stageAll, bool pushToRemote = false)
     {
-        if (string.IsNullOrWhiteSpace(message)) return (false, "A commit message is required.");
+        if (string.IsNullOrWhiteSpace(message)) return (false, "A commit message is required.", false, "");
 
         if (stageAll)
         {
             var (addRc, addOut) = await RunGitAsync(repoPath, ["add", "-A"]).ConfigureAwait(false);
-            if (addRc != 0) return (false, $"Staging failed: {addOut}");
+            if (addRc != 0) return (false, $"Staging failed: {addOut}", false, "");
         }
 
         var (rc, outText) = await RunGitAsync(repoPath, ["commit", "-m", message.Trim()]).ConfigureAwait(false);
-        if (rc == 0)
+        if (rc != 0)
         {
-            SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created", "modern", 60);
+            return (false, outText, false, "");
         }
-        return (rc == 0, outText);
+
+        SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created", "modern", 60);
+
+        if (!pushToRemote)
+        {
+            return (true, outText, false, "");
+        }
+
+        // Push to live remote
+        var (bRc, bOut) = await RunGitAsync(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]).ConfigureAwait(false);
+        string branch = bRc == 0 && !string.IsNullOrWhiteSpace(bOut) ? bOut.Trim() : "HEAD";
+
+        var (pushRc, pushOut) = await RunGitAsync(repoPath, ["push", "-u", "origin", branch], timeoutSeconds: 45).ConfigureAwait(false);
+        if (pushRc == 0)
+        {
+            return (true, $"{outText}\n\n[Pushed to origin/{branch} on live GitHub]", true, pushOut);
+        }
+        else
+        {
+            return (true, $"{outText}\n\n[Warning: Commit succeeded locally, but live push failed: {pushOut}]", false, pushOut);
+        }
     }
 
     public async Task<(bool success, string output)> NetworkActionAsync(string repoPath, string operation, string remote, string? branch, bool setUpstream)
@@ -773,6 +804,119 @@ public sealed class GitRepositoryManagerService
             branches = [.. outText.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(b => b.Trim())];
         }
         return branches;
+    }
+
+    public async Task<(bool success, string message, string? newCommitHash)> RevertCommitAsync(
+        string repoPath,
+        string commitHash,
+        string mode,
+        string? newBranchName,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath))
+            return (false, "Invalid repository path.", null);
+        if (string.IsNullOrWhiteSpace(commitHash))
+            return (false, "Commit hash is required.", null);
+
+        commitHash = commitHash.Trim();
+        mode = mode?.Trim().ToLowerInvariant() ?? "new_branch";
+
+        // 1. Pre-flight check: Ensure working directory is clean
+        var (statusRc, statusOut) = await RunGitAsync(repoPath, ["status", "--porcelain=v1"], ct).ConfigureAwait(false);
+        if (statusRc != 0)
+        {
+            return (false, $"Failed to check repository status: {statusOut}", null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(statusOut))
+        {
+            return (false, "Working directory has uncommitted or unstaged changes. Please stash or commit them before reverting.", null);
+        }
+
+        // 2. Identify current branch
+        var (bRc, bOut) = await RunGitAsync(repoPath, ["symbolic-ref", "--quiet", "--short", "HEAD"], ct).ConfigureAwait(false);
+        string currentBranch = bRc == 0 && !string.IsNullOrWhiteSpace(bOut) ? bOut.Trim() : "HEAD";
+
+        string targetBranch = currentBranch;
+        bool createdNewBranch = false;
+
+        // 3. If mode is new_branch, create and switch to it first
+        if (mode == "new_branch")
+        {
+            if (string.IsNullOrWhiteSpace(newBranchName))
+            {
+                newBranchName = $"revert-{commitHash[..Math.Min(7, commitHash.Length)]}";
+            }
+            newBranchName = newBranchName.Trim();
+
+            var (cbRc, cbOut) = await RunGitAsync(repoPath, ["checkout", "-b", newBranchName], ct).ConfigureAwait(false);
+            if (cbRc != 0)
+            {
+                return (false, $"Failed to create and switch to branch '{newBranchName}': {cbOut}", null);
+            }
+            createdNewBranch = true;
+            targetBranch = newBranchName;
+        }
+
+        // 4. Run git revert
+        var (revRc, revOut) = await RunGitAsync(repoPath, ["revert", "--no-edit", commitHash], ct, timeoutSeconds: 30).ConfigureAwait(false);
+
+        if (revRc == 0)
+        {
+            var (hRc, hOut) = await RunGitAsync(repoPath, ["rev-parse", "--short", "HEAD"], ct).ConfigureAwait(false);
+            string newHash = hRc == 0 && !string.IsNullOrWhiteSpace(hOut) ? hOut.Trim() : "";
+
+            string msg = createdNewBranch
+                ? $"Successfully reverted commit {commitHash[..Math.Min(7, commitHash.Length)]} on new branch '{targetBranch}' (Commit: {newHash})."
+                : $"Successfully reverted commit {commitHash[..Math.Min(7, commitHash.Length)]} on branch '{targetBranch}' (Commit: {newHash}).";
+
+            return (true, msg, newHash);
+        }
+
+        // 5. Conflict or Failure detected! Abort revert cleanly to protect user's working copy
+        await RunGitAsync(repoPath, ["revert", "--abort"], ct).ConfigureAwait(false);
+
+        // If we created a temporary new branch for the revert, switch back and cleanup
+        if (createdNewBranch)
+        {
+            await RunGitAsync(repoPath, ["checkout", currentBranch], ct).ConfigureAwait(false);
+            await RunGitAsync(repoPath, ["branch", "-D", targetBranch], ct).ConfigureAwait(false);
+        }
+
+        return (false, $"Revert failed due to merge conflicts or errors with recent changes. The revert was automatically aborted to keep your files safe.\n\nGit details:\n{revOut.Trim()}", null);
+    }
+
+    public async Task<(bool success, string message)> CreateBranchAtCommitAsync(
+        string repoPath,
+        string commitHash,
+        string branchName,
+        bool checkout = true,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath))
+            return (false, "Invalid repository path.");
+        if (string.IsNullOrWhiteSpace(commitHash))
+            return (false, "Commit hash is required.");
+        if (string.IsNullOrWhiteSpace(branchName))
+            return (false, "Branch name is required.");
+
+        branchName = branchName.Trim();
+        commitHash = commitHash.Trim();
+
+        var args = checkout
+            ? new[] { "checkout", "-b", branchName, commitHash }
+            : new[] { "branch", branchName, commitHash };
+
+        var (rc, outText) = await RunGitAsync(repoPath, args, ct).ConfigureAwait(false);
+        if (rc == 0)
+        {
+            string msg = checkout
+                ? $"Created and checked out branch '{branchName}' at commit {commitHash[..Math.Min(7, commitHash.Length)]}."
+                : $"Created branch '{branchName}' at commit {commitHash[..Math.Min(7, commitHash.Length)]}.";
+            return (true, msg);
+        }
+
+        return (false, string.IsNullOrWhiteSpace(outText) ? "Failed to create branch." : outText.Trim());
     }
 
     #endregion
@@ -1823,7 +1967,7 @@ public sealed class GitRepositoryManagerService
 
     #region Helper Execution
 
-    private static async Task<(int returnCode, string output)> RunGitAsync(string workingDir, string[] args, CancellationToken ct = default, int timeoutSeconds = 15)
+    internal static async Task<(int returnCode, string output)> RunGitAsync(string workingDir, string[] args, CancellationToken ct = default, int timeoutSeconds = 15)
     {
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         linkedCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));

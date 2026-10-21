@@ -66,10 +66,25 @@
         </label>
         <div style="display: flex; gap: 8px;">
           <button class="btn btn-outline" id="btn-cancel-changes-modal">Close</button>
-          <button class="btn btn-primary" id="btn-modal-create-commit">
-            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
-            <span>Create Local Commit</span>
-          </button>
+          <div class="commit-split-btn-group">
+            <button class="btn btn-primary btn-commit-main" id="btn-modal-create-commit">
+              <svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+              <span id="lbl-modal-commit-action">Create Local Commit</span>
+            </button>
+            <button class="btn btn-primary btn-commit-chevron" id="btn-modal-commit-split-menu" title="Choose commit action">
+              <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="commit-dropdown-menu" id="menu-modal-commit-action" style="display: none;">
+              <div class="commit-dropdown-item active" data-action="local" id="opt-modal-commit-local">
+                <div class="opt-title">Create Local Commit</div>
+                <div class="opt-desc">Record commit to local branch without pushing</div>
+              </div>
+              <div class="commit-dropdown-item" data-action="push" id="opt-modal-commit-push">
+                <div class="opt-title">Commit &amp; Push to Live GitHub</div>
+                <div class="opt-desc">Record commit and immediately push to remote origin</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
