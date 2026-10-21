@@ -52,7 +52,7 @@ Each profile gets its own **VirtualHome**: `USERPROFILE`, `HOME`, `APPDATA` and 
 A local translation proxy on `127.0.0.1:9230` speaks the Anthropic Messages API and forwards to any OpenAI-compatible backend, including full streaming SSE and `tool_use` / `tool_result` mapping. Live proxy telemetry tracks prompt and completion tokens, requests per minute, model usage distributions, and estimated cost savings compared to direct Anthropic API pricing.
 
 ### AI client and VPN auto-discovery
-A fast background scanner detects 15+ installed AI developer tools and VPN clients across user and system directories. Automatically discovers tools such as FreeBuff Desktop, WorkBuddy, Devin, Antigravity IDE, Cursor, Windsurf, VS Code, Ollama, LM Studio, Proton VPN, Cloudflare WARP, Tailscale, WireGuard, and Mullvad. Missing entries can be added to the AI Dev Tools launch deck with a single click.
+A fast background scanner detects 15+ installed AI developer tools and VPN clients across user and system directories. Automatically discovers tools such as FreeBuff Desktop, WorkBuddy, Devin, Antigravity IDE, Cursor, VS Code, Ollama, LM Studio, Proton VPN, Cloudflare WARP, Tailscale, WireGuard, and Mullvad. Missing entries can be added to the AI Dev Tools launch deck with a single click.
 
 ### Dev Tools health diagnostics
 Configured tools undergo live path verification and normalization, automatically stripping wrapping quotes from Explorer's "Copy as path" and resolving UWP App Execution Aliases (`shell:AppsFolder\...`). Clear badges (`Ready`, `Missing`, `NeedsFixing`, `Unsupported`) report status before launching.

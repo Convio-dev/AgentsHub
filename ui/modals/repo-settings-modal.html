@@ -1,0 +1,81 @@
+<!-- Modal: Repository Scan Settings & Search Scope -->
+<div id="modal-repo-settings" class="modal-overlay">
+  <div class="modal-dialog" style="max-width: 620px; width: 92vw;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <svg class="icon-svg" viewBox="0 0 24 24" style="color: var(--accent-cyan); width: 20px; height: 20px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <h3 style="font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0;">Scan Folders &amp; Scope</h3>
+      </div>
+      <button class="btn-icon" id="btn-close-repo-settings" style="font-size: 18px;">&times;</button>
+    </div>
+
+    <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 12px;">
+      Repositories under these directories will be indexed. Scans run asynchronously in the background.
+    </div>
+
+    <div class="form-group" style="margin-bottom: 12px;">
+      <label class="form-label">Configured Scan Roots:</label>
+      <div id="repo-roots-list" style="max-height: 160px; overflow-y: auto; background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+        <!-- Populated dynamically via JS -->
+      </div>
+      <div style="display: flex; gap: 6px; margin-top: 8px;">
+        <input type="text" id="input-new-scan-root" class="input-text" placeholder="Folder path (e.g. C:\Users\YourUser\Projects)..." style="flex: 1;" />
+        <button class="btn btn-outline" id="btn-add-scan-root">Add Folder</button>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="select-scan-depth">Scan Depth:</label>
+        <select id="select-scan-depth" class="select-box" style="width: 100%;">
+          <option value="1">1 level (Immediate subdirectories)</option>
+          <option value="2">2 levels</option>
+          <option value="3">3 levels</option>
+          <option value="4" selected>4 levels (Recommended)</option>
+          <option value="5">5 levels</option>
+          <option value="6">6 levels (Deep scan)</option>
+        </select>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="select-default-agent">Default AI Agent:</label>
+        <select id="select-default-agent" class="select-box" style="width: 100%;">
+          <option value="claude">Claude Code</option>
+          <option value="antigravity">Antigravity CLI</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 14px;">
+      <label class="form-label" for="select-preferred-editor">External Code Editor:</label>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <select id="select-preferred-editor" class="select-box" style="flex: 1;">
+          <option value="ask" selected>Always Ask (Select from installed editors)</option>
+          <option value="cursor">Cursor</option>
+          <option value="antigravity">Antigravity IDE</option>
+          <option value="code">Visual Studio Code</option>
+          <option value="devin">Devin</option>
+          <option value="workbuddy">WorkBuddy AI</option>
+          <option value="rider">JetBrains Rider</option>
+          <option value="auto">Auto-detect</option>
+          <option value="custom">Custom Editor Executable...</option>
+        </select>
+      </div>
+      <div id="wrap-custom-editor" style="display: none; margin-top: 6px; gap: 6px;">
+        <input type="text" id="input-custom-editor-path" class="input-text" placeholder="Executable path (e.g. C:\Users\...\Cursor.exe)..." style="flex: 1;" />
+        <button class="btn btn-outline" id="btn-browse-custom-editor" type="button">Browse...</button>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom: 14px;">
+      <label class="form-label">Excluded Folder Names (Skip):</label>
+      <input type="text" id="input-skip-dirs" class="input-text" value="node_modules, .venv, venv, __pycache__, dist, build, .godot, obj, bin" />
+      <span class="form-hint">Comma-separated directory names to bypass during file indexing.</span>
+    </div>
+
+    <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 8px;">
+      <button class="btn btn-outline" id="btn-cancel-repo-settings">Cancel</button>
+      <button class="btn btn-primary" id="btn-save-repo-settings">Save &amp; Rescan</button>
+    </div>
+  </div>
+</div>

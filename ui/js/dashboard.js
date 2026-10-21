@@ -60,6 +60,7 @@
   if (typeof window.setupFileWatchdogManager === 'function') window.setupFileWatchdogManager();
   if (typeof window.setupSessionStateAutoSave === 'function') window.setupSessionStateAutoSave();
   if (typeof window.setupGlobalActions === 'function') window.setupGlobalActions();
+  if (typeof window.initRepositoriesModule === 'function') window.initRepositoriesModule();
 
   // 5. Expose AgentsHub Global API
   window.AgentsHub = {

@@ -38,6 +38,11 @@
       // Handle Push Events
       if (msg.event) {
         handleBackendEvent(msg.event, msg.payload);
+        try {
+          window.dispatchEvent(new CustomEvent(msg.event, { detail: msg.payload }));
+        } catch (e) {
+          console.warn('Event dispatch failed:', e);
+        }
       }
     });
   }
@@ -51,7 +56,8 @@
       'opencode_status_changed', 
       'opencode_sessions_updated',
       'opencode_interactive_prompt',
-      'update_download_progress'
+      'update_download_progress',
+      'repo_scan_progress'
     ];
     if (!suppressedEvents.includes(eventType)) {
       let friendlySummary = `Event: ${eventType}`;
@@ -385,6 +391,18 @@
           renderPromptPresets();
           renderProvidersList();
           renderDevToolsList();
+        }
+        break;
+
+      case 'repo_scan_progress':
+        if (typeof window.handleRepoScanProgress === 'function') {
+          window.handleRepoScanProgress(payload);
+        }
+        break;
+
+      case 'repos_updated':
+        if (typeof window.handleReposUpdated === 'function') {
+          window.handleReposUpdated(payload);
         }
         break;
     }

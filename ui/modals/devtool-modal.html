@@ -4,7 +4,7 @@
       <input type="hidden" id="modal-devtool-id">
       <div class="form-group">
         <label class="form-label">Tool Name:</label>
-        <input type="text" id="modal-devtool-name" class="input-text" placeholder="e.g. Cursor, Windsurf, Zed">
+        <input type="text" id="modal-devtool-name" class="input-text" placeholder="e.g. Cursor, Devin, Zed">
       </div>
       <div class="form-group">
         <label class="form-label">Description (optional):</label>
@@ -30,10 +30,17 @@
         </div>
         <div class="form-hint">Arguments do not apply to Windows app aliases, which are handed to explorer.</div>
       </div>
-      <div class="form-group" style="margin-top: 10px;">
+      <div class="form-group" style="margin-top: 10px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
         <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
           <input type="checkbox" id="modal-devtool-enabled" checked>
           <span>Active & Visible</span>
+        </label>
+        <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;" title="Flag this tool as an IDE / Code Editor so it appears in 'Open in External Code Editor'">
+          <input type="checkbox" id="modal-devtool-is-ide">
+          <span style="display: flex; align-items: center; gap: 5px;">
+            <svg class="icon-svg" style="width: 13px; height: 13px; color: var(--accent-cyan);" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <span>Flag as IDE / Code Editor</span>
+          </span>
         </label>
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">

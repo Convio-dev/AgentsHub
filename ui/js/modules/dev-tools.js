@@ -1,6 +1,29 @@
   // AI Dev Tools View (Dynamic Tools Manager)
   let devtoolExpandedId = null;
 
+  function isKnownIde(name, target) {
+    if (!name && !target) return false;
+    const n = (name || '').toLowerCase();
+    const t = (target || '').toLowerCase();
+    const exe = t.split(/[\/\\]/).pop() || '';
+
+    const ideExes = [
+      'code.exe', 'cursor.exe', 'antigravity ide.exe', 'devin.exe', 'workbuddy.exe',
+      'code - insiders.exe', 'vscodium.exe', 'codium.exe', 'zed.exe', 'trae.exe',
+      'positron.exe', 'void.exe', 'pearai.exe', 'devenv.exe', 'rider64.exe', 'rider.exe',
+      'idea64.exe', 'idea.exe', 'pycharm64.exe', 'pycharm.exe', 'webstorm64.exe', 'webstorm.exe',
+      'rustrover64.exe', 'rustrover.exe', 'fleet.exe', 'clion64.exe', 'clion.exe',
+      'goland64.exe', 'goland.exe', 'sublime_text.exe', 'notepad++.exe', 'eclipse.exe'
+    ];
+    if (ideExes.includes(exe)) return true;
+
+    const ideKeywords = [
+      'ide', 'code', 'cursor', 'devin', 'workbuddy', 'studio', 'rider', 'pycharm',
+      'intellij', 'webstorm', 'sublime', 'editor', 'vscodium', 'rustrover', 'fleet', 'clion', 'goland'
+    ];
+    return ideKeywords.some(k => n.includes(k));
+  }
+
   const DEVTOOL_HEALTH = {
     ready: { text: 'Ready', cls: 'is-ok' },
     needsfixing: { text: 'Path needs fixing', cls: 'is-warn' },
@@ -88,6 +111,8 @@
       const isEnabled = t.isEnabled !== false;
       const isExpanded = devtoolExpandedId === t.id;
       const canLaunch = health.launchable;
+      const isIde = (typeof t.isIde === 'boolean') ? t.isIde : isKnownIde(t.name, t.target);
+      const ideBadge = isIde ? `<span class="devtool-ide-badge" title="Flagged as IDE / Code Editor (synced to repository Open in Editor)">IDE</span>` : '';
 
       const row = document.createElement('div');
       row.className = 'devtool-card' + (isEnabled ? '' : ' disabled') + (isExpanded ? ' expanded' : '');
@@ -104,7 +129,7 @@
           </button>
           <span class="dot ${health.state === 'ready' ? 'online' : ''}"></span>
           <div class="devtool-identity">
-            <div class="devtool-name">${escapeHtml(t.name)}</div>
+            <div class="devtool-name">${escapeHtml(t.name)}${ideBadge}</div>
             <div class="devtool-sub">${escapeHtml(devtoolSubtitle(t, health))}</div>
           </div>
           <span class="devtool-health ${health.cls}">${escapeHtml(health.text)}</span>
@@ -140,6 +165,10 @@
               <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
               <span>Browse...</span>
             </button>
+          </div>
+          <div class="devtool-ide-toggle-wrap">
+            <input type="checkbox" class="chk-devtool-is-ide" data-id="${t.id}" id="chk-ide-${t.id}" ${isIde ? 'checked' : ''}>
+            <label for="chk-ide-${t.id}">Flag as IDE / Code Editor (show in External Code Editor)</label>
           </div>
           ${health.detail ? `<p class="devtool-note ${health.cls === 'is-warn' ? 'is-warn' : ''}">${escapeHtml(health.detail)}</p>` : ''}
           <div class="devtool-detail-actions">
@@ -319,6 +348,17 @@
       });
     });
 
+    // Toggle Flag as IDE
+    container.querySelectorAll('.chk-devtool-is-ide').forEach(chk => {
+      chk.addEventListener('change', async () => {
+        const tool = (state.aiConfig.devTools || []).find(t => t.id === chk.dataset.id);
+        if (!tool) return;
+        tool.isIde = chk.checked;
+        await callBridge('save_ai_config', { config: state.aiConfig });
+        renderDevToolsList();
+      });
+    });
+
     updateAntigravityAppCardUi();
   }
 
@@ -448,6 +488,8 @@
     const id = found.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
     state.aiConfig.devTools = state.aiConfig.devTools || [];
 
+    const isIde = (typeof found.isIde === 'boolean') ? found.isIde : isKnownIde(found.name, found.target);
+
     const existing = state.aiConfig.devTools.find(d =>
       d.id === id ||
       (d.name && d.name.toLowerCase() === found.name.toLowerCase()) ||
@@ -458,6 +500,9 @@
       existing.target = found.target;
       existing.name = existing.name || found.name;
       existing.isEnabled = true;
+      if (typeof existing.isIde !== 'boolean') {
+        existing.isIde = isIde;
+      }
       if (shouldReload) showToast(found.name + ' path updated.', 'success', 3500);
     } else {
       state.aiConfig.devTools.push({
@@ -467,7 +512,8 @@
         target: found.target,
         arguments: '',
         workingDirectory: '',
-        isEnabled: true
+        isEnabled: true,
+        isIde
       });
       if (shouldReload) showToast(found.name + ' added to AI Dev Tools.', 'success', 3500);
     }
@@ -515,6 +561,9 @@
     const argsInp = document.getElementById('modal-devtool-args');
     const workdirInp = document.getElementById('modal-devtool-workdir');
     const enabledInp = document.getElementById('modal-devtool-enabled');
+    const isIdeInp = document.getElementById('modal-devtool-is-ide');
+
+    if (isIdeInp) delete isIdeInp.dataset.userModified;
 
     if (tool) {
       if (title) title.textContent = 'Edit AI Dev Tool';
@@ -525,6 +574,7 @@
       if (argsInp) argsInp.value = tool.arguments || '';
       if (workdirInp) workdirInp.value = tool.workingDirectory || '';
       if (enabledInp) enabledInp.checked = tool.isEnabled !== false;
+      if (isIdeInp) isIdeInp.checked = (typeof tool.isIde === 'boolean') ? tool.isIde : isKnownIde(tool.name, tool.target);
     } else {
       if (title) title.textContent = 'Add AI Dev Tool';
       if (idInp) idInp.value = '';
@@ -534,6 +584,7 @@
       if (argsInp) argsInp.value = '';
       if (workdirInp) workdirInp.value = '';
       if (enabledInp) enabledInp.checked = true;
+      if (isIdeInp) isIdeInp.checked = false;
     }
 
     modal.classList.add('open');
@@ -565,6 +616,24 @@
       }
     });
 
+    const modalNameInp = document.getElementById('modal-devtool-name');
+    const modalTargetInp = document.getElementById('modal-devtool-target');
+    const modalIsIdeInp = document.getElementById('modal-devtool-is-ide');
+
+    function checkModalIdeHint() {
+      if (modalIsIdeInp && !modalIsIdeInp.dataset.userModified) {
+        if (isKnownIde(modalNameInp?.value, modalTargetInp?.value)) {
+          modalIsIdeInp.checked = true;
+        }
+      }
+    }
+
+    modalNameInp?.addEventListener('input', checkModalIdeHint);
+    modalTargetInp?.addEventListener('input', checkModalIdeHint);
+    modalIsIdeInp?.addEventListener('change', () => {
+      modalIsIdeInp.dataset.userModified = 'true';
+    });
+
     document.getElementById('btn-browse-modal-devtool')?.addEventListener('click', async () => {
       const nameInp = document.getElementById('modal-devtool-name');
       const toolName = nameInp ? nameInp.value.trim() : '';
@@ -572,7 +641,10 @@
         const res = await callBridge('browse_tool_target', { toolName });
         if (res && res.path) {
           const targetInp = document.getElementById('modal-devtool-target');
-          if (targetInp) targetInp.value = res.path;
+          if (targetInp) {
+            targetInp.value = res.path;
+            checkModalIdeHint();
+          }
         }
       } catch { }
     });
@@ -593,6 +665,7 @@
       const descInp = document.getElementById('modal-devtool-desc');
       const targetInp = document.getElementById('modal-devtool-target');
       const enabledInp = document.getElementById('modal-devtool-enabled');
+      const isIdeInp = document.getElementById('modal-devtool-is-ide');
       const argsInp = document.getElementById('modal-devtool-args');
       const workdirInp = document.getElementById('modal-devtool-workdir');
 
@@ -609,6 +682,7 @@
       const argumentsText = argsInp ? argsInp.value.trim() : '';
       const workingDirectory = workdirInp ? workdirInp.value.trim() : '';
       const isEnabled = enabledInp ? enabledInp.checked : true;
+      const isIde = isIdeInp ? isIdeInp.checked : false;
 
       if (!state.aiConfig) state.aiConfig = {};
       if (!Array.isArray(state.aiConfig.devTools)) state.aiConfig.devTools = [];
@@ -616,9 +690,9 @@
 
       const existingIndex = state.aiConfig.devTools.findIndex(t => t.id === id);
       if (existingIndex >= 0) {
-        state.aiConfig.devTools[existingIndex] = { id, name, description: desc, target, arguments: argumentsText, workingDirectory, isEnabled };
+        state.aiConfig.devTools[existingIndex] = { id, name, description: desc, target, arguments: argumentsText, workingDirectory, isEnabled, isIde };
       } else {
-        state.aiConfig.devTools.push({ id, name, description: desc, target, arguments: argumentsText, workingDirectory, isEnabled });
+        state.aiConfig.devTools.push({ id, name, description: desc, target, arguments: argumentsText, workingDirectory, isEnabled, isIde });
       }
 
       state.aiConfig.toolTargets[name] = target;

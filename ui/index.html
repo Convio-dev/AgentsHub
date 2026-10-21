@@ -49,6 +49,10 @@
           <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
           <span class="nav-text">Live Logs</span>
         </div>
+        <div class="nav-item" data-view="repositories" title="Repositories & Git">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg></span>
+          <span class="nav-text">Repositories &amp; Git</span>
+        </div>
         <div class="nav-item" data-view="settings" title="Settings & About">
           <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
           <span class="nav-text">Settings & About</span>
@@ -132,6 +136,7 @@
           <div data-include="views/devtools.html"></div>
           <div data-include="views/lan.html"></div>
           <div data-include="views/logs.html"></div>
+          <div data-include="views/repositories.html"></div>
           <div data-include="views/settings.html"></div>
         </div>
       </section> <!-- /#content-container -->
@@ -154,6 +159,12 @@
     <div data-include="modals/security-modal.html"></div>
     <div data-include="modals/automation-modal.html"></div>
     <div data-include="modals/session-delete-modal.html"></div>
+    <div data-include="modals/git-changes-modal.html"></div>
+    <div data-include="modals/git-network-modal.html"></div>
+    <div data-include="modals/repo-settings-modal.html"></div>
+    <div data-include="modals/repo-inventory-modal.html"></div>
+    <div data-include="modals/repo-launcher-modal.html"></div>
+    <div data-include="modals/repo-editor-modal.html"></div>
   </div>
 
   <!-- Instant Partial Template Loader -->
@@ -250,6 +261,7 @@
   <script src="./js/modules/update-manager.js"></script>
   <script src="./js/modules/session-state.js"></script>
   <script src="./js/modules/mcp-skills.js"></script>
+  <script src="./js/modules/repositories.js"></script>
   <script src="./js/modules/settings-view.js"></script>
   <script src="./js/settings.js"></script>
 

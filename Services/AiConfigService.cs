@@ -93,6 +93,9 @@ public class DevToolItem
     [JsonPropertyName("workingDirectory")]
     public string WorkingDirectory { get; set; } = "";
 
+    [JsonPropertyName("isIde")]
+    public bool? IsIde { get; set; } = null;
+
     [JsonPropertyName("isEnabled")]
     public bool IsEnabled { get; set; } = true;
 }
@@ -467,6 +470,7 @@ public class AiConfigService
                 Name = "Antigravity IDE",
                 Description = "Path to Antigravity IDE.exe",
                 Target = File.Exists(antigravityPath) ? antigravityPath : string.Empty,
+                IsIde = true,
                 IsEnabled = true
             },
             new()

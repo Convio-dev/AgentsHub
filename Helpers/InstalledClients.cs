@@ -6,7 +6,7 @@ namespace HermesHub.Helpers;
 /// <summary>
 /// A desktop AI or developer client/VPN found on this machine but not yet on the Dev Tools page.
 /// </summary>
-public sealed record InstalledAiClient(string Name, string Target, string Source);
+public sealed record InstalledAiClient(string Name, string Target, string Source, bool IsIde = false);
 
 /// <summary>
 /// Finds installed AI desktop tools, developer editors, and network clients (e.g. Proton, Cloudflare WARP, WorkBuddy, Devin, FreeBuff).
@@ -133,14 +133,6 @@ public static class InstalledClients
                 @"C:\Program Files (x86)\Cursor\Cursor.exe"
             ]),
 
-        new("Windsurf",
-            ["Windsurf.exe"],
-            [
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Windsurf\Windsurf.exe"),
-                @"C:\Program Files\Windsurf\Windsurf.exe",
-                @"C:\Program Files (x86)\Windsurf\Windsurf.exe"
-            ]),
-
         new("Cline App",
             ["cline-app.exe", "Cline.exe"],
             [
@@ -162,6 +154,73 @@ public static class InstalledClients
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Microsoft VS Code\Code.exe"),
                 @"C:\Program Files\Microsoft VS Code\Code.exe",
                 @"C:\Program Files (x86)\Microsoft VS Code\Code.exe"
+            ]),
+
+        new("VS Code Insiders",
+            ["Code - Insiders.exe"],
+            [
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Microsoft VS Code Insiders\Code - Insiders.exe"),
+                @"C:\Program Files\Microsoft VS Code Insiders\Code - Insiders.exe"
+            ]),
+
+        new("VSCodium",
+            ["VSCodium.exe", "codium.exe"],
+            [
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\VSCodium\VSCodium.exe"),
+                @"C:\Program Files\VSCodium\VSCodium.exe"
+            ]),
+
+        new("Visual Studio",
+            ["devenv.exe"],
+            [
+                @"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\devenv.exe",
+                @"C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\devenv.exe",
+                @"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\devenv.exe",
+                @"C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE\devenv.exe",
+                @"C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\Common7\IDE\devenv.exe"
+            ]),
+
+        new("JetBrains Rider",
+            ["rider64.exe", "rider.exe"],
+            [
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Rider\bin\rider64.exe"),
+                @"C:\Program Files\JetBrains\JetBrains Rider\bin\rider64.exe"
+            ]),
+
+        new("JetBrains IntelliJ IDEA",
+            ["idea64.exe", "idea.exe"],
+            [
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\IntelliJ IDEA\bin\idea64.exe"),
+                @"C:\Program Files\JetBrains\IntelliJ IDEA\bin\idea64.exe"
+            ]),
+
+        new("JetBrains PyCharm",
+            ["pycharm64.exe", "pycharm.exe"],
+            [
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\PyCharm\bin\pycharm64.exe"),
+                @"C:\Program Files\JetBrains\PyCharm\bin\pycharm64.exe"
+            ]),
+
+        new("JetBrains WebStorm",
+            ["webstorm64.exe", "webstorm.exe"],
+            [
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\WebStorm\bin\webstorm64.exe"),
+                @"C:\Program Files\JetBrains\WebStorm\bin\webstorm64.exe"
+            ]),
+
+        new("Sublime Text",
+            ["sublime_text.exe"],
+            [
+                @"C:\Program Files\Sublime Text\sublime_text.exe",
+                @"C:\Program Files\Sublime Text 3\sublime_text.exe",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Sublime Text\sublime_text.exe")
+            ]),
+
+        new("Notepad++",
+            ["notepad++.exe"],
+            [
+                @"C:\Program Files\Notepad++\notepad++.exe",
+                @"C:\Program Files (x86)\Notepad++\notepad++.exe"
             ]),
 
         new("Zed",
@@ -263,6 +322,36 @@ public static class InstalledClients
         "WindowsInstallationAssistant", "DIFX", "Microsoft GameInput", "Microsoft Update Health Tools"
     };
 
+    public static bool IsKnownIde(string? name, string? target)
+    {
+        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(target)) return false;
+
+        string n = name ?? "";
+        string t = target ?? "";
+        string exe = Path.GetFileName(t);
+
+        string[] ideExeNames =
+        [
+            "code.exe", "cursor.exe", "antigravity ide.exe", "devin.exe", "workbuddy.exe",
+            "code - insiders.exe", "vscodium.exe", "codium.exe", "zed.exe", "trae.exe",
+            "positron.exe", "void.exe", "pearai.exe", "devenv.exe", "rider64.exe", "rider.exe",
+            "idea64.exe", "idea.exe", "pycharm64.exe", "pycharm.exe", "webstorm64.exe", "webstorm.exe",
+            "rustrover64.exe", "rustrover.exe", "fleet.exe", "clion64.exe", "clion.exe",
+            "goland64.exe", "goland.exe", "sublime_text.exe", "notepad++.exe", "eclipse.exe"
+        ];
+
+        if (ideExeNames.Any(e => string.Equals(exe, e, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        string[] ideKeywords =
+        [
+            "ide", "code", "cursor", "devin", "workbuddy", "studio", "rider", "pycharm",
+            "intellij", "webstorm", "sublime", "editor", "vscodium", "rustrover", "fleet", "clion", "goland"
+        ];
+
+        return ideKeywords.Any(k => n.Contains(k, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>Client names this scanner knows about, for reporting what was looked for.</summary>
     public static IReadOnlyList<string> KnownClientNames => [.. Known.Select(k => k.Name)];
 
@@ -287,7 +376,7 @@ public static class InstalledClients
                         if (!IsBuildArtifact(resolved) && seenTargets.Add(resolved))
                         {
                             seenNames.Add(known.Name);
-                            results.Add(new InstalledAiClient(known.Name, resolved, "Default Location"));
+                            results.Add(new InstalledAiClient(known.Name, resolved, "Default Location", IsKnownIde(known.Name, resolved)));
                             break;
                         }
                     }
@@ -326,6 +415,7 @@ public static class InstalledClients
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         var progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var progFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
         var candidates = new[]
         {
@@ -334,7 +424,18 @@ public static class InstalledClients
             Path.Combine(appData, "Programs"),
             progFiles,
             progFilesX86,
-            Path.Combine(localApp, "Microsoft", "WindowsApps")
+            Path.Combine(localApp, "Microsoft", "WindowsApps"),
+            Path.Combine(localApp, "JetBrains", "Toolbox", "apps"),
+            Path.Combine(localApp, "JetBrains"),
+            Path.Combine(progFiles, "JetBrains"),
+            Path.Combine(progFiles, "Microsoft Visual Studio"),
+            Path.Combine(progFilesX86, "Microsoft Visual Studio"),
+            Path.Combine(userProfile, "scoop", "apps"),
+            Path.Combine(userProfile, ".cargo", "bin"),
+            Path.Combine(userProfile, ".antigravity"),
+            Path.Combine(progFiles, "Sublime Text"),
+            Path.Combine(progFiles, "Notepad++"),
+            Path.Combine(progFilesX86, "Notepad++")
         };
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -381,7 +482,7 @@ public static class InstalledClients
                             if (!seenNames.Contains(client.Name) && seenTargets.Add(resolved))
                             {
                                 seenNames.Add(client.Name);
-                                results.Add(new InstalledAiClient(client.Name, resolved, root));
+                                results.Add(new InstalledAiClient(client.Name, resolved, root, IsKnownIde(client.Name, resolved)));
                             }
                         }
                     }

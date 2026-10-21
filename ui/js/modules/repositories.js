@@ -1,0 +1,1665 @@
+// Repositories & Git Subsystem Module
+(function() {
+  const repoState = {
+    repositories: [],
+    selectedRepoId: null,
+    workingProjectId: null,
+    activeFilter: 'all',
+    searchQuery: '',
+    scanSettings: { roots: [], depth: 4, skipDirs: [], defaultAgent: 'claude', preferredEditor: 'ask', ignoredHealthRules: [] },
+    isScanning: false,
+    scanProgress: null,
+    currentChanges: [],
+    selectedChangeFile: null,
+    checkedChangeFiles: new Set(),
+    activeDetailTab: 'overview',
+    notesDebounceTimer: null
+  };
+
+  async function initRepositoriesModule() {
+    setupRepoEventListeners();
+    setupRepoBridgeEvents();
+    await loadRepoManagerState();
+  }
+
+  async function loadRepoManagerState() {
+    try {
+      const res = await callBridge('get_repo_manager_state');
+      if (res) {
+        repoState.repositories = res.repositories || [];
+        repoState.scanSettings = res.settings || repoState.scanSettings;
+        repoState.workingProjectId = res.workingProjectId;
+        repoState.isScanning = !!res.isScanning;
+        repoState.scanProgress = res.lastProgress;
+
+        renderRepoMetrics();
+        renderWorkingProjectBanner();
+        renderRepositoriesList();
+
+        if (!repoState.selectedRepoId && repoState.repositories.length > 0) {
+          selectRepository(repoState.workingProjectId || repoState.repositories[0].id);
+        } else if (repoState.selectedRepoId) {
+          selectRepository(repoState.selectedRepoId);
+        }
+
+        updateScanProgressIndicator();
+      }
+    } catch (err) {
+      console.warn('[Repositories] Failed to load state:', err);
+    }
+  }
+
+  function setupRepoBridgeEvents() {
+    window.handleRepoScanProgress = (p) => {
+      if (!p) return;
+      repoState.scanProgress = p;
+      repoState.isScanning = !p.isCompleted;
+      updateScanProgressIndicator();
+    };
+
+    window.handleReposUpdated = (data) => {
+      if (data && data.repositories) {
+        repoState.repositories = data.repositories;
+        renderRepoMetrics();
+        renderWorkingProjectBanner();
+        renderRepositoriesList();
+        if (repoState.selectedRepoId) {
+          selectRepository(repoState.selectedRepoId);
+        }
+      }
+    };
+
+    window.addEventListener('repo_scan_progress', (e) => {
+      window.handleRepoScanProgress(e.detail);
+    });
+
+    window.addEventListener('repos_updated', (e) => {
+      window.handleReposUpdated(e.detail);
+    });
+  }
+
+  function updateScanProgressIndicator() {
+    const chip = document.getElementById('scan-progress-chip');
+    const text = document.getElementById('scan-progress-text');
+    const btnScan = document.getElementById('btn-scan-repos');
+
+    if (!chip || !btnScan) return;
+
+    if (repoState.isScanning) {
+      chip.style.display = 'inline-flex';
+      const p = repoState.scanProgress;
+      text.textContent = p ? `${p.phase} (${p.reposFound} repos)` : 'Scanning...';
+      btnScan.disabled = true;
+    } else {
+      chip.style.display = 'none';
+      btnScan.disabled = false;
+    }
+  }
+
+  function setupRepoEventListeners() {
+    // Toolbar buttons
+    document.getElementById('btn-scan-repos')?.addEventListener('click', triggerRepoScan);
+    document.getElementById('btn-cancel-scan')?.addEventListener('click', cancelRepoScan);
+    document.getElementById('btn-repo-settings')?.addEventListener('click', openRepoSettingsModal);
+    document.getElementById('btn-repo-issues')?.addEventListener('click', openRepoIssuesModal);
+    document.getElementById('btn-export-inventory')?.addEventListener('click', exportRepoInventory);
+
+    // Filter input
+    const searchInput = document.getElementById('repo-search-input');
+    searchInput?.addEventListener('input', (e) => {
+      repoState.searchQuery = e.target.value.trim().toLowerCase();
+      renderRepositoriesList();
+    });
+
+    // Filter chips
+    document.querySelectorAll('.repo-filter-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('.repo-filter-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        repoState.activeFilter = chip.dataset.filter;
+        renderRepositoriesList();
+      });
+    });
+
+    // Detail Tabs
+    document.querySelectorAll('.detail-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        switchDetailTab(btn.dataset.tab);
+      });
+    });
+
+    // Detail Action buttons
+    document.getElementById('btn-set-focus-project')?.addEventListener('click', toggleWorkingProjectFocus);
+    document.getElementById('btn-copy-repo-path')?.addEventListener('click', copySelectedRepoPath);
+    document.getElementById('detail-status-select')?.addEventListener('change', updateSelectedRepoStatus);
+    document.getElementById('btn-quick-run')?.addEventListener('click', executeQuickRun);
+
+    // Overview buttons
+    document.getElementById('btn-pane-open-vscode')?.addEventListener('click', () => openInExternal('editor'));
+    document.getElementById('btn-pane-editor-picker')?.addEventListener('click', () => {
+      const repo = getSelectedRepo();
+      if (repo) openEditorPickerModal(repo);
+    });
+    document.getElementById('btn-pane-open-explorer')?.addEventListener('click', () => openInExternal('explorer'));
+    document.getElementById('btn-pane-open-terminal')?.addEventListener('click', () => openInExternal('terminal'));
+    document.getElementById('btn-pane-launch-agent')?.addEventListener('click', launchAgentInSelectedRepo);
+
+    // Working On Now banner buttons
+    document.getElementById('btn-working-changes')?.addEventListener('click', () => {
+      if (repoState.workingProjectId) {
+        selectRepository(repoState.workingProjectId);
+        switchDetailTab('changes');
+      }
+    });
+    document.getElementById('btn-working-vscode')?.addEventListener('click', () => {
+      const repo = getSelectedOrWorkingRepo();
+      if (repo) openInExternal('editor');
+    });
+    document.getElementById('btn-working-editor-picker')?.addEventListener('click', () => {
+      const repo = getSelectedOrWorkingRepo();
+      if (repo) openEditorPickerModal(repo);
+    });
+    document.getElementById('btn-working-terminal')?.addEventListener('click', () => {
+      const repo = getSelectedOrWorkingRepo();
+      if (repo) callBridge('open_repo_in_editor', { repoPath: repo.path, target: 'terminal' });
+    });
+    document.getElementById('btn-working-agent')?.addEventListener('click', () => {
+      const repo = getSelectedOrWorkingRepo();
+      if (repo) callBridge('launch_agent_in_repo', { repoPath: repo.path, cliType: repoState.scanSettings.defaultAgent || 'claude' });
+    });
+
+    // Git Changes action buttons
+    document.getElementById('btn-refresh-changes')?.addEventListener('click', () => {
+      const repo = getSelectedRepo();
+      if (repo) loadRepoChanges(repo.path);
+    });
+    document.getElementById('btn-toggle-wide-changes')?.addEventListener('click', () => toggleWideChanges());
+    document.getElementById('btn-exit-wide-mode-header')?.addEventListener('click', () => toggleWideChanges(false));
+    document.getElementById('btn-open-git-changes-modal')?.addEventListener('click', openGitChangesModal);
+    document.getElementById('btn-stage-selected')?.addEventListener('click', () => stageCheckedFiles(false));
+    document.getElementById('btn-unstage-selected')?.addEventListener('click', () => stageCheckedFiles(true));
+    document.getElementById('btn-stage-all')?.addEventListener('click', stageAllFiles);
+    document.getElementById('btn-create-commit')?.addEventListener('click', () => createLocalCommit(false));
+
+    // Git Network action buttons
+    document.getElementById('btn-git-fetch')?.addEventListener('click', () => openGitNetworkModal('fetch'));
+    document.getElementById('btn-git-pull')?.addEventListener('click', () => openGitNetworkModal('pull'));
+    document.getElementById('btn-git-push')?.addEventListener('click', () => openGitNetworkModal('push'));
+
+    // Launchers action buttons
+    document.getElementById('btn-add-custom-launcher')?.addEventListener('click', openCustomLauncherModal);
+
+    // Notes auto-save listener
+    const notesBox = document.getElementById('repo-notes-box');
+    notesBox?.addEventListener('input', () => {
+      clearTimeout(repoState.notesDebounceTimer);
+      repoState.notesDebounceTimer = setTimeout(saveCurrentRepoNotes, 600);
+    });
+
+    // Escape key listener to exit Wide View
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isWideChangesActive) {
+        const anyModalActive = document.querySelector('.modal-overlay.active');
+        if (!anyModalActive) {
+          toggleWideChanges(false);
+        }
+      }
+    });
+
+    // Modals setup
+    setupRepoModals();
+  }
+
+  function renderRepoMetrics() {
+    const repos = repoState.repositories;
+    const total = repos.length;
+    const clean = repos.filter(r => r.isClean).length;
+    const dirty = repos.filter(r => !r.isClean).length;
+    const ahead = repos.reduce((acc, r) => acc + (r.ahead || 0), 0);
+
+    const elTotal = document.getElementById('metric-repo-total');
+    const elClean = document.getElementById('metric-repo-clean');
+    const elDirty = document.getElementById('metric-repo-dirty');
+    const elAhead = document.getElementById('metric-repo-ahead');
+
+    if (elTotal) elTotal.textContent = String(total);
+    if (elClean) elClean.textContent = String(clean);
+    if (elDirty) elDirty.textContent = String(dirty);
+    if (elAhead) elAhead.textContent = String(ahead);
+
+    const issuesCount = repos.filter(r => r.broken || !r.path).length;
+    const elIssues = document.getElementById('lbl-issues-count');
+    if (elIssues) elIssues.textContent = `Issues (${issuesCount})`;
+  }
+
+  function renderWorkingProjectBanner() {
+    const bannerActions = document.getElementById('working-project-actions');
+    const titleEl = document.getElementById('working-project-name');
+    const pathEl = document.getElementById('working-project-path');
+
+    const working = repoState.repositories.find(r => r.id === repoState.workingProjectId);
+
+    if (working) {
+      if (titleEl) titleEl.textContent = working.name;
+      if (pathEl) pathEl.textContent = `${working.path} (${working.branch || 'detached'})`;
+      if (bannerActions) bannerActions.style.display = 'flex';
+    } else {
+      if (titleEl) titleEl.textContent = 'No project selected';
+      if (pathEl) pathEl.textContent = "Select a repository from your collection and click 'Work on this'.";
+      if (bannerActions) bannerActions.style.display = 'none';
+    }
+  }
+
+  function renderRepositoriesList() {
+    const container = document.getElementById('repo-items-container');
+    const countHeader = document.getElementById('repo-count-header');
+    if (!container) return;
+
+    let filtered = repoState.repositories;
+
+    // Filter by type
+    if (repoState.activeFilter === 'working') {
+      filtered = filtered.filter(r => r.id === repoState.workingProjectId);
+    } else if (repoState.activeFilter === 'pinned') {
+      filtered = filtered.filter(r => r.pinned);
+    } else if (repoState.activeFilter === 'modified') {
+      filtered = filtered.filter(r => !r.isClean);
+    } else if (repoState.activeFilter === 'clean') {
+      filtered = filtered.filter(r => r.isClean);
+    } else if (repoState.activeFilter === 'problems') {
+      filtered = filtered.filter(r => r.broken || !r.path);
+    }
+
+    // Search query
+    if (repoState.searchQuery) {
+      filtered = filtered.filter(r =>
+        r.name.toLowerCase().includes(repoState.searchQuery) ||
+        r.path.toLowerCase().includes(repoState.searchQuery) ||
+        (r.branch && r.branch.toLowerCase().includes(repoState.searchQuery)) ||
+        (r.focus && r.focus.toLowerCase().includes(repoState.searchQuery))
+      );
+    }
+
+    // Sorting: Pinned first, then Working on, then Name
+    filtered.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      if (a.id === repoState.workingProjectId) return -1;
+      if (b.id === repoState.workingProjectId) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    if (countHeader) countHeader.textContent = `Repositories (${filtered.length})`;
+
+    if (filtered.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 40px 20px; text-align: center; color: var(--text-dim); font-size: 12px;">
+          No matching repositories found.
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = '';
+    filtered.forEach(repo => {
+      const item = document.createElement('div');
+      item.className = `repo-list-item ${repo.id === repoState.selectedRepoId ? 'selected' : ''}`;
+      item.dataset.id = repo.id;
+
+      const isClean = repo.isClean;
+      const dirtyText = isClean
+        ? `<span class="dirty-counter-badge clean">Clean</span>`
+        : `<span class="dirty-counter-badge dirty">+${repo.stagedCount || 0} ~${repo.unstagedCount || 0} ?${repo.untrackedCount || 0}</span>`;
+
+      const syncText = (repo.ahead > 0 || repo.behind > 0)
+        ? `<span class="sync-badge">↑${repo.ahead || 0} ↓${repo.behind || 0}</span>`
+        : '';
+
+      const isPinned = repo.pinned;
+      const isWorking = repo.id === repoState.workingProjectId;
+
+      item.innerHTML = `
+        <button class="repo-pin-btn ${isPinned ? 'pinned' : ''}" title="${isPinned ? 'Unpin' : 'Pin to top'}">
+          <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </button>
+        <div class="repo-item-main">
+          <div class="repo-item-top">
+            <span class="repo-name-text" title="${escapeHtml(repo.name)}">${escapeHtml(repo.name)}</span>
+            ${isWorking ? `<span style="font-size: 9px; font-weight: 700; color: var(--accent-cyan); text-transform: uppercase;">• Working</span>` : ''}
+            <span class="branch-pill">${escapeHtml(repo.branch || 'detached')}</span>
+            ${dirtyText}
+            ${syncText}
+          </div>
+          <span class="repo-path-text" title="${escapeHtml(repo.path)}">${escapeHtml(repo.path)}</span>
+        </div>
+      `;
+
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.repo-pin-btn')) {
+          e.stopPropagation();
+          toggleRepoPinned(repo.id, !repo.pinned);
+          return;
+        }
+        selectRepository(repo.id);
+      });
+
+      container.appendChild(item);
+    });
+  }
+
+  function selectRepository(repoId) {
+    repoState.selectedRepoId = repoId;
+
+    // Update active row class
+    document.querySelectorAll('.repo-list-item').forEach(el => {
+      el.classList.toggle('selected', el.dataset.id === repoId);
+    });
+
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    // Update Detail Header
+    const titleEl = document.getElementById('detail-repo-title');
+    const branchTextEl = document.getElementById('detail-branch-text');
+    const dirtyBadgeEl = document.getElementById('detail-dirty-badge');
+    const syncBadgeEl = document.getElementById('detail-sync-badge');
+    const statusSelectEl = document.getElementById('detail-status-select');
+    const pathEl = document.getElementById('detail-repo-path');
+    const btnFocus = document.getElementById('btn-set-focus-project');
+
+    if (titleEl) titleEl.textContent = repo.name;
+    if (branchTextEl) branchTextEl.textContent = repo.branch || 'detached';
+    if (pathEl) pathEl.textContent = repo.path;
+
+    if (dirtyBadgeEl) {
+      if (repo.isClean) {
+        dirtyBadgeEl.className = 'dirty-counter-badge clean';
+        dirtyBadgeEl.textContent = 'Clean';
+      } else {
+        dirtyBadgeEl.className = 'dirty-counter-badge dirty';
+        dirtyBadgeEl.textContent = `+${repo.stagedCount || 0} ~${repo.unstagedCount || 0} ?${repo.untrackedCount || 0}`;
+      }
+    }
+
+    if (syncBadgeEl) {
+      if (repo.ahead > 0 || repo.behind > 0) {
+        syncBadgeEl.style.display = 'inline-flex';
+        syncBadgeEl.textContent = `Ahead ${repo.ahead} / Behind ${repo.behind}`;
+      } else {
+        syncBadgeEl.style.display = 'none';
+      }
+    }
+
+    if (statusSelectEl) {
+      statusSelectEl.value = repo.status || 'active';
+    }
+
+    const headerExitBtn = document.getElementById('btn-exit-wide-mode-header');
+    if (headerExitBtn) {
+      headerExitBtn.style.display = isWideChangesActive ? 'inline-flex' : 'none';
+    }
+
+    if (btnFocus) {
+      const isWorking = repo.id === repoState.workingProjectId;
+      btnFocus.classList.toggle('btn-primary', isWorking);
+      btnFocus.classList.toggle('btn-outline', !isWorking);
+      btnFocus.innerHTML = `
+        <svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>
+        <span>${isWorking ? 'Active Context' : 'Work on this'}</span>
+      `;
+    }
+
+    // Load active tab content
+    renderActiveTabContent(repo);
+  }
+
+  function switchDetailTab(tabName) {
+    repoState.activeDetailTab = tabName;
+
+    document.querySelectorAll('.detail-tab-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tabName);
+    });
+
+    document.querySelectorAll('.detail-pane').forEach(p => {
+      p.classList.toggle('active', p.id === `pane-${tabName}`);
+    });
+
+    const repo = getSelectedRepo();
+    if (repo) {
+      renderActiveTabContent(repo);
+    }
+  }
+
+  function renderActiveTabContent(repo) {
+    switch (repoState.activeDetailTab) {
+      case 'overview':
+        renderOverviewTab(repo);
+        break;
+      case 'changes':
+        loadRepoChanges(repo.path);
+        break;
+      case 'run':
+        loadRepoLaunchers(repo.path);
+        break;
+      case 'health':
+        loadRepoHealth(repo.id);
+        break;
+      case 'notes':
+        loadRepoNotes(repo.id);
+        break;
+    }
+  }
+
+  function renderOverviewTab(repo) {
+    const commitMsgEl = document.getElementById('detail-commit-msg');
+    const commitMetaEl = document.getElementById('detail-commit-meta');
+    const remoteUrlEl = document.getElementById('detail-remote-url');
+    const treeSummaryEl = document.getElementById('detail-tree-summary');
+    const branchWorktreeEl = document.getElementById('detail-branch-worktree-val');
+
+    if (commitMsgEl) commitMsgEl.textContent = repo.lastCommitMsg || 'No commits recorded';
+    if (commitMetaEl) {
+      commitMetaEl.textContent = repo.lastCommitAuthor
+        ? `${repo.lastCommitAuthor} · ${repo.lastCommitHash || ''} · ${formatDate(repo.lastCommitDate)}`
+        : 'Initial repository';
+    }
+
+    if (remoteUrlEl) {
+      const primaryRemote = repo.remotes && repo.remotes.length > 0 ? repo.remotes[0] : null;
+      remoteUrlEl.textContent = primaryRemote ? `${primaryRemote.name}: ${primaryRemote.fetchUrl}` : 'Local only (No remote configured)';
+    }
+
+    if (treeSummaryEl) {
+      treeSummaryEl.textContent = repo.isClean
+        ? 'Clean (No modified or untracked files)'
+        : `${repo.stagedCount} staged, ${repo.unstagedCount} unstaged, ${repo.untrackedCount} untracked`;
+    }
+
+    if (branchWorktreeEl) {
+      branchWorktreeEl.textContent = `Branch: ${repo.branch || 'detached'} · ${repo.worktreeCount || 1} Worktree(s)`;
+    }
+  }
+
+  async function loadRepoChanges(repoPath) {
+    const listEl = document.getElementById('changes-file-list');
+    const countEl = document.getElementById('changes-file-count');
+    const diffBox = document.getElementById('diff-content-box');
+    const diffTitle = document.getElementById('diff-selected-file');
+    const diffStats = document.getElementById('diff-stats-pill');
+
+    if (!listEl) return;
+
+    listEl.innerHTML = `<div class="empty-state" style="padding: 20px; font-size: 11px; text-align: center;">Inspecting working tree...</div>`;
+    repoState.currentChanges = [];
+    repoState.checkedChangeFiles.clear();
+
+    try {
+      const res = await callBridge('get_repo_changes', { repoPath });
+      const changes = (res && res.changes) ? res.changes : [];
+      repoState.currentChanges = changes;
+
+      if (countEl) countEl.textContent = String(changes.length);
+
+      if (changes.length === 0) {
+        listEl.innerHTML = `<div class="empty-state" style="padding: 20px; font-size: 11px; text-align: center; color: var(--text-dim);">Working tree is clean.</div>`;
+        if (diffBox) diffBox.textContent = 'No differences in working tree.';
+        if (diffTitle) diffTitle.textContent = 'Clean working tree';
+        if (diffStats) diffStats.textContent = '';
+        return;
+      }
+
+      listEl.innerHTML = '';
+      changes.forEach((ch, idx) => {
+        const item = document.createElement('div');
+        item.className = 'changes-file-item';
+        item.dataset.index = idx;
+
+        const isStaged = ch.isStaged;
+        const statusLetter = isStaged ? ch.indexStatus : ch.worktreeStatus;
+        const badgeColor = statusLetter === '?' ? '#06b6d4' : statusLetter === 'M' ? '#f59e0b' : statusLetter === 'A' ? '#10b981' : '#ef4444';
+
+        item.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 7px; overflow: hidden;">
+            <input type="checkbox" class="chk-file" data-path="${escapeHtml(ch.path)}" />
+            <span style="font-size: 10px; font-weight: 700; color: ${badgeColor}; width: 12px; text-align: center;">${escapeHtml(statusLetter)}</span>
+            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(ch.path)}">${escapeHtml(ch.path)}</span>
+          </div>
+          <span style="font-size: 9.5px; color: var(--text-dim); text-transform: uppercase;">${isStaged ? 'Staged' : 'Unstaged'}</span>
+        `;
+
+        item.addEventListener('click', (e) => {
+          if (e.target.classList.contains('chk-file')) return;
+          document.querySelectorAll('.changes-file-item').forEach(el => el.classList.remove('selected'));
+          item.classList.add('selected');
+          fetchAndShowDiff(repoPath, ch.path, isStaged);
+        });
+
+        const chk = item.querySelector('.chk-file');
+        chk.addEventListener('change', (e) => {
+          if (e.target.checked) repoState.checkedChangeFiles.add(ch.path);
+          else repoState.checkedChangeFiles.delete(ch.path);
+        });
+
+        listEl.appendChild(item);
+      });
+
+      // Auto-preview first file
+      if (changes.length > 0) {
+        listEl.children[0].classList.add('selected');
+        fetchAndShowDiff(repoPath, changes[0].path, changes[0].isStaged);
+      }
+    } catch (err) {
+      listEl.innerHTML = `<div class="empty-state" style="padding: 20px; font-size: 11px; text-align: center; color: #ef4444;">Failed to read working tree.</div>`;
+    }
+  }
+
+  async function fetchAndShowDiff(repoPath, relativePath, staged) {
+    const diffBox = document.getElementById('diff-content-box');
+    const diffTitle = document.getElementById('diff-selected-file');
+    const diffStats = document.getElementById('diff-stats-pill');
+
+    if (!diffBox) return;
+
+    if (diffTitle) diffTitle.textContent = relativePath;
+    if (diffStats) diffStats.textContent = 'Loading diff...';
+    diffBox.textContent = 'Loading unified diff...';
+
+    try {
+      const res = await callBridge('get_repo_diff', { repoPath, relativePath, staged });
+      if (res) {
+        if (diffStats) diffStats.textContent = `+${res.additions || 0} -${res.deletions || 0}`;
+        renderDiffText(diffBox, res.diffContent || 'No changes in this view.');
+      }
+    } catch (err) {
+      diffBox.textContent = 'Error loading diff: ' + err.message;
+    }
+  }
+
+  function renderDiffText(container, text) {
+    container.innerHTML = '';
+    const lines = text.split('\n');
+    const frag = document.createDocumentFragment();
+
+    lines.forEach(line => {
+      const div = document.createElement('div');
+      div.className = 'diff-line';
+
+      if (line.startsWith('+') && !line.startsWith('+++')) {
+        div.className += ' diff-add';
+      } else if (line.startsWith('-') && !line.startsWith('---')) {
+        div.className += ' diff-del';
+      } else if (line.startsWith('@@')) {
+        div.className += ' diff-hunk';
+      }
+
+      div.textContent = line;
+      frag.appendChild(div);
+    });
+
+    container.appendChild(frag);
+  }
+
+  async function stageCheckedFiles(unstage) {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const files = Array.from(repoState.checkedChangeFiles);
+    if (files.length === 0) {
+      showToast('Select files via checkboxes first', 'warn');
+      return;
+    }
+
+    try {
+      const res = await callBridge('stage_repo_changes', {
+        repoPath: repo.path,
+        files,
+        unstage
+      });
+
+      if (res && res.success) {
+        showToast(unstage ? 'Files unstaged' : 'Files staged', 'success');
+        await loadRepoChanges(repo.path);
+        refreshSelectedRepoMetadata();
+      } else {
+        showToast('Staging failed: ' + (res?.output || 'Unknown error'), 'error');
+      }
+    } catch (e) {
+      showToast('Error staging changes: ' + e.message, 'error');
+    }
+  }
+
+  async function stageAllFiles() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const allPaths = repoState.currentChanges.map(c => c.path);
+    if (allPaths.length === 0) return;
+
+    try {
+      const res = await callBridge('stage_repo_changes', {
+        repoPath: repo.path,
+        files: allPaths,
+        unstage: false
+      });
+
+      if (res && res.success) {
+        showToast('All files staged', 'success');
+        await loadRepoChanges(repo.path);
+        refreshSelectedRepoMetadata();
+      }
+    } catch (e) {
+      showToast('Error staging all: ' + e.message, 'error');
+    }
+  }
+
+  async function createLocalCommit() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const msgInput = document.getElementById('repo-commit-message');
+    const stageAllChk = document.getElementById('chk-stage-all-commit');
+    const message = msgInput?.value.trim();
+
+    if (!message) {
+      showToast('Please enter a commit message', 'warn');
+      msgInput?.focus();
+      return;
+    }
+
+    try {
+      const res = await callBridge('create_repo_commit', {
+        repoPath: repo.path,
+        message,
+        stageAll: !!stageAllChk?.checked
+      });
+
+      if (res && res.success) {
+        showToast('Local commit created successfully', 'success');
+        if (msgInput) msgInput.value = '';
+        if (stageAllChk) stageAllChk.checked = false;
+        await loadRepoChanges(repo.path);
+        refreshSelectedRepoMetadata();
+      } else {
+        showToast('Commit failed: ' + (res?.output || 'Unknown error'), 'error');
+      }
+    } catch (e) {
+      showToast('Error creating commit: ' + e.message, 'error');
+    }
+  }
+
+  async function loadRepoLaunchers(repoPath) {
+    const container = document.getElementById('launchers-list-container');
+    const quickRunBtn = document.getElementById('btn-quick-run');
+    const quickRunLbl = document.getElementById('lbl-quick-run');
+
+    if (!container) return;
+
+    container.innerHTML = `<div class="empty-state" style="padding: 24px; font-size: 11px; text-align: center;">Scanning for launchers...</div>`;
+
+    try {
+      const res = await callBridge('detect_repo_launchers', { repoPath });
+      const launchers = res && res.launchers ? res.launchers : [];
+
+      if (launchers.length > 0 && quickRunBtn) {
+        quickRunBtn.style.display = 'inline-flex';
+        if (quickRunLbl) quickRunLbl.textContent = `Run (${launchers[0].label})`;
+        quickRunBtn.onclick = () => executeLauncherItem(repoPath, launchers[0]);
+      } else if (quickRunBtn) {
+        quickRunBtn.style.display = 'none';
+      }
+
+      if (launchers.length === 0) {
+        container.innerHTML = `<div class="empty-state" style="padding: 24px; font-size: 11px; text-align: center; color: var(--text-dim);">No runnable project scripts detected. Click 'Add Launcher' to configure one.</div>`;
+        return;
+      }
+
+      container.innerHTML = '';
+      launchers.forEach(l => {
+        const card = document.createElement('div');
+        card.className = 'launcher-item-card';
+
+        card.innerHTML = `
+          <div class="launcher-info">
+            <span class="launcher-title">${escapeHtml(l.label)}</span>
+            <span class="launcher-sub">${escapeHtml(l.command)} ${(l.args || []).join(' ')}</span>
+          </div>
+          <button class="btn btn-outline btn-sm btn-run-single" style="gap: 4px;">
+            <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>Run</span>
+          </button>
+        `;
+
+        card.querySelector('.btn-run-single').addEventListener('click', () => {
+          executeLauncherItem(repoPath, l);
+        });
+
+        container.appendChild(card);
+      });
+    } catch (err) {
+      container.innerHTML = `<div class="empty-state" style="padding: 24px; font-size: 11px; text-align: center; color: #ef4444;">Failed to detect launchers.</div>`;
+    }
+  }
+
+  async function executeLauncherItem(repoPath, launcher) {
+    try {
+      const res = await callBridge('run_repo_launcher', { repoPath, launcher });
+      if (res && res.success) {
+        showToast(`Launched ${launcher.label}`, 'success');
+      } else {
+        showToast(`Failed to launch ${launcher.label}`, 'error');
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  function executeQuickRun() {
+    const repo = getSelectedRepo();
+    if (repo) loadRepoLaunchers(repo.path);
+  }
+
+  async function loadRepoHealth(repoId) {
+    const container = document.getElementById('health-findings-container');
+    const overallPill = document.getElementById('health-overall-pill');
+    if (!container) return;
+
+    container.innerHTML = `<div class="empty-state" style="padding: 24px; font-size: 11px; text-align: center;">Evaluating repository health...</div>`;
+
+    try {
+      const res = await callBridge('evaluate_repo_health', { idOrPath: repoId });
+      if (res && res.findings) {
+        if (overallPill) {
+          const st = res.overallStatus || 'PASS';
+          overallPill.textContent = st;
+          overallPill.style.background = st === 'PASS' ? 'rgba(16, 185, 129, 0.12)' : st === 'WARN' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+          overallPill.style.color = st === 'PASS' ? '#10b981' : st === 'WARN' ? '#f59e0b' : '#ef4444';
+        }
+
+        container.innerHTML = '';
+        res.findings.forEach(f => {
+          const card = document.createElement('div');
+          card.className = `health-finding-card ${f.status.toLowerCase()}`;
+
+          card.innerHTML = `
+            <div class="health-info">
+              <span class="health-title">${escapeHtml(f.title)}</span>
+              <span class="health-desc">${escapeHtml(f.explanation)}</span>
+              ${f.remediation ? `<span class="health-remedy">Tip: ${escapeHtml(f.remediation)}</span>` : ''}
+            </div>
+            <span class="badge-agent-state" style="font-size: 10px; background: ${f.status === 'PASS' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)'}; color: ${f.status === 'PASS' ? '#10b981' : '#f59e0b'};">
+              ${escapeHtml(f.status)}
+            </span>
+          `;
+
+          container.appendChild(card);
+        });
+      }
+    } catch (e) {
+      container.innerHTML = `<div class="empty-state" style="padding: 24px; font-size: 11px; text-align: center; color: #ef4444;">Health evaluation failed.</div>`;
+    }
+  }
+
+  async function loadRepoNotes(repoId) {
+    const notesBox = document.getElementById('repo-notes-box');
+    if (!notesBox) return;
+
+    notesBox.value = 'Loading notes...';
+    try {
+      const res = await callBridge('get_repo_notes', { repoId });
+      notesBox.value = res ? (res.notes || '') : '';
+    } catch (e) {
+      notesBox.value = '';
+    }
+  }
+
+  async function saveCurrentRepoNotes() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const notesBox = document.getElementById('repo-notes-box');
+    const statusEl = document.getElementById('notes-save-status');
+    if (!notesBox) return;
+
+    const notes = notesBox.value;
+    try {
+      await callBridge('save_repo_notes', { repoId: repo.id, notes });
+      if (statusEl) {
+        statusEl.style.display = 'inline';
+        setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+      }
+    } catch (e) { }
+  }
+
+  async function triggerRepoScan() {
+    try {
+      showToast('Starting repository discovery scan...', 'info');
+      await callBridge('scan_repositories');
+      repoState.isScanning = true;
+      updateScanProgressIndicator();
+    } catch (e) {
+      showToast('Scan failed: ' + e.message, 'error');
+    }
+  }
+
+  async function cancelRepoScan() {
+    try {
+      showToast('Cancelling scan...', 'warn');
+      await callBridge('cancel_repo_scan');
+    } catch (e) { }
+    finally {
+      setTimeout(() => {
+        repoState.isScanning = false;
+        updateScanProgressIndicator();
+      }, 500);
+    }
+  }
+
+  async function toggleRepoPinned(repoId, pinned) {
+    try {
+      await callBridge('update_repo_metadata', { id: repoId, pinned });
+      const r = repoState.repositories.find(item => item.id === repoId);
+      if (r) r.pinned = pinned;
+      renderRepositoriesList();
+    } catch (e) { }
+  }
+
+  async function toggleWorkingProjectFocus() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const newTarget = repoState.workingProjectId === repo.id ? null : repo.id;
+    try {
+      await callBridge('set_working_project', { projectId: newTarget });
+      repoState.workingProjectId = newTarget;
+      renderWorkingProjectBanner();
+      selectRepository(repo.id);
+      showToast(newTarget ? `Working on: ${repo.name}` : 'Cleared working project focus', 'info');
+    } catch (e) { }
+  }
+
+  async function updateSelectedRepoStatus(e) {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const newStatus = e.target.value;
+    try {
+      await callBridge('update_repo_metadata', { id: repo.id, status: newStatus });
+      repo.status = newStatus;
+      showToast(`Status updated to ${newStatus}`, 'success');
+    } catch (e) { }
+  }
+
+  function copySelectedRepoPath() {
+    const repo = getSelectedRepo();
+    if (repo && navigator.clipboard) {
+      navigator.clipboard.writeText(repo.path);
+      showToast('Path copied to clipboard', 'info');
+    }
+  }
+
+  async function openInExternal(target, explicitRepo) {
+    const repo = explicitRepo || getSelectedRepo();
+    if (!repo) return;
+
+    const editorPref = repoState.scanSettings?.preferredEditor || 'ask';
+    if ((!target || target === 'editor') && editorPref === 'ask') {
+      openEditorPickerModal(repo);
+      return;
+    }
+
+    try {
+      const res = await callBridge('open_repo_in_editor', { repoPath: repo.path, target: target || 'editor' });
+      if (res && res.message) {
+        showToast(res.message, res.success !== false ? 'success' : 'error');
+      }
+    } catch (e) {
+      showToast('Failed to open: ' + e.message, 'error');
+    }
+  }
+
+  // --- External Editor Picker Modal ---
+  let activeEditorPickerRepo = null;
+
+  async function openEditorPickerModal(repo) {
+    activeEditorPickerRepo = repo || getSelectedRepo();
+    if (!activeEditorPickerRepo) return;
+
+    const modal = document.getElementById('modal-repo-editor');
+    const repoNameEl = document.getElementById('editor-modal-repo-name');
+    const container = document.getElementById('editor-options-container');
+    const chkRemember = document.getElementById('chk-remember-editor-choice');
+
+    if (!modal || !container) return;
+
+    if (repoNameEl) repoNameEl.textContent = activeEditorPickerRepo.name;
+    if (chkRemember) chkRemember.checked = false;
+
+    container.innerHTML = `<div class="empty-state" style="padding: 24px; text-align: center; font-size: 11px;">Scanning for installed code editors...</div>`;
+    modal.classList.add('active');
+
+    try {
+      const res = await callBridge('get_installed_editors');
+      const editors = (res && res.editors) ? res.editors : [];
+      const currentPreferred = res?.preferred || repoState.scanSettings?.preferredEditor || 'ask';
+
+      container.innerHTML = '';
+      if (editors.length === 0) {
+        container.innerHTML = `<div class="empty-state" style="padding: 24px; text-align: center; color: var(--text-dim); font-size: 11px;">No editor definitions found.</div>`;
+        return;
+      }
+
+      editors.forEach(ed => {
+        const tile = document.createElement('div');
+        tile.className = 'editor-option-tile';
+        if (ed.id === currentPreferred && currentPreferred !== 'ask') {
+          tile.classList.add('selected');
+        }
+
+        const iconSvg = getEditorSvg(ed.id);
+        const badgeClass = ed.isDetected ? 'detected' : '';
+        const badgeText = ed.isDetected ? 'Detected' : 'Not Detected';
+        const sourceBadge = ed.source === 'devtool'
+          ? `<span class="editor-source-tag" style="display: inline-block; font-size: 9px; padding: 1px 5px; border-radius: 4px; background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-weight: 600; margin-left: 6px; vertical-align: middle;">AI Dev Tool</span>`
+          : '';
+
+        tile.innerHTML = `
+          <div class="editor-tile-left">
+            <div class="editor-icon-wrap">${iconSvg}</div>
+            <div class="editor-info">
+              <span class="editor-title">${escapeHtml(ed.name)}${sourceBadge}</span>
+              <span class="editor-desc">${escapeHtml(ed.description)}</span>
+            </div>
+          </div>
+          <span class="editor-badge ${badgeClass}">${badgeText}</span>
+        `;
+
+        tile.addEventListener('click', () => {
+          launchSelectedEditor(activeEditorPickerRepo, ed.id, !!chkRemember?.checked);
+        });
+
+        container.appendChild(tile);
+      });
+    } catch (err) {
+      container.innerHTML = `<div class="empty-state" style="padding: 24px; text-align: center; color: #ef4444; font-size: 11px;">Failed to scan editors: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  function closeEditorPickerModal() {
+    document.getElementById('modal-repo-editor')?.classList.remove('active');
+    activeEditorPickerRepo = null;
+  }
+
+  async function launchSelectedEditor(repo, editorId, rememberChoice) {
+    closeEditorPickerModal();
+    if (!repo) return;
+
+    if (rememberChoice) {
+      if (!repoState.scanSettings) repoState.scanSettings = {};
+      repoState.scanSettings.preferredEditor = editorId;
+      try {
+        await callBridge('save_repo_settings', { settings: repoState.scanSettings });
+        showToast(`Default editor set to ${editorId}`, 'info');
+      } catch (e) {
+        console.warn('Failed to remember editor choice:', e);
+      }
+    }
+
+    try {
+      showToast(`Opening ${repo.name} in ${editorId}...`, 'info');
+      const res = await callBridge('open_repo_in_editor', { repoPath: repo.path, target: editorId });
+      if (res && res.message) {
+        showToast(res.message, res.success !== false ? 'success' : 'error');
+      }
+    } catch (e) {
+      showToast('Failed to open: ' + e.message, 'error');
+    }
+  }
+
+  function getEditorSvg(id) {
+    const key = (id || '').toLowerCase();
+    if (key.includes('cursor')) {
+      return `<svg class="icon-svg" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>`;
+    }
+    if (key.includes('antigravity')) {
+      return `<svg class="icon-svg" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`;
+    }
+    if (key.includes('code') || key.includes('codium') || key.includes('vsc')) {
+      return `<svg class="icon-svg" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`;
+    }
+    if (key.includes('devin') || key.includes('workbuddy')) {
+      return `<svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6z"/></svg>`;
+    }
+    if (key.includes('rider') || key.includes('idea') || key.includes('pycharm') || key.includes('webstorm') || key.includes('jetbrains')) {
+      return `<svg class="icon-svg" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><path d="M8 16V8l4 8V8"/><line x1="14" y1="16" x2="18" y2="16"/></svg>`;
+    }
+    if (key.includes('devenv') || key.includes('visual studio')) {
+      return `<svg class="icon-svg" viewBox="0 0 24 24"><path d="m18 3 4 3v12l-4 3L8 14l-6 5V5l6 5 10-7z"/></svg>`;
+    }
+    if (key.includes('sublime') || key.includes('notepad')) {
+      return `<svg class="icon-svg" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`;
+    }
+    if (key.includes('explorer')) {
+      return `<svg class="icon-svg" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+    }
+    return `<svg class="icon-svg" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m9 9 3 3-3 3"/><line x1="13" y1="15" x2="15" y2="15"/></svg>`;
+  }
+
+  // --- Wide Changes View & Standalone Changes Modal ---
+  let isWideChangesActive = false;
+
+  function toggleWideChanges(forceState) {
+    const container = document.querySelector('.repo-split-container');
+    const lbl = document.getElementById('lbl-wide-changes');
+    const btn = document.getElementById('btn-toggle-wide-changes');
+    const headerExitBtn = document.getElementById('btn-exit-wide-mode-header');
+    if (!container) return;
+
+    if (typeof forceState === 'boolean') {
+      isWideChangesActive = forceState;
+    } else {
+      isWideChangesActive = !isWideChangesActive;
+    }
+
+    container.classList.toggle('wide-mode', isWideChangesActive);
+
+    if (lbl) {
+      lbl.textContent = isWideChangesActive ? 'Exit Wide View' : 'Wide View';
+    }
+    if (btn) {
+      btn.classList.toggle('btn-primary', isWideChangesActive);
+      btn.classList.toggle('btn-outline', !isWideChangesActive);
+    }
+    if (headerExitBtn) {
+      headerExitBtn.style.display = isWideChangesActive ? 'inline-flex' : 'none';
+    }
+  }
+
+  const modalRepoState = {
+    repoPath: null,
+    changes: [],
+    checkedFiles: new Set(),
+    selectedFile: null
+  };
+
+  function openGitChangesModal() {
+    const repo = getSelectedRepo();
+    if (!repo) {
+      showToast('Select a repository first', 'warn');
+      return;
+    }
+
+    modalRepoState.repoPath = repo.path;
+    const modal = document.getElementById('modal-git-changes');
+    const nameEl = document.getElementById('modal-changes-repo-name');
+    const branchEl = document.getElementById('modal-changes-branch');
+
+    if (!modal) return;
+    if (nameEl) nameEl.textContent = repo.name;
+    if (branchEl) branchEl.textContent = repo.branch || 'detached';
+
+    modal.classList.add('active');
+    loadModalRepoChanges(repo.path);
+  }
+
+  function closeGitChangesModal() {
+    document.getElementById('modal-git-changes')?.classList.remove('active');
+  }
+
+  function toggleModalChangesMaximized() {
+    document.getElementById('modal-changes-dialog')?.classList.toggle('is-maximized');
+  }
+
+  async function loadModalRepoChanges(repoPath) {
+    const listEl = document.getElementById('modal-changes-file-list');
+    const countEl = document.getElementById('modal-changes-file-count');
+    const diffBox = document.getElementById('modal-diff-content-box');
+    const diffTitle = document.getElementById('modal-diff-selected-file');
+    const diffStats = document.getElementById('modal-diff-stats-pill');
+
+    if (!listEl) return;
+
+    listEl.innerHTML = `<div class="empty-state" style="padding: 20px; font-size: 11px; text-align: center;">Inspecting working tree...</div>`;
+    modalRepoState.changes = [];
+    modalRepoState.checkedFiles.clear();
+
+    try {
+      const res = await callBridge('get_repo_changes', { repoPath });
+      const changes = (res && res.changes) ? res.changes : [];
+      modalRepoState.changes = changes;
+
+      if (countEl) countEl.textContent = String(changes.length);
+
+      if (changes.length === 0) {
+        listEl.innerHTML = `<div class="empty-state" style="padding: 24px; font-size: 11px; text-align: center; color: var(--text-dim);">Working tree is clean.</div>`;
+        if (diffBox) diffBox.textContent = 'No differences in working tree.';
+        if (diffTitle) diffTitle.textContent = 'Clean working tree';
+        if (diffStats) diffStats.textContent = '';
+        return;
+      }
+
+      listEl.innerHTML = '';
+      changes.forEach((ch, idx) => {
+        const item = document.createElement('div');
+        item.className = 'changes-file-item';
+        item.dataset.index = idx;
+
+        const isStaged = ch.isStaged;
+        const statusLetter = isStaged ? ch.indexStatus : ch.worktreeStatus;
+        const badgeColor = statusLetter === '?' ? '#06b6d4' : statusLetter === 'M' ? '#f59e0b' : statusLetter === 'A' ? '#10b981' : '#ef4444';
+
+        item.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 7px; overflow: hidden;">
+            <input type="checkbox" class="chk-modal-file" data-path="${escapeHtml(ch.path)}" />
+            <span style="font-size: 10px; font-weight: 700; color: ${badgeColor}; width: 12px; text-align: center;">${escapeHtml(statusLetter)}</span>
+            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(ch.path)}">${escapeHtml(ch.path)}</span>
+          </div>
+          <span style="font-size: 9.5px; color: var(--text-dim); text-transform: uppercase;">${isStaged ? 'Staged' : 'Unstaged'}</span>
+        `;
+
+        item.addEventListener('click', (e) => {
+          if (e.target.classList.contains('chk-modal-file')) return;
+          listEl.querySelectorAll('.changes-file-item').forEach(el => el.classList.remove('selected'));
+          item.classList.add('selected');
+          fetchAndShowModalDiff(repoPath, ch.path, isStaged);
+        });
+
+        const chk = item.querySelector('.chk-modal-file');
+        chk.addEventListener('change', (e) => {
+          if (e.target.checked) modalRepoState.checkedFiles.add(ch.path);
+          else modalRepoState.checkedFiles.delete(ch.path);
+        });
+
+        listEl.appendChild(item);
+      });
+
+      if (changes.length > 0) {
+        listEl.children[0].classList.add('selected');
+        fetchAndShowModalDiff(repoPath, changes[0].path, changes[0].isStaged);
+      }
+    } catch (err) {
+      listEl.innerHTML = `<div class="empty-state" style="padding: 24px; font-size: 11px; text-align: center; color: #ef4444;">Failed to read working tree.</div>`;
+    }
+  }
+
+  async function fetchAndShowModalDiff(repoPath, relativePath, staged) {
+    const diffBox = document.getElementById('modal-diff-content-box');
+    const diffTitle = document.getElementById('modal-diff-selected-file');
+    const diffStats = document.getElementById('modal-diff-stats-pill');
+
+    if (!diffBox) return;
+    if (diffTitle) diffTitle.textContent = relativePath;
+    if (diffStats) diffStats.textContent = 'Loading diff...';
+    diffBox.textContent = 'Loading unified diff...';
+
+    try {
+      const res = await callBridge('get_repo_diff', { repoPath, relativePath, staged });
+      if (res) {
+        if (diffStats) diffStats.textContent = `+${res.additions || 0} -${res.deletions || 0}`;
+        renderDiffText(diffBox, res.diffContent || 'No changes in this view.');
+      }
+    } catch (err) {
+      diffBox.textContent = 'Error loading diff: ' + err.message;
+    }
+  }
+
+  async function stageCheckedModalFiles(unstage) {
+    if (!modalRepoState.repoPath) return;
+    const files = Array.from(modalRepoState.checkedFiles);
+    if (files.length === 0) {
+      showToast('Select files via checkboxes first', 'warn');
+      return;
+    }
+
+    try {
+      const res = await callBridge('stage_repo_changes', {
+        repoPath: modalRepoState.repoPath,
+        files,
+        unstage
+      });
+
+      if (res && res.success) {
+        showToast(unstage ? 'Files unstaged' : 'Files staged', 'success');
+        await loadModalRepoChanges(modalRepoState.repoPath);
+        loadRepoChanges(modalRepoState.repoPath);
+        refreshSelectedRepoMetadata();
+      } else {
+        showToast('Staging failed: ' + (res?.output || 'Unknown error'), 'error');
+      }
+    } catch (e) {
+      showToast('Error staging changes: ' + e.message, 'error');
+    }
+  }
+
+  async function stageAllModalFiles() {
+    if (!modalRepoState.repoPath) return;
+    const allPaths = modalRepoState.changes.map(c => c.path);
+    if (allPaths.length === 0) return;
+
+    try {
+      const res = await callBridge('stage_repo_changes', {
+        repoPath: modalRepoState.repoPath,
+        files: allPaths,
+        unstage: false
+      });
+
+      if (res && res.success) {
+        showToast('All files staged', 'success');
+        await loadModalRepoChanges(modalRepoState.repoPath);
+        loadRepoChanges(modalRepoState.repoPath);
+        refreshSelectedRepoMetadata();
+      } else {
+        showToast('Error staging all: ' + (res?.output || 'Unknown error'), 'error');
+      }
+    } catch (e) {
+      showToast('Error staging all: ' + e.message, 'error');
+    }
+  }
+
+  async function createModalCommit() {
+    if (!modalRepoState.repoPath) return;
+    const msgInput = document.getElementById('modal-repo-commit-message');
+    const stageAllChk = document.getElementById('modal-chk-stage-all-commit');
+    const message = msgInput?.value.trim();
+
+    if (!message) {
+      showToast('Please enter a commit message', 'warn');
+      msgInput?.focus();
+      return;
+    }
+
+    try {
+      const res = await callBridge('create_repo_commit', {
+        repoPath: modalRepoState.repoPath,
+        message,
+        stageAll: !!stageAllChk?.checked
+      });
+
+      if (res && res.success) {
+        showToast('Local commit created successfully', 'success');
+        if (msgInput) msgInput.value = '';
+        if (stageAllChk) stageAllChk.checked = false;
+        await loadModalRepoChanges(modalRepoState.repoPath);
+        loadRepoChanges(modalRepoState.repoPath);
+        refreshSelectedRepoMetadata();
+      } else {
+        showToast('Commit failed: ' + (res?.output || 'Unknown error'), 'error');
+      }
+    } catch (e) {
+      showToast('Error creating commit: ' + e.message, 'error');
+    }
+  }
+
+  function launchAgentInSelectedRepo() {
+    const repo = getSelectedRepo();
+    if (repo) {
+      const cli = repoState.scanSettings.defaultAgent || 'claude';
+      callBridge('launch_agent_in_repo', { repoPath: repo.path, cliType: cli });
+      showToast(`Launching ${cli} in ${repo.name}...`, 'info');
+    }
+  }
+
+  function refreshSelectedRepoMetadata() {
+    const repo = getSelectedRepo();
+    if (repo) {
+      callBridge('get_repo_manager_state').then(res => {
+        if (res && res.repositories) {
+          repoState.repositories = res.repositories;
+          renderRepoMetrics();
+          renderRepositoriesList();
+          selectRepository(repo.id);
+        }
+      });
+    }
+  }
+
+  // --- Modals Setup ---
+  function setupRepoModals() {
+    // Scan Folders Settings Modal
+    document.getElementById('btn-close-repo-settings')?.addEventListener('click', closeRepoSettingsModal);
+    document.getElementById('btn-cancel-repo-settings')?.addEventListener('click', closeRepoSettingsModal);
+    document.getElementById('btn-save-repo-settings')?.addEventListener('click', saveRepoSettings);
+    document.getElementById('btn-add-scan-root')?.addEventListener('click', addScanRootFromInput);
+    document.getElementById('select-preferred-editor')?.addEventListener('change', (e) => {
+      const wrap = document.getElementById('wrap-custom-editor');
+      if (wrap) wrap.style.display = e.target.value === 'custom' ? 'flex' : 'none';
+    });
+    document.getElementById('btn-browse-custom-editor')?.addEventListener('click', async () => {
+      try {
+        const res = await callBridge('browse_editor_path');
+        if (res && res.path) {
+          const inp = document.getElementById('input-custom-editor-path');
+          if (inp) inp.value = res.path;
+        }
+      } catch { }
+    });
+
+    // Network Sync Modal
+    document.getElementById('btn-cancel-net-modal')?.addEventListener('click', closeGitNetworkModal);
+    document.getElementById('btn-confirm-net-modal')?.addEventListener('click', executeGitNetworkAction);
+
+    // Inventory Issues Modal
+    document.getElementById('btn-close-repo-inventory')?.addEventListener('click', closeRepoIssuesModal);
+    document.getElementById('btn-close-inventory-issues')?.addEventListener('click', closeRepoIssuesModal);
+
+    // Custom Launcher Modal
+    document.getElementById('btn-close-launcher-modal')?.addEventListener('click', closeCustomLauncherModal);
+    document.getElementById('btn-cancel-launcher-modal')?.addEventListener('click', closeCustomLauncherModal);
+    document.getElementById('btn-save-launcher-modal')?.addEventListener('click', saveCustomLauncher);
+
+    // External Editor Picker Modal
+    document.getElementById('btn-close-editor-modal')?.addEventListener('click', closeEditorPickerModal);
+    document.getElementById('btn-cancel-editor-modal')?.addEventListener('click', closeEditorPickerModal);
+
+    // Git Changes Large Modal
+    document.getElementById('btn-close-changes-modal')?.addEventListener('click', closeGitChangesModal);
+    document.getElementById('btn-cancel-changes-modal')?.addEventListener('click', closeGitChangesModal);
+    document.getElementById('btn-toggle-modal-changes-max')?.addEventListener('click', toggleModalChangesMaximized);
+    document.getElementById('btn-modal-refresh-changes')?.addEventListener('click', () => {
+      if (modalRepoState.repoPath) loadModalRepoChanges(modalRepoState.repoPath);
+    });
+    document.getElementById('btn-modal-stage-selected')?.addEventListener('click', () => stageCheckedModalFiles(false));
+    document.getElementById('btn-modal-unstage-selected')?.addEventListener('click', () => stageCheckedModalFiles(true));
+    document.getElementById('btn-modal-stage-all')?.addEventListener('click', stageAllModalFiles);
+    document.getElementById('btn-modal-create-commit')?.addEventListener('click', createModalCommit);
+  }
+
+  function openRepoSettingsModal() {
+    const modal = document.getElementById('modal-repo-settings');
+    const rootsList = document.getElementById('repo-roots-list');
+    const depthSelect = document.getElementById('select-scan-depth');
+    const agentSelect = document.getElementById('select-default-agent');
+    const skipInput = document.getElementById('input-skip-dirs');
+    const editorSelect = document.getElementById('select-preferred-editor');
+    const customEditorWrap = document.getElementById('wrap-custom-editor');
+    const customEditorInput = document.getElementById('input-custom-editor-path');
+
+    if (!modal) return;
+
+    if (depthSelect) depthSelect.value = String(repoState.scanSettings.depth || 4);
+    if (agentSelect) agentSelect.value = repoState.scanSettings.defaultAgent || 'claude';
+    if (skipInput) skipInput.value = (repoState.scanSettings.skipDirs || []).join(', ');
+
+    if (editorSelect) {
+      editorSelect.value = repoState.scanSettings.preferredEditor || 'ask';
+      if (customEditorWrap) {
+        customEditorWrap.style.display = editorSelect.value === 'custom' ? 'flex' : 'none';
+      }
+    }
+    if (customEditorInput) {
+      customEditorInput.value = repoState.scanSettings.customEditorPath || '';
+    }
+
+    renderRootsList();
+    modal.classList.add('active');
+  }
+
+  function closeRepoSettingsModal() {
+    document.getElementById('modal-repo-settings')?.classList.remove('active');
+  }
+
+  function renderRootsList() {
+    const container = document.getElementById('repo-roots-list');
+    if (!container) return;
+
+    container.innerHTML = '';
+    const roots = repoState.scanSettings.roots || [];
+
+    if (roots.length === 0) {
+      container.innerHTML = `<div style="font-size: 11px; color: var(--text-dim); padding: 8px;">No folders added yet.</div>`;
+      return;
+    }
+
+    roots.forEach((root, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 4px 6px; font-size: 11.5px; font-family: var(--font-mono); border-bottom: 1px solid var(--border-subtle);';
+      row.innerHTML = `
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(root)}">${escapeHtml(root)}</span>
+        <button class="btn-icon btn-sm" style="color: #ef4444;" title="Remove folder">&times;</button>
+      `;
+      row.querySelector('button').addEventListener('click', () => {
+        repoState.scanSettings.roots.splice(idx, 1);
+        renderRootsList();
+      });
+      container.appendChild(row);
+    });
+  }
+
+  function addScanRootFromInput() {
+    const input = document.getElementById('input-new-scan-root');
+    const val = input?.value.trim();
+    if (!val) return;
+
+    if (!repoState.scanSettings.roots) repoState.scanSettings.roots = [];
+    if (!repoState.scanSettings.roots.includes(val)) {
+      repoState.scanSettings.roots.push(val);
+      renderRootsList();
+      input.value = '';
+    }
+  }
+
+  async function saveRepoSettings() {
+    const depthSelect = document.getElementById('select-scan-depth');
+    const agentSelect = document.getElementById('select-default-agent');
+    const skipInput = document.getElementById('input-skip-dirs');
+    const editorSelect = document.getElementById('select-preferred-editor');
+    const customEditorInput = document.getElementById('input-custom-editor-path');
+
+    const depth = parseInt(depthSelect?.value || '4', 10);
+    const defaultAgent = agentSelect?.value || 'claude';
+    const preferredEditor = editorSelect?.value || 'ask';
+    const customEditorPath = customEditorInput?.value?.trim() || '';
+    const skipDirs = (skipInput?.value || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    const newSettings = {
+      roots: repoState.scanSettings.roots || [],
+      depth,
+      defaultAgent,
+      preferredEditor,
+      customEditorPath,
+      skipDirs,
+      ignoredHealthRules: repoState.scanSettings.ignoredHealthRules || []
+    };
+
+    try {
+      await callBridge('save_repo_settings', { settings: newSettings });
+      repoState.scanSettings = newSettings;
+      closeRepoSettingsModal();
+      showToast('Settings saved. Rescanning repositories...', 'success');
+      triggerRepoScan();
+    } catch (e) {
+      showToast('Failed to save settings: ' + e.message, 'error');
+    }
+  }
+
+  let currentNetworkOperation = 'fetch';
+
+  async function openGitNetworkModal(operation) {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    currentNetworkOperation = operation;
+    const modal = document.getElementById('modal-git-network');
+    const titleEl = document.getElementById('modal-net-title');
+    const nameEl = document.getElementById('modal-net-repo-name');
+    const descEl = document.getElementById('modal-net-desc');
+    const remoteSelect = document.getElementById('modal-net-remote-select');
+    const branchInput = document.getElementById('modal-net-branch-input');
+    const upstreamGroup = document.getElementById('group-net-upstream');
+    const branchGroup = document.getElementById('group-net-branch');
+    const confirmBtnLbl = document.getElementById('lbl-confirm-net-btn');
+
+    if (!modal) return;
+
+    if (titleEl) titleEl.textContent = `Git ${operation.toUpperCase()} Confirmation`;
+    if (nameEl) nameEl.textContent = repo.name;
+    if (confirmBtnLbl) confirmBtnLbl.textContent = `Execute ${operation.toUpperCase()}`;
+
+    if (descEl) {
+      descEl.textContent = operation === 'push'
+        ? `Push local commits from '${repo.branch || 'HEAD'}' to remote.`
+        : operation === 'pull'
+        ? `Fast-forward pull latest changes into '${repo.branch || 'HEAD'}'.`
+        : `Fetch updated refs from remote without touching working files.`;
+    }
+
+    if (branchGroup) branchGroup.style.display = operation === 'fetch' ? 'none' : 'block';
+    if (upstreamGroup) upstreamGroup.style.display = operation === 'push' ? 'block' : 'none';
+
+    if (branchInput) branchInput.value = repo.branch || 'main';
+
+    if (remoteSelect) {
+      remoteSelect.innerHTML = '';
+      (repo.remotes || [{ name: 'origin' }]).forEach(rem => {
+        const opt = document.createElement('option');
+        opt.value = rem.name;
+        opt.textContent = `${rem.name} (${rem.fetchUrl || 'default'})`;
+        remoteSelect.appendChild(opt);
+      });
+    }
+
+    modal.classList.add('active');
+  }
+
+  function closeGitNetworkModal() {
+    document.getElementById('modal-git-network')?.classList.remove('active');
+  }
+
+  async function executeGitNetworkAction() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const remoteSelect = document.getElementById('modal-net-remote-select');
+    const branchInput = document.getElementById('modal-net-branch-input');
+    const chkUpstream = document.getElementById('chk-net-set-upstream');
+
+    const remote = remoteSelect?.value || 'origin';
+    const branch = branchInput?.value.trim() || null;
+    const setUpstream = !!chkUpstream?.checked;
+
+    closeGitNetworkModal();
+    showToast(`Executing git ${currentNetworkOperation}...`, 'info');
+
+    try {
+      const res = await callBridge('repo_network_action', {
+        repoPath: repo.path,
+        operation: currentNetworkOperation,
+        remote,
+        branch,
+        setUpstream
+      });
+
+      if (res && res.success) {
+        showToast(`Git ${currentNetworkOperation} completed successfully`, 'success');
+        refreshSelectedRepoMetadata();
+      } else {
+        showToast(`Git ${currentNetworkOperation} failed: ${res?.output || 'Unknown error'}`, 'error');
+      }
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  }
+
+  function openRepoIssuesModal() {
+    const modal = document.getElementById('modal-repo-inventory');
+    const listEl = document.getElementById('repo-issues-list');
+    if (!modal || !listEl) return;
+
+    const broken = repoState.repositories.filter(r => r.broken || !r.path);
+    if (broken.length === 0) {
+      listEl.innerHTML = `<div class="empty-state" style="padding: 30px; text-align: center; color: var(--accent-green);">No inventory issues detected. All repositories are healthy and accessible.</div>`;
+    } else {
+      listEl.innerHTML = '';
+      broken.forEach(b => {
+        const item = document.createElement('div');
+        item.style.cssText = 'background: var(--bg-input); border: 1px solid rgba(239, 68, 68, 0.25); border-left: 3px solid #ef4444; border-radius: 6px; padding: 10px 12px; font-size: 11.5px;';
+        item.innerHTML = `
+          <div style="font-weight: 700; color: var(--text-main);">${escapeHtml(b.name)}</div>
+          <div style="font-family: var(--font-mono); color: var(--text-dim); margin-top: 2px;">${escapeHtml(b.path)}</div>
+          <div style="color: #ef4444; font-size: 11px; margin-top: 4px;">Repository marker corrupt or folder inaccessible.</div>
+        `;
+        listEl.appendChild(item);
+      });
+    }
+
+    modal.classList.add('active');
+  }
+
+  function closeRepoIssuesModal() {
+    document.getElementById('modal-repo-inventory')?.classList.remove('active');
+  }
+
+  function openCustomLauncherModal() {
+    document.getElementById('modal-repo-launcher')?.classList.add('active');
+  }
+
+  function closeCustomLauncherModal() {
+    document.getElementById('modal-repo-launcher')?.classList.remove('active');
+  }
+
+  function saveCustomLauncher() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const labelInput = document.getElementById('input-launcher-label');
+    const cmdInput = document.getElementById('input-launcher-cmd');
+    const argsInput = document.getElementById('input-launcher-args');
+
+    const label = labelInput?.value.trim();
+    const command = cmdInput?.value.trim();
+    const args = (argsInput?.value.trim() || '').split(' ').filter(a => a.length > 0);
+
+    if (!label || !command) {
+      showToast('Label and command are required', 'warn');
+      return;
+    }
+
+    const launcher = {
+      label,
+      type: 'custom',
+      command,
+      args,
+      cwd: repo.path,
+      source: 'custom',
+      priority: 50
+    };
+
+    executeLauncherItem(repo.path, launcher);
+    closeCustomLauncherModal();
+  }
+
+  async function exportRepoInventory() {
+    try {
+      const res = await callBridge('export_repo_inventory', { format: 'markdown' });
+      if (res && res.content && navigator.clipboard) {
+        await navigator.clipboard.writeText(res.content);
+        showToast('Repository inventory copied to clipboard (Markdown format)', 'success');
+      }
+    } catch (e) {
+      showToast('Failed to export inventory: ' + e.message, 'error');
+    }
+  }
+
+  // Helpers
+  function getSelectedRepo() {
+    return repoState.repositories.find(r => r.id === repoState.selectedRepoId);
+  }
+
+  function getSelectedOrWorkingRepo() {
+    return repoState.repositories.find(r => r.id === repoState.workingProjectId) || getSelectedRepo();
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return iso;
+    }
+  }
+
+  // Export module to global scope
+  window.initRepositoriesModule = initRepositoriesModule;
+  window.refreshRepositoriesView = loadRepoManagerState;
+})();

@@ -92,6 +92,12 @@
         loadLanState(false);
       }
     }
+
+    if (viewName === 'repositories') {
+      if (typeof window.refreshRepositoriesView === 'function') {
+        window.refreshRepositoriesView();
+      }
+    }
   }
 
   // Discord Adaptive Theme & Color Engine

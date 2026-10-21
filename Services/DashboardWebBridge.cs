@@ -274,6 +274,20 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             PostEventToUi(evtName, payload);
         });
+
+        // Initialize Git Repository Manager progress and state events
+        GitRepositoryManagerService.Instance.ScanProgressChanged += (progress) =>
+        {
+            PostEventToUi("repo_scan_progress", progress);
+        };
+
+        GitRepositoryManagerService.Instance.RepositoriesChanged += () =>
+        {
+            PostEventToUi("repos_updated", new
+            {
+                repositories = GitRepositoryManagerService.Instance.GetRepositories()
+            });
+        };
     }
 
     private void OnStreamFlushTimerTick(object? sender, EventArgs e)
@@ -942,6 +956,413 @@ public sealed partial class DashboardWebBridge : IDisposable
                     else
                     {
                         SendResponse(requestId, false, "Base64 data is required");
+                    }
+                }
+                break;
+
+            case "get_repo_manager_state":
+                {
+                    var repos = GitRepositoryManagerService.Instance.GetRepositories();
+                    var settings = GitRepositoryManagerService.Instance.GetSettings();
+                    var workingProjectId = GitRepositoryManagerService.Instance.GetWorkingProjectId();
+                    var isScanning = GitRepositoryManagerService.Instance.IsScanning();
+                    var lastProgress = GitRepositoryManagerService.Instance.GetLastProgress();
+                    SendResponse(requestId, true, new
+                    {
+                        repositories = repos,
+                        settings,
+                        workingProjectId,
+                        isScanning,
+                        lastProgress
+                    });
+                }
+                break;
+
+            case "scan_repositories":
+                {
+                    bool started = await GitRepositoryManagerService.Instance.StartScanAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, new { success = started });
+                }
+                break;
+
+            case "cancel_repo_scan":
+                {
+                    GitRepositoryManagerService.Instance.CancelScan();
+                    SendResponse(requestId, true, new { success = true });
+                }
+                break;
+
+            case "save_repo_settings":
+                {
+                    if (data.TryGetProperty("settings", out var sProp))
+                    {
+                        var cfg = JsonSerializer.Deserialize<RepositoryManagerSettings>(sProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        if (cfg != null)
+                        {
+                            GitRepositoryManagerService.Instance.SaveSettings(cfg);
+                            SendResponse(requestId, true, new { success = true, settings = cfg });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid settings payload");
+                }
+                break;
+
+            case "set_working_project":
+                {
+                    string? projId = data.TryGetProperty("projectId", out var pProp) ? pProp.GetString() : null;
+                    GitRepositoryManagerService.Instance.SetWorkingProject(projId);
+                    SendResponse(requestId, true, new { success = true, workingProjectId = projId });
+                }
+                break;
+
+            case "update_repo_metadata":
+                {
+                    string? id = data.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(id))
+                    {
+                        string? status = data.TryGetProperty("status", out var repoStatusProp) ? repoStatusProp.GetString() : null;
+                        string? focus = data.TryGetProperty("focus", out var fcProp) ? fcProp.GetString() : null;
+                        bool? pinned = data.TryGetProperty("pinned", out var pinProp) ? pinProp.GetBoolean() : null;
+                        string? notes = data.TryGetProperty("notes", out var ntProp) ? ntProp.GetString() : null;
+                        List<string>? tags = data.TryGetProperty("tags", out var repoTagsProp) && repoTagsProp.ValueKind == JsonValueKind.Array
+                            ? JsonSerializer.Deserialize<List<string>>(repoTagsProp.GetRawText(), CaseInsensitiveJsonOptions)
+                            : null;
+
+                        GitRepositoryManagerService.Instance.UpdateRepositoryMetadata(id, status, focus, pinned, tags, notes);
+                        SendResponse(requestId, true, new { success = true });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository ID is required");
+                    }
+                }
+                break;
+
+            case "get_repo_notes":
+                {
+                    string? repoId = data.TryGetProperty("repoId", out var rIdProp) ? rIdProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoId))
+                    {
+                        var notes = GitRepositoryManagerService.Instance.GetRepoNotes(repoId);
+                        SendResponse(requestId, true, new { notes });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository ID is required");
+                    }
+                }
+                break;
+
+            case "save_repo_notes":
+                {
+                    string? repoId = data.TryGetProperty("repoId", out var rIdProp) ? rIdProp.GetString() : null;
+                    string? notes = data.TryGetProperty("notes", out var ntProp) ? ntProp.GetString() : "";
+                    if (!string.IsNullOrEmpty(repoId))
+                    {
+                        GitRepositoryManagerService.Instance.SaveRepoNotes(repoId, notes ?? "");
+                        SendResponse(requestId, true, new { success = true });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository ID is required");
+                    }
+                }
+                break;
+
+            case "get_repo_changes":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var changes = await GitRepositoryManagerService.Instance.GetWorkingTreeChangesAsync(repoPath).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { changes });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path is required");
+                    }
+                }
+                break;
+
+            case "get_repo_diff":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    string? relativePath = data.TryGetProperty("relativePath", out var relProp) ? relProp.GetString() : null;
+                    bool staged = data.TryGetProperty("staged", out var stgProp) && stgProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(relativePath))
+                    {
+                        var diff = await GitRepositoryManagerService.Instance.GetFileDiffAsync(repoPath, relativePath, staged).ConfigureAwait(false);
+                        SendResponse(requestId, true, diff);
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path and relative file path are required");
+                    }
+                }
+                break;
+
+            case "stage_repo_changes":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    bool unstage = data.TryGetProperty("unstage", out var unstgProp) && unstgProp.GetBoolean();
+                    var files = data.TryGetProperty("files", out var fProp) && fProp.ValueKind == JsonValueKind.Array
+                        ? JsonSerializer.Deserialize<List<string>>(fProp.GetRawText(), CaseInsensitiveJsonOptions) ?? []
+                        : [];
+
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var (success, output) = await GitRepositoryManagerService.Instance.StageChangesAsync(repoPath, files, unstage).ConfigureAwait(false);
+                        SendResponse(requestId, success, new { success, output });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path is required");
+                    }
+                }
+                break;
+
+            case "create_repo_commit":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    string? message = data.TryGetProperty("message", out var msgProp) ? msgProp.GetString() : null;
+                    bool stageAll = data.TryGetProperty("stageAll", out var saProp) && saProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(message))
+                    {
+                        var (success, output) = await GitRepositoryManagerService.Instance.CreateCommitAsync(repoPath, message, stageAll).ConfigureAwait(false);
+                        SendResponse(requestId, success, new { success, output });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path and commit message are required");
+                    }
+                }
+                break;
+
+            case "repo_network_action":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    string? op = data.TryGetProperty("operation", out var opProp) ? opProp.GetString() : "fetch";
+                    string? remote = data.TryGetProperty("remote", out var remProp) ? remProp.GetString() : "origin";
+                    string? branch = data.TryGetProperty("branch", out var brProp) ? brProp.GetString() : null;
+                    bool setUpstream = data.TryGetProperty("setUpstream", out var suProp) && suProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var (success, output) = await GitRepositoryManagerService.Instance.NetworkActionAsync(repoPath, op ?? "fetch", remote ?? "origin", branch, setUpstream).ConfigureAwait(false);
+                        SendResponse(requestId, success, new { success, output });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path is required");
+                    }
+                }
+                break;
+
+            case "switch_repo_branch":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    string? branch = data.TryGetProperty("branch", out var brProp) ? brProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(branch))
+                    {
+                        var (success, output) = await GitRepositoryManagerService.Instance.SwitchBranchAsync(repoPath, branch).ConfigureAwait(false);
+                        SendResponse(requestId, success, new { success, output });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path and branch are required");
+                    }
+                }
+                break;
+
+            case "list_repo_branches":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var branches = await GitRepositoryManagerService.Instance.ListBranchesAsync(repoPath).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { branches });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path is required");
+                    }
+                }
+                break;
+
+            case "detect_repo_launchers":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var launchers = GitRepositoryManagerService.Instance.DetectLaunchers(repoPath);
+                        SendResponse(requestId, true, new { launchers });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path is required");
+                    }
+                }
+                break;
+
+            case "run_repo_launcher":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath) && data.TryGetProperty("launcher", out var lProp))
+                    {
+                        var item = JsonSerializer.Deserialize<ProjectLauncherItem>(lProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        if (item != null)
+                        {
+                            bool executed = GitRepositoryManagerService.Instance.ExecuteLauncher(repoPath, item);
+                            SendResponse(requestId, executed, new { success = executed });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid launcher payload");
+                }
+                break;
+
+            case "evaluate_repo_health":
+                {
+                    string? idOrPath = data.TryGetProperty("idOrPath", out var idpProp) ? idpProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(idOrPath))
+                    {
+                        var repo = GitRepositoryManagerService.Instance.GetRepository(idOrPath);
+                        if (repo != null)
+                        {
+                            var health = GitRepositoryManagerService.Instance.EvaluateHealth(repo);
+                            SendResponse(requestId, true, health);
+                        }
+                        else
+                        {
+                            SendResponse(requestId, false, "Repository not found in registry");
+                        }
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository id or path is required");
+                    }
+                }
+                break;
+
+            case "export_repo_inventory":
+                {
+                    string? format = data.TryGetProperty("format", out var fmtProp) ? fmtProp.GetString() : "markdown";
+                    var exported = GitRepositoryManagerService.Instance.ExportInventory(format ?? "markdown");
+                    SendResponse(requestId, true, new { format = format ?? "markdown", content = exported });
+                }
+                break;
+
+            case "open_repo_in_editor":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    string? target = data.TryGetProperty("target", out var tgtProp) ? tgtProp.GetString() : "editor";
+
+                    if (!string.IsNullOrEmpty(repoPath) && Directory.Exists(repoPath))
+                    {
+                        try
+                        {
+                            if (target == "explorer")
+                            {
+                                Process.Start(new ProcessStartInfo { FileName = "explorer.exe", Arguments = $"\"{repoPath}\"", UseShellExecute = true });
+                                SendResponse(requestId, true, new { success = true, message = "Opened in Explorer" });
+                            }
+                            else if (target == "terminal")
+                            {
+                                Process.Start(new ProcessStartInfo { FileName = "powershell.exe", WorkingDirectory = repoPath, UseShellExecute = true });
+                                SendResponse(requestId, true, new { success = true, message = "Opened in Terminal" });
+                            }
+                            else
+                            {
+                                string? specificEditor = (string.Equals(target, "editor", StringComparison.OrdinalIgnoreCase) || string.Equals(target, "ask", StringComparison.OrdinalIgnoreCase)) ? null : target;
+                                var (success, msg) = GitRepositoryManagerService.Instance.OpenInEditor(repoPath, specificEditor);
+                                SendResponse(requestId, success, new { success, message = msg });
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            SendResponse(requestId, false, $"Failed to launch {target}: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path is required or does not exist");
+                    }
+                }
+                break;
+
+            case "browse_editor_path":
+                {
+                    string? chosenPath = null;
+                    _mainForm.Invoke(() =>
+                    {
+                        using var ofd = new OpenFileDialog
+                        {
+                            Title = "Select External Code Editor Executable",
+                            Filter = "Executable files (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All files (*.*)|*.*",
+                            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+                        };
+                        if (ofd.ShowDialog(_mainForm) == DialogResult.OK)
+                        {
+                            chosenPath = ofd.FileName;
+                        }
+                    });
+
+                    if (!string.IsNullOrWhiteSpace(chosenPath))
+                    {
+                        SendResponse(requestId, true, new { path = chosenPath });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Selection cancelled");
+                    }
+                }
+                break;
+
+            case "get_installed_editors":
+                {
+                    var editors = GitRepositoryManagerService.Instance.GetInstalledEditors();
+                    var preferred = GitRepositoryManagerService.Instance.GetSettings().PreferredEditor;
+                    SendResponse(requestId, true, new { editors, preferred });
+                }
+                break;
+
+            case "launch_agent_in_repo":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rPathProp) ? rPathProp.GetString() : null;
+                    string? cli = data.TryGetProperty("cliType", out var targetCliProp) ? targetCliProp.GetString() : "claude";
+
+                    if (!string.IsNullOrEmpty(repoPath) && Directory.Exists(repoPath))
+                    {
+                        try
+                        {
+                            var cmd = cli?.ToLowerInvariant() switch
+                            {
+                                "antigravity" => "agy",
+                                "claude" => "claude",
+                                _ => "claude"
+                            };
+
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = "cmd.exe",
+                                Arguments = $"/k \"cd /d \"{repoPath}\" && {cmd}\"",
+                                UseShellExecute = true
+                            });
+
+                            SendResponse(requestId, true, new { success = true });
+                        }
+                        catch (Exception ex)
+                        {
+                            SendResponse(requestId, false, $"Failed to start agent in repo: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Repository path is required");
                     }
                 }
                 break;
@@ -2189,6 +2610,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                         {
                             name = f.Name,
                             target = f.Target,
+                            isIde = f.IsIde,
                             alreadyConfigured = configured.Any(d =>
                                 !string.IsNullOrWhiteSpace(d.Target) &&
                                 (string.Equals(Path.GetFileName(f.Target), Path.GetFileName(d.Target), StringComparison.OrdinalIgnoreCase) ||

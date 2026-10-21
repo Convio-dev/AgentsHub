@@ -43,6 +43,18 @@
     });
     add('Show notification history', 'Read a notification you missed', () => toggleToastHistory(true));
     add('Clear notification history', 'Empty the list', () => clearToastHistory());
+    add('Scan Git repositories', 'Discover and update git repositories across scan roots', () => {
+      switchView('repositories');
+      document.getElementById('btn-scan-repos')?.click();
+    });
+    add('Review Git changes & commit', 'Inspect working tree modifications and stage/commit', () => {
+      switchView('repositories');
+      document.getElementById('btn-open-git-changes-modal')?.click();
+    });
+    add('Export repository inventory', 'Copy repository status markdown to clipboard', () => {
+      switchView('repositories');
+      document.getElementById('btn-export-inventory')?.click();
+    });
     return out;
   }
 
