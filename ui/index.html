@@ -1549,6 +1549,50 @@
               on the same network. It ships as a single portable executable built on .NET 10 and WebView2.
             </p>
 
+            <!-- Auto Update Management Section -->
+            <div class="update-section" id="update-section" style="margin-top: 14px; margin-bottom: 14px; padding: 14px 16px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 8px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <div id="update-status-indicator" style="width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); transition: background-color 0.2s ease;"></div>
+                  <div>
+                    <div id="update-status-text" style="font-size: 13px; font-weight: 600; color: var(--text-main);">Check for updates</div>
+                    <div id="update-status-subtext" style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Target: github.com/ZerroDevs/AgentsHub</div>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button class="btn btn-outline" id="btn-check-updates" type="button" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer;">
+                    <svg class="icon-svg" viewBox="0 0 24 24" id="icon-sync-updates" style="width: 14px; height: 14px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                    <span id="btn-check-updates-text">Check Now</span>
+                  </button>
+                  <button class="btn btn-primary" id="btn-install-update" type="button" style="display: none; align-items: center; gap: 6px; padding: 6px 14px; font-size: 12px; background: #10b981; border-color: #10b981; color: #0b0f19; font-weight: 600; cursor: pointer;">
+                    <svg class="icon-svg" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <span id="btn-install-update-text">Download &amp; Install</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Progress bar (hidden initially) -->
+              <div id="update-progress-container" style="display: none; margin-top: 12px;">
+                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 4px;">
+                  <span id="update-progress-label">Downloading installer...</span>
+                  <span id="update-progress-pct" style="font-family: var(--font-mono, monospace);">0%</span>
+                </div>
+                <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden;">
+                  <div id="update-progress-bar" style="width: 0%; height: 100%; background: #10b981; transition: width 0.15s ease;"></div>
+                </div>
+              </div>
+
+              <!-- Release notes preview container (hidden initially) -->
+              <div id="update-notes-container" style="display: none; margin-top: 12px; padding: 12px; background: rgba(0,0,0,0.28); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                  <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #10b981;">New Release Available</span>
+                  <span id="update-notes-version-tag" style="font-size: 11px; font-family: var(--font-mono, monospace); color: var(--accent-cyan);"></span>
+                </div>
+                <div id="update-notes-title" style="font-size: 13px; font-weight: 600; color: var(--text-main); margin-bottom: 6px;"></div>
+                <div id="update-notes-body" style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5; max-height: 140px; overflow-y: auto; white-space: pre-wrap; font-family: var(--font-mono, monospace);"></div>
+              </div>
+            </div>
+
             <div class="about-links">
               <button class="about-link" data-url="https://github.com/ZerroDevs/AgentsHub" title="Open the source repository">
                 <svg class="icon-svg about-link-icon" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>

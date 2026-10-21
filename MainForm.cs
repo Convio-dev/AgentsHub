@@ -41,6 +41,7 @@ public partial class MainForm : Form
     private ToolStripMenuItem? _trayCliClaudeItem;
     private ToolStripMenuItem? _trayCliAntigravityItem;
     private ToolStripMenuItem? _trayToggleThemeItem;
+    private ToolStripMenuItem? _trayCheckUpdateItem;
     private ToolStripMenuItem? _trayRestartAppItem;
     private ToolStripMenuItem? _trayExitItem;
 
@@ -320,6 +321,11 @@ public partial class MainForm : Form
             ThemeManager.ToggleTheme();
         });
 
+        _trayCheckUpdateItem = new ToolStripMenuItem("Check for Updates...", null, async (_, _) =>
+        {
+            await CheckForUpdatesFromTrayAsync();
+        });
+
         _trayRestartAppItem = new ToolStripMenuItem("Restart Agents Hub", null, (_, _) => RestartApplication());
         _trayExitItem = new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication());
 
@@ -335,6 +341,7 @@ public partial class MainForm : Form
         _trayContextMenu.Items.Add(_trayCliControlsMenu);
         _trayContextMenu.Items.Add(new ToolStripSeparator());
         _trayContextMenu.Items.Add(_trayToggleThemeItem);
+        _trayContextMenu.Items.Add(_trayCheckUpdateItem);
         _trayContextMenu.Items.Add(_trayRestartAppItem);
         _trayContextMenu.Items.Add(_trayExitItem);
 
@@ -539,6 +546,48 @@ public partial class MainForm : Form
         }
 
         ExitApplication();
+    }
+
+    private async Task CheckForUpdatesFromTrayAsync()
+    {
+        ShowTrayBalloon("Updates", "Checking for updates...");
+        try
+        {
+            var info = await UpdateService.Instance.CheckForUpdatesAsync().ConfigureAwait(true);
+            if (info.IsUpdateAvailable)
+            {
+                var dialog = MessageBox.Show(
+                    $"A new version of Agents Hub is available!\n\nCurrent: v{info.CurrentVersion}\nLatest: v{info.LatestVersion}\n\nWould you like to open Agents Hub to download and install this update?",
+                    "Update Available",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Information);
+
+                if (dialog == DialogResult.Yes)
+                {
+                    ShowAndActivate();
+                    if (_webView?.CoreWebView2 != null)
+                    {
+                        _ = _webView.CoreWebView2.ExecuteScriptAsync("if (window.triggerUpdateView) window.triggerUpdateView();");
+                    }
+                }
+            }
+            else if (info.Result == UpdateCheckResult.UpToDate)
+            {
+                ShowTrayBalloon("Agents Hub", $"You are up to date! (v{info.CurrentVersion})");
+            }
+            else if (info.Result == UpdateCheckResult.NoReleasesFound)
+            {
+                ShowTrayBalloon("Agents Hub", $"No published releases found yet on GitHub (v{info.CurrentVersion}).");
+            }
+            else
+            {
+                ShowTrayBalloon("Agents Hub", "Could not check for updates. Please verify your internet connection.");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowTrayBalloon("Agents Hub", $"Update check failed: {ex.Message}");
+        }
     }
 
     private void ApplyTrayTheme()

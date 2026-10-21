@@ -76,6 +76,24 @@ public sealed partial class DashboardWebBridge : IDisposable
             var stateDto = _openCodeWatcher.GetStateDto();
             PostOpenCodeUpdate(stateDto);
         }
+
+        // Silent background update check after 6 seconds
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(6000).ConfigureAwait(false);
+                var update = await UpdateService.Instance.CheckForUpdatesAsync().ConfigureAwait(false);
+                if (update.IsUpdateAvailable)
+                {
+                    PostEventToUi("update_available", update);
+                }
+            }
+            catch
+            {
+                // Silent check failure
+            }
+        });
     }
 
     private void HookBackendEvents()
@@ -382,6 +400,54 @@ public sealed partial class DashboardWebBridge : IDisposable
 
             case "get_system_telemetry":
                 SendResponse(requestId, true, GetSystemTelemetryDto());
+                break;
+
+            case "check_for_updates":
+                {
+                    var updateInfo = await UpdateService.Instance.CheckForUpdatesAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, new
+                    {
+                        result = updateInfo.Result.ToString(),
+                        isUpdateAvailable = updateInfo.IsUpdateAvailable,
+                        latestVersion = updateInfo.LatestVersion,
+                        currentVersion = updateInfo.CurrentVersion,
+                        releaseName = updateInfo.ReleaseName,
+                        releaseNotes = updateInfo.ReleaseNotes,
+                        downloadUrl = updateInfo.DownloadUrl,
+                        assetSizeBytes = updateInfo.AssetSizeBytes,
+                        publishedAtUtc = updateInfo.PublishedAtUtc
+                    });
+                }
+                break;
+
+            case "install_update":
+                {
+                    string? dlUrl = data.TryGetProperty("downloadUrl", out var dlProp) ? dlProp.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(dlUrl))
+                    {
+                        SendResponse(requestId, false, "Download URL is required");
+                        break;
+                    }
+
+                    SendResponse(requestId, true, new { status = "downloading" });
+
+                    var progress = new Progress<double>(p =>
+                    {
+                        PostEventToUi("update_download_progress", new { progress = p });
+                    });
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await UpdateService.Instance.DownloadAndInstallAsync(dlUrl, progress).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            PostEventToUi("update_download_failed", new { error = ex.Message });
+                        }
+                    });
+                }
                 break;
 
             case "get_workspaces":
@@ -2917,7 +2983,18 @@ public sealed partial class DashboardWebBridge : IDisposable
                 @event = eventType,
                 payload
             });
-            _coreWebView.PostWebMessageAsJson(envelope);
+
+            if (_mainForm.IsHandleCreated && !_mainForm.IsDisposed && _mainForm.InvokeRequired)
+            {
+                _mainForm.BeginInvoke(new Action(() =>
+                {
+                    try { _coreWebView?.PostWebMessageAsJson(envelope); } catch { }
+                }));
+            }
+            else
+            {
+                _coreWebView.PostWebMessageAsJson(envelope);
+            }
         }
         catch { }
     }
@@ -2944,7 +3021,18 @@ public sealed partial class DashboardWebBridge : IDisposable
                 success,
                 data
             });
-            _coreWebView.PostWebMessageAsJson(envelope);
+
+            if (_mainForm.IsHandleCreated && !_mainForm.IsDisposed && _mainForm.InvokeRequired)
+            {
+                _mainForm.BeginInvoke(new Action(() =>
+                {
+                    try { _coreWebView?.PostWebMessageAsJson(envelope); } catch { }
+                }));
+            }
+            else
+            {
+                _coreWebView.PostWebMessageAsJson(envelope);
+            }
         }
         catch { }
     }
@@ -2961,7 +3049,18 @@ public sealed partial class DashboardWebBridge : IDisposable
                 @event = "opencode_status_changed",
                 payload = stateDto
             });
-            _coreWebView.PostWebMessageAsJson(envelope);
+
+            if (_mainForm.IsHandleCreated && !_mainForm.IsDisposed && _mainForm.InvokeRequired)
+            {
+                _mainForm.BeginInvoke(new Action(() =>
+                {
+                    try { _coreWebView?.PostWebMessageAsJson(envelope); } catch { }
+                }));
+            }
+            else
+            {
+                _coreWebView.PostWebMessageAsJson(envelope);
+            }
         }
         catch { }
     }

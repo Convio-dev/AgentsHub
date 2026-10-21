@@ -24,6 +24,7 @@ publish/
 # secrets
 appsettings.Development.json
 appsettings.Production.json
+.release_token
 
 # Local agent workspace data - session notes can contain personal details
 # (account emails, machine paths, installed tool versions).
