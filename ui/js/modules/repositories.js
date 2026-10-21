@@ -20,6 +20,9 @@
     worktrees: [],
     stashes: [],
     selectedStashIndex: null,
+    pullRequests: [],
+    prFilterState: 'open',
+    isLoadingPrs: false,
     commitAction: localStorage.getItem('repo_commit_action') || 'local',
     gitHubAuth: null
   };
@@ -200,6 +203,7 @@
     document.getElementById('btn-unstage-selected')?.addEventListener('click', () => stageCheckedFiles(true));
     document.getElementById('btn-stage-all')?.addEventListener('click', stageAllFiles);
     document.getElementById('btn-create-commit')?.addEventListener('click', () => createLocalCommit());
+    document.getElementById('btn-ai-generate-commit')?.addEventListener('click', generateAiCommitMessage);
 
     // Dual Split Commit Dropdown Handlers
     const btnCommitChevron = document.getElementById('btn-commit-split-menu');
@@ -273,6 +277,24 @@
     document.querySelectorAll('input[name="revert-strategy"]').forEach(radio => {
       radio.addEventListener('change', (e) => updateRevertStrategyUI(e.target.value));
     });
+
+    // GitHub Pull Requests events
+    document.getElementById('btn-refresh-prs')?.addEventListener('click', () => {
+      const repo = getSelectedRepo();
+      if (repo) loadGitHubPullRequests(repo.path);
+    });
+    document.querySelectorAll('.btn-pr-filter').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.btn-pr-filter').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        repoState.prFilterState = btn.dataset.prState || 'open';
+        const repo = getSelectedRepo();
+        if (repo) loadGitHubPullRequests(repo.path);
+      });
+    });
+    document.getElementById('btn-close-pr-merge-modal')?.addEventListener('click', closePrMergeModal);
+    document.getElementById('btn-cancel-pr-merge-modal')?.addEventListener('click', closePrMergeModal);
+    document.getElementById('btn-submit-pr-merge-modal')?.addEventListener('click', submitPrMergeModal);
 
     // Worktrees action buttons
     document.getElementById('btn-open-add-worktree')?.addEventListener('click', openAddWorktreeModal);
@@ -656,6 +678,9 @@
       case 'history':
         loadCommitGraph(repo.path);
         break;
+      case 'prs':
+        loadGitHubPullRequests(repo.path);
+        break;
       case 'worktrees':
         loadWorktrees(repo.path);
         break;
@@ -923,6 +948,43 @@
       }
     } catch (e) {
       showToast('Error creating commit: ' + e.message, 'error');
+    }
+  }
+
+  async function generateAiCommitMessage() {
+    const repo = getSelectedRepo();
+    if (!repo) {
+      showToast('Select a repository first', 'warn');
+      return;
+    }
+
+    const btn = document.getElementById('btn-ai-generate-commit');
+    const msgInput = document.getElementById('repo-commit-message');
+    if (!msgInput) return;
+
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner" style="width: 11px; height: 11px; border-width: 2px;"></span> Generating...`;
+    }
+
+    try {
+      showToast('Analyzing diff & generating commit message...', 'info', 2000);
+      const res = await callBridge('generate_ai_commit_message', { repoPath: repo.path });
+      if (res && res.success && res.fullMessage) {
+        msgInput.value = res.fullMessage;
+        showToast('Generated commit message from diff!', 'success');
+        msgInput.focus();
+      } else {
+        showToast(res?.message || 'Could not generate message: working tree clean or no changes found.', 'warn');
+      }
+    } catch (e) {
+      showToast('Error generating message: ' + e.message, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+      }
     }
   }
 
@@ -1826,6 +1888,210 @@
       }
     } catch (e) {
       showToast('Failed to create stash: ' + e.message, 'error');
+    }
+  }
+
+  // --- GitHub Pull Requests Deck ---
+  async function loadGitHubPullRequests(repoPath) {
+    const container = document.getElementById('prs-list-container');
+    const badge = document.getElementById('lbl-repo-prs-badge');
+    if (!container) return;
+
+    if (!repoPath) {
+      container.innerHTML = `<div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;">No repository selected.</div>`;
+      return;
+    }
+
+    repoState.isLoadingPrs = true;
+    container.innerHTML = `<div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;"><span class="spinner" style="width: 14px; height: 14px; border-width: 2px;"></span> Fetching pull requests from GitHub...</div>`;
+
+    try {
+      const stateFilter = repoState.prFilterState || 'open';
+      const res = await callBridge('get_github_pull_requests', { repoPath, state: stateFilter });
+
+      if (res && res.success) {
+        repoState.pullRequests = res.pullRequests || [];
+        if (badge) {
+          const openCount = repoState.pullRequests.filter(p => p.state === 'open').length;
+          badge.textContent = openCount;
+          badge.style.display = openCount > 0 ? 'inline-block' : 'none';
+        }
+        renderPullRequests(repoState.pullRequests, repoPath, res.repoUrl);
+      } else {
+        container.innerHTML = `
+          <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: var(--text-dim);">
+            <div style="margin-bottom: 6px; color: var(--text-muted); font-weight: 600;">Unable to fetch pull requests</div>
+            <div>${escapeHtml(res?.message || 'Repository might not have a GitHub remote or token is missing.')}</div>
+          </div>
+        `;
+        if (badge) badge.style.display = 'none';
+      }
+    } catch (e) {
+      container.innerHTML = `<div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: #ef4444;">Error loading pull requests: ${escapeHtml(e.message)}</div>`;
+    } finally {
+      repoState.isLoadingPrs = false;
+    }
+  }
+
+  function renderPullRequests(prs, repoPath, repoUrl) {
+    const container = document.getElementById('prs-list-container');
+    if (!container) return;
+
+    if (!prs || prs.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: var(--text-dim);">
+          No ${escapeHtml(repoState.prFilterState)} pull requests found for this repository.
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = '';
+    prs.forEach(pr => {
+      const card = document.createElement('div');
+      card.className = 'pr-card';
+
+      const stateClass = pr.isDraft ? 'draft' : (pr.state === 'open' ? 'open' : 'closed');
+      const stateLabel = pr.isDraft ? 'Draft' : (pr.state === 'open' ? 'Open' : 'Closed');
+
+      let labelsHtml = '';
+      if (pr.labels && pr.labels.length > 0) {
+        labelsHtml = pr.labels.map(l => `<span class="pr-label-tag">${escapeHtml(l)}</span>`).join(' ');
+      }
+
+      const avatarHtml = pr.userAvatar
+        ? `<img src="${escapeHtml(pr.userAvatar)}" alt="${escapeHtml(pr.userLogin)}" style="width: 16px; height: 16px; border-radius: 50%; vertical-align: middle; margin-right: 4px;" />`
+        : '';
+
+      const prDate = pr.updatedAt || pr.createdAt;
+      const formattedDate = prDate ? formatDate(prDate) : '';
+
+      card.innerHTML = `
+        <div class="pr-card-main">
+          <div class="pr-card-title-row">
+            <span class="pr-badge ${stateClass}">
+              <svg class="icon-svg" style="width: 10px; height: 10px;" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+              <span>${stateLabel}</span>
+            </span>
+            <span class="pr-number">#${pr.number}</span>
+            <a href="${escapeHtml(pr.htmlUrl || '#')}" target="_blank" class="pr-title" title="${escapeHtml(pr.title)}">${escapeHtml(pr.title)}</a>
+            ${labelsHtml}
+          </div>
+          <div class="pr-meta-row">
+            <span style="display: inline-flex; align-items: center;">${avatarHtml}<strong>${escapeHtml(pr.userLogin || 'unknown')}</strong></span>
+            <span>Updated ${formattedDate}</span>
+            <span class="pr-branch-flow">
+              <span>${escapeHtml(pr.headRef || 'head')}</span>
+              <svg class="icon-svg" style="width: 10px; height: 10px;" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              <span>${escapeHtml(pr.baseRef || 'main')}</span>
+            </span>
+          </div>
+        </div>
+        <div class="pr-actions">
+          <button class="btn btn-outline btn-xs btn-pr-checkout" title="Fetch and checkout branch for PR #${pr.number}">
+            <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M6 9v9"/><path d="M18 9a9 9 0 0 0-9 9"/></svg>
+            <span>Checkout</span>
+          </button>
+          ${pr.state === 'open' ? `
+            <button class="btn btn-success btn-xs btn-pr-merge" title="Merge this pull request">
+              <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Merge</span>
+            </button>
+          ` : ''}
+          <a href="${escapeHtml(pr.htmlUrl || '#')}" target="_blank" class="btn btn-outline btn-xs" title="Open on GitHub">
+            <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </a>
+        </div>
+      `;
+
+      card.querySelector('.btn-pr-checkout')?.addEventListener('click', () => {
+        checkoutPullRequest(repoPath, pr.number);
+      });
+
+      card.querySelector('.btn-pr-merge')?.addEventListener('click', () => {
+        openPrMergeModal(repoPath, pr);
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  async function checkoutPullRequest(repoPath, prNumber) {
+    try {
+      showToast(`Fetching and checking out PR #${prNumber}...`, 'info');
+      const res = await callBridge('checkout_github_pull_request', { repoPath, prNumber });
+      if (res && res.success) {
+        showToast(res.message || `Checked out PR #${prNumber}`, 'success');
+        refreshSelectedRepoMetadata();
+        switchDetailTab('changes');
+      } else {
+        showToast(`Checkout failed: ${res?.message || 'Error'}`, 'error', 6000);
+      }
+    } catch (e) {
+      showToast('Error checking out PR: ' + e.message, 'error');
+    }
+  }
+
+  function openPrMergeModal(repoPath, pr) {
+    const modal = document.getElementById('modal-pr-merge');
+    const titleEl = document.getElementById('pr-merge-modal-title');
+    const descEl = document.getElementById('pr-merge-modal-desc');
+    const numInput = document.getElementById('pr-merge-pr-number');
+    const titleInput = document.getElementById('input-pr-merge-title');
+    const msgInput = document.getElementById('input-pr-merge-message');
+    if (!modal) return;
+
+    if (numInput) numInput.value = pr.number;
+    if (titleEl) titleEl.textContent = `Merge PR #${pr.number}: ${pr.title}`;
+    if (descEl) descEl.textContent = `Merge branch '${pr.headRef}' into '${pr.baseRef}'.`;
+    if (titleInput) titleInput.value = `Merge pull request #${pr.number} from ${pr.headRef}`;
+    if (msgInput) msgInput.value = pr.title || '';
+
+    modal.classList.add('active');
+  }
+
+  function closePrMergeModal() {
+    document.getElementById('modal-pr-merge')?.classList.remove('active');
+  }
+
+  async function submitPrMergeModal() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const numInput = document.getElementById('pr-merge-pr-number');
+    const prNumber = parseInt(numInput?.value, 10);
+    const methodSelect = document.getElementById('select-pr-merge-method');
+    const mergeMethod = methodSelect?.value || 'merge';
+    const titleInput = document.getElementById('input-pr-merge-title');
+    const msgInput = document.getElementById('input-pr-merge-message');
+    const commitTitle = titleInput?.value.trim() || undefined;
+    const commitMessage = msgInput?.value.trim() || undefined;
+
+    if (!prNumber) {
+      showToast('Invalid PR number', 'error');
+      return;
+    }
+
+    try {
+      showToast(`Merging PR #${prNumber}...`, 'info');
+      const res = await callBridge('merge_github_pull_request', {
+        repoPath: repo.path,
+        prNumber,
+        mergeMethod,
+        commitTitle,
+        commitMessage
+      });
+
+      if (res && res.success) {
+        showToast(`PR #${prNumber} merged successfully!`, 'success');
+        closePrMergeModal();
+        loadGitHubPullRequests(repo.path);
+        refreshSelectedRepoMetadata();
+      } else {
+        showToast(`Merge failed: ${res?.message || 'Error occurred'}`, 'error', 6000);
+      }
+    } catch (e) {
+      showToast('Error merging PR: ' + e.message, 'error');
     }
   }
 

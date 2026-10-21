@@ -227,6 +227,11 @@
             <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v9"/><path d="M18 9a9 9 0 0 0-9 9"/></svg>
             <span>Commit Graph</span>
           </button>
+          <button class="detail-tab-btn" data-tab="prs" id="btn-repo-subtab-prs">
+            <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+            <span>Pull Requests</span>
+            <span class="badge" id="lbl-repo-prs-badge" style="display: none; margin-left: 4px; padding: 1px 5px; font-size: 10px; border-radius: 9px; background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); font-weight: 700;">0</span>
+          </button>
           <button class="detail-tab-btn" data-tab="worktrees">
             <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
             <span>Worktrees</span>
@@ -355,11 +360,17 @@
               <!-- Local Commit Composer -->
               <div class="commit-composer-box">
                 <textarea id="repo-commit-message" class="commit-msg-input" rows="2" placeholder="Commit message (describes what changed)..."></textarea>
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                  <label class="checkbox-label" style="font-size: 11.5px; margin-bottom: 0;">
-                    <input type="checkbox" id="chk-stage-all-commit" />
-                    <span>Stage all changes before committing</span>
-                  </label>
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <label class="checkbox-label" style="font-size: 11.5px; margin-bottom: 0;">
+                      <input type="checkbox" id="chk-stage-all-commit" />
+                      <span>Stage all changes before committing</span>
+                    </label>
+                    <button class="btn btn-outline btn-xs" id="btn-ai-generate-commit" title="Analyze git diff and generate conventional commit message">
+                      <svg class="icon-svg" style="width: 11px; height: 11px; color: var(--accent-cyan);" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                      <span>AI Generate Message</span>
+                    </button>
+                  </div>
                   <div class="commit-split-btn-group">
                     <button class="btn btn-primary btn-commit-main" id="btn-create-commit">
                       <svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
@@ -459,6 +470,29 @@
                   <pre class="commit-patch-pre" id="diff-commit-patch"></pre>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Pull Requests Pane -->
+          <div class="detail-pane" id="pane-prs">
+            <div class="prs-pane-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">GitHub Pull Requests</span>
+                <div class="repo-filter-chips" style="margin: 0;">
+                  <button class="repo-filter-chip active btn-pr-filter" data-pr-state="open">Open</button>
+                  <button class="repo-filter-chip btn-pr-filter" data-pr-state="closed">Closed</button>
+                  <button class="repo-filter-chip btn-pr-filter" data-pr-state="all">All</button>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button class="btn btn-outline btn-sm" id="btn-refresh-prs" title="Refresh GitHub Pull Requests">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+            <div class="prs-list-container" id="prs-list-container">
+              <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;">No pull requests loaded. Click 'Refresh' to fetch.</div>
             </div>
           </div>
 

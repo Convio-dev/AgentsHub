@@ -24,6 +24,10 @@
       cursorBlink: true,
       fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
       fontSize: 13,
+      scrollback: 5000,
+      smoothScrollDuration: 0,
+      fastScrollModifier: 'alt',
+      fastScrollSensitivity: 5,
       theme: {
         background: '#09090b',
         foreground: '#f4f4f5',

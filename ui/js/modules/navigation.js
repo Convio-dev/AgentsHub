@@ -65,6 +65,8 @@
       p.classList.toggle('active', p.id === `view-${viewName}`);
     });
 
+    window.dispatchEvent(new CustomEvent('view-switched', { detail: { activeView: viewName } }));
+
     if (viewName === 'dashboard') {
       resumeHardwareTelemetry();
     } else {

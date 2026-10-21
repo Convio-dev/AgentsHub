@@ -453,3 +453,63 @@ public sealed class GitHubPublishResult
     [JsonPropertyName("message")]
     public string Message { get; set; } = "";
 }
+
+public sealed class GitHubPullRequest
+{
+    [JsonPropertyName("number")]
+    public int Number { get; set; }
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    [JsonPropertyName("body")]
+    public string? Body { get; set; }
+
+    [JsonPropertyName("state")]
+    public string State { get; set; } = "open";
+
+    [JsonPropertyName("isDraft")]
+    public bool IsDraft { get; set; }
+
+    [JsonPropertyName("htmlUrl")]
+    public string? HtmlUrl { get; set; }
+
+    [JsonPropertyName("userLogin")]
+    public string UserLogin { get; set; } = "";
+
+    [JsonPropertyName("userAvatar")]
+    public string? UserAvatar { get; set; }
+
+    [JsonPropertyName("headRef")]
+    public string HeadRef { get; set; } = "";
+
+    [JsonPropertyName("baseRef")]
+    public string BaseRef { get; set; } = "";
+
+    [JsonPropertyName("headSha")]
+    public string? HeadSha { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTime CreatedAt { get; set; }
+
+    [JsonPropertyName("updatedAt")]
+    public DateTime UpdatedAt { get; set; }
+
+    [JsonPropertyName("labels")]
+    public List<string> Labels { get; set; } = [];
+}
+
+public sealed class GitHubPullRequestListResult
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = "";
+
+    [JsonPropertyName("repoUrl")]
+    public string? RepoUrl { get; set; }
+
+    [JsonPropertyName("pullRequests")]
+    public List<GitHubPullRequest> PullRequests { get; set; } = [];
+}

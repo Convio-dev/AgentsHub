@@ -183,6 +183,7 @@
   }
 
   function updateQuotaStatsDisplay() {
+    if (state.activeView && state.activeView !== 'dashboard') return;
     try {
       const statsEl = document.getElementById('quota-reset-stats');
       if (!statsEl) return;

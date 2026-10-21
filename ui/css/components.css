@@ -421,3 +421,9 @@ html[data-theme="light"] .dashboard-card {
   cursor: pointer;
 }
 
+/* Performance: Freeze CSS keyframes & SVG pulse animations in inactive view panes */
+.view-pane:not(.active) *,
+.settings-category-pane:not(.active) * {
+  animation-play-state: paused !important;
+}
+

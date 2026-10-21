@@ -1649,6 +1649,73 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "get_github_pull_requests":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rpProp) ? rpProp.GetString() : null;
+                    string state = data.TryGetProperty("state", out var prStateProp) ? prStateProp.GetString() ?? "open" : "open";
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var res = await GitHubService.Instance.GetPullRequestsAsync(repoPath, state).ConfigureAwait(false);
+                        SendResponse(requestId, res.Success, res);
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "checkout_github_pull_request":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rpProp) ? rpProp.GetString() : null;
+                    int prNumber = data.TryGetProperty("prNumber", out var pnProp) ? pnProp.GetInt32() : 0;
+                    if (!string.IsNullOrEmpty(repoPath) && prNumber > 0)
+                    {
+                        var (ok, msg, branch) = await GitHubService.Instance.CheckoutPullRequestAsync(repoPath, prNumber).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = msg, branchName = branch });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath and valid prNumber are required");
+                    }
+                }
+                break;
+
+            case "merge_github_pull_request":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rpProp) ? rpProp.GetString() : null;
+                    int prNumber = data.TryGetProperty("prNumber", out var pnProp) ? pnProp.GetInt32() : 0;
+                    string mergeMethod = data.TryGetProperty("mergeMethod", out var mmProp) ? mmProp.GetString() ?? "merge" : "merge";
+                    string? commitTitle = data.TryGetProperty("commitTitle", out var ctProp) ? ctProp.GetString() : null;
+                    string? commitMessage = data.TryGetProperty("commitMessage", out var cmProp) ? cmProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(repoPath) && prNumber > 0)
+                    {
+                        var (ok, msg, sha) = await GitHubService.Instance.MergePullRequestAsync(repoPath, prNumber, mergeMethod, commitTitle, commitMessage).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = msg, sha });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath and valid prNumber are required");
+                    }
+                }
+                break;
+
+            case "generate_ai_commit_message":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rpProp) ? rpProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var (ok, subject, body, fullMsg) = await GitHubService.Instance.GenerateCommitMessageFromDiffAsync(repoPath).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, subject, body, fullMessage = fullMsg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
             case "get_agent_rules":
                 {
                     string? wsId = data.TryGetProperty("workspaceId", out var gWsProp) ? gWsProp.GetString() : null;

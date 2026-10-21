@@ -379,6 +379,348 @@ public sealed class GitHubService
         return $"{githubWebUrl.TrimEnd('/')}/tree/{Uri.EscapeDataString(branch)}";
     }
 
+    public static (string owner, string repo)? ParseGitHubOwnerAndRepo(string? remoteUrl)
+    {
+        if (string.IsNullOrWhiteSpace(remoteUrl)) return null;
+        var url = remoteUrl.Trim();
+        var sshMatch = Regex.Match(url, @"^(?:ssh:\/\/)?git@github\.com[:\/]([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+?)(?:\.git)?$");
+        if (sshMatch.Success) return (sshMatch.Groups[1].Value, sshMatch.Groups[2].Value);
+        var httpsMatch = Regex.Match(url, @"^https?:\/\/(?:[A-Za-z0-9_.\-]+@)?github\.com\/([A-Za-z0-9_.\-]+)\/([A-Za-z0-9_.\-]+?)(?:\.git)?\/?$");
+        if (httpsMatch.Success) return (httpsMatch.Groups[1].Value, httpsMatch.Groups[2].Value);
+        return null;
+    }
+
+    public async Task<GitHubPullRequestListResult> GetPullRequestsAsync(string repoPath, string state = "open", CancellationToken ct = default)
+    {
+        var result = new GitHubPullRequestListResult();
+        var (rc, remUrl) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["remote", "get-url", "origin"], ct).ConfigureAwait(false);
+        if (rc != 0 || string.IsNullOrWhiteSpace(remUrl))
+        {
+            result.Success = false;
+            result.Message = "No 'origin' remote found for this repository.";
+            return result;
+        }
+
+        var parsed = ParseGitHubOwnerAndRepo(remUrl);
+        if (parsed == null)
+        {
+            result.Success = false;
+            result.Message = "Origin remote is not a recognized GitHub URL.";
+            result.RepoUrl = remUrl;
+            return result;
+        }
+
+        var (owner, repo) = parsed.Value;
+        result.RepoUrl = $"https://github.com/{owner}/{repo}";
+        string apiUrl = $"https://api.github.com/repos/{owner}/{repo}/pulls?state={Uri.EscapeDataString(state)}&per_page=30";
+
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+            var token = await GetEffectiveTokenAsync(ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            }
+
+            using var res = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
+            {
+                result.Success = false;
+                result.Message = $"GitHub API returned {(int)res.StatusCode}: {res.ReasonPhrase}";
+                return result;
+            }
+
+            var json = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                result.Success = true;
+                result.Message = "No pull requests found.";
+                return result;
+            }
+
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var pr = new GitHubPullRequest
+                {
+                    Number = el.TryGetProperty("number", out var numEl) ? numEl.GetInt32() : 0,
+                    Title = el.TryGetProperty("title", out var titleEl) ? titleEl.GetString() ?? "" : "",
+                    Body = el.TryGetProperty("body", out var bodyEl) ? bodyEl.GetString() : null,
+                    State = el.TryGetProperty("state", out var stateEl) ? stateEl.GetString() ?? "open" : "open",
+                    IsDraft = el.TryGetProperty("draft", out var draftEl) && draftEl.GetBoolean(),
+                    HtmlUrl = el.TryGetProperty("html_url", out var urlEl) ? urlEl.GetString() : null
+                };
+
+                if (el.TryGetProperty("user", out var userEl))
+                {
+                    pr.UserLogin = userEl.TryGetProperty("login", out var ul) ? ul.GetString() ?? "" : "";
+                    pr.UserAvatar = userEl.TryGetProperty("avatar_url", out var ua) ? ua.GetString() : null;
+                }
+
+                if (el.TryGetProperty("head", out var headEl))
+                {
+                    pr.HeadRef = headEl.TryGetProperty("ref", out var hr) ? hr.GetString() ?? "" : "";
+                    pr.HeadSha = headEl.TryGetProperty("sha", out var hs) ? hs.GetString() : null;
+                }
+
+                if (el.TryGetProperty("base", out var baseEl))
+                {
+                    pr.BaseRef = baseEl.TryGetProperty("ref", out var br) ? br.GetString() ?? "" : "";
+                }
+
+                if (el.TryGetProperty("created_at", out var createdEl) && DateTime.TryParse(createdEl.GetString(), out var dt))
+                {
+                    pr.CreatedAt = dt;
+                }
+
+                if (el.TryGetProperty("updated_at", out var updEl) && DateTime.TryParse(updEl.GetString(), out var udt))
+                {
+                    pr.UpdatedAt = udt;
+                }
+
+                if (el.TryGetProperty("labels", out var labelsEl) && labelsEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var lbl in labelsEl.EnumerateArray())
+                    {
+                        if (lbl.TryGetProperty("name", out var n))
+                        {
+                            var nameStr = n.GetString();
+                            if (!string.IsNullOrWhiteSpace(nameStr)) pr.Labels.Add(nameStr);
+                        }
+                    }
+                }
+
+                result.PullRequests.Add(pr);
+            }
+
+            result.Success = true;
+            result.Message = $"Loaded {result.PullRequests.Count} pull requests.";
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.Success = false;
+            result.Message = $"Error fetching pull requests: {ex.Message}";
+            return result;
+        }
+    }
+
+    public async Task<(bool success, string message, string branchName)> CheckoutPullRequestAsync(string repoPath, int prNumber, CancellationToken ct = default)
+    {
+        string targetBranch = $"pr-{prNumber}";
+        var (fetchRc, fetchOut) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["fetch", "origin", $"pull/{prNumber}/head:{targetBranch}"], ct).ConfigureAwait(false);
+        if (fetchRc != 0)
+        {
+            var (fRc2, fOut2) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["fetch", "origin", $"pull/{prNumber}/head"], ct).ConfigureAwait(false);
+            if (fRc2 != 0)
+            {
+                return (false, $"Failed to fetch PR #{prNumber}: {fetchOut}\n{fOut2}", targetBranch);
+            }
+            var (coRc2, coOut2) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["checkout", "-B", targetBranch, "FETCH_HEAD"], ct).ConfigureAwait(false);
+            return (coRc2 == 0, coRc2 == 0 ? $"Checked out PR #{prNumber} as branch '{targetBranch}'" : coOut2, targetBranch);
+        }
+
+        var (coRc, coOut) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["checkout", targetBranch], ct).ConfigureAwait(false);
+        return (coRc == 0, coRc == 0 ? $"Checked out PR #{prNumber} as branch '{targetBranch}'" : coOut, targetBranch);
+    }
+
+    public async Task<(bool success, string message, string? sha)> MergePullRequestAsync(
+        string repoPath,
+        int prNumber,
+        string mergeMethod = "merge",
+        string? commitTitle = null,
+        string? commitMessage = null,
+        CancellationToken ct = default)
+    {
+        var token = await GetEffectiveTokenAsync(ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return (false, "GitHub Personal Access Token required to merge pull requests. Connect in Settings or GitHub tab.", null);
+        }
+
+        var (rc, remUrl) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["remote", "get-url", "origin"], ct).ConfigureAwait(false);
+        if (rc != 0 || string.IsNullOrWhiteSpace(remUrl))
+        {
+            return (false, "No 'origin' remote found for this repository.", null);
+        }
+
+        var parsed = ParseGitHubOwnerAndRepo(remUrl);
+        if (parsed == null)
+        {
+            return (false, "Origin remote is not a recognized GitHub URL.", null);
+        }
+
+        var (owner, repo) = parsed.Value;
+        string apiUrl = $"https://api.github.com/repos/{owner}/{repo}/pulls/{prNumber}/merge";
+
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Put, apiUrl);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var payload = new Dictionary<string, object?>
+            {
+                ["merge_method"] = string.IsNullOrWhiteSpace(mergeMethod) ? "merge" : mergeMethod.ToLowerInvariant()
+            };
+            if (!string.IsNullOrWhiteSpace(commitTitle)) payload["commit_title"] = commitTitle;
+            if (!string.IsNullOrWhiteSpace(commitMessage)) payload["commit_message"] = commitMessage;
+
+            req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+            using var res = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            var body = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+            if (!res.IsSuccessStatusCode)
+            {
+                return (false, $"GitHub rejected merge ({(int)res.StatusCode}): {body}", null);
+            }
+
+            using var doc = JsonDocument.Parse(body);
+            string? sha = doc.RootElement.TryGetProperty("sha", out var s) ? s.GetString() : null;
+            string msg = doc.RootElement.TryGetProperty("message", out var m) ? m.GetString() ?? "PR merged successfully" : "PR merged successfully";
+
+            return (true, msg, sha);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Merge failed: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool success, string subject, string body, string fullMessage)> GenerateCommitMessageFromDiffAsync(
+        string repoPath,
+        CancellationToken ct = default)
+    {
+        // 1. Get staged changes first
+        var (_, statOut) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["diff", "--cached", "--stat"], ct).ConfigureAwait(false);
+        var (_, patchOut) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["diff", "--cached", "--no-color", "--unified=1"], ct).ConfigureAwait(false);
+
+        // If nothing staged, inspect unstaged changes
+        if (string.IsNullOrWhiteSpace(patchOut))
+        {
+            var (_, uStat) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["diff", "--stat"], ct).ConfigureAwait(false);
+            var (_, uDiff) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["diff", "--no-color", "--unified=1"], ct).ConfigureAwait(false);
+            statOut = uStat;
+            patchOut = uDiff;
+        }
+
+        if (string.IsNullOrWhiteSpace(patchOut))
+        {
+            return (true, "chore: update working directory", "", "chore: update working directory");
+        }
+
+        // 2. Parse changed files to deduce primary scope and type
+        var (_, nameStatus) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["diff", "--cached", "--name-status"], ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(nameStatus))
+        {
+            var (_, uNameStatus) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["diff", "--name-status"], ct).ConfigureAwait(false);
+            nameStatus = uNameStatus;
+        }
+
+        var lines = (nameStatus ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var files = new List<(char status, string path)>();
+        foreach (var line in lines)
+        {
+            var parts = line.Split('\t', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2)
+            {
+                char st = char.ToUpperInvariant(parts[0][0]);
+                files.Add((st, parts[1].Trim()));
+            }
+        }
+
+        string type = "feat";
+        string scope = "ui";
+        var bulletPoints = new List<string>();
+
+        bool allDocs = files.Count > 0 && files.All(f => f.path.EndsWith(".md", StringComparison.OrdinalIgnoreCase) || f.path.StartsWith("docs", StringComparison.OrdinalIgnoreCase));
+        bool allStyle = files.Count > 0 && files.All(f => f.path.EndsWith(".css", StringComparison.OrdinalIgnoreCase));
+        bool hasTests = files.Any(f => f.path.Contains("test", StringComparison.OrdinalIgnoreCase));
+        bool hasBuild = files.Any(f => f.path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) || f.path.EndsWith(".iss", StringComparison.OrdinalIgnoreCase) || f.path.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase));
+        bool hasDeleteOnly = files.Count > 0 && files.All(f => f.status == 'D');
+
+        if (allDocs)
+        {
+            type = "docs";
+            scope = "readme";
+        }
+        else if (allStyle)
+        {
+            type = "style";
+            scope = "theme";
+        }
+        else if (hasTests)
+        {
+            type = "test";
+            scope = "unit";
+        }
+        else if (hasBuild)
+        {
+            type = "build";
+            scope = "deps";
+        }
+        else if (hasDeleteOnly)
+        {
+            type = "refactor";
+            scope = "clean";
+        }
+        else if (patchOut.Contains("fix", StringComparison.OrdinalIgnoreCase) || patchOut.Contains("bug", StringComparison.OrdinalIgnoreCase) || patchOut.Contains("error", StringComparison.OrdinalIgnoreCase) || patchOut.Contains("exception", StringComparison.OrdinalIgnoreCase))
+        {
+            type = "fix";
+        }
+
+        if (files.Count > 0 && !allDocs && !allStyle)
+        {
+            var first = files[0].path.ToLowerInvariant();
+            if (first.StartsWith("services/") || first.StartsWith("models/") || first.StartsWith("helpers/"))
+                scope = "core";
+            else if (first.Contains("git") || first.Contains("repo"))
+                scope = "git";
+            else if (first.Contains("settings"))
+                scope = "settings";
+            else if (first.Contains("terminal"))
+                scope = "terminals";
+            else if (first.Contains("quota") || first.Contains("vpn"))
+                scope = "network";
+            else if (first.StartsWith("ui/"))
+                scope = "ui";
+        }
+
+        foreach (var (st, path) in files.Take(6))
+        {
+            string verb = st switch
+            {
+                'A' => "Add",
+                'D' => "Remove",
+                'M' => "Update",
+                'R' => "Rename",
+                _ => "Modify"
+            };
+            string filename = Path.GetFileName(path);
+            bulletPoints.Add($"- {verb} {filename}");
+        }
+        if (files.Count > 6)
+        {
+            bulletPoints.Add($"- Update {files.Count - 6} other files");
+        }
+
+        string subject = $"{type}({scope}): update {scope} components";
+        if (files.Count == 1 && bulletPoints.Count > 0)
+        {
+            subject = $"{type}({scope}): {bulletPoints[0][2..].ToLowerInvariant()}";
+        }
+        else if (allDocs)
+        {
+            subject = "docs: update documentation and project specifications";
+        }
+
+        string body = string.Join("\n", bulletPoints);
+        string fullMsg = string.IsNullOrWhiteSpace(body) ? subject : $"{subject}\n\n{body}";
+
+        return (true, subject, body, fullMsg);
+    }
+
     private async Task<GitHubAuthStatus> CheckGitHubCliAuthAsync(CancellationToken ct)
     {
         var (rc, output) = await RunGhCliAsync(["api", "user"], ct).ConfigureAwait(false);
