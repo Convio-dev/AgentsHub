@@ -64,8 +64,8 @@ Source: "ui\*"; DestDir: "{app}\ui"; Flags: ignoreversion recursesubdirs createa
 ; مجلد الأصول الثابتة
 Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; ملف سكريبت fixquota الإضافي إن وُجد
-Source: "dist\fixquota-command.js"; DestDir: "{app}\dist"; Flags: ignoreversion skipifsourcedoesntexist
+; سكريبتات وأدوات التشغيل
+Source: "scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ملفات الرخص والتوثيق
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist

@@ -4324,11 +4324,16 @@ public sealed partial class DashboardWebBridge : IDisposable
         }
 
         string baseDir = AppContext.BaseDirectory;
-        string scriptPath = Path.Combine(baseDir, "dist", "fixquota-command.js");
+        string scriptPath = Path.Combine(baseDir, "scripts", "fixquota-command.js");
         if (!File.Exists(scriptPath))
         {
-            var fallback = Path.Combine(Directory.GetCurrentDirectory(), "dist", "fixquota-command.js");
+            var fallback = Path.Combine(Directory.GetCurrentDirectory(), "scripts", "fixquota-command.js");
             if (File.Exists(fallback)) scriptPath = fallback;
+            else
+            {
+                var legacy = Path.Combine(baseDir, "dist", "fixquota-command.js");
+                if (File.Exists(legacy)) scriptPath = legacy;
+            }
         }
 
         bool nodeExecuted = false;
@@ -4574,11 +4579,16 @@ public sealed partial class DashboardWebBridge : IDisposable
         EmitLog("System", "info", "Disconnecting active VPN tunnels (WARP / Proton)...");
 
         string baseDir = AppContext.BaseDirectory;
-        string scriptPath = Path.Combine(baseDir, "dist", "fixquota-command.js");
+        string scriptPath = Path.Combine(baseDir, "scripts", "fixquota-command.js");
         if (!File.Exists(scriptPath))
         {
-            var fallback = Path.Combine(Directory.GetCurrentDirectory(), "dist", "fixquota-command.js");
+            var fallback = Path.Combine(Directory.GetCurrentDirectory(), "scripts", "fixquota-command.js");
             if (File.Exists(fallback)) scriptPath = fallback;
+            else
+            {
+                var legacy = Path.Combine(baseDir, "dist", "fixquota-command.js");
+                if (File.Exists(legacy)) scriptPath = legacy;
+            }
         }
 
         bool nodeExecuted = false;
