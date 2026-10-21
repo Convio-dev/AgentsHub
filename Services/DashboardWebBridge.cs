@@ -121,6 +121,7 @@ public sealed partial class DashboardWebBridge : IDisposable
     {
         _cliManager.StatusChanged += (type, state, msg) =>
         {
+            UpdateDiscordRpcAgents();
             PostEventToUi("cli_status_changed", new
             {
                 cli = type.ToString(),
@@ -133,6 +134,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
         _cliManager.StatusChangedId += (id, state, msg) =>
         {
+            UpdateDiscordRpcAgents();
             if (CliManagerService.IsAntigravityProfileId(id, out var profileName))
             {
                 PostEventToUi("antigravity_instance_status_changed", new
@@ -288,6 +290,39 @@ public sealed partial class DashboardWebBridge : IDisposable
                 repositories = GitRepositoryManagerService.Instance.GetRepositories()
             });
         };
+
+        DiscordRpcService.Instance.StatusChanged += (status) =>
+        {
+            PostEventToUi("discord_rpc_status_changed", status);
+        };
+    }
+
+    private void UpdateDiscordRpcAgents()
+    {
+        try
+        {
+            int count = 0;
+            string primaryName = "Claude Code";
+            if (_cliManager.GetInfo(CliType.ClaudeCode).State == CliState.Running)
+            {
+                count++;
+                primaryName = "Claude Code";
+            }
+            if (_cliManager.GetInfo(CliType.AntigravityCli).State == CliState.Running)
+            {
+                count++;
+                primaryName = "Antigravity";
+            }
+            if (_cliManager.GetInfo(CliType.Hermes).State == CliState.Running)
+            {
+                count++;
+            }
+            var runningProfiles = _cliManager.GetRunningAntigravityProfiles();
+            count += runningProfiles.Count;
+
+            DiscordRpcService.Instance.SetActiveAgents(count, primaryName);
+        }
+        catch { }
     }
 
     private void OnStreamFlushTimerTick(object? sender, EventArgs e)
@@ -939,6 +974,47 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                     bool sent = await RemoteWebhookService.Instance.SendDiscordNotificationAsync(title ?? "Test", desc ?? "Test").ConfigureAwait(false);
                     SendResponse(requestId, sent, new { success = sent });
+                }
+                break;
+
+            case "get_discord_rpc_status":
+                {
+                    var status = DiscordRpcService.Instance.GetStatus();
+                    SendResponse(requestId, true, status);
+                }
+                break;
+
+            case "save_discord_rpc_settings":
+                {
+                    if (data.TryGetProperty("settings", out var sProp))
+                    {
+                        var s = JsonSerializer.Deserialize<DiscordRpcSettings>(sProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        if (s != null)
+                        {
+                            await DiscordRpcService.Instance.SaveSettingsAsync(s).ConfigureAwait(false);
+                            SendResponse(requestId, true, new { success = true, status = DiscordRpcService.Instance.GetStatus() });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid Discord RPC settings payload");
+                }
+                break;
+
+            case "toggle_discord_rpc":
+                {
+                    var status = DiscordRpcService.Instance.GetStatus();
+                    var current = status.Settings;
+                    bool newEnabled = data.TryGetProperty("enabled", out var enProp) ? enProp.GetBoolean() : !current.Enabled;
+                    current.Enabled = newEnabled;
+                    await DiscordRpcService.Instance.SaveSettingsAsync(current).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { success = true, enabled = newEnabled, status = DiscordRpcService.Instance.GetStatus() });
+                }
+                break;
+
+            case "test_discord_rpc":
+                {
+                    await DiscordRpcService.Instance.UpdateActivityAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, DiscordRpcService.Instance.GetStatus());
                 }
                 break;
 

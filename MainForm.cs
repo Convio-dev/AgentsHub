@@ -102,6 +102,12 @@ public partial class MainForm : Form
         }
         catch { }
 
+        try
+        {
+            DiscordRpcService.Instance.Start();
+        }
+        catch { }
+
         // App Icon
         try
         {
@@ -730,6 +736,7 @@ public partial class MainForm : Form
         UnregisterGlobalHotkey();
         UnregisterHudHotkey();
         try { ClaudeOpenRouterProxyService.Instance.Stop(); } catch { }
+        try { DiscordRpcService.Instance.Dispose(); } catch { }
 
         Application.Exit();
     }

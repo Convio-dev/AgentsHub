@@ -48,6 +48,7 @@
   if (typeof window.setupVoiceCommander === 'function') window.setupVoiceCommander();
   if (typeof window.setupPreCommitSecurity === 'function') window.setupPreCommitSecurity();
   if (typeof window.setupRemoteWebhooks === 'function') window.setupRemoteWebhooks();
+  if (typeof window.setupDiscordRpcSettings === 'function') window.setupDiscordRpcSettings();
   if (typeof window.setupTimelapseRecorder === 'function') window.setupTimelapseRecorder();
   if (typeof window.setupDevToolsEditor === 'function') window.setupDevToolsEditor();
   if (typeof window.setupShortcutEditor === 'function') window.setupShortcutEditor();

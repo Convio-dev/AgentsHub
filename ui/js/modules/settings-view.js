@@ -63,6 +63,9 @@
         pane.classList.toggle('active', pane.dataset.category === targetTab);
       });
       localStorage.setItem('agents_hub_active_settings_tab', targetTab);
+      try {
+        window.dispatchEvent(new CustomEvent('settings-tab-switched', { detail: { activeTab: targetTab } }));
+      } catch (e) {}
     }
     window.switchSettingsTab = switchSettingsTab;
 

@@ -57,7 +57,8 @@
       'opencode_sessions_updated',
       'opencode_interactive_prompt',
       'update_download_progress',
-      'repo_scan_progress'
+      'repo_scan_progress',
+      'discord_rpc_status_changed'
     ];
     if (!suppressedEvents.includes(eventType)) {
       let friendlySummary = `Event: ${eventType}`;
@@ -183,6 +184,14 @@
 
       case 'agent_task_completed':
         if (payload) {
+          const now = Date.now();
+          const dedupKey = `${payload.sessionId || ''}_${payload.brainId || ''}_${payload.isError}_${payload.isApproval}`;
+          if (window.__lastAgentCompletionKey === dedupKey && (now - (window.__lastAgentCompletionTime || 0)) < 10000) {
+            break;
+          }
+          window.__lastAgentCompletionKey = dedupKey;
+          window.__lastAgentCompletionTime = now;
+
           const statusText = payload.isError ? 'Error' : (payload.isApproval ? 'Approval Required' : 'Completed');
           const toastType = payload.isError ? 'error' : (payload.isApproval ? 'warning' : 'success');
           const shortBrain = payload.brainId ? ` [${payload.brainId.substring(0, 8)}...]` : '';

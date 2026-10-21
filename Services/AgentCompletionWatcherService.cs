@@ -21,6 +21,7 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
     {
         public string Id { get; init; } = "";
         public bool IsExecuting { get; set; }
+        public bool HasNotifiedCompletion { get; set; }
         public DateTime StartedAt { get; set; } = DateTime.UtcNow;
         public string LastPrompt { get; set; } = "";
         public StringBuilder TailBuffer { get; } = new();
@@ -113,6 +114,7 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
                 if (clean.Length > 1 && !clean.StartsWith("\x1B"))
                 {
                     tracker.IsExecuting = true;
+                    tracker.HasNotifiedCompletion = false; // Reset completion state for new prompt
                     tracker.StartedAt = DateTime.UtcNow;
                     tracker.LastPrompt = clean;
                     tracker.TailBuffer.Clear();
@@ -132,7 +134,8 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
         lock (tracker)
         {
             // Only transition to executing if an actual tool execution indicator is observed
-            if (!tracker.IsExecuting)
+            // and we have not already notified completion for this prompt
+            if (!tracker.IsExecuting && !tracker.HasNotifiedCompletion)
             {
                 if (!IsStartupOrGreetingNoise(text) &&
                     (text.Contains("Thinking", StringComparison.OrdinalIgnoreCase) ||
@@ -153,10 +156,11 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
                 tracker.TailBuffer.Remove(0, tracker.TailBuffer.Length - 20000);
             }
 
-            if (tracker.IsExecuting)
+            // Keep quiet timer running with 3.5s delay to avoid firing during LLM reasoning pauses
+            if (tracker.IsExecuting && !tracker.HasNotifiedCompletion)
             {
                 tracker.QuietTimer?.Dispose();
-                tracker.QuietTimer = new System.Threading.Timer(OnQuietTimerElapsed, tracker, 1800, Timeout.Infinite);
+                tracker.QuietTimer = new System.Threading.Timer(OnQuietTimerElapsed, tracker, 3500, Timeout.Infinite);
             }
         }
     }
@@ -170,7 +174,7 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
         DateTime startedAt;
         lock (tracker)
         {
-            if (!tracker.IsExecuting) return;
+            if (!tracker.IsExecuting || tracker.HasNotifiedCompletion) return;
             tailText = tracker.TailBuffer.ToString();
             prompt = tracker.LastPrompt;
             startedAt = tracker.StartedAt;
@@ -184,6 +188,7 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
             lock (tracker)
             {
                 tracker.IsExecuting = false;
+                tracker.HasNotifiedCompletion = true; // Lock single completion for this prompt
                 tracker.TailBuffer.Clear();
             }
 
@@ -195,21 +200,33 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
         }
     }
 
+    private static bool IsActivelyWorking(string recentTail)
+    {
+        if (string.IsNullOrWhiteSpace(recentTail)) return false;
+
+        return recentTail.Contains("esc to cancel", StringComparison.OrdinalIgnoreCase) ||
+               recentTail.Contains("Generating...", StringComparison.OrdinalIgnoreCase) ||
+               recentTail.Contains("Running command...", StringComparison.OrdinalIgnoreCase) ||
+               recentTail.Contains("Reading file...", StringComparison.OrdinalIgnoreCase) ||
+               recentTail.Contains("Thinking...", StringComparison.OrdinalIgnoreCase) ||
+               recentTail.Contains("Running tool", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static (bool isCompleted, bool isError, bool isApproval, string summary) AnalyzeTerminalOutput(string text, string lastPrompt)
     {
         if (string.IsNullOrWhiteSpace(text)) return (false, false, false, "");
-
-        // Filter out startup noise and greeting banners
-        if (IsStartupOrGreetingNoise(text))
-        {
-            return (false, false, false, "");
-        }
 
         var lines = text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (lines.Length == 0) return (false, false, false, "");
 
         string lastLine = lines[^1];
-        string prevLines = string.Join("\n", lines.TakeLast(6));
+        string recentTail = string.Join("\n", lines.TakeLast(6));
+
+        // Filter out startup noise and greeting banners
+        if (IsStartupOrGreetingNoise(recentTail))
+        {
+            return (false, false, false, "");
+        }
 
         // 1. Approval prompt checks
         if (lastLine.Contains("(y/n)", StringComparison.OrdinalIgnoreCase) ||
@@ -218,28 +235,38 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
             lastLine.Contains("Allow this command", StringComparison.OrdinalIgnoreCase) ||
             lastLine.Contains("Do you want to run", StringComparison.OrdinalIgnoreCase) ||
             lastLine.Contains("Allow / Deny", StringComparison.OrdinalIgnoreCase) ||
-            prevLines.Contains("Action required", StringComparison.OrdinalIgnoreCase))
+            recentTail.Contains("Action required", StringComparison.OrdinalIgnoreCase))
         {
-            return (false, false, true, prevLines);
+            return (false, false, true, recentTail);
         }
 
-        // 2. Antigravity prompt signatures
-        bool isAgyDone = lastLine.Contains("? for shortcuts", StringComparison.OrdinalIgnoreCase) ||
-                         prevLines.Contains("? for shortcuts", StringComparison.OrdinalIgnoreCase);
+        // 2. Active execution guard: If active execution markers are in recent output, the agent is still busy!
+        if (IsActivelyWorking(recentTail))
+        {
+            return (false, false, false, "");
+        }
 
-        // 3. Claude Code / Generic CLI prompt signatures
-        bool isClaudeDone = lastLine.StartsWith('❯') ||
+        // 3. Check for errors
+        bool isError = recentTail.Contains("Error:", StringComparison.OrdinalIgnoreCase) ||
+                       recentTail.Contains("Fatal error", StringComparison.OrdinalIgnoreCase) ||
+                       recentTail.Contains("Traceback (most recent call last)", StringComparison.OrdinalIgnoreCase);
+
+        // 4. Prompt ready check (Antigravity & Claude Code)
+        string lineBeforeLast = lines.Length > 1 ? lines[^2] : "";
+
+        bool isPromptLine = lastLine == ">" ||
                             lastLine.StartsWith('>') ||
                             lastLine.EndsWith('>') ||
-                            prevLines.Contains("cost:", StringComparison.OrdinalIgnoreCase) ||
-                            prevLines.Contains("Context left:", StringComparison.OrdinalIgnoreCase);
+                            lastLine == "❯" ||
+                            lastLine.StartsWith('❯') ||
+                            lastLine.Contains("? for shortcuts", StringComparison.OrdinalIgnoreCase) ||
+                            lineBeforeLast.StartsWith('>') ||
+                            lineBeforeLast.EndsWith('>');
 
-        // 4. Check for errors
-        bool isError = prevLines.Contains("Error:", StringComparison.OrdinalIgnoreCase) ||
-                       prevLines.Contains("Fatal error", StringComparison.OrdinalIgnoreCase) ||
-                       prevLines.Contains("Traceback (most recent call last)", StringComparison.OrdinalIgnoreCase);
+        bool hasCostOrContext = recentTail.Contains("cost:", StringComparison.OrdinalIgnoreCase) ||
+                                recentTail.Contains("Context left:", StringComparison.OrdinalIgnoreCase);
 
-        if (isAgyDone || isClaudeDone)
+        if (isPromptLine || hasCostOrContext || isError)
         {
             string summary = ExtractCompletionSummary(lines, lastPrompt);
             return (true, isError, false, summary);
@@ -292,14 +319,25 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
             {
                 lock (tracker)
                 {
-                    if (tracker.IsExecuting)
+                    tracker.QuietTimer?.Dispose();
+                    tracker.QuietTimer = null;
+                    tracker.IsExecuting = false;
+                    tracker.TailBuffer.Clear();
+
+                    // Do NOT notify if user intentionally closed or stopped the CLI ("Stopping agy...", "Session closed")
+                    bool isUserStop = string.IsNullOrWhiteSpace(msg) ||
+                                      msg.StartsWith("Stopping", StringComparison.OrdinalIgnoreCase) ||
+                                      msg.Contains("closed", StringComparison.OrdinalIgnoreCase) ||
+                                      msg.Contains("stopped", StringComparison.OrdinalIgnoreCase);
+
+                    bool isCrash = msg.Contains("code") && !msg.Contains("code 0");
+
+                    if (!isUserStop && isCrash && !tracker.HasNotifiedCompletion)
                     {
-                        tracker.IsExecuting = false;
-                        tracker.TailBuffer.Clear();
-                        bool isErr = msg.Contains("code") && !msg.Contains("code 0");
+                        tracker.HasNotifiedCompletion = true;
                         var duration = DateTime.UtcNow - tracker.StartedAt;
                         string brainId = ResolveBrainSessionId(id);
-                        _ = TriggerCompletionAsync(id, brainId, msg, isErr, false, duration);
+                        _ = TriggerCompletionAsync(id, brainId, msg, true, false, duration);
                     }
                 }
             }
@@ -312,7 +350,7 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
 
         Task.Run(async () =>
         {
-            await Task.Delay(500).ConfigureAwait(false);
+            await Task.Delay(800).ConfigureAwait(false);
             try
             {
                 var fi = new FileInfo(e.FullPath);
@@ -350,6 +388,12 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
                     return;
                 }
 
+                // If step contains tool_calls, model is invoking tools (intermediate step) -> DO NOT NOTIFY
+                if (root.TryGetProperty("tool_calls", out var tcEl) && tcEl.ValueKind == JsonValueKind.Array && tcEl.GetArrayLength() > 0)
+                {
+                    return;
+                }
+
                 // Extract raw brain folder GUID
                 string brainId = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(e.FullPath)))) ?? "session";
                 if (brainId.StartsWith('.'))
@@ -357,11 +401,21 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
                     brainId = Path.GetFileName(Path.GetDirectoryName(e.FullPath)) ?? "session";
                 }
 
+                // Sync live trackers so terminal watcher won't double-fire
+                foreach (var tr in _trackers.Values)
+                {
+                    lock (tr)
+                    {
+                        tr.IsExecuting = false;
+                        tr.HasNotifiedCompletion = true;
+                    }
+                }
+
                 // Resolve friendly profile/workspace name
                 string profileName = ResolveProfileNameFromPath(e.FullPath);
 
-                if (string.Equals(type, "MODEL", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(type, "PLANNER_RESPONSE", StringComparison.OrdinalIgnoreCase) ||
+                // Only trigger if PLANNER_RESPONSE with final text content, or terminal ERROR
+                if (string.Equals(type, "PLANNER_RESPONSE", StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase))
                 {
                     string formatted = DiscordMarkdownFormatter.FormatTerminalOutputForDiscord(content);
@@ -379,11 +433,19 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
 
     public async Task TriggerCompletionAsync(string sessionId, string? brainSessionId, string summary, bool isError, bool isApproval, TimeSpan? duration = null)
     {
-        // 5-second deduplication per session to prevent double-firing
+        // 12-second deduplication per session & brain ID to prevent double-firing
         var now = DateTime.UtcNow;
-        if (_lastNotified.TryGetValue(sessionId, out var last) && (now - last).TotalSeconds < 5)
+        if (_lastNotified.TryGetValue(sessionId, out var last) && (now - last).TotalSeconds < 12)
         {
             return;
+        }
+        if (!string.IsNullOrWhiteSpace(brainSessionId))
+        {
+            if (_lastNotified.TryGetValue(brainSessionId, out var bLast) && (now - bLast).TotalSeconds < 12)
+            {
+                return;
+            }
+            _lastNotified[brainSessionId] = now;
         }
         _lastNotified[sessionId] = now;
 
