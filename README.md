@@ -1,268 +1,264 @@
 # Agents Hub
 
-**One desktop window for every AI coding agent on your machine.**
+**The desktop control plane for AI coding agents on Windows.**
 
-Agents Hub is a portable Windows control plane for CLI coding agents. It runs Hermes, Claude Code and Antigravity side by side, gives each one a real terminal, isolates multiple accounts, routes Claude through your own gateway, and exposes the whole workspace to your phone over the LAN, all from a single ~17 MB executable.
+Agents Hub runs Hermes, Claude Code, and Antigravity side by side in a unified desktop workspace. Every agent gets a native Windows pseudoconsole (ConPTY), isolated environment credentials, local gateway routing, visual Git management with direct GitHub synchronization, and LAN broadcasting for mobile access—packaged into a single portable binary or installer.
 
-[![License](https://img.shields.io/badge/license-MIT-3fb950?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078D6?style=flat-square)]()
-[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square)]()
-[![Version](https://img.shields.io/badge/version-1.0.3-2563eb?style=flat-square)]()
-[![UI](https://img.shields.io/badge/UI-WebView2-2ea44f?style=flat-square)]()
-[![Portable](https://img.shields.io/badge/dist-single%20file-f59e0b?style=flat-square)]()
-[![PRs](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)]()
-
----
-
-## Why it exists
-
-Running several AI coding agents usually means several terminals, several config files, and several sets of credentials that quietly overwrite each other. Agents Hub treats that as one workspace:
-
-- **Process lifecycle**: start, stop and restart agents without hunting for stray child processes.
-- **Real terminals**: every agent gets a genuine ConPTY session, not a text box.
-- **Account isolation**: multiple Google accounts for Antigravity, each with its own credentials and port.
-- **Project workspaces**: bind working directories, environment variables, and specific agent profiles into cohesive setups.
-- **Quake HUD terminal**: drop down a top-screen terminal console instantly from anywhere with a global hotkey.
-- **Bring your own gateway**: Claude Code can run against OpenRouter, OpenAI, Groq, DeepSeek or local Ollama.
-- **Reach it from anywhere on the LAN**: scan a QR code and the dashboard opens on your phone.
+[![GitHub Release](https://img.shields.io/github/v/release/ZerroDevs/AgentsHub?style=flat-square&color=2563eb&label=Release)](https://github.com/ZerroDevs/AgentsHub/releases/latest)
+[![Download Setup](https://img.shields.io/badge/Download-Installer%20%26%20Portable-10b981?style=flat-square&logo=windows)](https://github.com/ZerroDevs/AgentsHub/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-3fb950?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20x64-0078D6?style=flat-square)]()
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square)](https://dotnet.microsoft.com/)
+[![UI](https://img.shields.io/badge/UI-WebView2-0284c7?style=flat-square)]()
+[![Git](https://img.shields.io/badge/Git-Integrated%20Repo%20Manager-f05032?style=flat-square&logo=git&logoColor=white)]()
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/ZerroDevs/AgentsHub/pulls)
 
 ---
 
-## Feature highlights
+## Downloads
 
-### Multi-agent process control
-Manages Hermes, Claude Code and Antigravity CLI as first-class engines, plus any custom command you define. Every engine gets a live state (`Starting`, `Running`, `Error`, `Offline`), PID, port and start time, with tree-aware termination that never leaves orphans behind.
+Download the latest pre-built Windows x64 binaries directly from the **[GitHub Releases Page](https://github.com/ZerroDevs/AgentsHub/releases/latest)**:
 
-### Native ConPTY terminals and interactive sync
-Each agent runs inside a real Windows pseudoconsole, streamed into an xterm.js surface. Sessions are addressed individually, resized to fit, buffered, and replayed when you switch back to a tab. The embedded dashboard terminal and standalone workspace window synchronize their active tabs in real time.
-
-### Quake-style HUD terminal
-A drop-down top-of-screen terminal inspired by classic gaming consoles. Pressing the configurable global hotkey (such as `F12` or `~`) smoothly slides down a semi-transparent terminal overlay across 94% of the screen width. Switch between all active agent tabs, trigger fast run/restart actions, or clear buffers without leaving your current application.
-
-### Project workspaces and directory isolation
-Create, configure and switch full project workspaces. Each workspace specifies its own project root directory, linked Antigravity profile, primary and secondary CLIs, custom environment variables, and color tag. Activating a workspace automatically switches the active agent profile and redirects paths seamlessly.
-
-### Dual-pane split view workspace
-Run two agent sessions side by side in the standalone workspace window. Supports horizontal and vertical split modes with a resizable divider, independent pane tab selectors, and optional cloned streams for simultaneous monitoring.
-
-### Antigravity multi-account, properly isolated
-Each profile gets its own **VirtualHome**: `USERPROFILE`, `HOME`, `APPDATA` and `LOCALAPPDATA` are redirected into a per-profile sandbox, so two accounts never share a session. Credentials are read from and written to the Windows Credential Manager, ports are allocated per profile, and the account email is decoded from the token so the log tells you exactly which identity launched.
-
-### Claude Code gateway and token analytics
-A local translation proxy on `127.0.0.1:9230` speaks the Anthropic Messages API and forwards to any OpenAI-compatible backend, including full streaming SSE and `tool_use` / `tool_result` mapping. Live proxy telemetry tracks prompt and completion tokens, requests per minute, model usage distributions, and estimated cost savings compared to direct Anthropic API pricing.
-
-### AI client and VPN auto-discovery
-A fast background scanner detects 15+ installed AI developer tools and VPN clients across user and system directories. Automatically discovers tools such as FreeBuff Desktop, WorkBuddy, Devin, Antigravity IDE, Cursor, VS Code, Ollama, LM Studio, Proton VPN, Cloudflare WARP, Tailscale, WireGuard, and Mullvad. Missing entries can be added to the AI Dev Tools launch deck with a single click.
-
-### Dev Tools health diagnostics
-Configured tools undergo live path verification and normalization, automatically stripping wrapping quotes from Explorer's "Copy as path" and resolving UWP App Execution Aliases (`shell:AppsFolder\...`). Clear badges (`Ready`, `Missing`, `NeedsFixing`, `Unsupported`) report status before launching.
-
-### Windows Firewall diagnostics and 1-click repair
-Integrated firewall probe analyzes Domain, Private, and Public profiles to verify whether inbound traffic to the LAN proxy is permitted. If rules are missing or partial, a one-click elevated action configures the required rules via `netsh` so mobile devices on the local network connect reliably.
-
-### Dependencies and runtimes manager
-Detects key tools the hub relies on: Node.js, Git, Python, Claude Code, Antigravity, Hermes, Cloudflare WARP and Proton VPN. Runtimes are checked in parallel on a background thread, reporting resolved paths and versions. Missing tools install in place via `winget`, official PowerShell scripts, or download pages, with installation output streamed live.
-
-### LAN broadcast and remote control
-A transparent TCP reverse proxy on `0.0.0.0:9191` forwards to the local engine, handling HTTP, WebSocket and Server-Sent Events alike. It resolves your LAN address, generates a QR code, identifies connecting devices, and serves a themed offline page when the engine is down.
-
-### Prompt Enhancer
-Rewrite rough prompts into precise instructions. Built-in presets for General, Code, Concise and Structured work out of the box. System prompts are fully customizable with temperature adjustments, one-click reset to defaults, and a Refine button that feeds generated outputs back for another pass.
-
-### Quota and IP rotation
-Resets provider quota by rotating your public IP through Cloudflare WARP or Proton VPN, guarded by cooldown limits, dual-stack verification, and an optional public-IP mask for screenshots and streaming.
-
-### OpenCode Desktop integration
-Watches the OpenCode sidecar, subscribes to its event stream, and surfaces interactive question and permission prompts directly in the dashboard so you never miss a blocked agent.
-
-### System telemetry and theming
-Live RAM and network throughput with sparklines, sampled on a background thread. Dark and light modes with an adaptive accent system that derives a full palette from a single hex value, extending to the native Windows title bar.
+| Asset | Type | Description |
+| :--- | :--- | :--- |
+| **`AgentsHub-Setup-v1.0.4.exe`** | Inno Setup Installer | Standard installer with desktop shortcut, Start Menu entry, and optional Windows startup integration. |
+| **`AgentsHub.exe`** | Standalone Executable | Self-contained single-file portable binary. Runs immediately with no installer and no .NET runtime prerequisites. |
 
 ---
 
-## Dashboard tour
+## Why Agents Hub
 
-The entire UI is a WebView2 app served from the `ui/` folder.
+Running multiple AI coding agents typically creates fragmented terminal windows, port collisions, and credentials that overwrite one another. Agents Hub unifies your agent toolchain into one cohesive desktop application:
 
-| View | What it does |
+- **Unified Process Lifecycle**: Start, stop, restart, and monitor background agent engines without hunting for stray PIDs.
+- **Genuine ConPTY Terminals**: Real Windows pseudoconsole sessions streamed directly to hardware-accelerated xterm.js terminals.
+- **Account & Environment Isolation**: Multiple accounts for Antigravity, each with isolated home directories and dedicated ports.
+- **Visual Git & GitHub Integration**: Inspect branches, commit trees, working tree changes, interactive diffs, and push/pull to GitHub without leaving the app.
+- **Quake-Style HUD Console**: Slide down a terminal overlay across the top of your screen from any Windows application with a global hotkey.
+- **Bring-Your-Own-Gateway**: Route Claude Code through your own OpenRouter, Groq, DeepSeek, OpenAI, or local Ollama endpoints.
+- **LAN Remote Access**: Broadcast the dashboard over your local Wi-Fi with instant QR code pairing for phones and tablets.
+- **Secret & Pre-Commit Protection**: Automatic security scanner inspects staged and uncommitted files for API keys, tokens, and private keys.
+
+---
+
+## Features
+
+### 1. Multi-Agent Process Engine
+Controls Hermes, Claude Code, Antigravity CLI (`agy`), and user-defined custom CLIs as native managed processes. Features live status reporting (`Starting`, `Running`, `Error`, `Offline`), PID and port allocation tracking, and tree-aware process termination that prevents orphaned child workers.
+
+### 2. Native ConPTY Terminals & Real-Time Sync
+Every agent executes in an authentic Windows pseudoconsole (ConPTY) streamed to xterm.js. Sessions support dynamic window resizing, ANSI escape sequences, full buffer replay, and real-time tab state synchronization between the embedded dashboard terminal and detached workspace windows.
+
+### 3. Dual-Pane Split Workspace
+Run two independent agent sessions side by side inside the standalone workspace window. Supports horizontal and vertical split layouts, draggable dividers, independent tab selection per pane, and synchronized stream cloning.
+
+### 4. Quake-Style Drop-Down HUD Terminal
+Pressing a configurable global hotkey (default: `F12` or `~`) smoothly slides down a semi-transparent terminal overlay across 94% of your display width. Switch agent tabs, restart engines, or review output from any game, browser, or code editor without task-switching.
+
+### 5. Git Repository Manager & Visual Graph
+A dedicated Git workstation tab directly inside the hub:
+- **Interactive Commit Graph**: Visual multi-lane commit history with branch tracks, author metadata, and commit timestamps.
+- **Working Tree Inspector**: Staged and unstaged change tracking with status indicators (`Modified`, `Added`, `Deleted`, `Untracked`).
+- **Side-by-Side & Unified Diff Viewer**: Color-coded syntax-highlighted diff inspector with file trees and patch hunk views.
+- **Commit Revert**: Undo mistakes directly from the commit graph with confirmation modals, dirty working-tree safety guards, and choice between reverting on the active branch or creating a dedicated revert branch.
+- **Stash & Worktree Manager**: Create, view, pop, apply, drop, and clear Git stashes, or spawn isolated working trees for parallel feature branches.
+- **Direct GitHub Push & Remote Sync**: Authenticate via GitHub Personal Access Token (PAT) with automated credential detection, link repositories, fetch, pull, push commits, and publish local repositories directly to GitHub.
+
+### 6. Pre-Commit Security & Secret Scanner
+Integrated scanner analyzes uncommitted and staged files before code changes are committed. Identifies high-entropy secrets including OpenAI keys, Anthropic tokens, AWS credentials, GitHub PATs, private keys, SSH certificates, and shell injection hazards.
+
+### 7. Antigravity Multi-Account Isolation
+Each profile operates within an isolated **VirtualHome** sandbox: `USERPROFILE`, `HOME`, `APPDATA`, and `LOCALAPPDATA` are isolated per profile so accounts never cross-contaminate. Credentials store securely in Windows Credential Manager, ports allocate automatically per account, and the account identity decodes directly from the token.
+
+### 8. Claude Code Gateway & Token Analytics
+A built-in HTTP proxy on `127.0.0.1:9230` translates Anthropic Messages API calls to OpenAI-compatible endpoints with Server-Sent Events (SSE) streaming and `tool_use` / `tool_result` translation. Live telemetry records prompt and completion token volumes, requests per minute, model usage breakdown, and estimated cost savings against standard Anthropic API rates.
+
+### 9. OpenCode Quota & Dual-Stack IP Rotation
+Manage provider rate limits and quotas from the Dashboard:
+- Dual-stack IPv4 and IPv6 status detection with location geocoding.
+- One-click IP rotation via Cloudflare WARP with automatic cooldown protection.
+- Secondary Proton VPN provider switcher with strict parent-child dependency toggles in Settings.
+- Quick IP masking toggle for streaming, recordings, and screenshots.
+- OpenCode Desktop sidecar session monitoring and interactive question prompt notifications.
+
+### 10. Audio & Soundpack System
+Event-driven sound engine with sound themes (`Modern`, `Retro`, `Subtle`, `Arcade`). Provides distinct audio cues for task completions, process crashes, quota rotations, Git commits, and branch switches. Includes master volume controls, mute toggles, and per-event sound preferences in Settings.
+
+### 11. Scheduled Automations & Background Tasks
+Configure recurring CLI commands, maintenance scripts, and agent triggers using Cron expressions or interval schedules. Includes an execution history log, pause/resume toggles, and one-click manual triggers.
+
+### 12. MCP & Skills Discovery
+Inspect installed Model Context Protocol (MCP) servers, tools, skills, rules, and sidecars across user and system directories. Monitor active agent tool capabilities and verify server statuses.
+
+### 13. System Telemetry & Balanced Dashboard Grid
+- Real-time CPU/RAM memory utilization and network throughput charts with smooth Bézier sparklines.
+- Dynamic 2-column balanced CSS grid layout: eliminates whitespace gaps regardless of whether OpenCode Quota or Hardware Telemetry is enabled or disabled.
+- Full-width dual-tile system shell launcher for standard and elevated (Administrator) Command Prompt and PowerShell.
+
+### 14. LAN Remote Broadcast & Mobile Access
+An opt-in reverse proxy on `0.0.0.0:9191` forwards the local engine over your Wi-Fi network. Generates a QR code for instant mobile phone pairing, identifies connected LAN clients, tests Windows Firewall rules, and provides a 1-click elevated firewall repair action.
+
+### 15. Prompt Enhancer
+Turn rough prompts into structured instructions using built-in presets (`General`, `Code`, `Concise`, `Structured`). Supports custom system instructions, temperature adjustment, and iterative prompt refinement.
+
+### 16. Modern Category Settings & Internal Live Logs
+- Master-detail category sidebar navigation with real-time settings search across all categories.
+- Dedicated **Live Logs** diagnostic console inside Settings: filterable event stream (System, CLIs, OpenCode, WARP/VPN, Errors, Warnings) with keyword search, auto-scroll, and 1-click clipboard export.
+- Discord-inspired adaptive theme engine with preset palettes, custom hex color picker, and saturation slider.
+
+---
+
+## Interface Tour
+
+The user interface is an integrated WebView2 dashboard:
+
+| View | Purpose |
 | :--- | :--- |
-| **Dashboard & Engine** | Engine host and port, LAN toggle, active ports, standalone terminal launcher, Quake HUD trigger, token telemetry card, OpenCode quota and IP controls, live telemetry, CLI controllers, and quick shortcuts |
-| **Interactive Terminals** | Embedded xterm.js terminals with real-time tab sync, split view launcher, clear buffer, and external browser link |
-| **Prompt Enhancer** | Presets, customizable system instructions, temperature slider, and iterative prompt refinement |
-| **Antigravity Profiles** | Create, switch, rename and isolate accounts; configure Project Workspaces with custom working directories and linked profiles; manage Claude gateway settings |
-| **AI Dev Tools** | Launch external AI desktop applications, auto-detect installed AI and VPN clients, inspect launch path health, and set custom arguments |
-| **AI Providers & Models** | Provider CRUD, base URLs, API keys, model discovery |
-| **LAN Remote & QR** | Broadcast control, LAN address, QR code, connected device list, and Windows Firewall status with 1-click elevation |
-| **Live Logs** | Filterable event stream from every subsystem |
-| **Settings & About** | Theme, accent, startup options, global hotkey (Window and Quake HUD), notifications, dependencies manager, and privacy toggles |
+| **Dashboard & Engine** | Active web services, port switcher, standalone terminal popout, system shells, OpenCode quota rotation, hardware telemetry, quick app shortcuts, and CLI process controls. |
+| **Interactive Terminals** | Embedded ConPTY xterm.js terminals with live tab sync, split view launcher, buffer clear, and browser popouts. |
+| **Prompt Enhancer** | Prompt rewriting workspace with built-in presets, system prompt editing, and iterative refinement. |
+| **Antigravity Profiles** | Profile creation, account switching, credential isolation, and Project Workspace root directory bindings. |
+| **AI Dev Tools** | Launch external AI developer tools, auto-discover installed IDEs and clients, and verify executable path health. |
+| **LAN Remote & QR** | Broadcast server controls, LAN URL, QR code generator, connected client table, and Windows Firewall 1-click repair. |
+| **Repositories & Git** | Visual Git repository manager: branch switching, interactive commit graph, working tree diffs, commit reverts, stashes, worktrees, and live GitHub push/sync. |
+| **Settings & Preferences** | Master-detail category navigation: Appearance & Themes, General Preferences, AI Runtimes, MCP & Skills, Audio & Soundpacks, Webhooks & Discord, Security & Health, Live Logs Console, and About & Updates. |
 
 ---
 
-## Supported engines
+## Network Architecture & Ports
 
-| Engine | Command | Default port | Notes |
+| Port | Service | Bind Address | Description |
 | :--- | :--- | :--- | :--- |
-| **Hermes** | `hermes dashboard` | `9119` | Web dashboard served in-app and over LAN |
-| **Claude Code** | `claude` | `9229` | Optional gateway injection and token tracking |
-| **Antigravity CLI** | `agy` | `9339`+ | One isolated profile per account |
-| **Custom** | user-defined | N/A | Any command, with its own working directory |
-| **Shells** | `cmd` / `powershell` | N/A | Embedded tabs, HUD dropdown, or external windows |
+| **`9119`** | Hermes Dashboard | `127.0.0.1` | Core Hermes web dashboard interface. |
+| **`9191`** | LAN Remote Proxy | `0.0.0.0` (Opt-in) | Reverse proxy for local network mobile device access. |
+| **`9229`** | Claude Code Terminal | `127.0.0.1` | Claude Code web pseudoconsole server. |
+| **`9230`** | Claude Gateway Proxy | `127.0.0.1` | Anthropic-to-OpenAI translation gateway with token telemetry. |
+| **`9339`+** | Antigravity Engines | `127.0.0.1` | Isolated ports dynamically allocated per profile identity. |
 
 ---
 
-## Ports
+## Quick Start
 
-| Port | Purpose |
+1. **Download**: Grab `AgentsHub-Setup-v1.0.4.exe` or portable `AgentsHub.exe` from **[Releases](https://github.com/ZerroDevs/AgentsHub/releases/latest)**.
+2. **Launch**: Run the executable. No .NET runtime installation required.
+3. **Verify Dependencies**: Open **Settings -> AI Engines & Runtimes** to review detected tools (Node.js, Git, Python, Claude Code, Antigravity, Hermes). Missing tools can be installed with one click via `winget`.
+4. **Start Engine**: Click **Start Engine** on the Dashboard and launch your preferred agents.
+
+### Command-Line Arguments
+
+| Flag | Function |
 | :--- | :--- |
-| `9119` | Hermes dashboard (engine) |
-| `9191` | LAN broadcast reverse proxy |
-| `9229` | Claude Code web terminal server |
-| `9230` | Claude Code to OpenRouter translation gateway |
-| `9339`+ | Antigravity profiles, allocated per account |
-
-All listeners bind to `127.0.0.1` except the LAN proxy, which is opt-in.
+| `--tray` | Start application minimized to the system tray. |
+| `-minimized` | Alias for `--tray`. |
 
 ---
 
-## Quick start
+## Building from Source
 
-1. **Download** `AgentsHub-Setup-v1.0.3.exe` from [Releases](../../releases), or build from source below.
-2. **Run** it. No .NET runtime install required: the binary is self-contained.
-3. Open the **Settings & About** tab and check the **Dependencies** card to see which runtimes and agents are already installed.
-4. Hit **Start Engine**, then launch whichever agents you want from the Dashboard.
-
-### Command-line arguments
-
-| Flag | Description |
-| :--- | :--- |
-| `--tray` | Start minimized to the system tray (used by the startup shortcut) |
-| `-minimized` | Alias for `--tray` |
-
----
-
-## Building from source
-
-**Prerequisites**
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+### Prerequisites
 - Windows 10 or 11 (x64)
-- [Inno Setup 6](https://jrsoftware.org/isdl.php) (only for the installer)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download)
+- [Inno Setup 6](https://jrsoftware.org/isdl.php) *(required only when building the installer package)*
 
-**Run in development**
-
+### Development Run
 ```powershell
 dotnet run
 ```
 
-**Build the portable single-file executable**
-
+### Build Single-File Portable Executable
 ```powershell
 dotnet publish -c Release
 ```
-
-Output:
-
+Output path:
 ```text
 bin\Release\net10.0-windows\win-x64\publish\AgentsHub.exe
 ```
 
-**Build the installer**
-
+### Build Inno Setup Installer
 ```cmd
 .\build-installer.cmd
 ```
-
-Or invoke the compiler directly:
-
-```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" AgentsHub.iss
-```
-
-Output:
-
+Output path:
 ```text
-dist\AgentsHub-Setup-v1.0.3.exe
+dist\AgentsHub-Setup-v1.0.4.exe
 ```
 
 ---
 
-## Project structure
+## Project Structure
 
 ```text
 AgentsHub/
-├── Program.cs                          # Single-instance guard and startup
-├── MainForm.cs                         # WebView2 host, global hotkeys, and tray lifecycle
+├── Program.cs                          # Application entry point, single-instance guard
+├── MainForm.cs                         # Main window, WebView2 host, global hotkeys, tray lifecycle
 ├── CliWebviewForm.cs                   # Standalone terminal workspace window with split view
-├── HudTerminalForm.cs                  # Quake-style drop-down sliding terminal overlay
+├── HudTerminalForm.cs                  # Quake-style drop-down sliding overlay terminal
 ├── Services/
-│   ├── DashboardWebBridge.cs           # The JS <-> C# API surface
-│   ├── CliManagerService.cs            # Agent lifecycle and terminal sessions
-│   ├── HermesProcessService.cs         # Hermes engine process controller
-│   ├── LanProxyService.cs              # LAN reverse proxy
-│   ├── AntigravityProfileService.cs    # Multi-account isolation
-│   ├── ClaudeOpenRouterProxyService.cs # Anthropic <-> OpenAI gateway
-│   ├── ProxyTelemetryService.cs        # Token usage and cost savings telemetry
-│   ├── OpenCodeWatcherService.cs       # OpenCode sidecar integration
-│   ├── DependencyCheckerService.cs     # Runtime and agent detection
-│   ├── DevToolHealth.cs                # Target normalization and health verification
-│   ├── NetworkTelemetryService.cs      # Background network sampler
-│   ├── AiConfigService.cs              # Configuration store (workspaces, tools, providers)
-│   ├── PromptEnhancerService.cs        # Prompt rewriting
-│   ├── ProtonVpnService.cs             # VPN-driven IP rotation
-│   ├── CliWebTerminalServer.cs         # Terminal web and WebSocket server
-│   └── ConPty/                         # Native pseudoconsole interop
-├── Helpers/                            # Firewall, client discovery, theme, network, QR, startup, shell
-│   ├── FirewallHelper.cs               # Windows Firewall status check and elevated rule creator
-│   ├── InstalledClients.cs             # Auto-discovery for AI tools, IDEs, and VPNs
-│   ├── AppInfo.cs                      # Application identity and metadata
-│   ├── ThemeManager.cs                 # Accent and theme color derivation
-│   ├── NetworkHelper.cs                # Network address resolution
-│   ├── QrCodeHelper.cs                 # QR code generator for LAN access
-│   ├── ShellLauncher.cs                # System terminal and external process launcher
+│   ├── DashboardWebBridge.cs           # C# <-> JavaScript API RPC bridge (3,900+ lines)
+│   ├── CliManagerService.cs            # Process lifecycle and ConPTY terminal sessions
+│   ├── HermesProcessService.cs         # Hermes engine process supervisor
+│   ├── LanProxyService.cs              # LAN broadcast TCP reverse proxy
+│   ├── AntigravityProfileService.cs    # Multi-account isolation and credential management
+│   ├── ClaudeOpenRouterProxyService.cs # Anthropic Messages <-> OpenAI translation proxy
+│   ├── ProxyTelemetryService.cs        # Token usage metrics and cost estimation
+│   ├── OpenCodeWatcherService.cs       # OpenCode Desktop sidecar event subscriber
+│   ├── DependencyCheckerService.cs     # Parallel runtime and agent detection
+│   ├── DevToolHealth.cs                # Path validation and executable health inspection
+│   ├── NetworkTelemetryService.cs      # Background network and RAM throughput sampler
+│   ├── AiConfigService.cs              # JSON store for workspaces, tools, and providers
+│   ├── PromptEnhancerService.cs        # Prompt refinement engine
+│   ├── ProtonVpnService.cs             # Proton VPN provider controller
+│   ├── CliWebTerminalServer.cs         # Web and WebSocket terminal server
+│   └── ConPty/                         # Native Windows pseudoconsole P/Invoke interop
+├── Helpers/
+│   ├── FirewallHelper.cs               # Windows Firewall status probe and elevated netsh rule creator
+│   ├── InstalledClients.cs             # Discovery scanner for AI tools, IDEs, and VPNs
+│   ├── AppInfo.cs                      # Application identity, version, and assembly metadata
+│   ├── ThemeManager.cs                 # Accent color generator and Windows DWM title bar themer
+│   ├── NetworkHelper.cs                # Local IP and network interface resolver
+│   ├── QrCodeHelper.cs                 # Base64 QR code generator for LAN pairing
+│   ├── ShellLauncher.cs                # External terminal and process launcher
 │   └── StartupHelper.cs                # Registry settings and Windows startup configuration
-├── ui/                                 # Consolidated WebView2 dashboard (HTML/CSS/JS)
-├── assets/                             # Icons and shared application resources
-├── AgentsHub.iss                       # Inno Setup installer script
-├── build-installer.cmd                 # Publish + compile installer
-└── dist/                               # Installer output
+├── ui/                                 # Consolidated WebView2 frontend assets
+│   ├── index.html                      # Core single-page interface shell
+│   ├── css/                            # Modulized styling (components, themes, views)
+│   ├── js/                             # Frontend modules (terminals, git, telemetry, logs, settings)
+│   ├── views/                          # Modular view templates (dashboard, settings, repositories, etc.)
+│   └── modals/                         # Interactive dialog modals
+├── assets/                             # Application icons and branding assets
+├── AgentsHub.iss                       # Inno Setup compiler configuration
+├── build-installer.cmd                 # Automated build and packaging script
+└── dist/                               # Final installer distribution output
 ```
 
 ---
 
-## Configuration & storage
+## Configuration & Storage
 
-**Application config**: `%AppData%\AgentsHub\ai_config.json`
-
-Holds providers and models, project workspaces, CLI workspaces, dashboard shortcuts, dev tool targets, Claude gateway settings, prompt presets, and active workspace configurations. Legacy configs are migrated automatically.
-
-**Preferences**: `HKCU\Software\AgentsHub`
-
-Ports, theme, accent colour, startup behaviour, notification, global hotkey (Window and HUD), and privacy toggles.
-
-**Autostart**: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+- **User Configuration**: `%AppData%\AgentsHub\ai_config.json`  
+  Stores AI providers, models, project workspaces, custom CLIs, dashboard shortcuts, dev tool targets, Claude gateway settings, and prompt presets.
+- **Registry Preferences**: `HKCU\Software\AgentsHub`  
+  Stores ports, theme mode, custom accent color, startup behavior, notification preferences, global hotkeys, quota options, and privacy masks.
+- **Windows Autostart**: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 
 ---
 
-## Security & credentials
+## Security & Privacy
 
-Agents Hub handles real credentials, so it is deliberate about where they live:
-
-- **No secrets in the repository.** API keys, tokens and account credentials are never committed. Everything is read at runtime from `%AppData%`, the registry, and the Windows Credential Manager.
-- **Keys stay local.** Provider API keys live in your user config file, not in the binary.
-- **Credentials are isolated per profile.** Antigravity accounts each keep their own sandboxed home and their own credential entry.
-- **Changes are reversible.** Anything written into another tool's config (such as Claude's `settings.json`) is backed up first and can be restored.
-- **LAN access is opt-in** and binds only when you enable broadcasting.
-
-If you fork this project, keep `.workbuddy-ai/`, `Profiles/` and `.freebuff/` out of version control: they are already covered by `.gitignore`.
+- **Zero Secrets in Repository**: API keys, tokens, and personal credentials are never checked into version control.
+- **Local Storage Only**: Provider API keys, credentials, and Git tokens stay on your local machine.
+- **Isolated Credential Stores**: Antigravity profile credentials reside in Windows Credential Manager under separate target names.
+- **Safe Modifications**: External tool configuration edits (e.g. Claude Code proxy redirection) create automatic backups before saving.
+- **Opt-In Network Exposure**: All server sockets bind strictly to `127.0.0.1` by default; LAN broadcast binds only when explicitly toggled.
 
 ---
 
 ## Contributing
 
-Issues and pull requests are welcome. Please keep the code building cleanly with `dotnet build -c Release` (zero warnings), and avoid committing local state or credentials.
+Contributions, bug reports, and suggestions are welcome. Please ensure that code compiles cleanly with `dotnet build` without warnings before submitting a pull request.
 
 ---
 
 ## License
 
-[MIT](LICENSE) © 2026 ZeroNuxs
+This project is licensed under the [MIT License](LICENSE) © 2026 ZeroNuxs / ZerroDevs.
