@@ -96,6 +96,8 @@ public partial class CliWebviewForm : Form
     private ComboBox? _claudeModelComboBox;
     private Button? _manageClisButton;
     private Button? _shellLauncherButton;
+    private Button? _sessionConfigButton;
+    private ContextMenuStrip? _sessionConfigContextMenu;
     private ContextMenuStrip? _shellContextMenu;
     private readonly List<Button> _dynamicTabButtons = [];
     private readonly ToolTip _actionToolTip = new() { ShowAlways = true };
@@ -400,6 +402,20 @@ public partial class CliWebviewForm : Form
         SetupButtonHover(_shellLauncherButton);
         _shellLauncherButton.Click += ShellLauncherButton_Click;
         toolsPanel.Controls.Add(_shellLauncherButton);
+
+        _sessionConfigButton = new Button
+        {
+            Size = new Size(32, 32),
+            Text = "",
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand
+        };
+        _sessionConfigButton.FlatAppearance.BorderSize = 1;
+        _sessionConfigButton.Paint += DrawSessionConfigIcon;
+        _actionToolTip.SetToolTip(_sessionConfigButton, "Session Settings (Project Folder, Resume, Auto-Approve)");
+        SetupButtonHover(_sessionConfigButton);
+        _sessionConfigButton.Click += (_, _) => ShowSessionConfigContextMenu();
+        toolsPanel.Controls.Add(_sessionConfigButton);
 
         toggleRunButton.Size = new Size(32, 32);
         toggleRunButton.Text = "";
@@ -1285,6 +1301,7 @@ public partial class CliWebviewForm : Form
             UpdateClaudeControlsUi();
         }
 
+        UpdateSessionConfigButton();
         LayoutToolbar();
 
         var focusedWv = GetWebViewForPane(ActivePaneTabId, _focusedPane);
@@ -1710,6 +1727,7 @@ public partial class CliWebviewForm : Form
 
         UpdateTabButtonsUi();
         UpdateToolbarUi();
+        UpdateSessionConfigButton();
         LayoutToolbar();
         UpdatePaneCombosItems();
     }
@@ -1792,6 +1810,88 @@ public partial class CliWebviewForm : Form
         }));
 
         menu.Items.Add(new ToolStripSeparator());
+
+        bool isHermes = string.Equals(tabId, "hermes", StringComparison.OrdinalIgnoreCase);
+        if (!isHermes)
+        {
+            string? curWorkDir = isAgyProfile
+                ? _cliManager?.ProfileService.GetProfileWorkingDirectory(profileName)
+                : AiConfigService.Instance.GetWorkspaceWorkingDirectory(tabId);
+
+            bool curResume = isAgyProfile
+                ? (_cliManager?.ProfileService.GetProfileAutoResume(profileName) ?? true)
+                : AiConfigService.Instance.GetWorkspaceAutoResume(tabId);
+
+            string dirSummary = (!string.IsNullOrWhiteSpace(curWorkDir) && Directory.Exists(curWorkDir))
+                ? Path.GetFileName(curWorkDir.TrimEnd('\\', '/'))
+                : "(Default VirtualHome)";
+
+            menu.Items.Add(new ToolStripMenuItem($"Project Folder: {dirSummary}", null, async (_, _) =>
+            {
+                SwitchTab(tabId);
+                await HandleSetProjectDirClickAsync();
+            }));
+
+            string resumeText = curResume
+                ? "Resume Previous Session: ON (--continue)"
+                : "Resume Previous Session: OFF (--continue)";
+            var resumeMenuItem = new ToolStripMenuItem(resumeText, null, (_, _) =>
+            {
+                SwitchTab(tabId);
+                HandleToggleResumeClick();
+            })
+            {
+                Checked = curResume,
+                ForeColor = curResume ? c.AccentIndigo : c.TextMuted
+            };
+            menu.Items.Add(resumeMenuItem);
+
+            bool curSkipPerms = isAgyProfile
+                ? (_cliManager?.ProfileService.GetProfileSkipPermissions(profileName) ?? false)
+                : AiConfigService.Instance.GetWorkspaceSkipPermissions(tabId);
+
+            string permsText = curSkipPerms
+                ? "Auto-Approve Tool Permissions: ON (--dangerously-skip-permissions)"
+                : "Auto-Approve Tool Permissions: OFF (--dangerously-skip-permissions)";
+            var permsMenuItem = new ToolStripMenuItem(permsText, null, (_, _) =>
+            {
+                SwitchTab(tabId);
+                HandleToggleSkipPermissionsClick();
+            })
+            {
+                Checked = curSkipPerms,
+                ForeColor = curSkipPerms ? c.WarningAmber : c.TextMuted
+            };
+            menu.Items.Add(permsMenuItem);
+
+            if (!string.IsNullOrWhiteSpace(curWorkDir))
+            {
+                menu.Items.Add(new ToolStripMenuItem("Reset Project Folder to Default", null, async (_, _) =>
+                {
+                    if (isAgyProfile && _cliManager != null)
+                    {
+                        _cliManager.ProfileService.SetProfileWorkingDirectory(profileName, null);
+                    }
+                    else
+                    {
+                        AiConfigService.Instance.SetWorkspaceWorkingDirectory(tabId, string.Empty);
+                    }
+                    UpdateSessionConfigButton();
+                    LayoutToolbar();
+
+                    var info = _cliManager?.GetInfo(tabId);
+                    if (info != null && (info.State == CliState.Running || info.State == CliState.Starting))
+                    {
+                        if (MessageBox.Show(this, $"Reset folder to default. Restart {info.ShortName} now?", "Restart CLI", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes && _cliManager != null)
+                        {
+                            await _cliManager.RestartAsync(tabId);
+                        }
+                    }
+                }));
+            }
+
+            menu.Items.Add(new ToolStripSeparator());
+        }
 
         if (!_isSplitActive)
         {
@@ -2332,6 +2432,10 @@ public partial class CliWebviewForm : Form
             bool isAntigravityActive = IsAntigravityTab(ActivePaneTabId);
             bool isClaudeActive = string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
             bool isClaudeOpenRouter = isClaudeActive && string.Equals(AiConfigService.Instance.GetClaudeEngineMode(), "OpenRouter", StringComparison.OrdinalIgnoreCase);
+            bool isHermes = string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase);
+            bool showCliTools = !string.IsNullOrEmpty(ActivePaneTabId) && !isHermes;
+
+            if (_sessionConfigButton != null) _sessionConfigButton.Visible = showCliTools;
 
             // The profile switcher only applies to Antigravity tabs; hide it elsewhere so the
             // toolbar does not crowd.
@@ -2345,6 +2449,7 @@ public partial class CliWebviewForm : Form
             actionControlsWidth += clearTerminalButton.Width + 6;
             actionControlsWidth += restartCliButton.Width + 6;
             actionControlsWidth += toggleRunButton.Width + 6;
+            if (_sessionConfigButton != null && _sessionConfigButton.Visible) actionControlsWidth += _sessionConfigButton.Width + 6;
             if (_shellLauncherButton != null) actionControlsWidth += _shellLauncherButton.Width + 10;
 
             if (isClaudeActive)
@@ -2398,6 +2503,12 @@ public partial class CliWebviewForm : Form
 
             toggleRunButton.Location = new Point(Math.Max(0, right - toggleRunButton.Width), 7);
             right = toggleRunButton.Left - 6;
+
+            if (_sessionConfigButton != null && _sessionConfigButton.Visible)
+            {
+                _sessionConfigButton.Location = new Point(Math.Max(0, right - _sessionConfigButton.Width), 7);
+                right = _sessionConfigButton.Left - 6;
+            }
 
             if (_shellLauncherButton != null)
             {
@@ -2602,6 +2713,16 @@ public partial class CliWebviewForm : Form
             _claudeModelComboBox.Invalidate();
         }
 
+        if (_sessionConfigButton != null)
+        {
+            _sessionConfigButton.BackColor = c.ButtonBg;
+            _sessionConfigButton.ForeColor = c.ButtonText;
+            _sessionConfigButton.FlatAppearance.BorderColor = c.ButtonBorder;
+            _sessionConfigButton.Invalidate();
+        }
+
+        UpdateSessionConfigButton();
+
         UpdateTabButtonsUi();
         UpdateToolbarUi();
         topToolbar.Invalidate();
@@ -2788,7 +2909,8 @@ public partial class CliWebviewForm : Form
                 {
                     AiConfigService.Instance.SetClaudeEngineMode(selected);
                     UpdateClaudeControlsUi();
-                    LayoutToolbar();
+                    UpdateSessionConfigButton();
+        LayoutToolbar();
 
                     if (_cliManager != null)
                     {
@@ -2975,6 +3097,7 @@ public partial class CliWebviewForm : Form
             UpdateClaudeControlsUi();
         }
 
+        UpdateSessionConfigButton();
         LayoutToolbar();
 
         if (string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase) && _hermesInitialized)
@@ -3510,7 +3633,8 @@ public partial class CliWebviewForm : Form
             clearTerminalButton.Visible = false;
             openBrowserButton.Visible = false;
 
-            LayoutToolbar();
+            UpdateSessionConfigButton();
+        LayoutToolbar();
             return;
         }
 
@@ -3583,6 +3707,7 @@ public partial class CliWebviewForm : Form
             UpdateClaudeControlsUi();
         }
 
+        UpdateSessionConfigButton();
         LayoutToolbar();
     }
 
@@ -3622,6 +3747,370 @@ public partial class CliWebviewForm : Form
         else
         {
             _cliManager.Start(ActivePaneTabId);
+        }
+    }
+
+    private async Task HandleSetProjectDirClickAsync()
+    {
+        string tabId = ActivePaneTabId;
+        if (string.IsNullOrEmpty(tabId)) return;
+
+        bool isAgyProfile = CliManagerService.IsAntigravityProfileId(tabId, out var profileName);
+        string? currentDir = isAgyProfile
+            ? _cliManager?.ProfileService.GetProfileWorkingDirectory(profileName)
+            : AiConfigService.Instance.GetWorkspaceWorkingDirectory(tabId);
+
+        using var fbd = new FolderBrowserDialog
+        {
+            Description = $"Select project folder for {(isAgyProfile ? $"agy: {profileName}" : tabId)}",
+            UseDescriptionForTitle = true
+        };
+        if (!string.IsNullOrWhiteSpace(currentDir) && Directory.Exists(currentDir))
+        {
+            fbd.InitialDirectory = currentDir;
+        }
+
+        if (fbd.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+        {
+            string newPath = fbd.SelectedPath;
+            if (isAgyProfile && _cliManager != null)
+            {
+                _cliManager.ProfileService.SetProfileWorkingDirectory(profileName, newPath);
+            }
+            else
+            {
+                AiConfigService.Instance.SetWorkspaceWorkingDirectory(tabId, newPath);
+            }
+
+            UpdateSessionConfigButton();
+            LayoutToolbar();
+
+            var info = _cliManager?.GetInfo(tabId);
+            if (info != null && (info.State == CliState.Running || info.State == CliState.Starting))
+            {
+                var dr = MessageBox.Show(this,
+                    $"Project directory updated to:\n{newPath}\n\nRestart {info.ShortName} now to apply this folder?",
+                    "Restart to Apply Project Folder",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (dr == DialogResult.Yes && _cliManager != null)
+                {
+                    await _cliManager.RestartAsync(tabId);
+                }
+            }
+        }
+    }
+
+    private void HandleToggleResumeClick()
+    {
+        string tabId = ActivePaneTabId;
+        if (string.IsNullOrEmpty(tabId)) return;
+
+        bool isAgyProfile = CliManagerService.IsAntigravityProfileId(tabId, out var profileName);
+        bool current = isAgyProfile
+            ? (_cliManager?.ProfileService.GetProfileAutoResume(profileName) ?? true)
+            : AiConfigService.Instance.GetWorkspaceAutoResume(tabId);
+
+        bool nextVal = !current;
+        if (isAgyProfile && _cliManager != null)
+        {
+            _cliManager.ProfileService.SetProfileAutoResume(profileName, nextVal);
+        }
+        else
+        {
+            AiConfigService.Instance.SetWorkspaceAutoResume(tabId, nextVal);
+        }
+
+        UpdateSessionConfigButton();
+        LayoutToolbar();
+    }
+
+    private void HandleToggleSkipPermissionsClick()
+    {
+        string tabId = ActivePaneTabId;
+        if (string.IsNullOrEmpty(tabId)) return;
+
+        bool isAgyProfile = CliManagerService.IsAntigravityProfileId(tabId, out var profileName);
+        bool current = isAgyProfile
+            ? (_cliManager?.ProfileService.GetProfileSkipPermissions(profileName) ?? false)
+            : AiConfigService.Instance.GetWorkspaceSkipPermissions(tabId);
+
+        bool nextVal = !current;
+        if (isAgyProfile && _cliManager != null)
+        {
+            _cliManager.ProfileService.SetProfileSkipPermissions(profileName, nextVal);
+        }
+        else
+        {
+            AiConfigService.Instance.SetWorkspaceSkipPermissions(tabId, nextVal);
+        }
+
+        UpdateSessionConfigButton();
+        LayoutToolbar();
+    }
+
+    private void UpdateSessionConfigButton()
+    {
+        if (_sessionConfigButton == null) return;
+
+        string tabId = ActivePaneTabId;
+        bool isHermes = string.Equals(tabId, "hermes", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(tabId) || isHermes)
+        {
+            _sessionConfigButton.Visible = false;
+            return;
+        }
+
+        _sessionConfigButton.Visible = true;
+
+        bool isAgyProfile = CliManagerService.IsAntigravityProfileId(tabId, out var profileName);
+        string? workDir = isAgyProfile
+            ? _cliManager?.ProfileService.GetProfileWorkingDirectory(profileName)
+            : AiConfigService.Instance.GetWorkspaceWorkingDirectory(tabId);
+
+        bool autoResume = isAgyProfile
+            ? (_cliManager?.ProfileService.GetProfileAutoResume(profileName) ?? true)
+            : AiConfigService.Instance.GetWorkspaceAutoResume(tabId);
+
+        bool skipPerms = isAgyProfile
+            ? (_cliManager?.ProfileService.GetProfileSkipPermissions(profileName) ?? false)
+            : AiConfigService.Instance.GetWorkspaceSkipPermissions(tabId);
+
+        var c = ThemeManager.Colors;
+        _sessionConfigButton.BackColor = c.ButtonBg;
+        _sessionConfigButton.ForeColor = c.TextPrimary;
+
+        if (skipPerms)
+        {
+            _sessionConfigButton.FlatAppearance.BorderColor = c.WarningAmber;
+        }
+        else if (autoResume)
+        {
+            _sessionConfigButton.FlatAppearance.BorderColor = c.AccentIndigo;
+        }
+        else if (!string.IsNullOrWhiteSpace(workDir) && Directory.Exists(workDir))
+        {
+            _sessionConfigButton.FlatAppearance.BorderColor = c.AccentGreen;
+        }
+        else
+        {
+            _sessionConfigButton.FlatAppearance.BorderColor = c.ButtonBorder;
+        }
+
+        string dirSummary = (!string.IsNullOrWhiteSpace(workDir) && Directory.Exists(workDir))
+            ? Path.GetFileName(workDir.TrimEnd('\\', '/'))
+            : "Default (VirtualHome)";
+
+        string resumeSummary = autoResume ? "ON (--continue)" : "OFF (New Session)";
+        string permsSummary = skipPerms ? "ON (--dangerously-skip-permissions)" : "OFF (Confirm prompts)";
+
+        _actionToolTip.SetToolTip(_sessionConfigButton,
+            $"Session Settings - {(isAgyProfile ? $"agy: {profileName}" : tabId)}\n" +
+            $"Project: {dirSummary}\n" +
+            $"Resume: {resumeSummary}\n" +
+            $"Auto-Approve: {permsSummary}\n" +
+            $"Click to configure");
+
+        _sessionConfigButton.Invalidate();
+    }
+
+    private void ShowSessionConfigContextMenu()
+    {
+        if (_sessionConfigButton == null) return;
+
+        string tabId = ActivePaneTabId;
+        if (string.IsNullOrEmpty(tabId) || string.Equals(tabId, "hermes", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _sessionConfigContextMenu?.Dispose();
+
+        var c = ThemeManager.Colors;
+        var menu = new ContextMenuStrip
+        {
+            ShowImageMargin = false,
+            Renderer = new ToolStripProfessionalRenderer(new ShellColorTable()),
+            BackColor = c.CardBackground,
+            ForeColor = c.TextPrimary
+        };
+        _sessionConfigContextMenu = menu;
+
+        bool isAgyProfile = CliManagerService.IsAntigravityProfileId(tabId, out var profileName);
+        string displayName = isAgyProfile ? $"agy: {profileName}" : tabId;
+
+        string? workDir = isAgyProfile
+            ? _cliManager?.ProfileService.GetProfileWorkingDirectory(profileName)
+            : AiConfigService.Instance.GetWorkspaceWorkingDirectory(tabId);
+
+        bool autoResume = isAgyProfile
+            ? (_cliManager?.ProfileService.GetProfileAutoResume(profileName) ?? true)
+            : AiConfigService.Instance.GetWorkspaceAutoResume(tabId);
+
+        bool skipPerms = isAgyProfile
+            ? (_cliManager?.ProfileService.GetProfileSkipPermissions(profileName) ?? false)
+            : AiConfigService.Instance.GetWorkspaceSkipPermissions(tabId);
+
+        string dirSummary = (!string.IsNullOrWhiteSpace(workDir) && Directory.Exists(workDir))
+            ? Path.GetFileName(workDir.TrimEnd('\\', '/'))
+            : "(Default VirtualHome)";
+
+        // Title Header
+        menu.Items.Add(new ToolStripMenuItem($"{displayName} Settings")
+        {
+            Enabled = false,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+        });
+        menu.Items.Add(new ToolStripSeparator());
+
+        // Project Folder
+        menu.Items.Add(new ToolStripMenuItem($"Project Folder: {dirSummary}", null, async (_, _) =>
+        {
+            await HandleSetProjectDirClickAsync();
+        }));
+
+        if (!string.IsNullOrWhiteSpace(workDir))
+        {
+            menu.Items.Add(new ToolStripMenuItem("Reset Project Folder to Default", null, async (_, _) =>
+            {
+                if (isAgyProfile && _cliManager != null)
+                {
+                    _cliManager.ProfileService.SetProfileWorkingDirectory(profileName, null);
+                }
+                else
+                {
+                    AiConfigService.Instance.SetWorkspaceWorkingDirectory(tabId, null);
+                }
+
+                UpdateSessionConfigButton();
+                LayoutToolbar();
+
+                var info = _cliManager?.GetInfo(tabId);
+                if (info != null && (info.State == CliState.Running || info.State == CliState.Starting))
+                {
+                    var dr = MessageBox.Show(this,
+                        $"Project directory reset to default (VirtualHome).\n\nRestart {info.ShortName} now to apply?",
+                        "Restart to Apply Default Folder",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    if (dr == DialogResult.Yes && _cliManager != null)
+                    {
+                        await _cliManager.RestartAsync(tabId);
+                    }
+                }
+            }));
+        }
+
+        menu.Items.Add(new ToolStripSeparator());
+
+        // Resume Previous Session
+        string resumeText = autoResume
+            ? "Resume Previous Session: ON (--continue)"
+            : "Resume Previous Session: OFF (--continue)";
+        var resumeMenuItem = new ToolStripMenuItem(resumeText, null, (_, _) =>
+        {
+            HandleToggleResumeClick();
+        })
+        {
+            Checked = autoResume,
+            ForeColor = autoResume ? c.AccentIndigo : c.TextMuted
+        };
+        menu.Items.Add(resumeMenuItem);
+
+        // Auto-Approve Permissions
+        string permsText = skipPerms
+            ? "Auto-Approve Tool Permissions: ON (--dangerously-skip-permissions)"
+            : "Auto-Approve Tool Permissions: OFF (--dangerously-skip-permissions)";
+        var permsMenuItem = new ToolStripMenuItem(permsText, null, (_, _) =>
+        {
+            HandleToggleSkipPermissionsClick();
+        })
+        {
+            Checked = skipPerms,
+            ForeColor = skipPerms ? c.WarningAmber : c.TextMuted
+        };
+        menu.Items.Add(permsMenuItem);
+
+        menu.Items.Add(new ToolStripSeparator());
+
+        // Launch in external CMD
+        menu.Items.Add(new ToolStripMenuItem("Open in External CMD (Real Terminal)", null, (_, _) =>
+        {
+            LaunchExternalCmdForTab(tabId);
+        }));
+
+        menu.Show(_sessionConfigButton, 0, _sessionConfigButton.Height);
+    }
+
+    private void DrawSessionConfigIcon(object? sender, PaintEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        string tabId = ActivePaneTabId;
+        bool isAgyProfile = CliManagerService.IsAntigravityProfileId(tabId, out var profileName);
+        string? workDir = isAgyProfile
+            ? _cliManager?.ProfileService.GetProfileWorkingDirectory(profileName)
+            : AiConfigService.Instance.GetWorkspaceWorkingDirectory(tabId);
+
+        bool autoResume = isAgyProfile
+            ? (_cliManager?.ProfileService.GetProfileAutoResume(profileName) ?? true)
+            : AiConfigService.Instance.GetWorkspaceAutoResume(tabId);
+
+        bool skipPerms = isAgyProfile
+            ? (_cliManager?.ProfileService.GetProfileSkipPermissions(profileName) ?? false)
+            : AiConfigService.Instance.GetWorkspaceSkipPermissions(tabId);
+
+        var c = ThemeManager.Colors;
+        Color glyphColor = btn.Enabled ? c.TextPrimary : c.TextMuted;
+        using var pen = new Pen(glyphColor, 1.8f);
+
+        int cx = btn.Width / 2;
+        int cy = btn.Height / 2;
+
+        // Gear teeth (8 radial spokes)
+        float outerR = 7.0f;
+        float innerR = 4.2f;
+        for (int i = 0; i < 8; i++)
+        {
+            double angle = i * Math.PI / 4.0;
+            float cos = (float)Math.Cos(angle);
+            float sin = (float)Math.Sin(angle);
+            g.DrawLine(pen, cx + innerR * cos, cy + innerR * sin, cx + outerR * cos, cy + outerR * sin);
+        }
+
+        // Gear outer ring
+        g.DrawEllipse(pen, cx - 4.5f, cy - 4.5f, 9.0f, 9.0f);
+
+        // Center hub hole
+        using (var bgBrush = new SolidBrush(btn.BackColor))
+        {
+            g.FillEllipse(bgBrush, cx - 2.0f, cy - 2.0f, 4.0f, 4.0f);
+        }
+        g.DrawEllipse(pen, cx - 2.0f, cy - 2.0f, 4.0f, 4.0f);
+
+        // Status badge: Auto-Approve (amber dot badge at top-right)
+        if (skipPerms)
+        {
+            using var amberBrush = new SolidBrush(c.WarningAmber);
+            g.FillEllipse(amberBrush, cx + 4, cy - 9, 6, 6);
+        }
+
+        // Status badge: Resume Session (blue dot badge at bottom-right, matching user mockup)
+        if (autoResume)
+        {
+            using var blueBrush = new SolidBrush(c.AccentIndigo);
+            g.FillEllipse(blueBrush, cx + 4, cy + 3, 6, 6);
+        }
+
+        // Status badge: Custom Project Folder (green dot badge at bottom-left)
+        if (!string.IsNullOrWhiteSpace(workDir) && Directory.Exists(workDir))
+        {
+            using var greenBrush = new SolidBrush(c.AccentGreen);
+            g.FillEllipse(greenBrush, cx - 10, cy + 3, 6, 6);
         }
     }
 

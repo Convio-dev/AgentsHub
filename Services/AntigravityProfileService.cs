@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using HermesHub.Helpers;
 
 namespace HermesHub.Services;
@@ -573,14 +574,11 @@ public sealed class AntigravityProfileService : IDisposable
                 }
 
                 // 5. Save metadata
-                var meta = new
-                {
-                    ProfileName = profileName,
-                    AccountEmail = email,
-                    LastExportUtc = DateTime.UtcNow
-                };
-                string metaJson = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(Path.Combine(targetDir, "profile_info.json"), metaJson);
+                var meta = LoadProfileMetadata(profileName);
+                meta.ProfileName = profileName;
+                meta.AccountEmail = email;
+                meta.LastExportUtc = DateTime.UtcNow;
+                SaveProfileMetadata(profileName, meta);
 
                 Log($"Session successfully exported to profile '{profileName}' ({(!string.IsNullOrWhiteSpace(email) ? email : "tokens secured")}).");
                 ProfileSaved?.Invoke(profileName);
@@ -751,13 +749,14 @@ public sealed class AntigravityProfileService : IDisposable
                 string newDir = Path.Combine(ProfilesBaseDir, newProfileName);
                 Directory.CreateDirectory(newDir);
 
-                var meta = new
+                var meta = new ProfileMetadata
                 {
                     ProfileName = newProfileName,
                     AccountEmail = string.Empty,
+                    AutoResumeSession = true,
                     LastExportUtc = DateTime.UtcNow
                 };
-                File.WriteAllText(Path.Combine(newDir, "profile_info.json"), JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }));
+                SaveProfileMetadata(newProfileName, meta);
 
                 // 3. ActiveProfile = newProfileName updated immediately
                 ActiveProfile = newProfileName;
@@ -837,13 +836,11 @@ public sealed class AntigravityProfileService : IDisposable
                 // Update profile_info.json metadata
                 string? acctFile = ResolveGoogleAccountsPath(newDir);
                 string email = (acctFile != null ? TryExtractAccountEmail(acctFile) : null) ?? string.Empty;
-                var meta = new
-                {
-                    ProfileName = newName,
-                    AccountEmail = email,
-                    LastExportUtc = DateTime.UtcNow
-                };
-                File.WriteAllText(Path.Combine(newDir, "profile_info.json"), JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }));
+                var meta = LoadProfileMetadata(newName);
+                meta.ProfileName = newName;
+                if (!string.IsNullOrWhiteSpace(email)) meta.AccountEmail = email;
+                meta.LastExportUtc = DateTime.UtcNow;
+                SaveProfileMetadata(newName, meta);
 
                 // If oldName was ActiveProfile, update to newName and persist
                 if (string.Equals(_activeProfile, oldName, StringComparison.OrdinalIgnoreCase))
@@ -938,6 +935,97 @@ public sealed class AntigravityProfileService : IDisposable
                 // Non-fatal
             }
         }
+    }
+
+    public static ProfileMetadata LoadProfileMetadata(string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName))
+        {
+            return new ProfileMetadata { AutoResumeSession = true, LastExportUtc = DateTime.UtcNow };
+        }
+
+        try
+        {
+            string profileDir = Path.Combine(ProfilesBaseDir, profileName);
+            string metaPath = Path.Combine(profileDir, "profile_info.json");
+            if (File.Exists(metaPath))
+            {
+                string json = File.ReadAllText(metaPath);
+                var meta = JsonSerializer.Deserialize<ProfileMetadata>(json);
+                if (meta != null)
+                {
+                    if (string.IsNullOrWhiteSpace(meta.ProfileName)) meta.ProfileName = profileName;
+                    return meta;
+                }
+            }
+        }
+        catch { }
+
+        return new ProfileMetadata
+        {
+            ProfileName = profileName,
+            AutoResumeSession = true,
+            LastExportUtc = DateTime.UtcNow
+        };
+    }
+
+    public static void SaveProfileMetadata(string profileName, ProfileMetadata meta)
+    {
+        if (string.IsNullOrWhiteSpace(profileName)) return;
+
+        try
+        {
+            string profileDir = Path.Combine(ProfilesBaseDir, profileName);
+            Directory.CreateDirectory(profileDir);
+            string metaPath = Path.Combine(profileDir, "profile_info.json");
+            meta.ProfileName = profileName;
+            meta.LastExportUtc = DateTime.UtcNow;
+            string json = JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(metaPath, json);
+        }
+        catch { }
+    }
+
+    public string? GetProfileWorkingDirectory(string profileName)
+    {
+        return LoadProfileMetadata(profileName).WorkingDirectory;
+    }
+
+    public void SetProfileWorkingDirectory(string profileName, string? directory)
+    {
+        var meta = LoadProfileMetadata(profileName);
+        meta.WorkingDirectory = string.IsNullOrWhiteSpace(directory) ? null : directory.Trim();
+        SaveProfileMetadata(profileName, meta);
+        Log($"Working directory for profile '{profileName}' set to: {meta.WorkingDirectory ?? "(default)"}");
+        ProfileSaved?.Invoke(profileName);
+    }
+
+    public bool GetProfileAutoResume(string profileName)
+    {
+        return LoadProfileMetadata(profileName).AutoResumeSession;
+    }
+
+    public void SetProfileAutoResume(string profileName, bool autoResume)
+    {
+        var meta = LoadProfileMetadata(profileName);
+        meta.AutoResumeSession = autoResume;
+        SaveProfileMetadata(profileName, meta);
+        Log($"AutoResumeSession for profile '{profileName}' set to: {autoResume}");
+        ProfileSaved?.Invoke(profileName);
+    }
+
+    public bool GetProfileSkipPermissions(string profileName)
+    {
+        return LoadProfileMetadata(profileName).SkipPermissions;
+    }
+
+    public void SetProfileSkipPermissions(string profileName, bool skipPermissions)
+    {
+        var meta = LoadProfileMetadata(profileName);
+        meta.SkipPermissions = skipPermissions;
+        SaveProfileMetadata(profileName, meta);
+        Log($"SkipPermissions for profile '{profileName}' set to: {skipPermissions}");
+        ProfileSaved?.Invoke(profileName);
     }
 
     public static string? GetAccountEmail(string profileName)
@@ -1497,13 +1585,11 @@ public sealed class AntigravityProfileService : IDisposable
                     email = GetAccountEmail(profileName) ?? string.Empty;
                 }
 
-                var meta = new
-                {
-                    ProfileName = profileName,
-                    AccountEmail = email,
-                    LastExportUtc = DateTime.UtcNow
-                };
-                File.WriteAllText(Path.Combine(profileDir, "profile_info.json"), JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }));
+                var meta = LoadProfileMetadata(profileName);
+                meta.ProfileName = profileName;
+                if (!string.IsNullOrWhiteSpace(email)) meta.AccountEmail = email;
+                meta.LastExportUtc = DateTime.UtcNow;
+                SaveProfileMetadata(profileName, meta);
 
                 Log($"VirtualHome synchronized to profile '{profileName}'.");
                 ProfileSaved?.Invoke(profileName);
@@ -1627,4 +1713,25 @@ public sealed class AntigravityProfileService : IDisposable
         }
         _virtualHomeDebounceTimers.Clear();
     }
+}
+
+public class ProfileMetadata
+{
+    [JsonPropertyName("ProfileName")]
+    public string ProfileName { get; set; } = string.Empty;
+
+    [JsonPropertyName("AccountEmail")]
+    public string AccountEmail { get; set; } = string.Empty;
+
+    [JsonPropertyName("WorkingDirectory")]
+    public string? WorkingDirectory { get; set; }
+
+    [JsonPropertyName("AutoResumeSession")]
+    public bool AutoResumeSession { get; set; } = true;
+
+    [JsonPropertyName("SkipPermissions")]
+    public bool SkipPermissions { get; set; } = false;
+
+    [JsonPropertyName("LastExportUtc")]
+    public DateTime LastExportUtc { get; set; }
 }

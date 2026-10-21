@@ -506,13 +506,37 @@ public class CliManagerService : IDisposable
                     ["ANTIGRAVITY_PORT"] = port.ToString()
                 };
 
-                command = "cmd.exe /c agy";
-                workDir = virtualHomeDir;
+                bool autoResume = _profileService.GetProfileAutoResume(profileName);
+                string continueFlag = autoResume ? " --continue" : "";
+                bool skipPerms = _profileService.GetProfileSkipPermissions(profileName);
+                string permsFlag = skipPerms ? " --dangerously-skip-permissions" : "";
+                command = $"cmd.exe /c agy{continueFlag}{permsFlag}";
+
+                string? savedWorkDir = _profileService.GetProfileWorkingDirectory(profileName);
+                if (!string.IsNullOrWhiteSpace(savedWorkDir) && Directory.Exists(savedWorkDir))
+                {
+                    workDir = savedWorkDir;
+                }
+                else
+                {
+                    workDir = virtualHomeDir;
+                }
             }
             else if (string.Equals(id, "ClaudeCode", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase))
             {
-                command = "cmd.exe /c claude";
+                bool autoResume = AiConfigService.Instance.GetWorkspaceAutoResume("claude_code");
+                string continueFlag = autoResume ? " --continue" : "";
+                bool skipPerms = AiConfigService.Instance.GetWorkspaceSkipPermissions("claude_code");
+                string permsFlag = skipPerms ? " --dangerously-skip-permissions" : "";
+                command = $"cmd.exe /c claude{continueFlag}{permsFlag}";
+
+                string? savedWorkDir = AiConfigService.Instance.GetWorkspaceWorkingDirectory("claude_code");
+                if (!string.IsNullOrWhiteSpace(savedWorkDir) && Directory.Exists(savedWorkDir))
+                {
+                    workDir = savedWorkDir;
+                }
+
                 bool injectionEnabled = AiConfigService.Instance.GetClaudeInjectionEnabled();
                 if (injectionEnabled)
                 {
@@ -640,10 +664,19 @@ public class CliManagerService : IDisposable
                 ["ANTIGRAVITY_PORT"] = port.ToString()
             };
 
+            bool autoResume = _profileService.GetProfileAutoResume(profileName);
+            string continueFlag = autoResume ? " --continue" : "";
+            bool skipPerms = _profileService.GetProfileSkipPermissions(profileName);
+            string permsFlag = skipPerms ? " --dangerously-skip-permissions" : "";
+            string? savedWorkDir = _profileService.GetProfileWorkingDirectory(profileName);
+            string agyWorkDir = (!string.IsNullOrWhiteSpace(savedWorkDir) && Directory.Exists(savedWorkDir))
+                ? savedWorkDir
+                : virtualHomeDir;
+
             return new ExternalLaunchSpec
             {
-                Command = "agy",
-                WorkingDirectory = virtualHomeDir,
+                Command = $"agy{continueFlag}{permsFlag}",
+                WorkingDirectory = agyWorkDir,
                 EnvironmentVariables = agyEnv
             };
         }
@@ -673,10 +706,19 @@ public class CliManagerService : IDisposable
                 claudeEnv["ANTHROPIC_DEFAULT_OPUS_MODEL"] = "deepseek/deepseek-r1:free";
             }
 
+            bool autoResume = AiConfigService.Instance.GetWorkspaceAutoResume("claude_code");
+            string continueFlag = autoResume ? " --continue" : "";
+            bool skipPerms = AiConfigService.Instance.GetWorkspaceSkipPermissions("claude_code");
+            string permsFlag = skipPerms ? " --dangerously-skip-permissions" : "";
+            string? savedWorkDir = AiConfigService.Instance.GetWorkspaceWorkingDirectory("claude_code");
+            string claudeWorkDir = (!string.IsNullOrWhiteSpace(savedWorkDir) && Directory.Exists(savedWorkDir))
+                ? savedWorkDir
+                : userProfile;
+
             return new ExternalLaunchSpec
             {
-                Command = "claude",
-                WorkingDirectory = userProfile,
+                Command = $"claude{continueFlag}{permsFlag}",
+                WorkingDirectory = claudeWorkDir,
                 EnvironmentVariables = claudeEnv
             };
         }

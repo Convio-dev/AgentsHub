@@ -1000,6 +1000,7 @@
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <span style="font-size: 13.5px; font-weight: 700; color: var(--text-main);">Project Workspaces &amp; Context Profiles</span>
                   <span id="active-workspace-status-badge" style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); font-family: var(--font-mono); font-weight: 600;">Default Workspace</span>
+                  <span id="workspaces-count-badge" style="font-size: 11px; padding: 2px 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); font-weight: 500;">0 Workspaces</span>
                 </div>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;" onclick="event.stopPropagation();">
@@ -1016,22 +1017,8 @@
 
             <!-- Collapsible Body -->
             <div id="workspaces-card-body" style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 14px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="font-size: 12px; color: var(--text-dim);">Active Workspace:</span>
-                  <select id="profiles-workspace-select" class="select-box" style="min-width: 200px; font-weight: 600;"></select>
-                </div>
-                <div style="display: flex; gap: 6px;">
-                  <button class="btn btn-primary" id="btn-profiles-edit-active-workspace" type="button" style="padding: 4px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                    <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83-2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                    <span>Edit Active</span>
-                  </button>
-                  <button class="btn btn-outline" id="btn-profiles-switch-workspace" type="button" style="padding: 4px 10px; font-size: 11px;">Switch</button>
-                </div>
-              </div>
-
               <!-- List of Workspace Cards -->
-              <div id="profiles-workspaces-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 10px;">
+              <div id="profiles-workspaces-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;">
                 <!-- Dynamically rendered by JS -->
               </div>
             </div>
@@ -1599,6 +1586,11 @@
       <div class="form-group">
         <label class="form-label">Workspace Name:</label>
         <input type="text" id="modal-ws-name" class="input-text" placeholder="e.g. HermesHub Dev, Client Portal">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Accent Color:</label>
+        <div id="modal-ws-color-palette" style="display: flex; gap: 8px; align-items: center; margin-top: 4px;"></div>
+        <input type="hidden" id="modal-ws-color" value="#06b6d4">
       </div>
       <div class="form-group">
         <label class="form-label">Project Working Directory:</label>

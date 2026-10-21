@@ -49,6 +49,12 @@ public class CliWorkspaceConfig
     [JsonPropertyName("workingDirectory")]
     public string WorkingDirectory { get; set; } = string.Empty;
 
+    [JsonPropertyName("autoResumeSession")]
+    public bool AutoResumeSession { get; set; } = true;
+
+    [JsonPropertyName("skipPermissions")]
+    public bool SkipPermissions { get; set; } = false;
+
     [JsonPropertyName("port")]
     public int? Port { get; set; }
 
@@ -1038,6 +1044,78 @@ public class AiConfigService
             }
         }
         SaveConfig(_config);
+    }
+
+    public string? GetWorkspaceWorkingDirectory(string workspaceId)
+    {
+        lock (_lock)
+        {
+            string norm = NormalizeCliId(workspaceId);
+            var ws = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(NormalizeCliId(c.Id), norm, StringComparison.OrdinalIgnoreCase));
+            return ws?.WorkingDirectory;
+        }
+    }
+
+    public void SetWorkspaceWorkingDirectory(string workspaceId, string? directory)
+    {
+        lock (_lock)
+        {
+            string norm = NormalizeCliId(workspaceId);
+            var ws = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(NormalizeCliId(c.Id), norm, StringComparison.OrdinalIgnoreCase));
+            if (ws != null)
+            {
+                ws.WorkingDirectory = directory ?? string.Empty;
+                SaveConfig(_config);
+            }
+        }
+    }
+
+    public bool GetWorkspaceAutoResume(string workspaceId)
+    {
+        lock (_lock)
+        {
+            string norm = NormalizeCliId(workspaceId);
+            var ws = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(NormalizeCliId(c.Id), norm, StringComparison.OrdinalIgnoreCase));
+            return ws?.AutoResumeSession ?? true;
+        }
+    }
+
+    public void SetWorkspaceAutoResume(string workspaceId, bool autoResume)
+    {
+        lock (_lock)
+        {
+            string norm = NormalizeCliId(workspaceId);
+            var ws = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(NormalizeCliId(c.Id), norm, StringComparison.OrdinalIgnoreCase));
+            if (ws != null)
+            {
+                ws.AutoResumeSession = autoResume;
+                SaveConfig(_config);
+            }
+        }
+    }
+
+    public bool GetWorkspaceSkipPermissions(string workspaceId)
+    {
+        lock (_lock)
+        {
+            string norm = NormalizeCliId(workspaceId);
+            var ws = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(NormalizeCliId(c.Id), norm, StringComparison.OrdinalIgnoreCase));
+            return ws?.SkipPermissions ?? false;
+        }
+    }
+
+    public void SetWorkspaceSkipPermissions(string workspaceId, bool skip)
+    {
+        lock (_lock)
+        {
+            string norm = NormalizeCliId(workspaceId);
+            var ws = _config.CliWorkspaces.FirstOrDefault(c => string.Equals(NormalizeCliId(c.Id), norm, StringComparison.OrdinalIgnoreCase));
+            if (ws != null)
+            {
+                ws.SkipPermissions = skip;
+                SaveConfig(_config);
+            }
+        }
     }
 
     public bool DeleteCliWorkspace(string id)

@@ -202,7 +202,7 @@
         if (payload?.activeWorkspaceId) {
           state.activeWorkspaceId = payload.activeWorkspaceId;
           renderWorkspacesDropdown(state.workspaces, state.activeWorkspaceId);
-          showToast(`Switched to workspace: ${payload.activeWorkspace?.name || payload.activeWorkspaceId}`, 'info');
+          showToast(`Switched to workspace: ${payload.activeWorkspace?.name || payload.activeWorkspaceId}`, 'success');
         }
         break;
 
@@ -5101,6 +5101,10 @@
   }
 
   // Modern Dynamic Toast System
+  const toastHistoryState = { items: [] };
+  let lastToastSignature = '';
+  let lastToastTime = 0;
+
   function showToast(message, type = 'info', durationMs = 4500) {
     let cleanMessage = message;
     if (cleanMessage && typeof cleanMessage === 'object') {
@@ -5111,6 +5115,17 @@
       cleanMessage = '';
     }
 
+    if (!cleanMessage.trim()) return;
+
+    // Suppress duplicate toasts fired in quick succession (< 1.5s)
+    const now = Date.now();
+    const signature = `${type}:${cleanMessage}`;
+    if (signature === lastToastSignature && now - lastToastTime < 1500) {
+      return;
+    }
+    lastToastSignature = signature;
+    lastToastTime = now;
+
     let container = document.getElementById('toast-container');
     if (!container) {
       container = document.createElement('div');
@@ -5118,45 +5133,103 @@
       document.body.appendChild(container);
     }
 
+    const toastId = 't_' + now + '_' + Math.random().toString(36).slice(2, 7);
+
+    // Record into history initially (persisted if auto-dismissed)
+    recordToast(cleanMessage, type, toastId);
+
     const toast = document.createElement('div');
     toast.className = `toast-item toast-${type}`;
+    toast.dataset.toastId = toastId;
 
     let iconSvg = '';
     if (type === 'success') {
       iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#10b981" stroke-width="2.5" fill="none"><path d="M20 6L9 17l-5-5"/></svg>`;
     } else if (type === 'error') {
       iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#ef4444" stroke-width="2.5" fill="none"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+    } else if (type === 'warning') {
+      iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#f59e0b" stroke-width="2.5" fill="none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
     } else {
-      iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#3b82f6" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+      iconSvg = `<svg viewBox="0 0 24 24" width="16" height="16" stroke="#06b6d4" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
     }
 
     toast.innerHTML = `
-      <span style="display: flex; align-items: center; flex-shrink: 0;">${iconSvg}</span>
-      <span style="flex: 1; word-break: break-word;">${escapeHtml(cleanMessage)}</span>
+      <span class="toast-icon">${iconSvg}</span>
+      <span class="toast-message">${escapeHtml(cleanMessage)}</span>
+      <button class="toast-close-btn" type="button" title="Dismiss">
+        <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     `;
 
     container.appendChild(toast);
 
-    // A toast that has already gone cannot be read, so every message goes into a capped
-    // history behind the bell in the header.
-    recordToast(cleanMessage, type);
+    let dismissTimer = null;
+    let isDismissed = false;
 
-    setTimeout(() => {
+    function dismiss(userClosed) {
+      if (isDismissed) return;
+      isDismissed = true;
+      if (dismissTimer) clearTimeout(dismissTimer);
+
+      if (userClosed) {
+        // User explicitly closed via X: remove from notifications history!
+        removeToastFromHistory(toastId);
+      }
+
       toast.classList.add('toast-out');
       setTimeout(() => {
         if (toast.parentNode) {
           toast.parentNode.removeChild(toast);
         }
-      }, 250);
+      }, 220);
+    }
+
+    const closeBtn = toast.querySelector('.toast-close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dismiss(true /* userClosed */);
+      });
+    }
+
+    dismissTimer = setTimeout(() => {
+      dismiss(false /* userClosed - keep in history */);
     }, durationMs);
+
+    toast.addEventListener('mouseenter', () => {
+      if (dismissTimer) clearTimeout(dismissTimer);
+    });
+    toast.addEventListener('mouseleave', () => {
+      if (!isDismissed) {
+        dismissTimer = setTimeout(() => dismiss(false), 1500);
+      }
+    });
   }
 
-  const toastHistoryState = { items: [] };
-
-  function recordToast(message, type) {
-    toastHistoryState.items.unshift({ message, type: type || 'info', at: new Date().toISOString() });
+  function recordToast(message, type, id) {
+    const item = {
+      id: id || ('t_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)),
+      message,
+      type: type || 'info',
+      at: new Date().toISOString()
+    };
+    toastHistoryState.items.unshift(item);
     if (toastHistoryState.items.length > 50) toastHistoryState.items.length = 50;
     updateToastBadge();
+    return item;
+  }
+
+  function removeToastFromHistory(toastId) {
+    if (!toastId) return;
+    const idx = toastHistoryState.items.findIndex(it => it.id === toastId);
+    if (idx !== -1) {
+      toastHistoryState.items.splice(idx, 1);
+      updateToastBadge();
+      const panel = document.getElementById('toast-history-panel');
+      if (panel && panel.classList.contains('open')) {
+        renderToastHistory();
+      }
+    }
   }
 
   function updateToastBadge() {
@@ -5201,14 +5274,25 @@
       const when = document.createElement('span');
       when.className = 'toast-history-time';
       const d = new Date(item.at);
-      when.textContent = isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
+      when.textContent = isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
       const body = document.createElement('span');
       body.className = 'toast-history-message';
       body.textContent = item.message;
 
+      const delBtn = document.createElement('button');
+      delBtn.className = 'toast-history-del-btn';
+      delBtn.type = 'button';
+      delBtn.title = 'Remove notification';
+      delBtn.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeToastFromHistory(item.id);
+      });
+
       row.appendChild(when);
       row.appendChild(body);
+      row.appendChild(delBtn);
       list.appendChild(row);
     });
   }
@@ -6652,34 +6736,22 @@
   // ==========================================================================
   // Project Workspaces & Context Profiles
   // ==========================================================================
+  const WS_PRESET_COLORS = ['#06b6d4', '#10b981', '#6366f1', '#8b5cf6', '#f59e0b', '#ec4899', '#3b82f6'];
+
   function renderWorkspacesDropdown(workspaces, activeId) {
     const list = workspaces || [];
     const activeWs = list.find(w => w.id === activeId) || list[0] || null;
 
-    // Header badge in Profiles view
+    // Header active badge in Profiles view
     const badge = document.getElementById('active-workspace-status-badge');
     if (badge) {
       badge.textContent = activeWs ? activeWs.name : 'Default Workspace';
     }
 
-    // Dropdown in Profiles view
-    const select = document.getElementById('profiles-workspace-select');
-    if (select) {
-      select.innerHTML = '';
-      if (list.length === 0) {
-        const opt = document.createElement('option');
-        opt.value = 'default_ws';
-        opt.textContent = 'Default Workspace';
-        select.appendChild(opt);
-      } else {
-        list.forEach(ws => {
-          const opt = document.createElement('option');
-          opt.value = ws.id;
-          opt.textContent = ws.name || ws.id;
-          if (ws.id === activeId) opt.selected = true;
-          select.appendChild(opt);
-        });
-      }
+    // Header count badge
+    const countBadge = document.getElementById('workspaces-count-badge');
+    if (countBadge) {
+      countBadge.textContent = `${list.length} Workspace${list.length === 1 ? '' : 's'}`;
     }
 
     // Grid in Profiles view
@@ -6687,17 +6759,25 @@
     if (grid) {
       grid.innerHTML = '';
       if (list.length === 0) {
-        grid.innerHTML = '<div style="color: var(--text-dim); font-size: 12px; grid-column: 1 / -1; padding: 10px 0;">No workspaces created yet. Click "New Workspace" to create one.</div>';
+        grid.innerHTML = '<div style="color: var(--text-dim); font-size: 12px; grid-column: 1 / -1; padding: 12px 0;">No workspaces created yet. Click "New Workspace" to create one.</div>';
       } else {
         list.forEach(ws => {
           const isActive = ws.id === activeId;
           const card = document.createElement('div');
           card.className = 'ws-item-card' + (isActive ? ' active' : '');
           
+          const color = ws.colorTag || '#06b6d4';
+          card.style.setProperty('--ws-color', color);
+
           const profileText = ws.antigravityProfile ? ws.antigravityProfile : 'Current Profile';
-          const dirText = ws.workingDirectory ? ws.workingDirectory : 'Default Directory';
-          // Stored values are single / horizontal / vertical. The old check for "split" never
-          // matched, so every split workspace was labelled Single on its card.
+          const hasCustomDir = !!ws.workingDirectory;
+          const dirText = hasCustomDir ? ws.workingDirectory : 'Default (Isolated VirtualHome)';
+          let dirBaseName = 'VirtualHome';
+          if (hasCustomDir) {
+            const clean = ws.workingDirectory.replace(/[\\/]+$/, '');
+            dirBaseName = clean.split(/[\\/]/).pop() || clean;
+          }
+
           const isSplit = !!ws.splitMode && ws.splitMode !== 'single';
           const splitText = isSplit
             ? `${ws.splitMode === 'vertical' ? 'Vertical' : 'Horizontal'} split (${ws.primaryCli} + ${ws.secondaryCli})`
@@ -6706,30 +6786,64 @@
           card.innerHTML = `
             <div>
               <div class="ws-item-title">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <svg class="icon-svg" style="width: 14px; height: 14px; color: ${isActive ? 'var(--accent-cyan)' : 'var(--text-muted)'};" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                  <span>${escapeHtml(ws.name || ws.id)}</span>
+                <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
+                  <svg class="icon-svg" style="width: 15px; height: 15px; color: ${color}; flex-shrink: 0;" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(ws.name || ws.id)}</span>
                 </div>
-                ${isActive ? '<span style="font-size: 10px; background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); padding: 1px 6px; border-radius: 4px; font-weight: 700;">ACTIVE</span>' : ''}
+                ${isActive ? '<span style="font-size: 10px; background: rgba(6, 182, 212, 0.18); color: var(--accent-cyan); padding: 1px 7px; border-radius: 4px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;"><span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 6px var(--accent-cyan);"></span>ACTIVE</span>' : ''}
               </div>
-              <div class="ws-item-dir" title="${escapeHtml(dirText)}" style="margin-top: 6px;">
-                📁 ${escapeHtml(dirText)}
+              <div class="ws-item-dir-box" title="${escapeHtml(dirText)}">
+                <div style="display: flex; align-items: center; gap: 5px; min-width: 0; flex: 1;">
+                  <span style="font-size: 11px; font-weight: 600; color: var(--text-main); flex-shrink: 0;">${escapeHtml(dirBaseName)}</span>
+                  <span class="ws-item-dir">${escapeHtml(hasCustomDir ? dirText : 'VirtualHome')}</span>
+                </div>
+                ${hasCustomDir ? `<button class="btn-ws-open-dir" type="button" title="Open folder in File Explorer" data-path="${escapeHtml(ws.workingDirectory)}"><svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>` : ''}
               </div>
-              <div class="ws-item-meta" style="margin-top: 6px;">
-                <span class="ws-item-chip" title="Bound Antigravity Profile">👤 ${escapeHtml(profileText)}</span>
-                <span class="ws-item-chip" title="Terminal layout">💻 ${escapeHtml(splitText)}</span>
+              <div class="ws-item-meta">
+                <span class="ws-item-chip" title="Bound Antigravity Profile">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  <span>${escapeHtml(profileText)}</span>
+                </span>
+                <span class="ws-item-chip" title="Terminal layout">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  <span>${escapeHtml(splitText)}</span>
+                </span>
               </div>
             </div>
             <div class="ws-item-actions">
-              ${!isActive ? `<button class="btn btn-outline btn-ws-activate" data-id="${escapeHtml(ws.id)}" style="padding: 3px 8px; font-size: 11px;">Activate</button>` : ''}
-              <button class="btn btn-outline btn-ws-edit" data-id="${escapeHtml(ws.id)}" style="padding: 3px 8px; font-size: 11px;">Edit</button>
-              ${!ws.isDefault ? `<button class="btn btn-danger btn-ws-delete" data-id="${escapeHtml(ws.id)}" style="padding: 3px 8px; font-size: 11px;">Delete</button>` : ''}
+              ${!isActive ? `<button class="btn btn-outline btn-ws-activate" data-id="${escapeHtml(ws.id)}" type="button" style="padding: 3px 9px; font-size: 11px;">Activate</button>` : ''}
+              <button class="btn btn-outline btn-ws-edit" data-id="${escapeHtml(ws.id)}" type="button" style="padding: 3px 9px; font-size: 11px;">Edit</button>
+              ${!ws.isDefault ? `<button class="btn btn-danger btn-ws-delete" data-id="${escapeHtml(ws.id)}" type="button" style="padding: 3px 9px; font-size: 11px;">Delete</button>` : ''}
             </div>
           `;
 
-          card.querySelector('.btn-ws-activate')?.addEventListener('click', () => switchWorkspace(ws.id));
-          card.querySelector('.btn-ws-edit')?.addEventListener('click', () => openWorkspaceModal(ws.id));
-          card.querySelector('.btn-ws-delete')?.addEventListener('click', () => deleteWorkspaceDirectly(ws.id, ws.name));
+          // Clicking card body activates if not active
+          card.addEventListener('click', (e) => {
+            if (e.target.closest('button')) return;
+            if (!isActive) switchWorkspace(ws.id);
+          });
+
+          card.querySelector('.btn-ws-open-dir')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (ws.workingDirectory) {
+              callBridge('open_folder', { path: ws.workingDirectory });
+            }
+          });
+
+          card.querySelector('.btn-ws-activate')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            switchWorkspace(ws.id);
+          });
+
+          card.querySelector('.btn-ws-edit')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openWorkspaceModal(ws.id);
+          });
+
+          card.querySelector('.btn-ws-delete')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteWorkspaceDirectly(ws.id, ws.name);
+          });
 
           grid.appendChild(card);
         });
@@ -6793,6 +6907,27 @@
       ws = state.workspaces.find(w => w.id === workspaceId);
     }
 
+    const currentColor = (ws && ws.colorTag) ? ws.colorTag : '#06b6d4';
+    const colorInput = document.getElementById('modal-ws-color');
+    if (colorInput) colorInput.value = currentColor;
+
+    const paletteEl = document.getElementById('modal-ws-color-palette');
+    if (paletteEl) {
+      paletteEl.innerHTML = '';
+      WS_PRESET_COLORS.forEach(hex => {
+        const swatch = document.createElement('div');
+        swatch.className = 'ws-color-swatch' + (hex.toLowerCase() === currentColor.toLowerCase() ? ' selected' : '');
+        swatch.style.backgroundColor = hex;
+        swatch.title = hex;
+        swatch.addEventListener('click', () => {
+          paletteEl.querySelectorAll('.ws-color-swatch').forEach(s => s.classList.remove('selected'));
+          swatch.classList.add('selected');
+          if (colorInput) colorInput.value = hex;
+        });
+        paletteEl.appendChild(swatch);
+      });
+    }
+
     if (ws) {
       if (titleEl) titleEl.textContent = 'Edit Project Workspace';
       if (idInput) idInput.value = ws.id;
@@ -6835,6 +6970,7 @@
     const idInput = document.getElementById('modal-ws-id');
     const nameInput = document.getElementById('modal-ws-name');
     const dirInput = document.getElementById('modal-ws-dir');
+    const colorInput = document.getElementById('modal-ws-color');
     const profileSelect = document.getElementById('modal-ws-profile');
     const primaryCliSelect = document.getElementById('modal-ws-primary-cli');
     const secondaryCliSelect = document.getElementById('modal-ws-secondary-cli');
@@ -6851,6 +6987,7 @@
       workspace: {
         id: idInput?.value || undefined,
         name: name,
+        colorTag: colorInput?.value || '#06b6d4',
         workingDirectory: dirInput?.value.trim() || '',
         antigravityProfile: profileSelect?.value || '',
         primaryCli: primaryCliSelect?.value || 'Hermes',
@@ -6909,7 +7046,6 @@
       const res = await callBridge('activate_workspace', { id: workspaceId });
       if (res && res.success) {
         state.activeWorkspaceId = workspaceId;
-        showToast(`Activated workspace: ${res.activeWorkspace?.name || workspaceId}`, 'success');
       }
     } catch (err) {
       showToast('Workspace switch error: ' + err.message, 'error');
@@ -7148,19 +7284,6 @@
     document.getElementById('btn-profiles-new-workspace')?.addEventListener('click', (e) => {
       e.stopPropagation();
       openWorkspaceModal(null);
-    });
-
-    document.getElementById('btn-profiles-edit-active-workspace')?.addEventListener('click', () => {
-      openWorkspaceModal(state.activeWorkspaceId);
-    });
-
-    document.getElementById('btn-profiles-switch-workspace')?.addEventListener('click', () => {
-      const sel = document.getElementById('profiles-workspace-select');
-      if (sel && sel.value) switchWorkspace(sel.value);
-    });
-
-    document.getElementById('profiles-workspace-select')?.addEventListener('change', (e) => {
-      switchWorkspace(e.target.value);
     });
 
     // Workspace Modal Dialog

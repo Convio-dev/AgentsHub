@@ -827,6 +827,26 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "open_folder":
+                if (data.TryGetProperty("path", out var pathProp))
+                {
+                    var folderPath = pathProp.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(folderPath) && Directory.Exists(folderPath))
+                    {
+                        Process.Start(new ProcessStartInfo("explorer.exe", folderPath) { UseShellExecute = true });
+                        SendResponse(requestId, true, null);
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Folder does not exist.");
+                    }
+                }
+                else
+                {
+                    SendResponse(requestId, false, "Path not specified.");
+                }
+                break;
+
             case "enhance_prompt":
                 await HandleEnhancePromptAsync(data, requestId);
                 break;
