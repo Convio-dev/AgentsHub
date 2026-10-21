@@ -682,7 +682,7 @@ public partial class MainForm : Form
             var p1 = new Point(checkRect.Left + 3, checkRect.Top + checkRect.Height / 2);
             var p2 = new Point(checkRect.Left + checkRect.Width / 2 - 1, checkRect.Bottom - 4);
             var p3 = new Point(checkRect.Right - 3, checkRect.Top + 3);
-            g.DrawLines(pen, new[] { p1, p2, p3 });
+            g.DrawLines(pen, [p1, p2, p3]);
         }
     }
 
