@@ -1367,6 +1367,192 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "get_commit_graph":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    int maxCount = data.TryGetProperty("maxCount", out var mProp) && mProp.TryGetInt32(out var mc) ? mc : 100;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var graph = await GitRepositoryManagerService.Instance.GetCommitGraphAsync(repoPath, maxCount).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { commits = graph });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "get_commit_diff":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? hash = data.TryGetProperty("commitHash", out var hProp) ? hProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(hash))
+                    {
+                        var diff = await GitRepositoryManagerService.Instance.GetCommitDiffDetailAsync(repoPath, hash).ConfigureAwait(false);
+                        SendResponse(requestId, diff != null, diff ?? (object)new { error = "Commit not found" });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath and commitHash are required");
+                    }
+                }
+                break;
+
+            case "get_worktrees":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var wts = await GitRepositoryManagerService.Instance.GetWorktreesAsync(repoPath).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { worktrees = wts });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "add_worktree":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? worktreePath = data.TryGetProperty("worktreePath", out var wProp) ? wProp.GetString() : null;
+                    string? branch = data.TryGetProperty("branch", out var bProp) ? bProp.GetString() : null;
+                    bool createBranch = data.TryGetProperty("createBranch", out var cbProp) && cbProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(worktreePath) && !string.IsNullOrEmpty(branch))
+                    {
+                        var (ok, msg) = await GitRepositoryManagerService.Instance.AddWorktreeAsync(repoPath, worktreePath, branch, createBranch).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = msg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath, worktreePath, and branch are required");
+                    }
+                }
+                break;
+
+            case "remove_worktree":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? worktreePath = data.TryGetProperty("worktreePath", out var wProp) ? wProp.GetString() : null;
+                    bool force = data.TryGetProperty("force", out var fProp) && fProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(repoPath) && !string.IsNullOrEmpty(worktreePath))
+                    {
+                        var (ok, msg) = await GitRepositoryManagerService.Instance.RemoveWorktreeAsync(repoPath, worktreePath, force).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = msg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath and worktreePath are required");
+                    }
+                }
+                break;
+
+            case "get_stashes":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var stashes = await GitRepositoryManagerService.Instance.GetStashesAsync(repoPath).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { stashes });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "get_stash_diff":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    int idx = data.TryGetProperty("stashIndex", out var iProp) && iProp.TryGetInt32(out var indexVal) ? indexVal : 0;
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var (ok, diff) = await GitRepositoryManagerService.Instance.GetStashDiffAsync(repoPath, idx).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, diffContent = diff });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "create_stash":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    string? msg = data.TryGetProperty("message", out var mProp) ? mProp.GetString() : null;
+                    bool untracked = data.TryGetProperty("includeUntracked", out var uProp) && uProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var (ok, resMsg) = await GitRepositoryManagerService.Instance.CreateStashAsync(repoPath, msg, untracked).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = resMsg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "apply_stash":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    int idx = data.TryGetProperty("stashIndex", out var iProp) && iProp.TryGetInt32(out var indexVal) ? indexVal : 0;
+                    bool pop = data.TryGetProperty("pop", out var pProp) && pProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var (ok, resMsg) = await GitRepositoryManagerService.Instance.ApplyStashAsync(repoPath, idx, pop).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = resMsg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "drop_stash":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    int idx = data.TryGetProperty("stashIndex", out var iProp) && iProp.TryGetInt32(out var indexVal) ? indexVal : 0;
+
+                    if (!string.IsNullOrEmpty(repoPath))
+                    {
+                        var (ok, resMsg) = await GitRepositoryManagerService.Instance.DropStashAsync(repoPath, idx).ConfigureAwait(false);
+                        SendResponse(requestId, ok, new { success = ok, message = resMsg });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "repoPath is required");
+                    }
+                }
+                break;
+
+            case "batch_repo_action":
+                {
+                    var idList = new List<string>();
+                    if (data.TryGetProperty("repoIds", out var idsProp) && idsProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var el in idsProp.EnumerateArray())
+                        {
+                            var s = el.GetString();
+                            if (!string.IsNullOrEmpty(s)) idList.Add(s);
+                        }
+                    }
+                    string batchAction = data.TryGetProperty("action", out var actProp) ? actProp.GetString() ?? "fetch" : "fetch";
+
+                    var results = await GitRepositoryManagerService.Instance.BatchActionAsync(idList, batchAction).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { results });
+                }
+                break;
+
             case "get_agent_rules":
                 {
                     string? wsId = data.TryGetProperty("workspaceId", out var gWsProp) ? gWsProp.GetString() : null;

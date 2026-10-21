@@ -127,8 +127,31 @@
       <!-- Left: Repositories List Panel -->
       <div class="repo-list-panel">
         <div class="repo-list-header">
-          <span id="repo-count-header">Repositories (0)</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="chk-select-all-repos" title="Select all repositories for batch actions" style="cursor: pointer; margin: 0; width: 13px; height: 13px;" />
+            <span id="repo-count-header">Repositories (0)</span>
+          </div>
           <span id="repo-sort-info" style="font-weight: 500; font-size: 11px;">Sorted by Name</span>
+        </div>
+
+        <!-- Batch Action Deck (Appears when >= 1 repo selected) -->
+        <div class="batch-action-bar" id="batch-action-bar" style="display: none;">
+          <div class="batch-info">
+            <span id="batch-selected-count" style="font-weight: 700; color: var(--accent-cyan);">0</span> selected
+          </div>
+          <div class="batch-buttons">
+            <button class="btn btn-outline btn-xs" id="btn-batch-fetch" title="Fetch remote refs for selected repos">
+              <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <span>Fetch All</span>
+            </button>
+            <button class="btn btn-success btn-xs" id="btn-batch-pull" title="Pull clean repositories safely">
+              <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+              <span>Pull Clean</span>
+            </button>
+            <button class="btn btn-outline btn-xs" id="btn-batch-clear" title="Clear selection">
+              <span>Clear</span>
+            </button>
+          </div>
         </div>
         <div class="repo-items-scroll" id="repo-items-container">
           <!-- Dynamically populated via JS -->
@@ -191,6 +214,18 @@
           <button class="detail-tab-btn" data-tab="changes">
             <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
             <span>Git Changes</span>
+          </button>
+          <button class="detail-tab-btn" data-tab="history">
+            <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v9"/><path d="M18 9a9 9 0 0 0-9 9"/></svg>
+            <span>Commit Graph</span>
+          </button>
+          <button class="detail-tab-btn" data-tab="worktrees">
+            <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+            <span>Worktrees</span>
+          </button>
+          <button class="detail-tab-btn" data-tab="stashes">
+            <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><path d="M21 8H3"/><path d="M21 12H3"/><path d="M21 16H3"/><path d="M4 20h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>
+            <span>Stashes</span>
           </button>
           <button class="detail-tab-btn" data-tab="run">
             <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -358,6 +393,89 @@
               <span id="notes-save-status" style="font-size: 11px; color: var(--accent-green); display: none;">Saved</span>
             </div>
             <textarea id="repo-notes-box" class="repo-notes-textarea" placeholder="# Project Notes&#10;&#10;Record objectives, architecture notes, active task list, or references here..."></textarea>
+          </div>
+
+          <!-- 6. Commit Graph Pane -->
+          <div class="detail-pane" id="pane-history">
+            <div class="history-pane-header">
+              <div class="history-header-left">
+                <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Visual Commit Graph &amp; Timeline</span>
+                <span class="commit-count-pill" id="lbl-commit-graph-count">0 commits</span>
+              </div>
+              <div class="history-header-actions">
+                <button class="btn btn-outline btn-sm" id="btn-refresh-commit-graph" title="Refresh commit graph">
+                  <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+            <div class="commit-graph-layout">
+              <div class="commit-graph-scroll" id="commit-graph-container">
+                <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;">Loading commit graph...</div>
+              </div>
+              <div class="commit-diff-viewer" id="commit-diff-viewer" style="display: none;">
+                <div class="commit-diff-header">
+                  <div class="commit-diff-title-row">
+                    <span class="commit-diff-hash" id="diff-commit-hash"></span>
+                    <span class="commit-diff-subject" id="diff-commit-subject"></span>
+                    <button class="btn-icon btn-sm" id="btn-close-commit-diff" title="Close diff view">&times;</button>
+                  </div>
+                  <div class="commit-diff-meta-row">
+                    <span id="diff-commit-author"></span>
+                    <span id="diff-commit-date"></span>
+                    <span class="commit-diff-stat" id="diff-commit-stat"></span>
+                  </div>
+                </div>
+                <div class="commit-diff-body" id="diff-commit-body">
+                  <pre class="commit-patch-pre" id="diff-commit-patch"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 7. Worktrees Pane -->
+          <div class="detail-pane" id="pane-worktrees">
+            <div class="worktrees-pane-header">
+              <div>
+                <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Linked Git Worktrees</span>
+                <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Manage parallel worktrees with separate working trees.</div>
+              </div>
+              <button class="btn btn-primary btn-sm" id="btn-open-add-worktree">
+                <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>New Worktree</span>
+              </button>
+            </div>
+            <div class="worktrees-list-container" id="worktrees-list-container">
+              <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;">Loading worktrees...</div>
+            </div>
+          </div>
+
+          <!-- 8. Stashes Pane -->
+          <div class="detail-pane" id="pane-stashes">
+            <div class="stashes-pane-header">
+              <div>
+                <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Git Stash Drawer</span>
+                <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Shelve working directory changes and inspect diffs before applying.</div>
+              </div>
+              <button class="btn btn-outline btn-sm" id="btn-open-create-stash">
+                <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Stash Changes</span>
+              </button>
+            </div>
+            <div class="stashes-layout">
+              <div class="stashes-list-container" id="stashes-list-container">
+                <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;">Loading stashes...</div>
+              </div>
+              <div class="stash-diff-viewer" id="stash-diff-viewer" style="display: none;">
+                <div class="stash-diff-header">
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <span class="stash-diff-title" id="diff-stash-title">stash@{0}</span>
+                    <button class="btn-icon btn-sm" id="btn-close-stash-diff">&times;</button>
+                  </div>
+                </div>
+                <pre class="commit-patch-pre" id="diff-stash-patch"></pre>
+              </div>
+            </div>
           </div>
 
         </div>

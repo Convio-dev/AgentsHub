@@ -288,3 +288,123 @@ public sealed class ScanProgressDto
     [JsonPropertyName("isCompleted")]
     public bool IsCompleted { get; set; }
 }
+
+public sealed class GitCommitGraphNode
+{
+    [JsonPropertyName("hash")]
+    public string Hash { get; set; } = "";
+
+    [JsonPropertyName("abbrevHash")]
+    public string AbbrevHash { get; set; } = "";
+
+    [JsonPropertyName("authorName")]
+    public string AuthorName { get; set; } = "";
+
+    [JsonPropertyName("authorEmail")]
+    public string AuthorEmail { get; set; } = "";
+
+    [JsonPropertyName("authorDate")]
+    public string AuthorDate { get; set; } = "";
+
+    [JsonPropertyName("subject")]
+    public string Subject { get; set; } = "";
+
+    [JsonPropertyName("parentHashes")]
+    public List<string> ParentHashes { get; set; } = [];
+
+    [JsonPropertyName("refs")]
+    public List<string> Refs { get; set; } = [];
+}
+
+public sealed class GitCommitDiffDetail
+{
+    [JsonPropertyName("hash")]
+    public string Hash { get; set; } = "";
+
+    [JsonPropertyName("author")]
+    public string Author { get; set; } = "";
+
+    [JsonPropertyName("date")]
+    public string Date { get; set; } = "";
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = "";
+
+    [JsonPropertyName("parents")]
+    public List<string> Parents { get; set; } = [];
+
+    [JsonPropertyName("files")]
+    public List<string> Files { get; set; } = [];
+
+    [JsonPropertyName("patch")]
+    public string Patch { get; set; } = "";
+
+    [JsonPropertyName("stats")]
+    public string Stats { get; set; } = "";
+}
+
+public sealed class GitWorktreeItem
+{
+    [JsonPropertyName("path")]
+    public string Path { get; set; } = "";
+
+    [JsonPropertyName("head")]
+    public string Head { get; set; } = "";
+
+    [JsonPropertyName("branch")]
+    public string? Branch { get; set; }
+
+    [JsonPropertyName("isBare")]
+    public bool IsBare { get; set; }
+
+    [JsonPropertyName("isDetached")]
+    public bool IsDetached { get; set; }
+
+    [JsonPropertyName("isLocked")]
+    public bool IsLocked { get; set; }
+
+    [JsonPropertyName("lockReason")]
+    public string? LockReason { get; set; }
+
+    [JsonPropertyName("isMainWorktree")]
+    public bool IsMainWorktree { get; set; }
+}
+
+public sealed class GitStashItem
+{
+    [JsonPropertyName("index")]
+    public int Index { get; set; }
+
+    [JsonPropertyName("refName")]
+    public string RefName { get; set; } = "";
+
+    [JsonPropertyName("branch")]
+    public string Branch { get; set; } = "";
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = "";
+
+    [JsonPropertyName("date")]
+    public string Date { get; set; } = "";
+}
+
+public sealed class BatchRepoActionResult
+{
+    [JsonPropertyName("repoId")]
+    public string RepoId { get; set; } = "";
+
+    [JsonPropertyName("repoName")]
+    public string RepoName { get; set; } = "";
+
+    [JsonPropertyName("action")]
+    public string Action { get; set; } = "";
+
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = "";
+
+    [JsonPropertyName("output")]
+    public string Output { get; set; } = "";
+}

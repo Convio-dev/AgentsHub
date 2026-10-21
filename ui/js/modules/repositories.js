@@ -3,6 +3,7 @@
   const repoState = {
     repositories: [],
     selectedRepoId: null,
+    selectedRepoIds: new Set(),
     workingProjectId: null,
     activeFilter: 'all',
     searchQuery: '',
@@ -13,7 +14,12 @@
     selectedChangeFile: null,
     checkedChangeFiles: new Set(),
     activeDetailTab: 'overview',
-    notesDebounceTimer: null
+    notesDebounceTimer: null,
+    commitGraph: [],
+    selectedCommitHash: null,
+    worktrees: [],
+    stashes: [],
+    selectedStashIndex: null
   };
 
   async function initRepositoriesModule() {
@@ -186,6 +192,34 @@
     document.getElementById('btn-git-pull')?.addEventListener('click', () => openGitNetworkModal('pull'));
     document.getElementById('btn-git-push')?.addEventListener('click', () => openGitNetworkModal('push'));
 
+    // Batch Actions Bar
+    document.getElementById('chk-select-all-repos')?.addEventListener('change', (e) => toggleSelectAllRepos(e.target.checked));
+    document.getElementById('btn-batch-fetch')?.addEventListener('click', () => runBatchAction('fetch'));
+    document.getElementById('btn-batch-pull')?.addEventListener('click', () => runBatchAction('pull_clean'));
+    document.getElementById('btn-batch-clear')?.addEventListener('click', clearBatchSelection);
+
+    // Commit Graph action buttons
+    document.getElementById('btn-refresh-commit-graph')?.addEventListener('click', () => {
+      const repo = getSelectedRepo();
+      if (repo) loadCommitGraph(repo.path);
+    });
+    document.getElementById('btn-close-commit-diff')?.addEventListener('click', () => {
+      const diffViewer = document.getElementById('commit-diff-viewer');
+      if (diffViewer) diffViewer.style.display = 'none';
+      document.querySelectorAll('.commit-row.selected').forEach(r => r.classList.remove('selected'));
+      repoState.selectedCommitHash = null;
+    });
+
+    // Worktrees action buttons
+    document.getElementById('btn-open-add-worktree')?.addEventListener('click', openAddWorktreeModal);
+
+    // Stashes action buttons
+    document.getElementById('btn-open-create-stash')?.addEventListener('click', openCreateStashModal);
+    document.getElementById('btn-close-stash-diff')?.addEventListener('click', () => {
+      const viewer = document.getElementById('stash-diff-viewer');
+      if (viewer) viewer.style.display = 'none';
+    });
+
     // Launchers action buttons
     document.getElementById('btn-add-custom-launcher')?.addEventListener('click', openCustomLauncherModal);
 
@@ -250,12 +284,8 @@
     }
   }
 
-  function renderRepositoriesList() {
-    const container = document.getElementById('repo-items-container');
-    const countHeader = document.getElementById('repo-count-header');
-    if (!container) return;
-
-    let filtered = repoState.repositories;
+  function getFilteredRepositories() {
+    let filtered = [...repoState.repositories];
 
     // Filter by type
     if (repoState.activeFilter === 'working') {
@@ -288,6 +318,16 @@
       return a.name.localeCompare(b.name);
     });
 
+    return filtered;
+  }
+
+  function renderRepositoriesList() {
+    const container = document.getElementById('repo-items-container');
+    const countHeader = document.getElementById('repo-count-header');
+    if (!container) return;
+
+    const filtered = getFilteredRepositories();
+
     if (countHeader) countHeader.textContent = `Repositories (${filtered.length})`;
 
     if (filtered.length === 0) {
@@ -295,6 +335,7 @@
         <div class="empty-state" style="padding: 40px 20px; text-align: center; color: var(--text-dim); font-size: 12px;">
           No matching repositories found.
         </div>`;
+      updateBatchActionBar();
       return;
     }
 
@@ -315,8 +356,10 @@
 
       const isPinned = repo.pinned;
       const isWorking = repo.id === repoState.workingProjectId;
+      const isBatchSelected = repoState.selectedRepoIds.has(repo.id);
 
       item.innerHTML = `
+        <input type="checkbox" class="repo-card-checkbox" data-id="${repo.id}" ${isBatchSelected ? 'checked' : ''} title="Select for batch actions" />
         <button class="repo-pin-btn ${isPinned ? 'pinned' : ''}" title="${isPinned ? 'Unpin' : 'Pin to top'}">
           <svg class="icon-svg" style="width: 14px; height: 14px;" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
         </button>
@@ -333,6 +376,12 @@
       `;
 
       item.addEventListener('click', (e) => {
+        if (e.target.closest('.repo-card-checkbox')) {
+          e.stopPropagation();
+          const chk = e.target.closest('.repo-card-checkbox');
+          toggleRepoBatchSelection(repo.id, chk.checked);
+          return;
+        }
         if (e.target.closest('.repo-pin-btn')) {
           e.stopPropagation();
           toggleRepoPinned(repo.id, !repo.pinned);
@@ -343,6 +392,87 @@
 
       container.appendChild(item);
     });
+
+    updateBatchActionBar();
+  }
+
+  function toggleRepoBatchSelection(repoId, isSelected) {
+    if (isSelected) {
+      repoState.selectedRepoIds.add(repoId);
+    } else {
+      repoState.selectedRepoIds.delete(repoId);
+    }
+    updateBatchActionBar();
+  }
+
+  function toggleSelectAllRepos(isChecked) {
+    const filtered = getFilteredRepositories();
+    if (isChecked) {
+      filtered.forEach(r => repoState.selectedRepoIds.add(r.id));
+    } else {
+      repoState.selectedRepoIds.clear();
+    }
+    renderRepositoriesList();
+  }
+
+  function clearBatchSelection() {
+    repoState.selectedRepoIds.clear();
+    renderRepositoriesList();
+  }
+
+  function updateBatchActionBar() {
+    const bar = document.getElementById('batch-action-bar');
+    const countEl = document.getElementById('batch-selected-count');
+    const chkAll = document.getElementById('chk-select-all-repos');
+    const sz = repoState.selectedRepoIds.size;
+
+    if (countEl) countEl.textContent = sz;
+    if (bar) bar.style.display = sz > 0 ? 'flex' : 'none';
+
+    if (chkAll) {
+      const filtered = getFilteredRepositories();
+      const allSelected = filtered.length > 0 && filtered.every(r => repoState.selectedRepoIds.has(r.id));
+      const someSelected = sz > 0 && !allSelected;
+      chkAll.checked = allSelected;
+      chkAll.indeterminate = someSelected;
+    }
+  }
+
+  async function runBatchAction(actionName) {
+    const selectedIds = Array.from(repoState.selectedRepoIds);
+    if (selectedIds.length === 0) {
+      showToast('No repositories selected', 'warn');
+      return;
+    }
+
+    const actionLabels = {
+      'fetch': 'Fetching remotes for',
+      'pull_clean': 'Safely pulling clean repos for',
+      'status': 'Checking status for'
+    };
+    showToast(`${actionLabels[actionName] || 'Processing'} ${selectedIds.length} repositories...`, 'info');
+
+    try {
+      const res = await callBridge('batch_repo_action', { action: actionName, repoIds: selectedIds });
+      if (res && res.results) {
+        const results = res.results;
+        const successCount = results.filter(r => r.success).length;
+        const skipped = results.filter(r => r.skippedReason);
+        const failed = results.filter(r => !r.success && !r.skippedReason);
+
+        let msg = `Batch ${actionName}: ${successCount}/${results.length} succeeded.`;
+        if (skipped.length > 0) {
+          msg += ` (${skipped.length} skipped - dirty tree)`;
+        }
+        if (failed.length > 0) {
+          msg += ` (${failed.length} failed)`;
+        }
+        showToast(msg, failed.length > 0 ? 'warn' : 'success', 6000);
+        await loadRepoManagerState();
+      }
+    } catch (err) {
+      showToast(`Batch ${actionName} error: ` + (err.message || err), 'error');
+    }
   }
 
   function selectRepository(repoId) {
@@ -435,6 +565,15 @@
         break;
       case 'changes':
         loadRepoChanges(repo.path);
+        break;
+      case 'history':
+        loadCommitGraph(repo.path);
+        break;
+      case 'worktrees':
+        loadWorktrees(repo.path);
+        break;
+      case 'stashes':
+        loadStashes(repo.path);
         break;
       case 'run':
         loadRepoLaunchers(repo.path);
@@ -826,6 +965,571 @@
         setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
       }
     } catch (e) { }
+  }
+
+  // =========================================================================
+  // 1. Commit Graph & Timeline
+  // =========================================================================
+  async function loadCommitGraph(repoPath) {
+    const container = document.getElementById('commit-graph-container');
+    const diffViewer = document.getElementById('commit-diff-viewer');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;">
+        <span class="spinner" style="width: 14px; height: 14px; margin-bottom: 8px;"></span>
+        <div>Loading commit history...</div>
+      </div>
+    `;
+    if (diffViewer) diffViewer.style.display = 'none';
+
+    try {
+      const res = await callBridge('get_commit_graph', { repoPath, maxCount: 150 });
+      const commits = (res && res.commits) ? res.commits : [];
+      repoState.commitGraph = commits;
+      renderCommitGraph(commits, repoPath);
+    } catch (e) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: #ef4444;">
+          Failed to load commit graph: ${escapeHtml(e.message || String(e))}
+        </div>
+      `;
+    }
+  }
+
+  function renderCommitGraph(commits, repoPath) {
+    const container = document.getElementById('commit-graph-container');
+    const countEl = document.getElementById('lbl-commit-graph-count');
+    if (countEl) countEl.textContent = `${commits.length} commits`;
+    if (!container) return;
+
+    if (commits.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: var(--text-dim);">
+          No commits recorded in this repository yet.
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = '';
+
+    // Assign lanes topological tracking
+    const colors = ['#06b6d4', '#10b981', '#a855f7', '#f59e0b', '#ec4899', '#3b82f6'];
+    const activeLanes = [];
+
+    const rowsData = commits.map(commit => {
+      let laneIndex = activeLanes.indexOf(commit.hash);
+      if (laneIndex === -1) {
+        laneIndex = activeLanes.indexOf(null);
+        if (laneIndex === -1) {
+          laneIndex = activeLanes.length;
+          activeLanes.push(commit.hash);
+        } else {
+          activeLanes[laneIndex] = commit.hash;
+        }
+      }
+
+      const parents = commit.parentHashes || [];
+      if (parents.length === 0) {
+        activeLanes[laneIndex] = null;
+      } else {
+        activeLanes[laneIndex] = parents[0];
+        for (let p = 1; p < parents.length; p++) {
+          const parentHash = parents[p];
+          if (!activeLanes.includes(parentHash)) {
+            const nextSlot = activeLanes.indexOf(null);
+            if (nextSlot === -1) activeLanes.push(parentHash);
+            else activeLanes[nextSlot] = parentHash;
+          }
+        }
+      }
+
+      while (activeLanes.length > 0 && activeLanes[activeLanes.length - 1] === null) {
+        activeLanes.pop();
+      }
+
+      return {
+        commit,
+        lane: laneIndex
+      };
+    });
+
+    const maxLanes = Math.min(8, Math.max(1, ...rowsData.map(r => r.lane + 1)));
+    const svgWidth = maxLanes * 16 + 14;
+
+    rowsData.forEach(({ commit, lane }) => {
+      const row = document.createElement('div');
+      row.className = `commit-row ${commit.hash === repoState.selectedCommitHash ? 'selected' : ''}`;
+      row.dataset.hash = commit.hash;
+
+      const nodeColor = colors[lane % colors.length];
+      const cx = lane * 16 + 12;
+      const cy = 18;
+
+      let badgesHtml = '';
+      if (commit.isHead) {
+        badgesHtml += `<span class="commit-ref-pill head">HEAD</span>`;
+      }
+      if (commit.branchRefs && commit.branchRefs.length > 0) {
+        commit.branchRefs.forEach(b => {
+          const isRemote = b.includes('/');
+          badgesHtml += `<span class="commit-ref-pill ${isRemote ? 'remote' : 'branch'}">${escapeHtml(b)}</span>`;
+        });
+      }
+      if (commit.tagRefs && commit.tagRefs.length > 0) {
+        commit.tagRefs.forEach(t => {
+          badgesHtml += `<span class="commit-ref-pill tag">tag: ${escapeHtml(t)}</span>`;
+        });
+      }
+
+      row.innerHTML = `
+        <div class="commit-graph-canvas-cell">
+          <svg width="${svgWidth}" height="36" viewBox="0 0 ${svgWidth} 36" style="display: block;">
+            <line x1="${cx}" y1="0" x2="${cx}" y2="36" stroke="${nodeColor}" stroke-width="2" opacity="0.6"/>
+            <circle cx="${cx}" cy="${cy}" r="4.5" fill="${nodeColor}" stroke="var(--bg-card)" stroke-width="2"/>
+          </svg>
+        </div>
+        <div class="commit-info">
+          <div class="commit-title-line">
+            ${badgesHtml}
+            <span class="commit-subject" title="${escapeHtml(commit.subject)}">${escapeHtml(commit.subject)}</span>
+          </div>
+          <div class="commit-meta-line">
+            <span class="commit-hash">${escapeHtml(commit.shortHash || commit.hash.substring(0, 7))}</span>
+            <span class="commit-author">${escapeHtml(commit.authorName)}</span>
+            <span class="commit-date">${formatDate(commit.date)}</span>
+          </div>
+        </div>
+      `;
+
+      row.addEventListener('click', () => {
+        container.querySelectorAll('.commit-row').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        repoState.selectedCommitHash = commit.hash;
+        loadCommitDiff(repoPath, commit.hash, commit);
+      });
+
+      container.appendChild(row);
+    });
+  }
+
+  async function loadCommitDiff(repoPath, commitHash, commitMeta) {
+    const viewer = document.getElementById('commit-diff-viewer');
+    const hashEl = document.getElementById('diff-commit-hash');
+    const subjectEl = document.getElementById('diff-commit-subject');
+    const authorEl = document.getElementById('diff-commit-author');
+    const dateEl = document.getElementById('diff-commit-date');
+    const statEl = document.getElementById('diff-commit-stat');
+    const patchEl = document.getElementById('diff-commit-patch');
+
+    if (!viewer || !patchEl) return;
+
+    viewer.style.display = 'flex';
+    if (hashEl) hashEl.textContent = commitHash.substring(0, 8);
+    if (subjectEl) subjectEl.textContent = commitMeta.subject;
+    if (authorEl) authorEl.textContent = commitMeta.authorName || '';
+    if (dateEl) dateEl.textContent = formatDate(commitMeta.date);
+    if (statEl) statEl.textContent = 'Inspecting patch...';
+    patchEl.textContent = 'Loading commit diff...';
+
+    try {
+      const res = await callBridge('get_commit_diff', { repoPath, commitHash });
+      if (res) {
+        if (statEl) statEl.textContent = `+${res.insertions || 0} -${res.deletions || 0} (${res.filesChanged || 0} files)`;
+        patchEl.innerHTML = formatDiffPatchHtml(res.diffPatch || 'Empty diff or merge commit');
+      }
+    } catch (e) {
+      patchEl.textContent = 'Failed to load diff: ' + (e.message || e);
+    }
+  }
+
+  function formatDiffPatchHtml(rawPatch) {
+    if (!rawPatch) return 'No diff patch available';
+    const lines = rawPatch.split('\n');
+    return lines.map(line => {
+      const esc = escapeHtml(line);
+      if (line.startsWith('+') && !line.startsWith('+++')) {
+        return `<span style="color: #4ade80; background: rgba(74, 222, 128, 0.08); display: block;">${esc}</span>`;
+      } else if (line.startsWith('-') && !line.startsWith('---')) {
+        return `<span style="color: #f87171; background: rgba(248, 113, 113, 0.08); display: block;">${esc}</span>`;
+      } else if (line.startsWith('@@')) {
+        return `<span style="color: #38bdf8; font-weight: 600; display: block;">${esc}</span>`;
+      } else if (line.startsWith('diff --git')) {
+        return `<span style="color: #e2e8f0; font-weight: 700; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 6px; padding-top: 4px; display: block;">${esc}</span>`;
+      }
+      return `<span>${esc}</span>`;
+    }).join('');
+  }
+
+  // =========================================================================
+  // 2. Git Worktrees Manager
+  // =========================================================================
+  async function loadWorktrees(repoPath) {
+    const container = document.getElementById('worktrees-list-container');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;">
+        <span class="spinner" style="width: 14px; height: 14px; margin-bottom: 8px;"></span>
+        <div>Loading linked worktrees...</div>
+      </div>
+    `;
+
+    try {
+      const res = await callBridge('get_worktrees', { repoPath });
+      const wts = (res && res.worktrees) ? res.worktrees : [];
+      repoState.worktrees = wts;
+      renderWorktrees(wts, repoPath);
+    } catch (e) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: #ef4444;">
+          Failed to load worktrees: ${escapeHtml(e.message || String(e))}
+        </div>
+      `;
+    }
+  }
+
+  function renderWorktrees(worktrees, repoPath) {
+    const container = document.getElementById('worktrees-list-container');
+    if (!container) return;
+
+    if (worktrees.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: var(--text-dim);">
+          No worktrees linked to this repository yet.
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = '';
+    worktrees.forEach(wt => {
+      const card = document.createElement('div');
+      card.className = `worktree-card ${wt.isMainWorktree ? 'is-main' : ''}`;
+
+      card.innerHTML = `
+        <div class="worktree-info">
+          <div class="worktree-title-row">
+            <span class="worktree-branch-badge">
+              <svg class="icon-svg" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+              <span>${escapeHtml(wt.branch || wt.headCommit || 'detached')}</span>
+            </span>
+            ${wt.isMainWorktree ? `<span class="worktree-pill main">Main Tree</span>` : ''}
+            ${wt.isBare ? `<span class="worktree-pill">Bare</span>` : ''}
+            ${wt.isLocked ? `<span class="worktree-pill locked" title="${escapeHtml(wt.lockReason || 'Locked')}">Locked</span>` : ''}
+          </div>
+          <span class="worktree-path" title="${escapeHtml(wt.path)}">${escapeHtml(wt.path)}</span>
+        </div>
+        <div class="worktree-actions">
+          <button class="btn btn-outline btn-xs btn-wt-editor" title="Open worktree in External Code Editor">
+            <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M16.5 9.4 7.55 2.81a1.5 1.5 0 0 0-1.85.1L2.3 5.4a1.5 1.5 0 0 0-.1 2.22L6 11.2l-3.8 3.58a1.5 1.5 0 0 0 .1 2.22l3.4 2.49a1.5 1.5 0 0 0 1.85.1L16.5 13"/></svg>
+            <span>Editor</span>
+          </button>
+          <button class="btn btn-outline btn-xs btn-wt-terminal" title="Open terminal in worktree directory">
+            <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span>Terminal</span>
+          </button>
+          ${!wt.isMainWorktree ? `
+          <button class="btn btn-outline btn-xs btn-wt-remove" style="color: #ef4444;" title="Remove this worktree">
+            <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>Remove</span>
+          </button>` : ''}
+        </div>
+      `;
+
+      card.querySelector('.btn-wt-editor')?.addEventListener('click', () => {
+        callBridge('open_repo_in_editor', { repoPath: wt.path, target: 'editor' });
+      });
+
+      card.querySelector('.btn-wt-terminal')?.addEventListener('click', () => {
+        callBridge('open_repo_in_editor', { repoPath: wt.path, target: 'terminal' });
+      });
+
+      card.querySelector('.btn-wt-remove')?.addEventListener('click', async () => {
+        if (!confirm(`Are you sure you want to remove worktree at:\n${wt.path}?`)) return;
+        try {
+          const res = await callBridge('remove_worktree', { repoPath, worktreePath: wt.path, force: false });
+          if (res && res.success) {
+            showToast('Worktree removed successfully', 'success');
+            loadWorktrees(repoPath);
+          } else {
+            showToast(`Failed to remove worktree: ${res?.message || 'Unknown error'}`, 'error');
+          }
+        } catch (e) {
+          showToast(`Error removing worktree: ${e.message}`, 'error');
+        }
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  function openAddWorktreeModal() {
+    const modal = document.getElementById('modal-git-worktree');
+    const pathInput = document.getElementById('input-worktree-path');
+    const branchSelect = document.getElementById('select-worktree-branch');
+    const chkCreate = document.getElementById('chk-worktree-create-branch');
+    const wrapNewBranch = document.getElementById('wrap-new-branch-name');
+    const newBranchInput = document.getElementById('input-worktree-new-branch');
+    const repo = getSelectedRepo();
+
+    if (!modal || !repo) return;
+
+    if (pathInput) pathInput.value = '';
+    if (chkCreate) chkCreate.checked = false;
+    if (wrapNewBranch) wrapNewBranch.style.display = 'none';
+    if (newBranchInput) newBranchInput.value = '';
+
+    if (branchSelect) {
+      branchSelect.innerHTML = '';
+      const branches = (repo.branches && repo.branches.length > 0) ? repo.branches : [repo.branch || 'main'];
+      branches.forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b;
+        opt.textContent = b;
+        branchSelect.appendChild(opt);
+      });
+      if (repo.branch) branchSelect.value = repo.branch;
+    }
+
+    modal.classList.add('active');
+  }
+
+  function closeAddWorktreeModal() {
+    document.getElementById('modal-git-worktree')?.classList.remove('active');
+  }
+
+  async function submitAddWorktreeModal() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const pathInput = document.getElementById('input-worktree-path');
+    const branchSelect = document.getElementById('select-worktree-branch');
+    const chkCreate = document.getElementById('chk-worktree-create-branch');
+    const newBranchInput = document.getElementById('input-worktree-new-branch');
+
+    const worktreePath = pathInput?.value.trim();
+    const branch = branchSelect?.value.trim();
+    const isNewBranch = chkCreate ? chkCreate.checked : false;
+    const targetBranch = isNewBranch ? (newBranchInput?.value.trim() || '') : branch;
+
+    if (!worktreePath) {
+      showToast('Worktree directory path is required', 'warn');
+      return;
+    }
+    if (!targetBranch) {
+      showToast('Branch name is required', 'warn');
+      return;
+    }
+
+    try {
+      showToast('Creating git worktree...', 'info');
+      const res = await callBridge('add_worktree', {
+        repoPath: repo.path,
+        worktreePath,
+        branch: targetBranch,
+        createBranch: isNewBranch
+      });
+
+      if (res && res.success) {
+        showToast('Worktree created successfully', 'success');
+        closeAddWorktreeModal();
+        loadWorktrees(repo.path);
+      } else {
+        showToast(`Failed to create worktree: ${res?.message || 'Error'}`, 'error');
+      }
+    } catch (e) {
+      showToast('Failed to create worktree: ' + e.message, 'error');
+    }
+  }
+
+  // =========================================================================
+  // 3. Git Stash Drawer
+  // =========================================================================
+  async function loadStashes(repoPath) {
+    const container = document.getElementById('stashes-list-container');
+    const diffViewer = document.getElementById('stash-diff-viewer');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center;">
+        <span class="spinner" style="width: 14px; height: 14px; margin-bottom: 8px;"></span>
+        <div>Loading stashes...</div>
+      </div>
+    `;
+    if (diffViewer) diffViewer.style.display = 'none';
+
+    try {
+      const res = await callBridge('get_stashes', { repoPath });
+      const stashes = (res && res.stashes) ? res.stashes : [];
+      repoState.stashes = stashes;
+      renderStashes(stashes, repoPath);
+    } catch (e) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: #ef4444;">
+          Failed to load stashes: ${escapeHtml(e.message || String(e))}
+        </div>
+      `;
+    }
+  }
+
+  function renderStashes(stashes, repoPath) {
+    const container = document.getElementById('stashes-list-container');
+    if (!container) return;
+
+    if (stashes.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 30px; font-size: 11px; text-align: center; color: var(--text-dim);">
+          No saved stashes in this repository.
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = '';
+    stashes.forEach(s => {
+      const card = document.createElement('div');
+      card.className = 'stash-card';
+
+      card.innerHTML = `
+        <div class="stash-info">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="stash-index">${escapeHtml(s.name)}</span>
+            <span class="stash-message" title="${escapeHtml(s.message)}">${escapeHtml(s.message)}</span>
+          </div>
+          <span class="stash-date">${formatDate(s.date)}</span>
+        </div>
+        <div class="stash-actions">
+          <button class="btn btn-outline btn-xs btn-stash-diff" title="Inspect diff of this stash">
+            <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span>Diff</span>
+          </button>
+          <button class="btn btn-success btn-xs btn-stash-pop" title="Apply changes and remove stash (pop)">
+            <svg class="icon-svg" style="width: 11px; height: 11px;" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <span>Pop</span>
+          </button>
+          <button class="btn btn-outline btn-xs btn-stash-apply" title="Apply stash without removing it">
+            <span>Apply</span>
+          </button>
+          <button class="btn btn-outline btn-xs btn-stash-drop" style="color: #ef4444;" title="Discard this stash">
+            &times;
+          </button>
+        </div>
+      `;
+
+      card.querySelector('.btn-stash-diff')?.addEventListener('click', () => {
+        inspectStashDiff(repoPath, s.index, s.name);
+      });
+
+      card.querySelector('.btn-stash-pop')?.addEventListener('click', async () => {
+        await executeStashAction(repoPath, s.index, true, 'pop');
+      });
+
+      card.querySelector('.btn-stash-apply')?.addEventListener('click', async () => {
+        await executeStashAction(repoPath, s.index, false, 'apply');
+      });
+
+      card.querySelector('.btn-stash-drop')?.addEventListener('click', async () => {
+        if (!confirm(`Discard stash ${s.name}?`)) return;
+        try {
+          const res = await callBridge('drop_stash', { repoPath, stashIndex: s.index });
+          if (res && res.success) {
+            showToast(`Dropped ${s.name}`, 'info');
+            loadStashes(repoPath);
+          } else {
+            showToast(`Failed to drop stash: ${res?.message || 'Error'}`, 'error');
+          }
+        } catch (e) {
+          showToast('Failed to drop stash: ' + e.message, 'error');
+        }
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  async function inspectStashDiff(repoPath, stashIndex, stashName) {
+    const viewer = document.getElementById('stash-diff-viewer');
+    const titleEl = document.getElementById('diff-stash-title');
+    const patchEl = document.getElementById('diff-stash-patch');
+    if (!viewer || !patchEl) return;
+
+    viewer.style.display = 'flex';
+    if (titleEl) titleEl.textContent = `${stashName} Diff`;
+    patchEl.textContent = 'Loading stash patch...';
+
+    try {
+      const res = await callBridge('get_stash_diff', { repoPath, stashIndex });
+      if (res && res.success) {
+        patchEl.innerHTML = formatDiffPatchHtml(res.diffContent || 'Clean diff');
+      } else {
+        patchEl.textContent = 'No diff available or empty stash';
+      }
+    } catch (e) {
+      patchEl.textContent = 'Failed to load stash diff: ' + e.message;
+    }
+  }
+
+  async function executeStashAction(repoPath, stashIndex, pop, actionLabel) {
+    try {
+      showToast(`Executing stash ${actionLabel}...`, 'info');
+      const res = await callBridge('apply_stash', { repoPath, stashIndex, pop });
+      if (res && res.success) {
+        showToast(`Stash ${actionLabel} applied successfully`, 'success');
+        loadStashes(repoPath);
+        loadRepoChanges(repoPath);
+      } else {
+        showToast(`Failed to ${actionLabel} stash: ${res?.message || 'Conflict occurred'}`, 'error');
+      }
+    } catch (e) {
+      showToast(`Stash ${actionLabel} error: ${e.message}`, 'error');
+    }
+  }
+
+  function openCreateStashModal() {
+    const modal = document.getElementById('modal-git-stash');
+    const msgInput = document.getElementById('input-stash-msg');
+    const chkUntracked = document.getElementById('chk-stash-untracked');
+    if (!modal) return;
+
+    if (msgInput) msgInput.value = '';
+    if (chkUntracked) chkUntracked.checked = true;
+    modal.classList.add('active');
+  }
+
+  function closeCreateStashModal() {
+    document.getElementById('modal-git-stash')?.classList.remove('active');
+  }
+
+  async function submitCreateStashModal() {
+    const repo = getSelectedRepo();
+    if (!repo) return;
+
+    const msgInput = document.getElementById('input-stash-msg');
+    const chkUntracked = document.getElementById('chk-stash-untracked');
+    const message = msgInput?.value.trim() || '';
+    const includeUntracked = chkUntracked ? chkUntracked.checked : true;
+
+    try {
+      showToast('Creating stash...', 'info');
+      const res = await callBridge('create_stash', {
+        repoPath: repo.path,
+        message,
+        includeUntracked
+      });
+
+      if (res && res.success) {
+        showToast('Changes stashed successfully', 'success');
+        closeCreateStashModal();
+        loadStashes(repo.path);
+        loadRepoChanges(repo.path);
+      } else {
+        showToast(`Failed to stash changes: ${res?.message || 'Error'}`, 'error');
+      }
+    } catch (e) {
+      showToast('Failed to create stash: ' + e.message, 'error');
+    }
   }
 
   async function triggerRepoScan() {
@@ -1359,6 +2063,29 @@
     document.getElementById('btn-modal-unstage-selected')?.addEventListener('click', () => stageCheckedModalFiles(true));
     document.getElementById('btn-modal-stage-all')?.addEventListener('click', stageAllModalFiles);
     document.getElementById('btn-modal-create-commit')?.addEventListener('click', createModalCommit);
+
+    // Git Worktree Modal
+    document.getElementById('btn-close-worktree-modal')?.addEventListener('click', closeAddWorktreeModal);
+    document.getElementById('btn-cancel-worktree-modal')?.addEventListener('click', closeAddWorktreeModal);
+    document.getElementById('btn-submit-worktree-modal')?.addEventListener('click', submitAddWorktreeModal);
+    document.getElementById('chk-worktree-create-branch')?.addEventListener('change', (e) => {
+      const wrap = document.getElementById('wrap-new-branch-name');
+      if (wrap) wrap.style.display = e.target.checked ? 'block' : 'none';
+    });
+    document.getElementById('btn-browse-worktree-path')?.addEventListener('click', async () => {
+      try {
+        const res = await callBridge('browse_editor_path');
+        if (res && res.path) {
+          const inp = document.getElementById('input-worktree-path');
+          if (inp) inp.value = res.path;
+        }
+      } catch { }
+    });
+
+    // Git Stash Modal
+    document.getElementById('btn-close-stash-modal')?.addEventListener('click', closeCreateStashModal);
+    document.getElementById('btn-cancel-stash-modal')?.addEventListener('click', closeCreateStashModal);
+    document.getElementById('btn-submit-stash-modal')?.addEventListener('click', submitCreateStashModal);
   }
 
   function openRepoSettingsModal() {

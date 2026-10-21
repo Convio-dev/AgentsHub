@@ -1391,6 +1391,436 @@ public sealed class GitRepositoryManagerService
 
     #endregion
 
+    #region Commit Graph & Details
+
+    public async Task<List<GitCommitGraphNode>> GetCommitGraphAsync(string repoPath, int maxCount = 100, CancellationToken ct = default)
+    {
+        var list = new List<GitCommitGraphNode>();
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath)) return list;
+
+        int count = Math.Clamp(maxCount, 10, 300);
+        var (rc, output) = await RunGitAsync(repoPath, ["log", $"-n{count}", "--topo-order", "--pretty=format:%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%P%x00%d"], ct).ConfigureAwait(false);
+        if (rc != 0 || string.IsNullOrWhiteSpace(output)) return list;
+
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.TrimEnd('\r');
+            var parts = line.Split('\0');
+            if (parts.Length < 6) continue;
+
+            List<string> parents = (parts.Length > 6 && !string.IsNullOrWhiteSpace(parts[6]))
+                ? [.. parts[6].Split(' ', StringSplitOptions.RemoveEmptyEntries)]
+                : [];
+
+            List<string> refs = [];
+            if (parts.Length > 7 && !string.IsNullOrWhiteSpace(parts[7]))
+            {
+                var clean = parts[7].Trim().TrimStart('(').TrimEnd(')');
+                if (!string.IsNullOrWhiteSpace(clean))
+                {
+                    refs = [.. clean.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(r => r.Trim())
+                        .Where(r => !string.IsNullOrEmpty(r))];
+                }
+            }
+
+            list.Add(new GitCommitGraphNode
+            {
+                Hash = parts[0].Trim(),
+                AbbrevHash = parts[1].Trim(),
+                AuthorName = parts[2].Trim(),
+                AuthorEmail = parts[3].Trim(),
+                AuthorDate = parts[4].Trim(),
+                Subject = parts[5].Trim(),
+                ParentHashes = parents,
+                Refs = refs
+            });
+        }
+
+        return list;
+    }
+
+    public async Task<GitCommitDiffDetail?> GetCommitDiffDetailAsync(string repoPath, string commitHash, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath) || string.IsNullOrWhiteSpace(commitHash))
+            return null;
+
+        var (rcMeta, outMeta) = await RunGitAsync(repoPath, ["show", "--quiet", "--pretty=format:%H%x00%an%x00%aI%x00%s%x00%P%x00%B", commitHash], ct).ConfigureAwait(false);
+        if (rcMeta != 0 || string.IsNullOrWhiteSpace(outMeta)) return null;
+
+        var parts = outMeta.Split('\0');
+        if (parts.Length < 6) return null;
+
+        var (rcStat, outStat) = await RunGitAsync(repoPath, ["show", "--stat", "--oneline", commitHash], ct).ConfigureAwait(false);
+        var (rcPatch, outPatch) = await RunGitAsync(repoPath, ["show", "--patch", "--no-color", commitHash], ct).ConfigureAwait(false);
+        var (rcFiles, outFiles) = await RunGitAsync(repoPath, ["diff-tree", "--no-commit-id", "--name-only", "-r", commitHash], ct).ConfigureAwait(false);
+
+        List<string> fileList = (rcFiles == 0 && !string.IsNullOrWhiteSpace(outFiles))
+            ? [.. outFiles.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(f => f.Trim().TrimEnd('\r'))]
+            : [];
+
+        List<string> parents = !string.IsNullOrWhiteSpace(parts[4])
+            ? [.. parts[4].Split(' ', StringSplitOptions.RemoveEmptyEntries)]
+            : [];
+
+        return new GitCommitDiffDetail
+        {
+            Hash = parts[0].Trim(),
+            Author = parts[1].Trim(),
+            Date = parts[2].Trim(),
+            Message = parts[5].Trim(),
+            Parents = parents,
+            Files = fileList,
+            Patch = rcPatch == 0 ? outPatch : "",
+            Stats = rcStat == 0 ? outStat : ""
+        };
+    }
+
+    #endregion
+
+    #region Git Worktrees
+
+    public async Task<List<GitWorktreeItem>> GetWorktreesAsync(string repoPath, CancellationToken ct = default)
+    {
+        var list = new List<GitWorktreeItem>();
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath)) return list;
+
+        var (rc, output) = await RunGitAsync(repoPath, ["worktree", "list", "--porcelain"], ct).ConfigureAwait(false);
+        if (rc != 0 || string.IsNullOrWhiteSpace(output)) return list;
+
+        var lines = output.Split('\n');
+        GitWorktreeItem? current = null;
+
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.TrimEnd('\r', '\n');
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                if (current != null && !string.IsNullOrWhiteSpace(current.Path))
+                {
+                    current.IsMainWorktree = string.Equals(Path.GetFullPath(current.Path), Path.GetFullPath(repoPath), StringComparison.OrdinalIgnoreCase);
+                    list.Add(current);
+                    current = null;
+                }
+                continue;
+            }
+
+            if (line.StartsWith("worktree "))
+            {
+                if (current != null && !string.IsNullOrWhiteSpace(current.Path))
+                {
+                    current.IsMainWorktree = string.Equals(Path.GetFullPath(current.Path), Path.GetFullPath(repoPath), StringComparison.OrdinalIgnoreCase);
+                    list.Add(current);
+                }
+                current = new GitWorktreeItem { Path = line[9..].Trim() };
+            }
+            else if (current != null)
+            {
+                if (line.StartsWith("HEAD ")) current.Head = line[5..].Trim();
+                else if (line.StartsWith("branch "))
+                {
+                    var b = line[7..].Trim();
+                    if (b.StartsWith("refs/heads/")) b = b[11..];
+                    current.Branch = b;
+                }
+                else if (line == "bare") current.IsBare = true;
+                else if (line == "detached") current.IsDetached = true;
+                else if (line.StartsWith("locked"))
+                {
+                    current.IsLocked = true;
+                    var r = line.Length > 6 ? line[6..].Trim() : "";
+                    if (!string.IsNullOrEmpty(r)) current.LockReason = r;
+                }
+            }
+        }
+
+        if (current != null && !string.IsNullOrWhiteSpace(current.Path))
+        {
+            current.IsMainWorktree = string.Equals(Path.GetFullPath(current.Path), Path.GetFullPath(repoPath), StringComparison.OrdinalIgnoreCase);
+            list.Add(current);
+        }
+
+        return list;
+    }
+
+    public async Task<(bool success, string message)> AddWorktreeAsync(string repoPath, string worktreePath, string branch, bool createBranch, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath)) return (false, "Invalid repository path.");
+        if (string.IsNullOrWhiteSpace(worktreePath)) return (false, "Worktree path cannot be empty.");
+        if (string.IsNullOrWhiteSpace(branch)) return (false, "Branch name cannot be empty.");
+
+        var fullWorktreePath = Path.GetFullPath(worktreePath);
+        string[] args = createBranch
+            ? ["worktree", "add", "-b", branch, fullWorktreePath]
+            : ["worktree", "add", fullWorktreePath, branch];
+
+        var (rc, output) = await RunGitAsync(repoPath, args, ct, timeoutSeconds: 30).ConfigureAwait(false);
+        if (rc == 0)
+        {
+            return (true, $"Worktree created at {fullWorktreePath} on branch '{branch}'");
+        }
+        return (false, $"Failed to add worktree: {output}");
+    }
+
+    public async Task<(bool success, string message)> RemoveWorktreeAsync(string repoPath, string worktreePath, bool force, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath)) return (false, "Invalid repository path.");
+        if (string.IsNullOrWhiteSpace(worktreePath)) return (false, "Worktree path cannot be empty.");
+
+        var fullPath = Path.GetFullPath(worktreePath);
+        if (string.Equals(fullPath, Path.GetFullPath(repoPath), StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, "Cannot remove the main working tree.");
+        }
+
+        string[] args = force
+            ? ["worktree", "remove", "--force", fullPath]
+            : ["worktree", "remove", fullPath];
+
+        var (rc, output) = await RunGitAsync(repoPath, args, ct, timeoutSeconds: 30).ConfigureAwait(false);
+        if (rc == 0)
+        {
+            return (true, $"Worktree removed: {Path.GetFileName(fullPath)}");
+        }
+        return (false, $"Failed to remove worktree: {output}");
+    }
+
+    #endregion
+
+    #region Git Stash
+
+    public async Task<List<GitStashItem>> GetStashesAsync(string repoPath, CancellationToken ct = default)
+    {
+        var list = new List<GitStashItem>();
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath)) return list;
+
+        var (rc, output) = await RunGitAsync(repoPath, ["stash", "list", "--pretty=format:%gd%x00%aI%x00%s"], ct).ConfigureAwait(false);
+        if (rc != 0 || string.IsNullOrWhiteSpace(output)) return list;
+
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        int idx = 0;
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.TrimEnd('\r');
+            var parts = line.Split('\0');
+            if (parts.Length < 3) continue;
+
+            string refName = parts[0].Trim();
+            string date = parts[1].Trim();
+            string fullMsg = parts[2].Trim();
+            string branch = "";
+            string msg = fullMsg;
+
+            if (fullMsg.StartsWith("WIP on ", StringComparison.OrdinalIgnoreCase))
+            {
+                var rest = fullMsg[7..];
+                var colon = rest.IndexOf(':');
+                if (colon > 0)
+                {
+                    branch = rest[..colon].Trim();
+                    msg = rest[(colon + 1)..].Trim();
+                }
+            }
+            else if (fullMsg.StartsWith("On ", StringComparison.OrdinalIgnoreCase))
+            {
+                var rest = fullMsg[3..];
+                var colon = rest.IndexOf(':');
+                if (colon > 0)
+                {
+                    branch = rest[..colon].Trim();
+                    msg = rest[(colon + 1)..].Trim();
+                }
+            }
+
+            list.Add(new GitStashItem
+            {
+                Index = idx++,
+                RefName = refName,
+                Date = date,
+                Branch = branch,
+                Message = msg
+            });
+        }
+
+        return list;
+    }
+
+    public async Task<(bool success, string diffContent)> GetStashDiffAsync(string repoPath, int stashIndex, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath)) return (false, "Invalid repository path.");
+        string stashRef = $"stash@{{{stashIndex}}}";
+        var (rc, output) = await RunGitAsync(repoPath, ["stash", "show", "-p", "--no-color", stashRef], ct).ConfigureAwait(false);
+        if (rc == 0) return (true, output);
+        return (false, output);
+    }
+
+    public async Task<(bool success, string message)> CreateStashAsync(string repoPath, string? message, bool includeUntracked, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath)) return (false, "Invalid repository path.");
+
+        var args = new List<string> { "stash", "push" };
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            args.Add("-m");
+            args.Add(message.Trim());
+        }
+        if (includeUntracked)
+        {
+            args.Add("-u");
+        }
+
+        var (rc, output) = await RunGitAsync(repoPath, [.. args], ct).ConfigureAwait(false);
+        if (rc == 0)
+        {
+            return (true, string.IsNullOrWhiteSpace(output) ? "Stash created successfully." : output.Trim());
+        }
+        return (false, $"Failed to create stash: {output}");
+    }
+
+    public async Task<(bool success, string message)> ApplyStashAsync(string repoPath, int stashIndex, bool pop, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath)) return (false, "Invalid repository path.");
+        string stashRef = $"stash@{{{stashIndex}}}";
+        string action = pop ? "pop" : "apply";
+
+        var (rc, output) = await RunGitAsync(repoPath, ["stash", action, stashRef], ct).ConfigureAwait(false);
+        if (rc == 0)
+        {
+            return (true, $"Stash {stashRef} {action}ed successfully.");
+        }
+        return (false, $"Failed to {action} stash: {output}");
+    }
+
+    public async Task<(bool success, string message)> DropStashAsync(string repoPath, int stashIndex, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(repoPath) || !Directory.Exists(repoPath)) return (false, "Invalid repository path.");
+        string stashRef = $"stash@{{{stashIndex}}}";
+
+        var (rc, output) = await RunGitAsync(repoPath, ["stash", "drop", stashRef], ct).ConfigureAwait(false);
+        if (rc == 0)
+        {
+            return (true, $"Stash {stashRef} dropped.");
+        }
+        return (false, $"Failed to drop stash: {output}");
+    }
+
+    #endregion
+
+    #region Multi-Repo Batch Operations
+
+    public async Task<List<BatchRepoActionResult>> BatchActionAsync(List<string> repoIds, string action, CancellationToken ct = default)
+    {
+        var results = new List<BatchRepoActionResult>();
+        if (repoIds == null || repoIds.Count == 0) return results;
+
+        List<RepositoryItem> targetRepos;
+        lock (_lock)
+        {
+            targetRepos = [.. _repositories
+                .Where(r => repoIds.Contains(r.Id, StringComparer.OrdinalIgnoreCase) && Directory.Exists(r.Path))];
+        }
+
+        var tasks = targetRepos.Select(async repo =>
+        {
+            var res = new BatchRepoActionResult
+            {
+                RepoId = repo.Id,
+                RepoName = repo.Name,
+                Action = action
+            };
+
+            try
+            {
+                switch (action.ToLowerInvariant())
+                {
+                    case "fetch":
+                        (int fRc, string fOut) = await RunGitAsync(repo.Path, ["fetch", "--all", "--prune"], ct, timeoutSeconds: 30).ConfigureAwait(false);
+                        res.Success = fRc == 0;
+                        res.Output = fOut;
+                        res.Message = fRc == 0 ? "Fetched remotes successfully." : $"Fetch failed: {fOut}";
+                        if (res.Success)
+                        {
+                            var updated = await InspectRepositoryAsync(repo.Path, ct).ConfigureAwait(false);
+                            if (updated != null)
+                            {
+                                lock (_lock)
+                                {
+                                    var idx = _repositories.FindIndex(r => r.Id == repo.Id);
+                                    if (idx >= 0) _repositories[idx] = updated;
+                                }
+                            }
+                        }
+                        break;
+
+                    case "pull_clean":
+                        if (!repo.IsClean)
+                        {
+                            res.Success = false;
+                            res.Message = "Skipped: repository has uncommitted changes.";
+                            break;
+                        }
+                        if (repo.Behind == 0)
+                        {
+                            res.Success = true;
+                            res.Message = "Already up to date.";
+                            break;
+                        }
+                        (int pRc, string pOut) = await RunGitAsync(repo.Path, ["pull", "--ff-only"], ct, timeoutSeconds: 30).ConfigureAwait(false);
+                        res.Success = pRc == 0;
+                        res.Output = pOut;
+                        res.Message = pRc == 0 ? "Pulled latest changes cleanly." : $"Pull failed: {pOut}";
+                        if (res.Success)
+                        {
+                            var updated = await InspectRepositoryAsync(repo.Path, ct).ConfigureAwait(false);
+                            if (updated != null)
+                            {
+                                lock (_lock)
+                                {
+                                    var idx = _repositories.FindIndex(r => r.Id == repo.Id);
+                                    if (idx >= 0) _repositories[idx] = updated;
+                                }
+                            }
+                        }
+                        break;
+
+                    case "status":
+                        var stRepo = await InspectRepositoryAsync(repo.Path, ct).ConfigureAwait(false);
+                        if (stRepo != null)
+                        {
+                            lock (_lock)
+                            {
+                                var idx = _repositories.FindIndex(r => r.Id == repo.Id);
+                                if (idx >= 0) _repositories[idx] = stRepo;
+                            }
+                            res.Success = true;
+                            res.Message = $"Status updated: {stRepo.Branch} (Staged: {stRepo.StagedCount}, Unstaged: {stRepo.UnstagedCount})";
+                        }
+                        break;
+
+                    default:
+                        res.Success = false;
+                        res.Message = $"Unsupported batch action: {action}";
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                res.Success = false;
+                res.Message = ex.Message;
+            }
+
+            return res;
+        });
+
+        var completed = await Task.WhenAll(tasks).ConfigureAwait(false);
+        SaveRegistry();
+        RepositoriesChanged?.Invoke();
+        return [.. completed];
+    }
+
+    #endregion
+
     #region Helper Execution
 
     private static async Task<(int returnCode, string output)> RunGitAsync(string workingDir, string[] args, CancellationToken ct = default, int timeoutSeconds = 15)
