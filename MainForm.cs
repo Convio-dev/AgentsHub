@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using HermesHub.Helpers;
 using HermesHub.Services;
+using HermesHub.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -26,6 +27,7 @@ public partial class MainForm : Form
     private ToolStripMenuItem? _trayOpenItem;
     private ToolStripMenuItem? _trayCliWorkspaceItem;
     private ToolStripMenuItem? _trayHudItem;
+    private ToolStripMenuItem? _trayMiniBarItem;
     private ToolStripMenuItem? _trayBrowserDashboardItem;
     private ToolStripMenuItem? _trayCopyLanItem;
     private ToolStripMenuItem? _trayPresetsMenu;
@@ -47,6 +49,9 @@ public partial class MainForm : Form
 
     private bool _isExiting;
     private Icon? _appIcon;
+    private MiniBarForm? _miniBarForm;
+    private const int HotkeyMiniBarId = 9193;
+    private bool _miniBarHotkeyRegistered;
 
     public MainForm()
     {
@@ -211,6 +216,11 @@ public partial class MainForm : Form
             ToggleHudDropdown();
         });
 
+        _trayMiniBarItem = new ToolStripMenuItem("Desktop Mini-Bar [Ctrl+Alt+M]", null, (_, _) =>
+        {
+            ToggleMiniBar();
+        });
+
         _trayBrowserDashboardItem = new ToolStripMenuItem("Open Web Dashboard in Browser", null, (_, _) =>
         {
             OpenDashboardInBrowser();
@@ -333,6 +343,7 @@ public partial class MainForm : Form
         _trayContextMenu.Items.Add(new ToolStripSeparator());
         _trayContextMenu.Items.Add(_trayCliWorkspaceItem);
         _trayContextMenu.Items.Add(_trayHudItem);
+        _trayContextMenu.Items.Add(_trayMiniBarItem);
         _trayContextMenu.Items.Add(_trayBrowserDashboardItem);
         _trayContextMenu.Items.Add(_trayCopyLanItem);
         _trayContextMenu.Items.Add(new ToolStripSeparator());
@@ -850,6 +861,12 @@ public partial class MainForm : Form
             UnregisterHudHotkey();
         }
 
+        if (IsHandleCreated)
+        {
+            if (_miniBarHotkeyRegistered) UnregisterHotKey(Handle, HotkeyMiniBarId);
+            _miniBarHotkeyRegistered = RegisterHotKey(Handle, HotkeyMiniBarId, 0x0002 | 0x0001, (uint)Keys.M); // Ctrl+Alt+M
+        }
+
         if (wantEnabled || wantHud)
         {
             SetupKeyboardHook();
@@ -1016,6 +1033,11 @@ public partial class MainForm : Form
         try
         {
             UnregisterHotKey(Handle, HotkeyId);
+            if (_miniBarHotkeyRegistered)
+            {
+                UnregisterHotKey(Handle, HotkeyMiniBarId);
+                _miniBarHotkeyRegistered = false;
+            }
         }
         catch { }
 
@@ -1048,6 +1070,11 @@ public partial class MainForm : Form
             if (hotkeyId == HotkeyHudId)
             {
                 ExecuteQuakeHotkeyAction();
+                return;
+            }
+            if (hotkeyId == HotkeyMiniBarId)
+            {
+                ToggleMiniBar();
                 return;
             }
         }
@@ -1093,6 +1120,40 @@ public partial class MainForm : Form
             _hudTerminal = new HudTerminalForm(_cliManager, this);
         }
         _hudTerminal.Toggle();
+    }
+
+    public void ToggleMiniBar()
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(ToggleMiniBar));
+            return;
+        }
+
+        if (_miniBarForm == null || _miniBarForm.IsDisposed)
+        {
+            _miniBarForm = new MiniBarForm(
+                this,
+                quickPrompt =>
+                {
+                    _cliManager?.SendInput("hermes", quickPrompt + "\n");
+                    ShowTrayBalloon("Prompt Sent", quickPrompt);
+                },
+                () => AiConfigService.Instance.GetActiveWorkspace()?.Name ?? "Default Workspace",
+                () => _cliManager?.GetActiveCount() ?? 0
+            );
+        }
+
+        if (_miniBarForm.Visible)
+        {
+            _miniBarForm.Hide();
+        }
+        else
+        {
+            _miniBarForm.RefreshState();
+            _miniBarForm.Show();
+            _miniBarForm.Activate();
+        }
     }
 
     public void ShowOrHideFromHotkey()

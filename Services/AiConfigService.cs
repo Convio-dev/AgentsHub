@@ -176,6 +176,15 @@ public class ProjectWorkspace
 
     [JsonPropertyName("isDefault")]
     public bool IsDefault { get; set; } = false;
+
+    [JsonPropertyName("isolateRules")]
+    public bool IsolateRules { get; set; } = false;
+
+    [JsonPropertyName("disabledRuleIds")]
+    public List<string> DisabledRuleIds { get; set; } = [];
+
+    [JsonPropertyName("enabledProjectRuleIds")]
+    public List<string> EnabledProjectRuleIds { get; set; } = [];
 }
 
 public class AiConfig
@@ -1606,6 +1615,15 @@ public class AiConfigService
                 _config.ActiveWorkspaceId = list.FirstOrDefault()?.Id ?? "default_ws";
             }
             return _config.ActiveWorkspaceId;
+        }
+    }
+
+    public ProjectWorkspace? GetActiveWorkspace()
+    {
+        lock (_lock)
+        {
+            var id = GetActiveWorkspaceId();
+            return GetWorkspaces().FirstOrDefault(w => string.Equals(w.Id, id, StringComparison.OrdinalIgnoreCase));
         }
     }
 

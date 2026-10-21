@@ -309,6 +309,21 @@ public class CliManagerService : IDisposable
             return info;
         }
 
+        if (CustomCliService.Instance.TryGetCustomCli(id, out var custom))
+        {
+            var createdCustom = new CliItemInfo
+            {
+                Id = custom.Id,
+                DisplayName = custom.Name,
+                ShortName = custom.ShortName,
+                CommandDescription = custom.GetCommandLine(),
+                IsCustom = true,
+                IsEnabled = custom.IsEnabled
+            };
+            _cliStates[custom.Id] = createdCustom;
+            return createdCustom;
+        }
+
         var cfg = AiConfigService.Instance.CurrentConfig.CliWorkspaces.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
         if (cfg != null)
         {
@@ -354,6 +369,10 @@ public class CliManagerService : IDisposable
         foreach (var prof in _profileService.GetProfiles())
         {
             GetInfo(FormatAntigravityProfileId(prof));
+        }
+        foreach (var custom in CustomCliService.Instance.GetCustomClis())
+        {
+            GetInfo(custom.Id);
         }
         return [.. _cliStates.Values];
     }
@@ -585,24 +604,36 @@ public class CliManagerService : IDisposable
             }
             else
             {
-                var cfg = AiConfigService.Instance.CurrentConfig.CliWorkspaces.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
-                var rawCmd = cfg != null && !string.IsNullOrWhiteSpace(cfg.Command) ? cfg.Command.Trim() : id;
-                if (!string.IsNullOrWhiteSpace(cfg?.WorkingDirectory) && Directory.Exists(cfg.WorkingDirectory))
+                if (CustomCliService.Instance.TryGetCustomCli(id, out var customCli))
                 {
-                    workDir = cfg.WorkingDirectory;
-                }
-
-                if (string.Equals(rawCmd, "cmd", StringComparison.OrdinalIgnoreCase) || rawCmd.StartsWith("cmd.exe", StringComparison.OrdinalIgnoreCase))
-                {
-                    command = rawCmd.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? rawCmd : "cmd.exe";
-                }
-                else if (rawCmd.StartsWith("powershell", StringComparison.OrdinalIgnoreCase))
-                {
-                    command = rawCmd;
+                    command = customCli.GetCommandLine();
+                    if (!string.IsNullOrWhiteSpace(customCli.WorkingDirectory) && Directory.Exists(customCli.WorkingDirectory))
+                    {
+                        workDir = customCli.WorkingDirectory;
+                    }
+                    envVars = new Dictionary<string, string>(customCli.EnvironmentVariables, StringComparer.OrdinalIgnoreCase);
                 }
                 else
                 {
-                    command = $"cmd.exe /c {rawCmd}";
+                    var cfg = AiConfigService.Instance.CurrentConfig.CliWorkspaces.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+                    var rawCmd = cfg != null && !string.IsNullOrWhiteSpace(cfg.Command) ? cfg.Command.Trim() : id;
+                    if (!string.IsNullOrWhiteSpace(cfg?.WorkingDirectory) && Directory.Exists(cfg.WorkingDirectory))
+                    {
+                        workDir = cfg.WorkingDirectory;
+                    }
+
+                    if (string.Equals(rawCmd, "cmd", StringComparison.OrdinalIgnoreCase) || rawCmd.StartsWith("cmd.exe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        command = rawCmd.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? rawCmd : "cmd.exe";
+                    }
+                    else if (rawCmd.StartsWith("powershell", StringComparison.OrdinalIgnoreCase))
+                    {
+                        command = rawCmd;
+                    }
+                    else
+                    {
+                        command = $"cmd.exe /c {rawCmd}";
+                    }
                 }
             }
 

@@ -7,6 +7,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HermesHub.Helpers;
+using HermesHub.Models;
+using HermesHub.Forms;
 using Microsoft.Web.WebView2.Core;
 
 namespace HermesHub.Services;
@@ -43,6 +45,11 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     // Cached so payload parsing does not allocate a new options instance on every message.
     private static readonly JsonSerializerOptions CaseInsensitiveJsonOptions = new() { PropertyNameCaseInsensitive = true };
+    private static readonly JsonSerializerOptions CamelCaseJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
     private readonly ProtonVpnService _protonVpnService;
 
     public DashboardWebBridge(Form mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
@@ -161,6 +168,25 @@ public sealed partial class DashboardWebBridge : IDisposable
                     bindError = _lanProxyService.LastBindError ?? ""
                 });
             };
+        }
+
+        FileWatchdogService.Instance.FileChanged += (fileEvent) =>
+        {
+            PostEventToUi("workspace_file_changed", fileEvent);
+        };
+
+        CustomCliService.Instance.CustomClisChanged += () =>
+        {
+            PostEventToUi("custom_clis_changed", new
+            {
+                clis = CustomCliService.Instance.GetCustomClis()
+            });
+        };
+
+        var curWs = AiConfigService.Instance.GetActiveWorkspace();
+        if (curWs != null && !string.IsNullOrWhiteSpace(curWs.WorkingDirectory))
+        {
+            FileWatchdogService.Instance.WatchDirectory(curWs.WorkingDirectory);
         }
 
         _cliManager.ProfileService.ActiveProfileChanged += (activeProfile) =>
@@ -450,6 +476,430 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "get_mcp_and_skills":
+                {
+                    var servers = await McpSkillsService.Instance.GetMcpServersAsync().ConfigureAwait(false);
+                    var activeWs = AiConfigService.Instance.GetActiveWorkspace();
+                    var skills = await McpSkillsService.Instance.GetAgentSkillsAsync(activeWs?.WorkingDirectory).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { servers, skills });
+                }
+                break;
+
+            case "save_mcp_server":
+                {
+                    if (data.TryGetProperty("server", out var sProp))
+                    {
+                        var s = JsonSerializer.Deserialize<McpServerItem>(sProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        if (s != null)
+                        {
+                            bool saved = await McpSkillsService.Instance.SaveMcpServerAsync(s).ConfigureAwait(false);
+                            SendResponse(requestId, true, new { success = saved });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid MCP server payload");
+                }
+                break;
+
+            case "delete_mcp_server":
+                {
+                    string? id = data.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(id))
+                    {
+                        bool deleted = await McpSkillsService.Instance.DeleteMcpServerAsync(id).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { success = deleted });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Server ID is required");
+                    }
+                }
+                break;
+
+            case "save_mcp_auth":
+                {
+                    string? serverName = data.TryGetProperty("serverName", out var sProp) ? sProp.GetString() : null;
+                    string? keyName = data.TryGetProperty("keyName", out var kProp) ? kProp.GetString() : null;
+                    string? keyValue = data.TryGetProperty("keyValue", out var vProp) ? vProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(serverName) && !string.IsNullOrEmpty(keyName))
+                    {
+                        bool saved = await McpSkillsService.Instance.SaveMcpAuthKeyAsync(serverName, keyName, keyValue ?? "").ConfigureAwait(false);
+                        var servers = await McpSkillsService.Instance.GetMcpServersAsync().ConfigureAwait(false);
+                        SendResponse(requestId, true, new { success = saved, servers });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Server name and key name are required");
+                    }
+                }
+                break;
+
+            case "test_mcp_auth":
+                {
+                    string? serverName = data.TryGetProperty("serverName", out var sProp) ? sProp.GetString() : null;
+                    string? keyValue = data.TryGetProperty("keyValue", out var vProp) ? vProp.GetString() : null;
+
+                    var testRes = await McpSkillsService.Instance.TestMcpAuthAsync(serverName ?? "", keyValue ?? "").ConfigureAwait(false);
+                    SendResponse(requestId, true, testRes);
+                }
+                break;
+
+            case "get_skill_content":
+                {
+                    string? skillPath = data.TryGetProperty("path", out var pProp) ? pProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(skillPath))
+                    {
+                        var (content, name, description, scope, tokenCount) = await McpSkillsService.Instance.GetSkillContentAsync(skillPath).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { content, name, description, scope, tokenCount, path = skillPath });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Path is required");
+                    }
+                }
+                break;
+
+            case "save_skill_content":
+                {
+                    string? skillPath = data.TryGetProperty("path", out var pProp) ? pProp.GetString() : null;
+                    string? name = data.TryGetProperty("name", out var nProp) ? nProp.GetString() : "skill";
+                    string? description = data.TryGetProperty("description", out var dProp) ? dProp.GetString() : "";
+                    string? content = data.TryGetProperty("content", out var cProp) ? cProp.GetString() : "";
+
+                    if (!string.IsNullOrEmpty(skillPath))
+                    {
+                        bool saved = await McpSkillsService.Instance.SaveSkillContentAsync(skillPath, name ?? "skill", description ?? "", content ?? "").ConfigureAwait(false);
+                        SendResponse(requestId, saved, new { success = saved });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Path is required");
+                    }
+                }
+                break;
+
+            case "create_project_skill":
+                {
+                    string? wsId = data.TryGetProperty("workspaceId", out var wProp) ? wProp.GetString() : null;
+                    string? name = data.TryGetProperty("name", out var nProp) ? nProp.GetString() : "custom-skill";
+                    string? description = data.TryGetProperty("description", out var dProp) ? dProp.GetString() : "Agent capability skill";
+                    string? content = data.TryGetProperty("content", out var cProp) ? cProp.GetString() : "";
+
+                    var skill = await McpSkillsService.Instance.CreateProjectSkillAsync(wsId, name ?? "custom-skill", description ?? "", content ?? "").ConfigureAwait(false);
+                    if (skill != null)
+                    {
+                        SendResponse(requestId, true, new { success = true, skill });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Failed to create project skill");
+                    }
+                }
+                break;
+
+            case "fork_skill_to_workspace":
+                {
+                    string? sourcePath = data.TryGetProperty("sourcePath", out var spProp) ? spProp.GetString() : null;
+                    string? targetWsId = data.TryGetProperty("workspaceId", out var twProp) ? twProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(sourcePath))
+                    {
+                        var skill = await McpSkillsService.Instance.ForkSkillToWorkspaceAsync(sourcePath, targetWsId).ConfigureAwait(false);
+                        if (skill != null)
+                        {
+                            SendResponse(requestId, true, new { success = true, skill });
+                        }
+                        else
+                        {
+                            SendResponse(requestId, false, "Failed to fork skill to workspace");
+                        }
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Source path is required");
+                    }
+                }
+                break;
+
+            case "delete_project_skill":
+                {
+                    string? skillPath = data.TryGetProperty("path", out var pProp) ? pProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(skillPath))
+                    {
+                        bool deleted = McpSkillsService.Instance.DeleteProjectSkill(skillPath);
+                        SendResponse(requestId, deleted, new { success = deleted });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Path is required");
+                    }
+                }
+                break;
+
+            case "reveal_skill_in_explorer":
+                {
+                    string? path = data.TryGetProperty("path", out var pProp) ? pProp.GetString() : null;
+                    bool opened = !string.IsNullOrEmpty(path) && McpSkillsService.RevealInExplorer(path);
+                    SendResponse(requestId, opened, new { success = opened });
+                }
+                break;
+
+            case "open_skill_in_editor":
+                {
+                    string? path = data.TryGetProperty("path", out var pProp) ? pProp.GetString() : null;
+                    bool opened = !string.IsNullOrEmpty(path) && McpSkillsService.OpenInEditor(path);
+                    SendResponse(requestId, opened, new { success = opened });
+                }
+                break;
+
+            case "get_agent_rules":
+                {
+                    string? wsId = data.TryGetProperty("workspaceId", out var gWsProp) ? gWsProp.GetString() : null;
+                    var overview = await AgentRulesService.Instance.GetRulesOverviewAsync(wsId).ConfigureAwait(false);
+                    SendResponse(requestId, true, overview);
+                }
+                break;
+
+            case "save_agent_rule":
+                {
+                    if (data.TryGetProperty("rule", out var rProp))
+                    {
+                        var rule = JsonSerializer.Deserialize<AgentRuleItem>(rProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        string? targetWs = data.TryGetProperty("workspaceId", out var sWsProp) ? sWsProp.GetString() : null;
+                        if (rule != null)
+                        {
+                            bool saved = await AgentRulesService.Instance.SaveRuleAsync(rule, targetWs).ConfigureAwait(false);
+                            var overview = await AgentRulesService.Instance.GetRulesOverviewAsync(targetWs).ConfigureAwait(false);
+                            SendResponse(requestId, true, new { success = saved, overview });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid rule payload");
+                }
+                break;
+
+            case "delete_agent_rule":
+                {
+                    string? ruleId = data.TryGetProperty("ruleId", out var rProp) ? rProp.GetString() : null;
+                    string? ruleName = data.TryGetProperty("ruleName", out var rnProp) ? rnProp.GetString() : null;
+                    string? scope = data.TryGetProperty("scope", out var delScopeProp) ? delScopeProp.GetString() : null;
+                    string? targetWs = data.TryGetProperty("workspaceId", out var dWsProp) ? dWsProp.GetString() : null;
+
+                    if (!string.IsNullOrEmpty(ruleId) || !string.IsNullOrEmpty(ruleName))
+                    {
+                        var id = ruleId ?? ruleName ?? "";
+                        var name = ruleName ?? ruleId ?? "";
+                        bool deleted = await AgentRulesService.Instance.DeleteRuleAsync(id, name, scope ?? "Project", targetWs).ConfigureAwait(false);
+                        var overview = await AgentRulesService.Instance.GetRulesOverviewAsync(targetWs).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { success = deleted, overview });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Rule ID and name are required");
+                    }
+                }
+                break;
+
+            case "toggle_workspace_rule":
+                {
+                    string? wsId = data.TryGetProperty("workspaceId", out var tWsProp) ? tWsProp.GetString() : null;
+                    string? ruleId = data.TryGetProperty("ruleId", out var rProp) ? rProp.GetString() : null;
+                    bool enable = data.TryGetProperty("enable", out var enProp) && enProp.GetBoolean();
+
+                    if (!string.IsNullOrEmpty(ruleId))
+                    {
+                        var targetWs = !string.IsNullOrEmpty(wsId) ? wsId : AiConfigService.Instance.GetActiveWorkspaceId();
+                        bool toggled = AgentRulesService.Instance.ToggleRuleForWorkspace(targetWs, ruleId, enable);
+                        var overview = await AgentRulesService.Instance.GetRulesOverviewAsync(targetWs).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { success = toggled, overview });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Rule identifier is required");
+                    }
+                }
+                break;
+
+            case "set_workspace_rule_isolation":
+                {
+                    string? wsId = data.TryGetProperty("workspaceId", out var iWsProp) ? iWsProp.GetString() : null;
+                    bool isolate = data.TryGetProperty("isolate", out var isoProp) && isoProp.GetBoolean();
+
+                    var targetWs = !string.IsNullOrEmpty(wsId) ? wsId : AiConfigService.Instance.GetActiveWorkspaceId();
+                    bool set = AgentRulesService.Instance.SetWorkspaceRuleIsolation(targetWs, isolate);
+                    var overview = await AgentRulesService.Instance.GetRulesOverviewAsync(targetWs).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { success = set, overview });
+                }
+                break;
+
+            case "launch_interactive_npx_installer":
+                {
+                    string? command = data.TryGetProperty("command", out var cProp) ? cProp.GetString() : null;
+                    string? targetWsId = data.TryGetProperty("workspaceId", out var npxWsProp) ? npxWsProp.GetString() : null;
+                    string? mode = data.TryGetProperty("mode", out var mProp) ? mProp.GetString() : "terminal";
+
+                    var workspaces = AiConfigService.Instance.GetWorkspaces();
+                    var ws = !string.IsNullOrEmpty(targetWsId)
+                        ? workspaces.FirstOrDefault(w => string.Equals(w.Id, targetWsId, StringComparison.OrdinalIgnoreCase))
+                        : AiConfigService.Instance.GetActiveWorkspace();
+
+                    var workDir = ws?.WorkingDirectory;
+                    if (string.IsNullOrWhiteSpace(workDir) || !Directory.Exists(workDir))
+                    {
+                        workDir = Environment.CurrentDirectory;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(command))
+                    {
+                        if (mode == "window")
+                        {
+                            var psi = new ProcessStartInfo
+                            {
+                                FileName = "cmd.exe",
+                                Arguments = $"/k \"cd /d \"{workDir}\" && {command}\"",
+                                WorkingDirectory = workDir,
+                                UseShellExecute = true
+                            };
+                            Process.Start(psi);
+                            SendResponse(requestId, true, new { success = true, mode = "window" });
+                        }
+                        else
+                        {
+                            var targetSession = ResolveTerminalSessionId(ws?.SecondaryCli ?? "powershell");
+                            _cliManager.SendInput(targetSession, $"cd \"{workDir}\"\r\n{command}\r\n");
+                            SendResponse(requestId, true, new { success = true, mode = "terminal", session = targetSession });
+                        }
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Command is required");
+                    }
+                }
+                break;
+
+            case "get_custom_clis":
+                {
+                    var clis = CustomCliService.Instance.GetCustomClis();
+                    SendResponse(requestId, true, new { clis });
+                }
+                break;
+
+            case "save_custom_cli":
+                {
+                    if (data.TryGetProperty("cli", out var cProp))
+                    {
+                        var c = JsonSerializer.Deserialize<CustomCliConfig>(cProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        if (c != null)
+                        {
+                            CustomCliService.Instance.SaveCustomCli(c);
+                            SendResponse(requestId, true, new { success = true, cli = c, clis = CustomCliService.Instance.GetCustomClis() });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid custom CLI payload");
+                }
+                break;
+
+            case "delete_custom_cli":
+                {
+                    string? id = data.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(id))
+                    {
+                        bool deleted = CustomCliService.Instance.DeleteCustomCli(id);
+                        SendResponse(requestId, true, new { success = deleted, clis = CustomCliService.Instance.GetCustomClis() });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "CLI ID is required");
+                    }
+                }
+                break;
+
+            case "get_recent_file_changes":
+                {
+                    var changes = FileWatchdogService.Instance.GetRecentChanges();
+                    SendResponse(requestId, true, new { changes });
+                }
+                break;
+
+            case "get_file_diff":
+                {
+                    string? path = data.TryGetProperty("path", out var pProp) ? pProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        var diff = await FileWatchdogService.Instance.GetFileDiffAsync(path).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { diff });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Path is required");
+                    }
+                }
+                break;
+
+            case "revert_file_change":
+                {
+                    string? path = data.TryGetProperty("path", out var pProp) ? pProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        bool reverted = await FileWatchdogService.Instance.RevertFileAsync(path).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { success = reverted });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Path is required");
+                    }
+                }
+                break;
+
+            case "clear_file_changes":
+                {
+                    FileWatchdogService.Instance.ClearRecentChanges();
+                    SendResponse(requestId, true, new { success = true });
+                }
+                break;
+
+            case "run_system_diagnostics":
+                {
+                    var diagnostics = await SystemDoctorService.Instance.RunDiagnosticsAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, new { diagnostics });
+                }
+                break;
+
+            case "autofix_diagnostic_issue":
+                {
+                    string? issueId = data.TryGetProperty("issueId", out var issProp) ? issProp.GetString() : null;
+                    if (!string.IsNullOrEmpty(issueId))
+                    {
+                        bool fixedOk = await SystemDoctorService.Instance.AutoFixIssueAsync(issueId).ConfigureAwait(false);
+                        var diagnostics = await SystemDoctorService.Instance.RunDiagnosticsAsync().ConfigureAwait(false);
+                        SendResponse(requestId, true, new { success = fixedOk, diagnostics });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "Issue ID is required");
+                    }
+                }
+                break;
+
+            case "get_session_state":
+                {
+                    var stateData = SessionStateService.Instance.LoadSnapshot();
+                    SendResponse(requestId, true, new { state = stateData });
+                }
+                break;
+
+            case "save_session_state":
+                {
+                    string? activeWs = data.TryGetProperty("activeWorkspaceId", out var actWsProp) ? actWsProp.GetString() : null;
+                    string? activeView = data.TryGetProperty("activeView", out var vProp) ? vProp.GetString() : null;
+                    string? activeTab = data.TryGetProperty("activeCliTab", out var tProp) ? tProp.GetString() : null;
+                    SessionStateService.Instance.SaveSnapshot(activeWs ?? "", activeView ?? "dashboard", activeTab ?? "hermes");
+                    SendResponse(requestId, true, new { success = true });
+                }
+                break;
+
             case "get_workspaces":
                 SendResponse(requestId, true, new
                 {
@@ -518,6 +968,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                         if (target != null)
                         {
                             AiConfigService.Instance.SetActiveWorkspaceId(target.Id);
+                            if (!string.IsNullOrWhiteSpace(target.WorkingDirectory))
+                            {
+                                FileWatchdogService.Instance.WatchDirectory(target.WorkingDirectory);
+                            }
                             if (!string.IsNullOrWhiteSpace(target.AntigravityProfile) &&
                                 !string.Equals(_cliManager.ProfileService.ActiveProfile, target.AntigravityProfile, StringComparison.OrdinalIgnoreCase))
                             {
@@ -2982,7 +3436,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 type = eventType == "opencode_interactive_prompt" ? "OPENCODE_INTERACTIVE_PROMPT" : eventType,
                 @event = eventType,
                 payload
-            });
+            }, CamelCaseJsonOptions);
 
             if (_mainForm.IsHandleCreated && !_mainForm.IsDisposed && _mainForm.InvokeRequired)
             {
@@ -3020,7 +3474,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 responseId = requestId,
                 success,
                 data
-            });
+            }, CamelCaseJsonOptions);
 
             if (_mainForm.IsHandleCreated && !_mainForm.IsDisposed && _mainForm.InvokeRequired)
             {
@@ -3048,7 +3502,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 data = stateDto,
                 @event = "opencode_status_changed",
                 payload = stateDto
-            });
+            }, CamelCaseJsonOptions);
 
             if (_mainForm.IsHandleCreated && !_mainForm.IsDisposed && _mainForm.InvokeRequired)
             {

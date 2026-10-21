@@ -1314,6 +1314,28 @@
                 <input type="checkbox" id="setting-notifications-checkbox" checked>
                 <span>Enable Windows Notifications (Balloon Tips & System Tray Alerts)</span>
               </label>
+
+              <!-- Audio & Chimes Acoustic Feedback -->
+              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin: 8px 0 12px 0;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                  <label class="checkbox-label" style="font-weight: 600; margin-bottom: 0;">
+                    <input type="checkbox" id="setting-audio-chimes-checkbox" checked>
+                    <span>Audio Chimes & Acoustic Feedback</span>
+                  </label>
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 11px; color: var(--text-dim);">Volume:</span>
+                    <input type="range" id="setting-audio-volume" min="0" max="100" value="70" style="width: 80px; accent-color: var(--accent-cyan); cursor: pointer;">
+                    <span id="audio-volume-val" style="font-size: 11px; font-family: var(--font-mono); color: var(--text-dim); min-width: 28px;">70%</span>
+                    <button type="button" class="btn btn-outline" id="btn-test-chime" style="font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+                      <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                      <span>Test Sound</span>
+                    </button>
+                  </div>
+                </div>
+                <div style="font-size: 11px; color: var(--text-dim); margin-top: 6px; margin-left: 24px;">
+                  Synthesizes subtle chimes when background agent tasks finish, need approval, or encounter errors.
+                </div>
+              </div>
               <!-- Main Window Global Hotkey Configuration -->
               <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin: 8px 0 12px 0;">
                 <label class="checkbox-label" style="margin-bottom: 8px; font-weight: 600;">
@@ -1527,6 +1549,141 @@
               <div class="dependencies-list" id="agents-list-container">
                 <!-- Claude Code, Antigravity, Hermes, WARP, Proton VPN rendered dynamically -->
               </div>
+            </div>
+          </div>
+
+          <!-- System Doctor & Auto-Fix Wizard -->
+          <div class="dashboard-card" style="margin-bottom: 16px;" id="card-system-doctor">
+            <div class="card-header" style="justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+              <div class="card-title-group">
+                <div class="card-icon" style="color: var(--accent-cyan);">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                </div>
+                <div>
+                  <div class="card-title">SYSTEM HEALTH &amp; DIAGNOSTICS DOCTOR</div>
+                  <div class="card-subtitle">Automated diagnostics for developer runtimes, PATH variables, network bindings, and firewall</div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="system-doctor-score" style="font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 4px; background: rgba(16,185,129,0.1); color: #10b981;">Ready to Scan</span>
+                <button class="btn btn-outline" id="btn-run-diagnostics" type="button" style="font-size: 11.5px; padding: 5px 10px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" id="icon-doctor-scan" style="width: 13px; height: 13px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                  <span>Run Scan</span>
+                </button>
+              </div>
+            </div>
+            <div id="diagnostics-list-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;">
+              <!-- Diagnostic checks populated dynamically -->
+            </div>
+          </div>
+
+          <!-- Model Context Protocol (MCP) & Agent Skills Manager -->
+          <div class="dashboard-card" style="margin-bottom: 16px;" id="card-mcp-skills">
+            <div class="card-header" style="justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+              <div class="card-title-group">
+                <div class="card-icon" style="color: #a855f7;">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                </div>
+                <div>
+                  <div class="card-title">MCP SERVERS, SKILLS &amp; RULES</div>
+                  <div class="card-subtitle">Manage Model Context Protocol servers, agent skills, and project-scoped governance rules</div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                <button class="btn btn-outline" id="btn-refresh-mcp-skills" type="button" style="font-size: 11.5px; padding: 5px 10px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                  <span>Refresh</span>
+                </button>
+                <button class="btn btn-outline" id="btn-npx-installer" type="button" style="font-size: 11.5px; padding: 5px 10px; display: inline-flex; align-items: center; gap: 5px; color: var(--accent-cyan); border-color: rgba(6,182,212,0.3); cursor: pointer;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  <span>Install via NPX</span>
+                </button>
+                <button class="btn btn-primary" id="btn-add-agent-skill" type="button" style="display: none; font-size: 11.5px; padding: 5px 12px; align-items: center; gap: 5px; background: #38bdf8; border-color: #38bdf8; color: #0b0f19; font-weight: 600; cursor: pointer;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  <span>Add Skill</span>
+                </button>
+                <button class="btn btn-primary" id="btn-add-agent-rule" type="button" style="display: none; font-size: 11.5px; padding: 5px 12px; align-items: center; gap: 5px; background: #10b981; border-color: #10b981; color: #fff; font-weight: 600; cursor: pointer;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  <span>Add Rule</span>
+                </button>
+                <button class="btn btn-primary" id="btn-add-mcp-server" type="button" style="font-size: 11.5px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 5px; background: #a855f7; border-color: #a855f7; color: #fff; font-weight: 600; cursor: pointer;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  <span>Add MCP Server</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Tabs: MCP Servers vs Agent Skills vs Agent Rules -->
+            <div style="display: flex; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+              <button class="btn btn-tab active" id="tab-btn-mcp" type="button" style="padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer;">MCP Servers (<span id="mcp-count">0</span>)</button>
+              <button class="btn btn-tab" id="tab-btn-skills" type="button" style="padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer;">Agent Skills (<span id="skills-count">0</span>)</button>
+              <button class="btn btn-tab" id="tab-btn-rules" type="button" style="padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer;">Agent Rules (<span id="rules-count">0</span>)</button>
+            </div>
+
+            <div id="mcp-servers-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;">
+              <!-- MCP servers rendered here -->
+            </div>
+            <div id="agent-skills-container" style="display: none; flex-direction: column; gap: 12px;">
+              <!-- Skills Search & Filter Toolbar -->
+              <div class="skills-filter-toolbar" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 12px;">
+                <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 200px; max-width: 380px;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" style="width: 14px; height: 14px; color: var(--text-dim); flex-shrink: 0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input type="text" id="skill-search-input" class="input-text" placeholder="Search skills by name, description..." style="padding: 4px 8px; font-size: 11.5px; height: 28px; width: 100%; border: none; background: transparent;" />
+                </div>
+                <div class="skill-filter-pills" style="display: flex; gap: 6px; align-items: center;">
+                  <button type="button" class="btn btn-outline skill-filter-pill active" data-filter="all" style="padding: 3px 10px; font-size: 11px;">All (<span id="skills-filter-count-all">0</span>)</button>
+                  <button type="button" class="btn btn-outline skill-filter-pill" data-filter="project" style="padding: 3px 10px; font-size: 11px;">Project (<span id="skills-filter-count-project">0</span>)</button>
+                  <button type="button" class="btn btn-outline skill-filter-pill" data-filter="builtin" style="padding: 3px 10px; font-size: 11px;">Builtin (<span id="skills-filter-count-builtin">0</span>)</button>
+                </div>
+              </div>
+
+              <!-- Skills Grid -->
+              <div id="agent-skills-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;">
+                <!-- Skills rendered here -->
+              </div>
+            </div>
+            <div id="agent-rules-container" style="display: none; flex-direction: column; gap: 12px;">
+              <!-- Isolation control banner -->
+              <div class="rules-governance-bar" style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px; color: var(--accent-cyan);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  <div>
+                    <span style="font-size: 12px; font-weight: 700; color: var(--text-main);">Active Project: <span id="rules-active-workspace-name" style="color: var(--accent-cyan);">--</span></span>
+                    <span id="rules-isolation-status-desc" style="font-size: 11px; color: var(--text-dim); margin-left: 8px;">Inheriting Global Rules + Project Rules</span>
+                  </div>
+                </div>
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer; color: var(--text-main);" title="When enabled, global rules are ignored and agents will strictly obey rules defined for this project only">
+                  <input type="checkbox" id="chk-workspace-rule-isolation" style="accent-color: var(--accent-cyan); cursor: pointer;" />
+                  <span>Isolate Project Rules (Ignore Global Rules)</span>
+                </label>
+              </div>
+
+              <!-- Rules cards list -->
+              <div id="rules-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px;">
+                <!-- Rules populated dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Custom AI CLI Engines -->
+          <div class="dashboard-card" style="margin-bottom: 16px;" id="card-custom-clis">
+            <div class="card-header" style="justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+              <div class="card-title-group">
+                <div class="card-icon" style="color: #38bdf8;">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                </div>
+                <div>
+                  <div class="card-title">CUSTOM AI CLI ENGINES</div>
+                  <div class="card-subtitle">Run Aider, Goose, Copilot CLI, Gemini CLI, or custom scripts as interactive tabs</div>
+                </div>
+              </div>
+              <button class="btn btn-primary" id="btn-add-custom-cli" type="button" style="font-size: 11.5px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 5px; background: #38bdf8; border-color: #38bdf8; color: #0b0f19; font-weight: 600; cursor: pointer;">
+                <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Add CLI Engine</span>
+              </button>
+            </div>
+            <div id="custom-clis-list-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;">
+              <!-- Custom CLIs rendered here -->
             </div>
           </div>
 
@@ -1836,6 +1993,401 @@
         <button class="btn btn-success" id="btn-approve-opencode-prompt" style="background: #10b981; padding: 7px 18px; font-weight: 600;">
           ✓ Approve / Yes
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Workspace File Watchdog Pill -->
+  <div id="file-watchdog-pill" class="file-watchdog-floating-pill" style="display: none;">
+    <div class="pill-dot"></div>
+    <span class="pill-text" id="file-watchdog-pill-text">0 workspace files modified</span>
+    <svg class="icon-svg pill-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>
+    <button type="button" id="btn-close-watchdog-pill" class="pill-close-btn" title="Dismiss" aria-label="Dismiss notification">
+      <svg class="icon-svg" viewBox="0 0 24 24" style="width: 12px; height: 12px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+
+  <!-- Modal: Configure MCP Server -->
+  <div id="modal-mcp-server" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 540px;">
+      <h3 style="font-size: 15px; font-weight: 700; color: var(--text-main); margin-bottom: 12px;">Configure MCP Server</h3>
+      <input type="hidden" id="modal-mcp-id">
+
+      <div class="form-group">
+        <label class="form-label">Template Preset (Optional):</label>
+        <select id="modal-mcp-template" class="select-box" style="width: 100%; font-size: 12px; padding: 6px 10px;">
+          <option value="">-- Custom Server --</option>
+          <option value="filesystem">Filesystem (@modelcontextprotocol/server-filesystem)</option>
+          <option value="sqlite">SQLite Database (@modelcontextprotocol/server-sqlite)</option>
+          <option value="github">GitHub Integration (@modelcontextprotocol/server-github)</option>
+          <option value="memory">Knowledge Memory (@modelcontextprotocol/server-memory)</option>
+          <option value="puppeteer">Browser Automation (@modelcontextprotocol/server-puppeteer)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Server Name:</label>
+        <input type="text" id="modal-mcp-name" class="input-text" placeholder="e.g. filesystem, sqlite-db, github" />
+      </div>
+
+      <div style="display: grid; grid-template-columns: 140px 1fr; gap: 10px;">
+        <div class="form-group">
+          <label class="form-label">Command:</label>
+          <input type="text" id="modal-mcp-cmd" class="input-text" placeholder="npx, node, python" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target Scope:</label>
+          <select id="modal-mcp-scope" class="select-box" style="width: 100%; font-size: 12px; padding: 6px 10px;">
+            <option value="Global">Global (All Agents)</option>
+            <option value="ClaudeCode">Claude Code Only</option>
+            <option value="Antigravity">Antigravity Only</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Command Arguments (Space-separated):</label>
+        <input type="text" id="modal-mcp-args" class="input-text" placeholder="e.g. -y @modelcontextprotocol/server-filesystem C:\Projects" style="font-family: var(--font-mono); font-size: 12px;" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Environment Variables (KEY=VALUE per line):</label>
+        <textarea id="modal-mcp-env" class="input-text" style="height: 70px; font-family: var(--font-mono); font-size: 11.5px; resize: vertical;" placeholder="GITHUB_PERSONAL_ACCESS_TOKEN=ghp_..."></textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-outline" id="btn-cancel-mcp-modal" type="button">Cancel</button>
+        <button class="btn btn-primary" id="btn-save-mcp-modal" type="button" style="background: #a855f7; border-color: #a855f7; color: #fff;">Save MCP Server</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: MCP Authentication & Key Manager -->
+  <div id="modal-mcp-auth" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 500px;">
+      <h3 id="modal-auth-title" style="font-size: 15px; font-weight: 700; color: var(--text-main); margin-bottom: 12px;">Configure MCP Authentication</h3>
+      <input type="hidden" id="modal-auth-server-name">
+      <input type="hidden" id="modal-auth-key-name">
+
+      <div class="mcp-auth-status-box">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <span id="modal-auth-server-display" style="font-size: 13px; font-weight: 700; color: var(--text-main);">Supabase</span>
+          <span id="modal-auth-badge" class="badge-auth badge-auth-expired">Token Expired</span>
+        </div>
+        <div id="modal-auth-details" style="font-size: 11.5px; color: var(--text-dim); line-height: 1.4;">OAuth token expired. Please provide a Personal Access Token.</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" id="modal-auth-key-label">Supabase Personal Access Token (or Service Role Key):</label>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <input type="password" id="modal-auth-key-input" class="input-text" placeholder="sbp_... or ey..." style="flex: 1; font-family: var(--font-mono); font-size: 12px;" />
+          <button type="button" class="btn btn-outline" id="btn-toggle-auth-key-visibility" style="padding: 6px 10px; font-size: 11px;" title="Show/Hide Key">Show</button>
+        </div>
+        <div style="margin-top: 6px;">
+          <a href="#" id="modal-auth-link" style="font-size: 11px; color: var(--accent-cyan); display: inline-flex; align-items: center; gap: 4px; text-decoration: none;">
+            <span>Generate Token in Supabase Dashboard</span>
+            <svg class="icon-svg" viewBox="0 0 24 24" style="width: 11px; height: 11px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <div id="modal-auth-feedback" class="mcp-auth-feedback"></div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px;">
+        <button class="btn btn-outline" id="btn-test-mcp-auth" type="button" style="font-size: 11.5px; padding: 6px 12px;">Test Key</button>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-outline" id="btn-close-mcp-auth" type="button">Close</button>
+          <button class="btn btn-primary" id="btn-save-mcp-auth" type="button" style="background: var(--accent-cyan); border-color: var(--accent-cyan); color: #0b0f19; font-weight: 600;">Save &amp; Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Custom CLI Engine Builder -->
+  <div id="modal-custom-cli" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 520px;">
+      <h3 style="font-size: 15px; font-weight: 700; color: var(--text-main); margin-bottom: 12px;">Add Custom AI CLI Engine</h3>
+      <input type="hidden" id="modal-cli-id">
+
+      <div class="form-group">
+        <label class="form-label">Engine Name:</label>
+        <input type="text" id="modal-cli-name" class="input-text" placeholder="e.g. Aider, Goose, Copilot CLI, Gemini CLI" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Executable Command / Path:</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="modal-cli-exe" class="input-text" placeholder="e.g. aider, goose, python -m myagent" style="flex: 1; font-family: var(--font-mono); font-size: 12px;" />
+          <button class="btn btn-outline" id="btn-browse-cli-exe" type="button" style="white-space: nowrap; padding: 6px 12px;">Browse...</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Default Launch Arguments:</label>
+        <input type="text" id="modal-cli-args" class="input-text" placeholder="e.g. --model deepseek/deepseek-chat --auto-commits" style="font-family: var(--font-mono); font-size: 12px;" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Working Directory (Optional):</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="modal-cli-dir" class="input-text" placeholder="Leave blank to use project workspace root" style="flex: 1; font-family: var(--font-mono); font-size: 12px;" />
+          <button class="btn btn-outline" id="btn-browse-cli-dir" type="button" style="white-space: nowrap; padding: 6px 12px;">Browse...</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Tab Accent Color:</label>
+        <input type="color" id="modal-cli-color" value="#38bdf8" style="height: 32px; width: 60px; background: transparent; border: 1px solid var(--border); border-radius: 4px; cursor: pointer;" />
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-outline" id="btn-cancel-custom-cli" type="button">Cancel</button>
+        <button class="btn btn-primary" id="btn-save-custom-cli" type="button" style="background: #38bdf8; border-color: #38bdf8; color: #0b0f19; font-weight: 600;">Save CLI Engine</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Workspace File Activity & Diff Viewer -->
+  <div id="modal-file-diff" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 920px; width: 92vw; padding: 22px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg class="icon-svg" viewBox="0 0 24 24" style="color: var(--accent-cyan); width: 18px; height: 18px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <h3 style="font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0;">Workspace File Changes &amp; Diff Inspector</h3>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-outline" id="btn-clear-file-changes" type="button" style="font-size: 11px; padding: 4px 10px;">Clear Activity</button>
+          <button class="btn btn-outline" id="btn-close-file-diff" type="button" style="font-size: 11px; padding: 4px 10px;">Close</button>
+        </div>
+      </div>
+
+      <div class="diff-modal-container">
+        <!-- Left: File changes list -->
+        <div class="diff-files-panel" id="file-changes-list">
+          <!-- Items populated dynamically -->
+        </div>
+
+        <!-- Right: Diff viewer -->
+        <div class="diff-code-panel">
+          <div class="diff-code-header">
+            <span id="diff-viewer-filename" style="font-size: 12px; font-family: var(--font-mono); color: var(--text-main); font-weight: 600;">Select a file to view diff</span>
+            <button class="btn btn-outline" id="btn-revert-file" type="button" style="display: none; font-size: 11px; padding: 3px 10px; color: #ef4444; border-color: rgba(239,68,68,0.35);">
+              Revert Changes
+            </button>
+          </div>
+          <div id="diff-viewer-code" class="diff-lines-container"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Agent Rule Editor -->
+  <div id="modal-rule-editor" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 620px; width: 92vw;">
+      <h3 id="modal-rule-title" style="font-size: 15px; font-weight: 700; color: var(--text-main); margin-bottom: 14px;">Add Agent Governance Rule</h3>
+      <input type="hidden" id="modal-rule-id">
+      <input type="hidden" id="modal-rule-source-path">
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="modal-rule-name">Rule Identifier / Name:</label>
+          <input type="text" id="modal-rule-name" class="input-text" placeholder="e.g. code-hygiene, antislop" />
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="modal-rule-scope">Governance Scope:</label>
+          <select id="modal-rule-scope" class="select-box">
+            <option value="Project">Project Workspace (AGENTS.md)</option>
+            <option value="Global">Global for All Projects (~/.gemini/antigravity/rules)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="modal-rule-desc">Short Description:</label>
+        <input type="text" id="modal-rule-desc" class="input-text" placeholder="Brief summary of what this rule enforces" />
+      </div>
+
+      <div class="form-group">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <label class="form-label" for="modal-rule-content" style="margin-bottom: 0;">Rule Directives (Markdown):</label>
+          <span style="font-size: 11px; color: var(--text-dim);">Standard markdown instructions for AI agents</span>
+        </div>
+        <textarea id="modal-rule-content" class="input-text" rows="11" style="font-family: var(--font-mono); font-size: 12px; resize: vertical; line-height: 1.5;" placeholder="# Rule Title&#10;&#10;Specify constraints, coding patterns, or guidelines..."></textarea>
+        <div class="form-hint">Saved as a tagged rule block in the project's AGENTS.md or global rule catalog.</div>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
+        <button class="btn btn-danger hidden" id="btn-delete-rule-modal" type="button">Delete Rule</button>
+        <div style="display: flex; gap: 8px; margin-left: auto;">
+          <button class="btn btn-outline" id="btn-cancel-rule-modal" type="button">Cancel</button>
+          <button class="btn btn-primary" id="btn-save-rule-modal" type="button" style="background: var(--accent-cyan); border-color: var(--accent-cyan); color: #0b0f19; font-weight: 700;">Save Rule</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: NPX Rules & Skills Installer -->
+  <div id="modal-npx-installer" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 520px; width: 92vw;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <svg class="icon-svg" viewBox="0 0 24 24" style="color: var(--accent-cyan); width: 18px; height: 18px;"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <h3 style="font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0;">Install Rules &amp; Skills via NPX</h3>
+      </div>
+
+      <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 12px; margin-bottom: 14px; font-size: 11.5px; color: var(--text-dim);">
+        Target Workspace: <code id="modal-npx-workdir" style="color: var(--accent-cyan); word-break: break-all;">--</code>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="modal-npx-preset">Package Preset:</label>
+        <select id="modal-npx-preset" class="select-box">
+          <option value="custom">Custom Command...</option>
+          <option value="npx antislop-ai" selected>antislop-ai (Stop AI slop, UI/code guardrails)</option>
+          <option value="npx antislop-ai --update">antislop-ai --update (Update installed antislop skills)</option>
+          <option value="npx skills add anthropics/skills">Claude / Anthropic Skills (@anthropic/skills)</option>
+          <option value="npx skills add supabase/agent-skills">Supabase Agent Skills</option>
+          <option value="npx skills list">skills list (Audit installed skills)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="modal-npx-command">Execution Command:</label>
+        <input type="text" id="modal-npx-command" class="input-text" value="npx antislop-ai" style="font-family: var(--font-mono); font-size: 12px;" />
+        <div class="form-hint">Interactive installers may prompt for keyboard confirmation or selections.</div>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 18px;">
+        <label class="form-label">Execution Environment:</label>
+        <div style="display: flex; gap: 14px; margin-top: 6px;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--text-main);">
+            <input type="radio" name="npx-exec-mode" value="embedded" checked style="accent-color: var(--accent-cyan);" />
+            <span>Embedded Terminal Tab</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--text-main);" title="Spawns a native OS terminal window for full interactive keyboard navigation">
+            <input type="radio" name="npx-exec-mode" value="window" style="accent-color: var(--accent-cyan);" />
+            <span>Dedicated Terminal Window (Recommended for interactive arrows)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button class="btn btn-outline" id="btn-cancel-npx-modal" type="button">Cancel</button>
+        <button class="btn btn-primary" id="btn-launch-npx-modal" type="button" style="background: var(--accent-cyan); border-color: var(--accent-cyan); color: #0b0f19; font-weight: 700;">Launch Installer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Agent Skill Viewer & Editor -->
+  <div id="modal-skill-editor" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 680px; width: 92vw;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+          <svg class="icon-svg" viewBox="0 0 24 24" style="color: var(--accent-cyan); width: 18px; height: 18px; flex-shrink: 0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <h3 id="modal-skill-title" style="font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Agent Skill</h3>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+          <span id="modal-skill-scope-badge" class="badge-skill-scope" style="font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; text-transform: uppercase;">Scope</span>
+          <span id="modal-skill-token-badge" class="skill-token-badge" style="font-size: 10.5px; font-family: var(--font-mono); color: var(--text-dim); background: var(--bg-card); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-subtle);">~0 tok</span>
+        </div>
+      </div>
+
+      <input type="hidden" id="modal-skill-path">
+      <input type="hidden" id="modal-skill-scope">
+      <input type="hidden" id="modal-skill-wsid">
+
+      <!-- Scope notice bar -->
+      <div id="modal-skill-scope-banner" style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 11.5px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+        <span id="modal-skill-scope-desc" style="color: var(--text-dim);">Skill Information</span>
+        <button type="button" class="btn btn-outline" id="btn-modal-skill-jump-ws" style="display: none; padding: 2px 8px; font-size: 10.5px; color: var(--accent-cyan); border-color: rgba(6,182,212,0.3); cursor: pointer;">
+          Switch to Workspace
+        </button>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="modal-skill-name">Skill Identifier / Name:</label>
+          <input type="text" id="modal-skill-name" class="input-text" />
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="modal-skill-desc">Summary Description:</label>
+          <input type="text" id="modal-skill-desc" class="input-text" />
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 10px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+          <label class="form-label" style="margin-bottom: 0;">Skill Source Location:</label>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" class="btn btn-outline" id="btn-skill-reveal-explorer" title="Reveal in File Explorer" style="padding: 2px 7px; font-size: 10.5px; display: inline-flex; align-items: center; gap: 4px;">
+              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 12px; height: 12px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>Explorer</span>
+            </button>
+            <button type="button" class="btn btn-outline" id="btn-skill-open-editor" title="Open in External Code Editor" style="padding: 2px 7px; font-size: 10.5px; display: inline-flex; align-items: center; gap: 4px;">
+              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 12px; height: 12px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <span>Open File</span>
+            </button>
+          </div>
+        </div>
+        <div id="modal-skill-path-display" style="font-size: 10.5px; font-family: var(--font-mono); color: var(--text-dim); background: var(--bg-input); padding: 5px 8px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">--</div>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <label class="form-label" for="modal-skill-content" style="margin-bottom: 0;">Directives &amp; Execution Guidelines (SKILL.md):</label>
+          <span id="modal-skill-edit-hint" style="font-size: 11px; color: var(--text-dim);">Markdown documentation</span>
+        </div>
+        <textarea id="modal-skill-content" class="input-text" rows="13" style="font-family: var(--font-mono); font-size: 12px; resize: vertical; line-height: 1.5;"></textarea>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
+        <button class="btn btn-danger hidden" id="btn-modal-delete-skill" type="button">Delete Skill</button>
+        <button class="btn btn-primary hidden" id="btn-modal-fork-skill" type="button" style="background: #38bdf8; border-color: #38bdf8; color: #0b0f19; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px;"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"/><line x1="12" y1="12" x2="12" y2="15"/></svg>
+          <span>Fork to Workspace (Customize)</span>
+        </button>
+        <div style="display: flex; gap: 8px; margin-left: auto;">
+          <button class="btn btn-outline" id="btn-modal-close-skill" type="button">Close</button>
+          <button class="btn btn-primary" id="btn-modal-save-skill" type="button" style="background: #10b981; border-color: #10b981; color: #fff; font-weight: 700;">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Create New Agent Skill -->
+  <div id="modal-add-skill" class="modal-overlay">
+    <div class="modal-dialog" style="max-width: 580px; width: 92vw;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <svg class="icon-svg" viewBox="0 0 24 24" style="color: #38bdf8; width: 18px; height: 18px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <h3 style="font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0;">Create New Project Skill</h3>
+      </div>
+
+      <div style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 11.5px; color: var(--text-dim);">
+        Target Workspace: <code id="modal-add-skill-workdir" style="color: var(--accent-cyan); word-break: break-all;">--</code>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="modal-add-skill-name">Skill Identifier / Slug:</label>
+          <input type="text" id="modal-add-skill-name" class="input-text" placeholder="e.g. database-migrator, test-generator" />
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" for="modal-add-skill-desc">Summary Description:</label>
+          <input type="text" id="modal-add-skill-desc" class="input-text" placeholder="Brief summary of agent capability" />
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <label class="form-label" for="modal-add-skill-content" style="margin-bottom: 0;">Skill Directives (SKILL.md):</label>
+          <span style="font-size: 11px; color: var(--text-dim);">Standard markdown documentation</span>
+        </div>
+        <textarea id="modal-add-skill-content" class="input-text" rows="11" style="font-family: var(--font-mono); font-size: 12px; resize: vertical; line-height: 1.5;" placeholder="# Skill Name&#10;&#10;## Overview&#10;Describe when and how agents should use this capability.&#10;&#10;## Instructions&#10;- Guideline 1&#10;- Guideline 2"></textarea>
+        <div class="form-hint">Stored in &lt;workspace&gt;/.agents/skills/&lt;name&gt;/SKILL.md</div>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button class="btn btn-outline" id="btn-cancel-add-skill" type="button">Cancel</button>
+        <button class="btn btn-primary" id="btn-save-add-skill" type="button" style="background: #38bdf8; border-color: #38bdf8; color: #0b0f19; font-weight: 700;">Create Skill</button>
       </div>
     </div>
   </div>
