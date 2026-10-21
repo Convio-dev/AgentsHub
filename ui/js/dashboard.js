@@ -62,10 +62,24 @@
   if (typeof window.setupGlobalActions === 'function') window.setupGlobalActions();
   if (typeof window.initRepositoriesModule === 'function') window.initRepositoriesModule();
 
+  function updateDashboardGridClasses() {
+    const grid = document.querySelector('#view-dashboard .card-grid');
+    if (!grid) return;
+    const isOpencode = (window.state?.settings?.enableOpenCodeQuota === true) || (localStorage.getItem('agents_hub_enable_opencode_quota') === 'true');
+    const isHardware = (window.state?.settings?.enableHardwareMonitor === true) || (localStorage.getItem('agents_hub_enable_hardware_monitor') === 'true');
+    grid.classList.toggle('has-opencode', isOpencode);
+    grid.classList.toggle('has-hardware-monitor', isHardware);
+  }
+  window.updateDashboardGridClasses = updateDashboardGridClasses;
+  updateDashboardGridClasses();
+
   // 5. Expose AgentsHub Global API
   window.AgentsHub = {
     state: window.state,
     callBridge: window.callBridge,
+    updateDashboardGridClasses: window.updateDashboardGridClasses,
+    updateOpenCodeQuotaVisibility: window.updateOpenCodeQuotaVisibility,
+    updateProtonVpnSettingState: window.updateProtonVpnSettingState,
     updateVpnProviderUi: window.updateVpnProviderUi,
     updateHardwareMonitorVisibility: window.updateHardwareMonitorVisibility,
     showToast: window.showToast
@@ -73,6 +87,14 @@
 
   // 6. Handle Preference Changes
   window.addEventListener('preference-changed', (e) => {
+    if (e.detail && (e.detail.key === 'enableOpenCodeQuota' || e.detail.key === 'enableHardwareMonitor')) {
+      updateDashboardGridClasses();
+    }
+    if (e.detail && e.detail.key === 'enableOpenCodeQuota') {
+      window.state.settings.enableOpenCodeQuota = !!e.detail.value;
+      if (typeof window.updateOpenCodeQuotaVisibility === 'function') window.updateOpenCodeQuotaVisibility();
+      if (typeof window.updateProtonVpnSettingState === 'function') window.updateProtonVpnSettingState(!!e.detail.value);
+    }
     if (e.detail && e.detail.key === 'enableProtonVpnProvider') {
       window.state.settings.enableProtonVpnProvider = !!e.detail.value;
       if (!window.state.settings.enableProtonVpnProvider && window.state.vpnProvider === 'proton') {

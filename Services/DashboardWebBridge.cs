@@ -3314,6 +3314,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         StartupHelper.SetPreference("HideMainOnCliOpen", hideMainEl.GetBoolean());
                     }
+                    if (stProp.TryGetProperty("enableOpenCodeQuota", out var opencodeEl))
+                    {
+                        StartupHelper.SetPreference("EnableOpenCodeQuota", opencodeEl.GetBoolean());
+                    }
                     if (stProp.TryGetProperty("enableProtonVpnProvider", out var protonEl))
                     {
                         StartupHelper.SetPreference("EnableProtonVpnProvider", protonEl.GetBoolean());
@@ -3942,6 +3946,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 maskShortcutPaths = StartupHelper.GetPreference("MaskShortcutPaths", false),
                 embedShellsInTerminalWorkspace = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false),
                 hideMainOnCliOpen = StartupHelper.GetPreference("HideMainOnCliOpen", false),
+                enableOpenCodeQuota = StartupHelper.GetPreference("EnableOpenCodeQuota", false),
                 enableProtonVpnProvider = StartupHelper.GetPreference("EnableProtonVpnProvider", false),
                 enableHardwareMonitor = StartupHelper.GetPreference("EnableHardwareMonitor", false),
                 theme = StartupHelper.GetStringPreference("Theme", "dark"),

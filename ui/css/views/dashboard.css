@@ -636,23 +636,58 @@ html[data-theme="light"] .ip-matrix-val .ip-new {
 }
 
 
-/* Stack Column for Terminals & Hardware Telemetry (Right Column) */
-.dashboard-col-stack {
-  display: flex;
-  flex-direction: column;
+/* Dashboard Grid Layout & Balanced Widget Positioning
+   Ensures zero empty gaps whether OpenCode Quota or Hardware Telemetry are enabled or disabled */
+#view-dashboard .card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
-  height: 100%;
+  margin-bottom: 20px;
+  align-items: stretch;
+}
+
+/* When neither OpenCode Quota nor Hardware Telemetry is enabled, System Terminals spans full width */
+#view-dashboard .card-grid:not(.has-opencode):not(.has-hardware-monitor) #card-system-terminals {
+  grid-column: 1 / -1;
+}
+#view-dashboard .card-grid:not(:has(#card-opencode-quota:not([style*="display: none"]))):not(:has(#hardware-monitor-card:not([style*="display: none"]))) #card-system-terminals {
+  grid-column: 1 / -1;
+}
+
+/* When both OpenCode Quota and Hardware Telemetry are enabled,
+   OpenCode Quota spans 2 rows so System Terminals and Hardware Telemetry stack neatly beside it */
+#view-dashboard .card-grid.has-opencode.has-hardware-monitor #card-opencode-quota {
+  grid-row: span 2;
+}
+#view-dashboard .card-grid:has(#card-opencode-quota:not([style*="display: none"])):has(#hardware-monitor-card:not([style*="display: none"])) #card-opencode-quota {
+  grid-row: span 2;
+}
+
+@media (max-width: 768px) {
+  #view-dashboard .card-grid {
+    grid-template-columns: 1fr;
+  }
+  #view-dashboard .card-grid.has-opencode.has-hardware-monitor #card-opencode-quota,
+  #view-dashboard .card-grid:has(#card-opencode-quota:not([style*="display: none"])):has(#hardware-monitor-card:not([style*="display: none"])) #card-opencode-quota {
+    grid-row: auto;
+  }
+  #view-dashboard .card-grid:not(.has-opencode):not(.has-hardware-monitor) #card-system-terminals,
+  #view-dashboard .card-grid:not(:has(#card-opencode-quota:not([style*="display: none"]))):not(:has(#hardware-monitor-card:not([style*="display: none"]))) #card-system-terminals {
+    grid-column: auto;
+  }
 }
 
 .card-system-terminals {
   width: 100%;
-  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
 
 .system-shells-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
   margin-top: 10px;
 }
 
@@ -769,11 +804,10 @@ html[data-theme="light"] .ip-matrix-val .ip-new {
 /* Hardware Telemetry Card & Sparkline Charts */
 .card-hardware-monitor {
   width: 100%;
-  flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 240px;
+  min-height: 220px;
 }
 
 .telemetry-live-badge {

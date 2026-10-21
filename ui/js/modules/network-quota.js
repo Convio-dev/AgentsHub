@@ -1,5 +1,17 @@
+  function updateOpenCodeQuotaVisibility() {
+    const isEnabled = state.settings.enableOpenCodeQuota === true || localStorage.getItem('agents_hub_enable_opencode_quota') === 'true';
+    const card = document.getElementById('card-opencode-quota');
+    if (card) {
+      card.style.display = isEnabled ? 'block' : 'none';
+    }
+    if (typeof window.updateDashboardGridClasses === 'function') {
+      window.updateDashboardGridClasses();
+    }
+  }
+
   function updateVpnProviderUi() {
-    const isProtonEnabled = state.settings.enableProtonVpnProvider === true || localStorage.getItem('agents_hub_enable_proton') === 'true';
+    const isOpencodeEnabled = state.settings.enableOpenCodeQuota === true || localStorage.getItem('agents_hub_enable_opencode_quota') === 'true';
+    const isProtonEnabled = isOpencodeEnabled && (state.settings.enableProtonVpnProvider === true || localStorage.getItem('agents_hub_enable_proton') === 'true');
     const providerTabs = document.getElementById('provider-tabs') || document.getElementById('vpn-provider-switcher');
 
     if (providerTabs) {
@@ -218,6 +230,7 @@
 
   function setupQuotaAndIpWidget() {
     try {
+      updateOpenCodeQuotaVisibility();
       updateQuotaStatsDisplay();
       updateVpnProviderUi();
       renderPublicIpDisplay();
@@ -253,7 +266,8 @@
     });
 
     document.getElementById('btn-provider-proton')?.addEventListener('click', async () => {
-      const isProtonEnabled = state.settings.enableProtonVpnProvider === true || localStorage.getItem('agents_hub_enable_proton') === 'true';
+      const isOpencodeEnabled = state.settings.enableOpenCodeQuota === true || localStorage.getItem('agents_hub_enable_opencode_quota') === 'true';
+      const isProtonEnabled = isOpencodeEnabled && (state.settings.enableProtonVpnProvider === true || localStorage.getItem('agents_hub_enable_proton') === 'true');
       if (!isProtonEnabled) return;
 
       state.vpnProvider = 'proton';
@@ -579,6 +593,8 @@
 
 window.setupQuotaAndIpWidget = setupQuotaAndIpWidget;
 
+window.updateOpenCodeQuotaVisibility = updateOpenCodeQuotaVisibility;
+var updateOpenCodeQuotaVisibility = window.updateOpenCodeQuotaVisibility;
 window.updateVpnProviderUi = updateVpnProviderUi;
 var updateVpnProviderUi = window.updateVpnProviderUi;
 window.renderPublicIpDisplay = renderPublicIpDisplay;

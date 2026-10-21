@@ -13,6 +13,32 @@
     }
   }
 
+  function updateProtonVpnSettingState(opencodeEnabled) {
+    const protonWrap = document.getElementById('wrap-proton-vpn-setting');
+    const protonCheck = document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox');
+    if (protonWrap) {
+      protonWrap.style.opacity = opencodeEnabled ? '1' : '0.45';
+      protonWrap.style.pointerEvents = opencodeEnabled ? 'auto' : 'none';
+    }
+    if (protonCheck) {
+      protonCheck.disabled = !opencodeEnabled;
+      if (!opencodeEnabled && protonCheck.checked) {
+        protonCheck.checked = false;
+        state.settings.enableProtonVpnProvider = false;
+        localStorage.setItem('agents_hub_enable_proton', 'false');
+        if (state.vpnProvider === 'proton') {
+          state.vpnProvider = 'warp';
+          localStorage.setItem('agents_hub_vpn_provider', 'warp');
+        }
+        if (typeof updateVpnProviderUi === 'function') {
+          updateVpnProviderUi();
+        }
+      }
+    }
+  }
+  window.updateProtonVpnSettingState = updateProtonVpnSettingState;
+  var updateProtonVpnSettingState = window.updateProtonVpnSettingState;
+
   function setupSettingsView() {
     // About card: open links in the system browser instead of navigating the WebView.
     document.querySelectorAll('.about-link').forEach(btn => {
@@ -23,6 +49,85 @@
     });
 
     renderAboutVersion();
+
+    // Setup Category Sidebar Navigation
+    const navItems = document.querySelectorAll('.settings-nav-item');
+    const categoryPanes = document.querySelectorAll('.settings-category-pane');
+
+    function switchSettingsTab(targetTab) {
+      if (!targetTab) return;
+      navItems.forEach(item => {
+        item.classList.toggle('active', item.dataset.tab === targetTab);
+      });
+      categoryPanes.forEach(pane => {
+        pane.classList.toggle('active', pane.dataset.category === targetTab);
+      });
+      localStorage.setItem('agents_hub_active_settings_tab', targetTab);
+    }
+
+    navItems.forEach(item => {
+      item.addEventListener('click', () => {
+        switchSettingsTab(item.dataset.tab);
+      });
+    });
+
+    const savedSettingsTab = localStorage.getItem('agents_hub_active_settings_tab') || 'appearance';
+    switchSettingsTab(savedSettingsTab);
+
+    // Setup Real-Time Settings Search
+    const searchInput = document.getElementById('input-settings-search');
+    const clearSearchBtn = document.getElementById('btn-clear-settings-search');
+
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.trim().toLowerCase();
+        if (clearSearchBtn) {
+          clearSearchBtn.style.display = query ? 'block' : 'none';
+        }
+
+        if (!query) {
+          navItems.forEach(item => {
+            item.style.opacity = '1';
+            item.style.pointerEvents = 'auto';
+          });
+          const currentTab = localStorage.getItem('agents_hub_active_settings_tab') || 'appearance';
+          switchSettingsTab(currentTab);
+          return;
+        }
+
+        let firstMatchingTab = null;
+        categoryPanes.forEach(pane => {
+          const cat = pane.dataset.category;
+          const text = pane.textContent.toLowerCase();
+          const matches = text.includes(query);
+          const navItem = document.querySelector(`.settings-nav-item[data-tab="${cat}"]`);
+
+          if (navItem) {
+            navItem.style.opacity = matches ? '1' : '0.35';
+          }
+
+          if (matches && !firstMatchingTab) {
+            firstMatchingTab = cat;
+          }
+        });
+
+        if (firstMatchingTab) {
+          switchSettingsTab(firstMatchingTab);
+        }
+      });
+
+      clearSearchBtn?.addEventListener('click', () => {
+        searchInput.value = '';
+        clearSearchBtn.style.display = 'none';
+        navItems.forEach(item => {
+          item.style.opacity = '1';
+        });
+        const currentTab = localStorage.getItem('agents_hub_active_settings_tab') || 'appearance';
+        switchSettingsTab(currentTab);
+        searchInput.focus();
+      });
+    }
+
     // Theme toggles
     document.querySelectorAll('.btn-theme-toggle').forEach(b => {
       b.addEventListener('click', () => {
@@ -112,11 +217,22 @@
       const maskShortcutPaths = document.getElementById('setting-mask-paths-checkbox')?.checked === true;
       const embedShells = document.getElementById('setting-embed-shells-checkbox')?.checked === true;
       const hideMainOnCliOpen = document.getElementById('setting-hide-main-on-cli-checkbox')?.checked === true;
-      const enableProton = (document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox'))?.checked === true;
+      const enableOpenCodeQuota = document.getElementById('pref-enable-opencode-quota')?.checked === true;
+      let enableProton = (document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox'))?.checked === true;
+      if (!enableOpenCodeQuota) {
+        enableProton = false;
+      }
       const enableHardwareMonitor = (document.getElementById('pref-enable-hardware-monitor') || document.getElementById('setting-enable-hardware-monitor-checkbox'))?.checked === true;
       const theme = document.documentElement.getAttribute('data-theme') || 'dark';
       const accentColor = localStorage.getItem('agents_hub_accent_color') || '#10b981';
       const feedback = document.getElementById('settings-save-feedback');
+
+      state.settings.enableOpenCodeQuota = enableOpenCodeQuota;
+      localStorage.setItem('agents_hub_enable_opencode_quota', enableOpenCodeQuota);
+      if (typeof updateOpenCodeQuotaVisibility === 'function') {
+        updateOpenCodeQuotaVisibility();
+      }
+      updateProtonVpnSettingState(enableOpenCodeQuota);
 
       state.settings.enableProtonVpnProvider = enableProton;
       localStorage.setItem('agents_hub_enable_proton', enableProton);
@@ -150,6 +266,7 @@
           maskShortcutPaths,
           embedShellsInTerminalWorkspace: embedShells,
           hideMainOnCliOpen,
+          enableOpenCodeQuota,
           enableProtonVpnProvider: enableProton,
           enableHardwareMonitor,
           theme,
@@ -161,9 +278,37 @@
       setTimeout(() => feedback.textContent = '', 2500);
     });
 
-    // Reactive checkbox toggle for Proton VPN Provider
+    // Reactive checkbox toggle for OpenCode Quota & IP Card (Master parent for Proton VPN)
+    const opencodeToggle = document.getElementById('pref-enable-opencode-quota');
+    opencodeToggle?.addEventListener('change', async (e) => {
+      const isEnabled = !!e.target.checked;
+      state.settings.enableOpenCodeQuota = isEnabled;
+      localStorage.setItem('agents_hub_enable_opencode_quota', isEnabled);
+      if (typeof updateOpenCodeQuotaVisibility === 'function') {
+        updateOpenCodeQuotaVisibility();
+      }
+      updateProtonVpnSettingState(isEnabled);
+
+      const payload = { enableOpenCodeQuota: isEnabled };
+      if (!isEnabled) {
+        payload.enableProtonVpnProvider = false;
+      }
+      await callBridge('save_general_settings', {
+        settings: payload
+      });
+      window.dispatchEvent(new CustomEvent('preference-changed', {
+        detail: { key: 'enableOpenCodeQuota', value: isEnabled }
+      }));
+    });
+
+    // Reactive checkbox toggle for Proton VPN Provider (Sub-feature of OpenCode Quota)
     const protonToggle = document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox');
     protonToggle?.addEventListener('change', async (e) => {
+      const isOpencodeEnabled = state.settings.enableOpenCodeQuota === true || localStorage.getItem('agents_hub_enable_opencode_quota') === 'true';
+      if (!isOpencodeEnabled) {
+        e.target.checked = false;
+        return;
+      }
       const isEnabled = !!e.target.checked;
       state.settings.enableProtonVpnProvider = isEnabled;
       localStorage.setItem('agents_hub_enable_proton', isEnabled);

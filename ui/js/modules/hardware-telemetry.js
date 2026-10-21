@@ -140,6 +140,9 @@
     } else if (state.activeView === 'dashboard' && !document.hidden) {
       resumeHardwareTelemetry();
     }
+    if (typeof window.updateDashboardGridClasses === 'function') {
+      window.updateDashboardGridClasses();
+    }
   }
 
   function pollHardwareTelemetry() {

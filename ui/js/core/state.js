@@ -26,7 +26,7 @@ window.state = {
     antigravity: { activeProfile: '', profiles: [] },
     opencode: { isOnline: false, port: 0, activeSessions: [] },
     aiConfig: { providers: [], toolTargets: {}, devTools: [], shortcuts: [], selectedProviderId: null, selectedModel: null, promptPresets: [], builtInPromptPresets: [], activePromptPresetId: 'preset_general', promptEnhancerTemperature: 0.6 },
-    settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', enableHardwareMonitor: localStorage.getItem('agents_hub_enable_hardware_monitor') === 'true', theme: 'dark', accentColor: '#4049B9' },
+    settings: { autostart: false, startMinimized: false, minimizeToTray: true, notifications: true, maskPublicIp: false, maskShortcutPaths: false, enableOpenCodeQuota: localStorage.getItem('agents_hub_enable_opencode_quota') === 'true', enableProtonVpnProvider: localStorage.getItem('agents_hub_enable_proton') === 'true', enableHardwareMonitor: localStorage.getItem('agents_hub_enable_hardware_monitor') === 'true', theme: 'dark', accentColor: '#4049B9' },
     activeView: (function() {
       try {
         return localStorage.getItem('agents_hub_active_view') || 'dashboard';

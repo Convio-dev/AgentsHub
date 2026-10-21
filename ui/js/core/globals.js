@@ -236,12 +236,25 @@
           const hideMainCheck = document.getElementById('setting-hide-main-on-cli-checkbox');
           if (hideMainCheck) hideMainCheck.checked = !!res.settings.hideMainOnCliOpen;
 
-          // Proton VPN Provider preference
-          const protonEnabled = res.settings.enableProtonVpnProvider === true;
+          // OpenCode Quota & IP Card preference (default false / disabled)
+          const opencodeQuotaEnabled = res.settings.enableOpenCodeQuota === true;
+          state.settings.enableOpenCodeQuota = opencodeQuotaEnabled;
+          localStorage.setItem('agents_hub_enable_opencode_quota', opencodeQuotaEnabled);
+          const prefOpencodeCheck = document.getElementById('pref-enable-opencode-quota');
+          if (prefOpencodeCheck) prefOpencodeCheck.checked = opencodeQuotaEnabled;
+          if (typeof updateOpenCodeQuotaVisibility === 'function') {
+            updateOpenCodeQuotaVisibility();
+          }
+
+          // Proton VPN Provider preference (strictly dependent on OpenCode Quota)
+          const protonEnabled = opencodeQuotaEnabled && (res.settings.enableProtonVpnProvider === true);
           state.settings.enableProtonVpnProvider = protonEnabled;
           localStorage.setItem('agents_hub_enable_proton', protonEnabled);
           const prefProtonCheck = document.getElementById('pref-enable-proton') || document.getElementById('setting-enable-proton-checkbox');
           if (prefProtonCheck) prefProtonCheck.checked = protonEnabled;
+          if (typeof updateProtonVpnSettingState === 'function') {
+            updateProtonVpnSettingState(opencodeQuotaEnabled);
+          }
 
           // Hardware Monitor preference (default false / disabled)
           const hwEnabled = res.settings.enableHardwareMonitor === true;
