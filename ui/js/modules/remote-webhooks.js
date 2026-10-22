@@ -92,6 +92,8 @@
     const pairedDiscordBadge = document.getElementById('pocket-paired-discord-badge');
 
     // Permissions & Filters
+    const chkAllowRun = document.getElementById('chk-pocket-allow-run');
+    const chkAllowActive = document.getElementById('chk-pocket-allow-active');
     const chkAllowPrompts = document.getElementById('chk-pocket-allow-prompts');
     const chkAllowScreen = document.getElementById('chk-pocket-allow-screen');
     const chkAllowDiff = document.getElementById('chk-pocket-allow-diff');
@@ -103,6 +105,27 @@
 
     const btnSave = document.getElementById('btn-save-pocket-config');
     const btnTest = document.getElementById('btn-test-pocket-bot');
+
+    function syncToggleBadge(chk, labelId) {
+      const lbl = document.getElementById(labelId);
+      if (!lbl || !chk) return;
+      const isOn = chk.checked;
+      lbl.textContent = isOn ? 'ON' : 'OFF';
+      lbl.className = `bot-feature-status-label ${isOn ? 'on' : 'off'}`;
+    }
+
+    function syncAllToggleBadges() {
+      syncToggleBadge(chkEnabled, 'lbl-status-pocket-master');
+      syncToggleBadge(chkAllowRun, 'lbl-status-allow-run');
+      syncToggleBadge(chkAllowActive, 'lbl-status-allow-active');
+      syncToggleBadge(chkAllowPrompts, 'lbl-status-allow-prompts');
+      syncToggleBadge(chkAllowScreen, 'lbl-status-allow-screen');
+      syncToggleBadge(chkAllowDiff, 'lbl-status-allow-diff');
+      syncToggleBadge(chkAllowCancel, 'lbl-status-allow-cancel');
+      syncToggleBadge(chkNotifyDone, 'lbl-status-notify-done');
+      syncToggleBadge(chkNotifyError, 'lbl-status-notify-error');
+      syncToggleBadge(chkNotifyApproval, 'lbl-status-notify-approval');
+    }
 
     let activePlatform = 'telegram';
 
@@ -162,6 +185,8 @@
           if (inpDiscordToken) inpDiscordToken.value = cfg.discordBotToken || '';
           if (pinDiscordDisplay) pinDiscordDisplay.textContent = cfg.discordPairingPin || '---';
 
+          if (chkAllowRun) chkAllowRun.checked = cfg.allowRun ?? true;
+          if (chkAllowActive) chkAllowActive.checked = cfg.allowActive ?? true;
           if (chkAllowPrompts) chkAllowPrompts.checked = cfg.allowPrompts ?? true;
           if (chkAllowScreen) chkAllowScreen.checked = cfg.allowScreenshots ?? true;
           if (chkAllowDiff) chkAllowDiff.checked = cfg.allowGitDiff ?? true;
@@ -171,6 +196,7 @@
           if (chkNotifyError) chkNotifyError.checked = cfg.notifyOnError ?? true;
           if (chkNotifyApproval) chkNotifyApproval.checked = cfg.notifyOnApproval ?? true;
 
+          syncAllToggleBadges();
           updatePairingStatus(cfg);
         }
       } catch (err) {
@@ -195,7 +221,7 @@
 
       if (statusText && statusPill) {
         if (!cfg.isEnabled) {
-          statusText.textContent = 'Disabled';
+          statusText.textContent = 'Offline (Disabled)';
           statusPill.className = 'discord-status-badge offline';
           statusPill.style.background = 'rgba(100, 116, 139, 0.15)';
           statusPill.style.color = 'var(--text-dim)';
@@ -216,24 +242,38 @@
       }
     }
 
-    chkEnabled?.addEventListener('change', () => {
-      btnSave?.click();
+    // Attach immediate live status badge update and auto-save on switch flip
+    const allFeatureToggles = [
+      chkEnabled,
+      chkAllowRun,
+      chkAllowActive,
+      chkAllowPrompts,
+      chkAllowScreen,
+      chkAllowDiff,
+      chkAllowCancel,
+      chkNotifyDone,
+      chkNotifyError,
+      chkNotifyApproval
+    ];
+
+    allFeatureToggles.forEach(t => {
+      t?.addEventListener('change', () => {
+        syncAllToggleBadges();
+        btnSave?.click();
+      });
     });
 
     btnSave?.addEventListener('click', async () => {
-      const hasToken = (activePlatform === 'discord' && inpDiscordToken?.value?.trim()) ||
-                       (activePlatform === 'telegram' && inpToken?.value?.trim()) ||
-                       (activePlatform === 'both' && (inpToken?.value?.trim() || inpDiscordToken?.value?.trim()));
-
-      if (!chkEnabled?.checked && hasToken) {
-        if (chkEnabled) chkEnabled.checked = true;
-      }
+      const isEnabled = chkEnabled?.checked ?? false;
+      syncAllToggleBadges();
 
       const config = {
-        isEnabled: chkEnabled?.checked ?? false,
+        isEnabled,
         platform: activePlatform,
         telegramBotToken: inpToken?.value?.trim() || '',
         discordBotToken: inpDiscordToken?.value?.trim() || '',
+        allowRun: chkAllowRun?.checked ?? true,
+        allowActive: chkAllowActive?.checked ?? true,
         allowPrompts: chkAllowPrompts?.checked ?? true,
         allowScreenshots: chkAllowScreen?.checked ?? true,
         allowGitDiff: chkAllowDiff?.checked ?? true,
@@ -246,7 +286,7 @@
       try {
         const res = await callBridge('save_pocket_commander_config', { config });
         if (res?.success) {
-          showToast(config.isEnabled ? 'Pocket Commander enabled & running!' : 'Pocket Commander configuration saved (Disabled)', 'success');
+          showToast(isEnabled ? 'Pocket Commander enabled & running!' : 'Pocket Commander disabled (Bots Offline)', isEnabled ? 'success' : 'info');
           if (res.config) updatePairingStatus(res.config);
         }
       } catch (err) {
@@ -262,8 +302,7 @@
           try {
             const res = await callBridge('test_pocket_commander_token', { token: dToken, platform: 'discord' });
             if (res?.success) {
-              if (chkEnabled && !chkEnabled.checked) chkEnabled.checked = true;
-              showToast(`Connected to Discord Bot: @${res.username}! Click "Save Pocket Commander" to start remote control.`, 'success');
+              showToast(`Connected to Discord Bot: @${res.username}!`, 'success');
             } else {
               showToast(`Discord Bot error: ${res.error || 'Invalid token'}`, 'error');
             }
@@ -280,8 +319,7 @@
           try {
             const res = await callBridge('test_pocket_commander_token', { token: tToken, platform: 'telegram' });
             if (res?.success) {
-              if (chkEnabled && !chkEnabled.checked) chkEnabled.checked = true;
-              showToast(`Connected to Telegram Bot: @${res.username}! Click "Save Pocket Commander" to start remote control.`, 'success');
+              showToast(`Connected to Telegram Bot: @${res.username}!`, 'success');
             } else {
               showToast(`Telegram Bot error: ${res.error || 'Invalid token'}`, 'error');
             }

@@ -55,6 +55,12 @@ public sealed class PocketCommanderConfig
     public string DiscordPairingPin { get; set; } = string.Empty;
 
     // Permissions & Filters
+    [JsonPropertyName("allowRun")]
+    public bool AllowRun { get; set; } = true;
+
+    [JsonPropertyName("allowActive")]
+    public bool AllowActive { get; set; } = true;
+
     [JsonPropertyName("allowPrompts")]
     public bool AllowPrompts { get; set; } = true;
 
@@ -95,6 +101,7 @@ public sealed class PocketCommanderService : IDisposable
     private CancellationTokenSource? _discordCts;
     private Task? _discordTask;
     private string _discordApplicationId = string.Empty;
+    private string? _activeTargetSessionId;
 
     private readonly Lock _lock = new();
 
@@ -802,6 +809,38 @@ public sealed class PocketCommanderService : IDisposable
                 },
                 new
                 {
+                    name = "run",
+                    description = "Start an agent or view synced CLI profiles",
+                    type = 1,
+                    options = new[]
+                    {
+                        new
+                        {
+                            name = "profile",
+                            description = "Profile name or number to start (e.g. ZXR@2 or 1)",
+                            type = 3,
+                            required = false
+                        }
+                    }
+                },
+                new
+                {
+                    name = "active",
+                    description = "View or select active agent when multiple run",
+                    type = 1,
+                    options = new[]
+                    {
+                        new
+                        {
+                            name = "profile",
+                            description = "Profile name or number to set as active (e.g. ZXR@2 or 1)",
+                            type = 3,
+                            required = false
+                        }
+                    }
+                },
+                new
+                {
                     name = "prompt",
                     description = "Send a prompt instruction to the active agent",
                     type = 1,
@@ -1184,6 +1223,18 @@ public sealed class PocketCommanderService : IDisposable
                 string statusMsg = BuildStatusCommand();
                 await RespondDiscordInteractionAsync(interactionId, interactionToken, statusMsg, ct).ConfigureAwait(false);
             }
+            else if (commandName.Equals("run", StringComparison.OrdinalIgnoreCase))
+            {
+                optionsMap.TryGetValue("profile", out var profVal);
+                string runReply = BuildRunCommand(profVal);
+                await RespondDiscordInteractionAsync(interactionId, interactionToken, runReply, ct).ConfigureAwait(false);
+            }
+            else if (commandName.Equals("active", StringComparison.OrdinalIgnoreCase))
+            {
+                optionsMap.TryGetValue("profile", out var profVal);
+                string activeReply = BuildActiveCommand(profVal);
+                await RespondDiscordInteractionAsync(interactionId, interactionToken, activeReply, ct).ConfigureAwait(false);
+            }
             else if (commandName.Equals("prompt", StringComparison.OrdinalIgnoreCase))
             {
                 optionsMap.TryGetValue("text", out var promptText);
@@ -1253,11 +1304,15 @@ public sealed class PocketCommanderService : IDisposable
                 cmd.Equals("diff", StringComparison.OrdinalIgnoreCase) ||
                 cmd.Equals("stop", StringComparison.OrdinalIgnoreCase) ||
                 cmd.Equals("cancel", StringComparison.OrdinalIgnoreCase) ||
+                cmd.Equals("run", StringComparison.OrdinalIgnoreCase) ||
+                cmd.Equals("active", StringComparison.OrdinalIgnoreCase) ||
                 cmd.Equals("help", StringComparison.OrdinalIgnoreCase))
             {
                 cmd = "/" + cmd;
             }
-            else if (cmd.StartsWith("prompt ", StringComparison.OrdinalIgnoreCase))
+            else if (cmd.StartsWith("prompt ", StringComparison.OrdinalIgnoreCase) ||
+                     cmd.StartsWith("run ", StringComparison.OrdinalIgnoreCase) ||
+                     cmd.StartsWith("active ", StringComparison.OrdinalIgnoreCase))
             {
                 cmd = "/" + cmd;
             }
@@ -1270,6 +1325,18 @@ public sealed class PocketCommanderService : IDisposable
         else if (cmd.StartsWith("/status", StringComparison.OrdinalIgnoreCase))
         {
             string msg = BuildStatusCommand();
+            await SendReplyAsync(platform, targetId, msg, ct).ConfigureAwait(false);
+        }
+        else if (cmd.StartsWith("/run", StringComparison.OrdinalIgnoreCase))
+        {
+            string profBody = cmd.Length > 4 ? cmd[4..].Trim() : "";
+            string msg = BuildRunCommand(profBody);
+            await SendReplyAsync(platform, targetId, msg, ct).ConfigureAwait(false);
+        }
+        else if (cmd.StartsWith("/active", StringComparison.OrdinalIgnoreCase))
+        {
+            string profBody = cmd.Length > 7 ? cmd[7..].Trim() : "";
+            string msg = BuildActiveCommand(profBody);
             await SendReplyAsync(platform, targetId, msg, ct).ConfigureAwait(false);
         }
         else if (cmd.StartsWith("/prompt", StringComparison.OrdinalIgnoreCase))
@@ -1306,6 +1373,215 @@ public sealed class PocketCommanderService : IDisposable
         }
     }
 
+    private sealed class RunnableTarget
+    {
+        public int Index { get; set; }
+        public string Id { get; set; } = "";
+        public string ShortName { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public bool IsRunning { get; set; }
+    }
+
+    private List<RunnableTarget> GetRunnableTargets()
+    {
+        var list = new List<RunnableTarget>();
+        int idx = 1;
+
+        // 1. Antigravity profiles synced from CLI
+        var profiles = _cliManager?.ProfileService.GetProfiles() ?? [];
+        foreach (var prof in profiles)
+        {
+            string profId = CliManagerService.FormatAntigravityProfileId(prof);
+            var info = _cliManager?.GetInfo(profId);
+            bool running = info != null && (info.State == CliState.Running || info.State == CliState.Starting);
+            list.Add(new RunnableTarget
+            {
+                Index = idx++,
+                Id = profId,
+                ShortName = prof,
+                DisplayName = $"Antigravity ({prof})",
+                IsRunning = running
+            });
+        }
+
+        // 2. Claude Code
+        var claudeInfo = _cliManager?.GetInfo("claude_code");
+        bool claudeRunning = claudeInfo != null && (claudeInfo.State == CliState.Running || claudeInfo.State == CliState.Starting);
+        list.Add(new RunnableTarget
+        {
+            Index = idx++,
+            Id = "claude_code",
+            ShortName = "claude",
+            DisplayName = "Claude Code",
+            IsRunning = claudeRunning
+        });
+
+        // 3. Hermes
+        var hermesInfo = _cliManager?.GetInfo("hermes");
+        bool hermesRunning = hermesInfo != null && (hermesInfo.State == CliState.Running || hermesInfo.State == CliState.Starting);
+        list.Add(new RunnableTarget
+        {
+            Index = idx++,
+            Id = "hermes",
+            ShortName = "hermes",
+            DisplayName = "Hermes",
+            IsRunning = hermesRunning
+        });
+
+        return list;
+    }
+
+    private string BuildRunCommand(string? profileArg)
+    {
+        if (!_config.AllowRun)
+        {
+            return "⚠️ Remote agent launching (/run) is disabled in AgentsHub Settings.";
+        }
+
+        var targets = GetRunnableTargets();
+        string arg = (profileArg ?? "").Trim();
+
+        if (string.IsNullOrWhiteSpace(arg))
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("🚀 **Available CLI Profiles & Agents:**\n");
+
+            if (targets.Count == 0)
+            {
+                sb.AppendLine("⚪ No profiles or CLI agents configured in AgentsHub.");
+                return sb.ToString();
+            }
+
+            foreach (var t in targets)
+            {
+                string stateIcon = t.IsRunning ? "🟢 Running" : "⚪ Offline";
+                sb.AppendLine($"**{t.Index}.** {t.DisplayName} — `{stateIcon}`");
+            }
+
+            sb.AppendLine("\n**To launch a session:**");
+            var first = targets.FirstOrDefault();
+            if (first != null) sb.AppendLine($"• `/run {first.ShortName}` (or `/run {first.Index}`)");
+            var second = targets.Skip(1).FirstOrDefault();
+            if (second != null) sb.AppendLine($"• `/run {second.ShortName}` (or `/run {second.Index}`)");
+
+            return sb.ToString().TrimEnd();
+        }
+
+        // Match by 1-based number index or name
+        RunnableTarget? match = null;
+        if (int.TryParse(arg, out int parsedIdx) && parsedIdx >= 1 && parsedIdx <= targets.Count)
+        {
+            match = targets[parsedIdx - 1];
+        }
+        else
+        {
+            match = targets.FirstOrDefault(t =>
+                string.Equals(t.ShortName, arg, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(t.Id, arg, StringComparison.OrdinalIgnoreCase) ||
+                t.DisplayName.Contains(arg, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (match == null)
+        {
+            return $"❌ Profile or agent `\"{arg}\"` not found.\nType `/run` to view the list of available profiles.";
+        }
+
+        if (match.IsRunning)
+        {
+            _activeTargetSessionId = match.Id;
+            return $"ℹ️ **{match.DisplayName}** is already running.\n🎯 Set as the active target for `/prompt` and `/stop`.";
+        }
+
+        try
+        {
+            _cliManager?.Start(match.Id);
+            _activeTargetSessionId = match.Id;
+            return $"🚀 **Started {match.DisplayName}!**\nSession launched and set as active target.\nSend instructions anytime with `/prompt <text>`.";
+        }
+        catch (Exception ex)
+        {
+            return $"❌ Failed to start {match.DisplayName}: {ex.Message}";
+        }
+    }
+
+    private string BuildActiveCommand(string? profileArg)
+    {
+        if (!_config.AllowActive)
+        {
+            return "⚠️ Remote target switching (/active) is disabled in AgentsHub Settings.";
+        }
+
+        var running = _cliManager?.GetAllInfos().Where(c => c.State == CliState.Running || c.State == CliState.Starting).ToList() ?? [];
+        string arg = (profileArg ?? "").Trim();
+
+        if (running.Count == 0)
+        {
+            return "⚪ **No agents are currently running.**\nUse `/run` to launch a profile or agent session.";
+        }
+
+        // If active session not set or no longer running, pick the first
+        if (string.IsNullOrEmpty(_activeTargetSessionId) || !running.Any(r => string.Equals(r.Id, _activeTargetSessionId, StringComparison.OrdinalIgnoreCase)))
+        {
+            _activeTargetSessionId = running[0].Id;
+        }
+
+        if (string.IsNullOrWhiteSpace(arg))
+        {
+            var sb = new StringBuilder();
+            var currentActive = running.FirstOrDefault(r => string.Equals(r.Id, _activeTargetSessionId, StringComparison.OrdinalIgnoreCase)) ?? running[0];
+            sb.AppendLine($"🎯 **Current Active Target:** `{currentActive.DisplayName}`\n");
+            sb.AppendLine("**Running Sessions:**");
+
+            for (int i = 0; i < running.Count; i++)
+            {
+                var r = running[i];
+                bool isActive = string.Equals(r.Id, currentActive.Id, StringComparison.OrdinalIgnoreCase);
+                string marker = isActive ? " **[ACTIVE 🎯]**" : "";
+                sb.AppendLine($"**{i + 1}.** 🟢 {r.DisplayName}{marker}");
+            }
+
+            if (running.Count > 1)
+            {
+                sb.AppendLine("\n**To switch active target:**");
+                for (int i = 0; i < running.Count; i++)
+                {
+                    var r = running[i];
+                    string name = CliManagerService.IsAntigravityProfileId(r.Id, out var p) ? p : r.ShortName;
+                    sb.AppendLine($"• `/active {name}` (or `/active {i + 1}`)");
+                }
+            }
+            else
+            {
+                sb.AppendLine("\nAll `/prompt` instructions currently target this session.");
+            }
+
+            return sb.ToString().TrimEnd();
+        }
+
+        // Match by 1-based index or name
+        CliItemInfo? match = null;
+        if (int.TryParse(arg, out int idx) && idx >= 1 && idx <= running.Count)
+        {
+            match = running[idx - 1];
+        }
+        else
+        {
+            match = running.FirstOrDefault(r =>
+                string.Equals(r.Id, arg, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(r.ShortName, arg, StringComparison.OrdinalIgnoreCase) ||
+                (CliManagerService.IsAntigravityProfileId(r.Id, out var p) && string.Equals(p, arg, StringComparison.OrdinalIgnoreCase)) ||
+                r.DisplayName.Contains(arg, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (match == null)
+        {
+            return $"⚠️ No running agent matched `\"{arg}\"`.\nType `/active` to list currently running sessions.";
+        }
+
+        _activeTargetSessionId = match.Id;
+        return $"🎯 **Active target switched to: {match.DisplayName}**\nSubsequent `/prompt` and `/stop` commands will target this session.";
+    }
+
     private string BuildStatusCommand()
     {
         try
@@ -1315,9 +1591,20 @@ public sealed class PocketCommanderService : IDisposable
             string wsDir = curWs?.WorkingDirectory ?? AppDomain.CurrentDomain.BaseDirectory;
 
             var runningInfos = _cliManager?.GetAllInfos().Where(c => c.State == CliState.Running).ToList() ?? [];
-            string agentStatus = runningInfos.Count > 0
-                ? $"🟢 **Running ({runningInfos.Count} active)**\nAgents: `{string.Join(", ", runningInfos.Select(c => c.DisplayName))}`"
-                : "⚪ **Idle (No agents actively running)**";
+            string agentStatus;
+            if (runningInfos.Count > 0)
+            {
+                var target = (!string.IsNullOrEmpty(_activeTargetSessionId)
+                    ? runningInfos.FirstOrDefault(c => string.Equals(c.Id, _activeTargetSessionId, StringComparison.OrdinalIgnoreCase))
+                    : null) ?? runningInfos[0];
+
+                agentStatus = $"🟢 **Running ({runningInfos.Count} active)**\n" +
+                              string.Join("\n", runningInfos.Select(c => $"• {c.DisplayName}{(string.Equals(c.Id, target.Id, StringComparison.OrdinalIgnoreCase) ? " `[ACTIVE 🎯]`" : "")}"));
+            }
+            else
+            {
+                agentStatus = "⚪ **Idle (No agents actively running)**\nUse `/run` to start a session.";
+            }
 
             return $"📊 **AgentsHub Desktop Status**\n\n" +
                    $"**Workspace:** `{wsName}`\n" +
@@ -1347,12 +1634,24 @@ public sealed class PocketCommanderService : IDisposable
         try
         {
             var running = _cliManager?.GetAllInfos().Where(c => c.State == CliState.Running).ToList() ?? [];
-            string targetSessionId = running.Count > 0 ? running[0].Id : "antigravity";
+            if (running.Count == 0)
+            {
+                return "⚪ **No agents are currently running.**\nUse `/run` to start a profile or agent session first.";
+            }
 
-            _cliManager?.SendInput(targetSessionId, prompt + "\n");
+            CliItemInfo? target = null;
+            if (!string.IsNullOrEmpty(_activeTargetSessionId))
+            {
+                target = running.FirstOrDefault(c => string.Equals(c.Id, _activeTargetSessionId, StringComparison.OrdinalIgnoreCase));
+            }
+            target ??= running[0];
 
-            return $"🚀 **Prompt Injected into [{targetSessionId}]**\n\n" +
-                   $"> {prompt}\n\n" +
+            _activeTargetSessionId = target.Id;
+            string cleanPrompt = prompt.Trim();
+            _cliManager?.SendInput(target.Id, cleanPrompt + "\r\n");
+
+            return $"🚀 **Prompt Injected into [{target.DisplayName}]**\n\n" +
+                   $"> {cleanPrompt}\n\n" +
                    "Agent is processing your instruction. You will receive a push notification when complete.";
         }
         catch (Exception ex)
@@ -1408,12 +1707,16 @@ public sealed class PocketCommanderService : IDisposable
                 return "ℹ️ No agents are currently running to stop.";
             }
 
-            foreach (var s in running)
+            CliItemInfo? target = null;
+            if (!string.IsNullOrEmpty(_activeTargetSessionId))
             {
-                _cliManager?.SendInput(s.Id, "\x03"); // SIGINT
+                target = running.FirstOrDefault(c => string.Equals(c.Id, _activeTargetSessionId, StringComparison.OrdinalIgnoreCase));
             }
+            target ??= running[0];
 
-            return $"🛑 Sent interrupt signal (`Ctrl+C`) to: `{string.Join(", ", running.Select(r => r.DisplayName))}`";
+            _cliManager?.SendInput(target.Id, "\x03"); // SIGINT
+
+            return $"🛑 Sent interrupt signal (`Ctrl+C`) to: **{target.DisplayName}**";
         }
         catch (Exception ex)
         {
@@ -1425,6 +1728,8 @@ public sealed class PocketCommanderService : IDisposable
     {
         return "🤖 **AgentsHub Pocket Commander Commands:**\n\n" +
                "• `/status` (or `!status`) — View active agent, git branch, and system load\n" +
+               "• `/run [profile]` (or `!run [profile]`) — Start an agent or list synced CLI profiles\n" +
+               "• `/active [profile]` (or `!active [profile]`) — Select active target agent when multiple run\n" +
                "• `/prompt <text>` (or `!prompt <text>`) — Inject prompt into active agent terminal\n" +
                "• `/diff` (or `!diff`) — Inspect recent git changes and file diffs\n" +
                "• `/screen` (or `!screen`) — Capture desktop screenshot\n" +
@@ -1686,12 +1991,14 @@ public sealed class PocketCommanderService : IDisposable
                 new[]
                 {
                     new { text = "📊 Status", callback_data = "action:status" },
-                    new { text = "📄 Git Diff", callback_data = "action:diff" }
+                    new { text = "🚀 Run", callback_data = "action:run" },
+                    new { text = "🎯 Active", callback_data = "action:active" }
                 },
                 new[]
                 {
+                    new { text = "📄 Git Diff", callback_data = "action:diff" },
                     new { text = "📸 Screenshot", callback_data = "action:screen" },
-                    new { text = "🛑 Stop Agent", callback_data = "action:stop" }
+                    new { text = "🛑 Stop", callback_data = "action:stop" }
                 }
             }
         };

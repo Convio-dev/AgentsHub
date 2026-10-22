@@ -862,10 +862,14 @@
                         <span class="spinner" style="width: 10px; height: 10px; border-width: 1.5px; display: none;"></span>
                         <span id="pocket-status-text">Disabled</span>
                       </span>
-                      <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--text-main);">
-                        <input type="checkbox" id="chk-pocket-enabled" style="accent-color: #0088cc; cursor: pointer;" />
-                        <span>Enable Pocket Commander</span>
-                      </label>
+                      <div style="display: flex; align-items: center; gap: 8px; margin: 0 4px;">
+                        <span style="font-size: 11.5px; font-weight: 700; color: var(--text-main);">Master Switch:</span>
+                        <span class="bot-feature-status-label off" id="lbl-status-pocket-master">OFF</span>
+                        <label class="bot-toggle-switch" title="Toggle Pocket Commander Master Switch">
+                          <input type="checkbox" id="chk-pocket-enabled" />
+                          <span class="bot-toggle-slider"></span>
+                        </label>
+                      </div>
                       <button class="btn btn-outline" id="btn-test-pocket-bot" type="button" style="font-size: 11.5px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px;">
                         <svg class="icon-svg" viewBox="0 0 24 24" style="width: 12px; height: 12px;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                         <span>Test Active Bot</span>
@@ -964,45 +968,203 @@
                     </div>
                   </div>
 
-                  <!-- Permissions & Notification Rules -->
-                  <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 12px; background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 12px 14px;">
-                    <div>
-                      <div style="font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Remote Control Permissions:</div>
-                      <div style="display: flex; gap: 14px; flex-wrap: wrap;">
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
-                          <input type="checkbox" id="chk-pocket-allow-prompts" checked style="accent-color: #0088cc;" />
-                          <span>Allow Remote Prompts (/prompt, !prompt)</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
-                          <input type="checkbox" id="chk-pocket-allow-screen" checked style="accent-color: #0088cc;" />
-                          <span>Allow Desktop Snapshots (/screen, !screen)</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
-                          <input type="checkbox" id="chk-pocket-allow-diff" checked style="accent-color: #0088cc;" />
-                          <span>Allow Git Working Tree Diff (/diff, !diff)</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
-                          <input type="checkbox" id="chk-pocket-allow-cancel" checked style="accent-color: #0088cc;" />
-                          <span>Allow Agent Interrupt (/stop, !stop)</span>
-                        </label>
+                  <!-- Bot Features & Permissions ON/OFF Toggles -->
+                  <div class="bot-features-section">
+                    <!-- Group 1: Remote Commands & Control -->
+                    <div class="bot-features-group">
+                      <div class="bot-features-group-title">
+                        <span>Remote Commands &amp; Interactive Control</span>
+                        <span style="font-size: 10px; color: var(--text-muted); text-transform: none; font-weight: normal;">Individual feature switches for Telegram &amp; Discord</span>
+                      </div>
+                      <div class="bot-features-grid">
+                        <!-- 1. Start Profiles (/run) -->
+                        <div class="bot-feature-card">
+                          <div class="bot-feature-meta">
+                            <div class="bot-feature-icon" style="color: #3b82f6;">
+                              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            </div>
+                            <div class="bot-feature-text">
+                              <div class="bot-feature-title">Start Profiles (/run)</div>
+                              <div class="bot-feature-desc">Launch synced CLI profiles &amp; agent sessions</div>
+                            </div>
+                          </div>
+                          <div class="bot-feature-action">
+                            <span class="bot-feature-status-label on" id="lbl-status-allow-run">ON</span>
+                            <label class="bot-toggle-switch">
+                              <input type="checkbox" id="chk-pocket-allow-run" checked />
+                              <span class="bot-toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <!-- 2. Active Target Switcher (/active) -->
+                        <div class="bot-feature-card">
+                          <div class="bot-feature-meta">
+                            <div class="bot-feature-icon" style="color: #06b6d4;">
+                              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                            </div>
+                            <div class="bot-feature-text">
+                              <div class="bot-feature-title">Active Switcher (/active)</div>
+                              <div class="bot-feature-desc">Select active target among running agents</div>
+                            </div>
+                          </div>
+                          <div class="bot-feature-action">
+                            <span class="bot-feature-status-label on" id="lbl-status-allow-active">ON</span>
+                            <label class="bot-toggle-switch">
+                              <input type="checkbox" id="chk-pocket-allow-active" checked />
+                              <span class="bot-toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <!-- 3. Remote Prompt Injection (/prompt) -->
+                        <div class="bot-feature-card">
+                          <div class="bot-feature-meta">
+                            <div class="bot-feature-icon" style="color: #10b981;">
+                              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                            </div>
+                            <div class="bot-feature-text">
+                              <div class="bot-feature-title">Prompt Injection (/prompt)</div>
+                              <div class="bot-feature-desc">Send prompts into running agent stdin</div>
+                            </div>
+                          </div>
+                          <div class="bot-feature-action">
+                            <span class="bot-feature-status-label on" id="lbl-status-allow-prompts">ON</span>
+                            <label class="bot-toggle-switch">
+                              <input type="checkbox" id="chk-pocket-allow-prompts" checked />
+                              <span class="bot-toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <!-- 4. Desktop Snapshots (/screen) -->
+                        <div class="bot-feature-card">
+                          <div class="bot-feature-meta">
+                            <div class="bot-feature-icon" style="color: #f59e0b;">
+                              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            </div>
+                            <div class="bot-feature-text">
+                              <div class="bot-feature-title">Desktop Screenshot (/screen)</div>
+                              <div class="bot-feature-desc">Capture &amp; send live desktop screen JPEG</div>
+                            </div>
+                          </div>
+                          <div class="bot-feature-action">
+                            <span class="bot-feature-status-label on" id="lbl-status-allow-screen">ON</span>
+                            <label class="bot-toggle-switch">
+                              <input type="checkbox" id="chk-pocket-allow-screen" checked />
+                              <span class="bot-toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <!-- 5. Git Working Tree Diff (/diff) -->
+                        <div class="bot-feature-card">
+                          <div class="bot-feature-meta">
+                            <div class="bot-feature-icon" style="color: #8b5cf6;">
+                              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px;"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                            </div>
+                            <div class="bot-feature-text">
+                              <div class="bot-feature-title">Git Diff (/diff)</div>
+                              <div class="bot-feature-desc">Inspect modified files and commit diff stats</div>
+                            </div>
+                          </div>
+                          <div class="bot-feature-action">
+                            <span class="bot-feature-status-label on" id="lbl-status-allow-diff">ON</span>
+                            <label class="bot-toggle-switch">
+                              <input type="checkbox" id="chk-pocket-allow-diff" checked />
+                              <span class="bot-toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <!-- 6. Agent Interrupt (/stop) -->
+                        <div class="bot-feature-card">
+                          <div class="bot-feature-meta">
+                            <div class="bot-feature-icon" style="color: #ef4444;">
+                              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px;"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+                            </div>
+                            <div class="bot-feature-text">
+                              <div class="bot-feature-title">Stop Agent (/stop)</div>
+                              <div class="bot-feature-desc">Send Ctrl+C SIGINT to halt active session</div>
+                            </div>
+                          </div>
+                          <div class="bot-feature-action">
+                            <span class="bot-feature-status-label on" id="lbl-status-allow-cancel">ON</span>
+                            <label class="bot-toggle-switch">
+                              <input type="checkbox" id="chk-pocket-allow-cancel" checked />
+                              <span class="bot-toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    <div style="border-top: 1px solid var(--border-subtle); padding-top: 8px;">
-                      <div style="font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Push Notification Filters:</div>
-                      <div style="display: flex; gap: 14px; flex-wrap: wrap;">
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
-                          <input type="checkbox" id="chk-pocket-notify-done" checked style="accent-color: #0088cc;" />
-                          <span>Push Alert on Completed Tasks</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
-                          <input type="checkbox" id="chk-pocket-notify-error" checked style="accent-color: #0088cc;" />
-                          <span>Push Alert on Errors &amp; Failures</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
-                          <input type="checkbox" id="chk-pocket-notify-approval" checked style="accent-color: #0088cc;" />
-                          <span>Push Alert on Approval Needed</span>
-                        </label>
+                    <!-- Group 2: Push Notifications -->
+                    <div class="bot-features-group" style="margin-top: 4px;">
+                      <div class="bot-features-group-title">
+                        <span>Push Notification Alerts</span>
+                        <span style="font-size: 10px; color: var(--text-muted); text-transform: none; font-weight: normal;">Sent to phone on background task triggers</span>
+                      </div>
+                      <div class="bot-features-grid">
+                        <!-- 7. Completed Tasks -->
+                        <div class="bot-feature-card">
+                          <div class="bot-feature-meta">
+                            <div class="bot-feature-icon" style="color: #10b981;">
+                              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                            </div>
+                            <div class="bot-feature-text">
+                              <div class="bot-feature-title">Task Finished Alert</div>
+                              <div class="bot-feature-desc">Push message when an agent finishes work</div>
+                            </div>
+                          </div>
+                          <div class="bot-feature-action">
+                            <span class="bot-feature-status-label on" id="lbl-status-notify-done">ON</span>
+                            <label class="bot-toggle-switch">
+                              <input type="checkbox" id="chk-pocket-notify-done" checked />
+                              <span class="bot-toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <!-- 8. Task Errors -->
+                        <div class="bot-feature-card">
+                          <div class="bot-feature-meta">
+                            <div class="bot-feature-icon" style="color: #ef4444;">
+                              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                            </div>
+                            <div class="bot-feature-text">
+                              <div class="bot-feature-title">Error &amp; Failure Alert</div>
+                              <div class="bot-feature-desc">Immediate alert if an agent throws error</div>
+                            </div>
+                          </div>
+                          <div class="bot-feature-action">
+                            <span class="bot-feature-status-label on" id="lbl-status-notify-error">ON</span>
+                            <label class="bot-toggle-switch">
+                              <input type="checkbox" id="chk-pocket-notify-error" checked />
+                              <span class="bot-toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <!-- 9. Approval Needed -->
+                        <div class="bot-feature-card">
+                          <div class="bot-feature-meta">
+                            <div class="bot-feature-icon" style="color: #f59e0b;">
+                              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 15px; height: 15px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            </div>
+                            <div class="bot-feature-text">
+                              <div class="bot-feature-title">Approval Needed Alert</div>
+                              <div class="bot-feature-desc">Notify when agent pauses for permission</div>
+                            </div>
+                          </div>
+                          <div class="bot-feature-action">
+                            <span class="bot-feature-status-label on" id="lbl-status-notify-approval">ON</span>
+                            <label class="bot-toggle-switch">
+                              <input type="checkbox" id="chk-pocket-notify-approval" checked />
+                              <span class="bot-toggle-slider"></span>
+                            </label>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>

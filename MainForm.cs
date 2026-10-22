@@ -1143,7 +1143,7 @@ public partial class MainForm : Form
                 this,
                 quickPrompt =>
                 {
-                    _cliManager?.SendInput("hermes", quickPrompt + "\n");
+                    _cliManager?.SendInput("hermes", quickPrompt.Trim() + "\r\n");
                     ShowTrayBalloon("Prompt Sent", quickPrompt);
                 },
                 () => AiConfigService.Instance.GetActiveWorkspace()?.Name ?? "Default Workspace",
