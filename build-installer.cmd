@@ -25,7 +25,7 @@ if not defined ISCC_EXE (
 rem The project file is the one source of truth for the version. Read it here and hand it to
 rem the installer script, which no longer carries its own copy.
 set "APP_VERSION="
-for /f "usebackq tokens=2 delims=<>" %%v in (`findstr /r /c:"<Version>[0-9]" AgentsHub.csproj`) do set "APP_VERSION=%%v"
+for /f %%v in ('powershell -NoProfile -Command "(Select-Xml -Path AgentsHub.csproj -XPath //Version).Node.InnerText.Trim()"') do set "APP_VERSION=%%v"
 if not defined APP_VERSION (
     echo [ERROR] Could not read ^<Version^> from AgentsHub.csproj.
     exit /b 1

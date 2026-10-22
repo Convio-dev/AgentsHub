@@ -81,7 +81,7 @@ $rootDir = (Get-Item "$scriptDir\..").FullName
 Set-Location $rootDir
 
 # 1. Resolve current version from AgentsHub.csproj
-$currentVersion = "1.0.3"
+$currentVersion = "1.0.4"
 $csprojPath = Join-Path $rootDir "AgentsHub.csproj"
 if (Test-Path $csprojPath) {
     $content = Get-Content $csprojPath -Raw
@@ -103,7 +103,7 @@ if (Test-Path $tokenFile) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Agents Hub Release Publisher" Height="720" Width="700"
+        Title="Agents Hub Release Publisher" Height="740" Width="720"
         WindowStartupLocation="CenterScreen"
         Background="#0B0F19" Foreground="#F8FAFC"
         FontFamily="Segoe UI" UseLayoutRounding="True">
@@ -151,13 +151,18 @@ if (Test-Path $tokenFile) {
                 <StackPanel Grid.Column="0">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock Text="Agents Hub" FontWeight="Bold" FontSize="16" Foreground="#10B981" />
-                        <TextBlock Text=" · GitHub Release Publisher" FontWeight="SemiBold" FontSize="16" Foreground="#F8FAFC" />
+                        <TextBlock Text=" - GitHub Release Publisher" FontWeight="SemiBold" FontSize="16" Foreground="#F8FAFC" />
                     </StackPanel>
                     <TextBlock Text="Target: https://github.com/ZerroDevs/AgentsHub" FontSize="10.5" Foreground="#94A3B8" Margin="0,3,0,0" />
                 </StackPanel>
-                <Button Grid.Column="1" Name="btnOpenReleases" Content="View Live Releases" 
-                        Background="#1E293B" Foreground="#94A3B8" BorderThickness="1" BorderBrush="#334155"
-                        Padding="12,5" FontSize="11" Cursor="Hand" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Name="btnOpenDist" Content="Open Dist Folder" 
+                            Background="#1E293B" Foreground="#94A3B8" BorderThickness="1" BorderBrush="#334155"
+                            Padding="10,5" FontSize="11" Cursor="Hand" Margin="0,0,8,0" />
+                    <Button Name="btnOpenReleases" Content="View Live Releases" 
+                            Background="#1E293B" Foreground="#94A3B8" BorderThickness="1" BorderBrush="#334155"
+                            Padding="10,5" FontSize="11" Cursor="Hand" />
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -186,25 +191,47 @@ if (Test-Path $tokenFile) {
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="GitHub Personal Access Token (PAT)" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" />
-                <TextBlock Grid.Column="1" Name="lblTokenStatus" Text="" FontSize="10.5" Foreground="#10B981" />
+                <TextBlock Grid.Column="1" Name="lblTokenStatus" Text="" FontSize="10.5" FontWeight="SemiBold" Foreground="#10B981" />
             </Grid>
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="6" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="6" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="6" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <PasswordBox Grid.Column="0" Name="txtToken" />
-                <Button Grid.Column="2" Name="btnForgetToken" Content="Clear Saved" 
+                <Grid Grid.Column="0">
+                    <PasswordBox Name="txtToken" />
+                    <TextBox Name="txtTokenPlain" Visibility="Collapsed" />
+                </Grid>
+                <Button Grid.Column="2" Name="btnToggleTokenVisibility" Content="Show" 
+                        Background="#1E293B" Foreground="#94A3B8" BorderThickness="1" BorderBrush="#334155"
+                        Padding="10,5" FontSize="11" Cursor="Hand" ToolTip="Toggle token visibility" />
+                <Button Grid.Column="4" Name="btnSaveToken" Content="Save PAT" 
+                        Background="#1E293B" Foreground="#10B981" BorderThickness="1" BorderBrush="#10B981"
+                        Padding="12,5" FontSize="11" FontWeight="SemiBold" Cursor="Hand" ToolTip="Save token securely to local .release_token and verify with GitHub" />
+                <Button Grid.Column="6" Name="btnForgetToken" Content="Clear" 
                         Background="#1E293B" Foreground="#EF4444" BorderThickness="1" BorderBrush="#334155"
-                        Padding="10,4" FontSize="11" Cursor="Hand" />
+                        Padding="10,5" FontSize="11" Cursor="Hand" ToolTip="Delete saved token from disk" />
             </Grid>
             <TextBlock Text="Requires 'repo' scope. Saved securely to local .release_token (git-ignored)." FontSize="10" Foreground="#64748B" Margin="0,4,0,0" />
         </StackPanel>
 
         <!-- Form Row 3: Release Notes -->
         <StackPanel Grid.Row="3" Margin="0,0,0,12">
-            <TextBlock Text="Release Notes (Markdown)" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,0,4" />
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Release Notes (Markdown)" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" />
+                <Button Grid.Column="1" Name="btnGenerateNotes" Content="Auto-Generate from Git" 
+                        Background="#1E293B" Foreground="#38BDF8" BorderThickness="1" BorderBrush="#0284C7"
+                        Padding="8,2" FontSize="10.5" FontWeight="SemiBold" Cursor="Hand" ToolTip="Auto-populate release notes from recent git commits since previous tag" />
+            </Grid>
             <TextBox Name="txtNotes" Height="150" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
                      FontFamily="Consolas" FontSize="11.5"
                      Text="## What's Changed in Agents Hub v$currentVersion&#x0d;&#x0a;&#x0d;&#x0a;### Features &amp; Enhancements&#x0d;&#x0a;- &#x0d;&#x0a;&#x0d;&#x0a;### Improvements&#x0d;&#x0a;- &#x0d;&#x0a;&#x0d;&#x0a;### Bug Fixes&#x0d;&#x0a;- " />
@@ -222,9 +249,14 @@ if (Test-Path $tokenFile) {
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="Activity Log" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" />
-                <TextBlock Grid.Column="1" Name="lblProgress" Text="" FontSize="11" FontWeight="SemiBold" Foreground="#10B981" />
+                <Button Grid.Column="1" Name="btnClearLog" Content="Clear Log" 
+                        Background="Transparent" Foreground="#64748B" BorderThickness="0"
+                        FontSize="10" Cursor="Hand" />
+                <TextBlock Grid.Column="3" Name="lblProgress" Text="" FontSize="11" FontWeight="SemiBold" Foreground="#10B981" />
             </Grid>
 
             <TextBox Grid.Row="1" Name="txtLog" Background="#060911" Foreground="#38BDF8" BorderBrush="#1E293B"
@@ -269,8 +301,12 @@ $window = [System.Windows.Markup.XamlReader]::Load($reader)
 $txtTag = $window.FindName("txtTag")
 $txtTitle = $window.FindName("txtTitle")
 $txtToken = $window.FindName("txtToken")
+$txtTokenPlain = $window.FindName("txtTokenPlain")
+$btnToggleTokenVisibility = $window.FindName("btnToggleTokenVisibility")
+$btnSaveToken = $window.FindName("btnSaveToken")
 $btnForgetToken = $window.FindName("btnForgetToken")
 $lblTokenStatus = $window.FindName("lblTokenStatus")
+$btnGenerateNotes = $window.FindName("btnGenerateNotes")
 $txtNotes = $window.FindName("txtNotes")
 $txtLog = $window.FindName("txtLog")
 $lblProgress = $window.FindName("lblProgress")
@@ -280,10 +316,25 @@ $chkBuildFirst = $window.FindName("chkBuildFirst")
 $btnBuildOnly = $window.FindName("btnBuildOnly")
 $btnPublish = $window.FindName("btnPublish")
 $btnOpenReleases = $window.FindName("btnOpenReleases")
+$btnOpenDist = $window.FindName("btnOpenDist")
+$btnClearLog = $window.FindName("btnClearLog")
+
+function Get-ActiveToken() {
+    if ($txtTokenPlain.Visibility -eq [System.Windows.Visibility]::Visible) {
+        return $txtTokenPlain.Text.Trim()
+    } else {
+        return $txtToken.Password.Trim()
+    }
+}
+
+function Set-ActiveToken($val) {
+    $txtToken.Password = $val
+    $txtTokenPlain.Text = $val
+}
 
 if ($savedToken) {
-    $txtToken.Password = $savedToken
-    $lblTokenStatus.Text = "Loaded from .release_token"
+    Set-ActiveToken $savedToken
+    $lblTokenStatus.Text = "Saved in .release_token"
 }
 
 function Write-LogMessage($msg) {
@@ -317,27 +368,159 @@ function Sync-VersionToCsproj($verTag) {
     return $cleanVer
 }
 
-function Find-InstallerBinary($cleanVer) {
-    $distDir = Join-Path $rootDir "dist"
-    if (-not (Test-Path $distDir)) { return $null }
+# Toggle Token Visibility Handler
+$btnToggleTokenVisibility.Add_Click({
+    if ($txtTokenPlain.Visibility -eq [System.Windows.Visibility]::Visible) {
+        $txtToken.Password = $txtTokenPlain.Text
+        $txtTokenPlain.Visibility = [System.Windows.Visibility]::Collapsed
+        $txtToken.Visibility = [System.Windows.Visibility]::Visible
+        $btnToggleTokenVisibility.Content = "Show"
+    } else {
+        $txtTokenPlain.Text = $txtToken.Password
+        $txtToken.Visibility = [System.Windows.Visibility]::Collapsed
+        $txtTokenPlain.Visibility = [System.Windows.Visibility]::Visible
+        $btnToggleTokenVisibility.Content = "Hide"
+    }
+})
 
-    # First attempt: exact match with version
-    $exactMatch = Join-Path $distDir "AgentsHub-Setup-v$cleanVer.exe"
-    if (Test-Path $exactMatch) {
-        return (Get-Item $exactMatch)
+# Save Token Handler
+$btnSaveToken.Add_Click({
+    $tokenVal = Get-ActiveToken
+    if (-not $tokenVal) {
+        $lblTokenStatus.Text = "Enter a token first"
+        $lblTokenStatus.Foreground = [System.Windows.Media.Brushes]::Orange
+        return
     }
 
-    # Second attempt: any AgentsHub-Setup*.exe sorted newest
-    $found = Get-ChildItem -Path $distDir -Filter "AgentsHub-Setup*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    return $found
-}
+    try {
+        Set-Content -Path $tokenFile -Value $tokenVal -NoNewline -Force
+        $lblTokenStatus.Text = "Verifying token with GitHub..."
+        $lblTokenStatus.Foreground = [System.Windows.Media.Brushes]::SkyBlue
+        Write-LogMessage "[*] Saved PAT locally. Testing GitHub connection..."
 
+        # Asynchronous validation against GitHub API
+        [System.Threading.Tasks.Task]::Run([Action]{
+            try {
+                $client = [System.Net.Http.HttpClient]::new()
+                $client.Timeout = [TimeSpan]::FromSeconds(6)
+                $client.DefaultRequestHeaders.Add("User-Agent", "AgentsHub-Publisher/1.0")
+                $client.DefaultRequestHeaders.Add("Authorization", "Bearer $tokenVal")
+                $client.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json")
+
+                $resp = $client.GetAsync("https://api.github.com/user").GetAwaiter().GetResult()
+                if ($resp.IsSuccessStatusCode) {
+                    $json = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json
+                    $user = $json.login
+                    $window.Dispatcher.Invoke([Action]{
+                        $lblTokenStatus.Text = "Verified (@$user)"
+                        $lblTokenStatus.Foreground = [System.Windows.Media.Brushes]::LimeGreen
+                        Write-LogMessage "[+] GitHub PAT verified successfully for user: @$user"
+                    })
+                } else {
+                    $window.Dispatcher.Invoke([Action]{
+                        $lblTokenStatus.Text = "Invalid Token (Status $($resp.StatusCode))"
+                        $lblTokenStatus.Foreground = [System.Windows.Media.Brushes]::Tomato
+                        Write-LogMessage "[!] GitHub authentication failed: Status $($resp.StatusCode)"
+                    })
+                }
+            } catch {
+                $errMsg = $_.Exception.Message
+                $window.Dispatcher.Invoke([Action]{
+                    $lblTokenStatus.Text = "Saved (Offline)"
+                    $lblTokenStatus.Foreground = [System.Windows.Media.Brushes]::LightGreen
+                    Write-LogMessage "[*] Saved locally. GitHub test skipped ($errMsg)."
+                })
+            }
+        })
+    } catch {
+        $lblTokenStatus.Text = "Save error: $_"
+        $lblTokenStatus.Foreground = [System.Windows.Media.Brushes]::Tomato
+    }
+})
+
+# Forget Token Handler
 $btnForgetToken.Add_Click({
     if (Test-Path $tokenFile) {
         Remove-Item $tokenFile -Force -ErrorAction SilentlyContinue
     }
-    $txtToken.Password = ""
+    Set-ActiveToken ""
     $lblTokenStatus.Text = "Cleared"
+    $lblTokenStatus.Foreground = [System.Windows.Media.Brushes]::Tomato
+    Write-LogMessage "[-] Saved PAT removed from disk."
+})
+
+# Auto-Generate Release Notes from Git Commits Handler
+$btnGenerateNotes.Add_Click({
+    try {
+        $prevTag = git describe --tags --abbrev=0 2>$null
+        $logRange = if ($prevTag) { "$prevTag..HEAD" } else { "-20" }
+        Write-LogMessage "[*] Inspecting Git history ($logRange)..."
+
+        $commits = git log $logRange --oneline 2>$null
+        if (-not $commits) {
+            Write-LogMessage "[!] No commits found in range $logRange."
+            return
+        }
+
+        $features = [System.Collections.Generic.List[string]]::new()
+        $fixes = [System.Collections.Generic.List[string]]::new()
+        $improvements = [System.Collections.Generic.List[string]]::new()
+
+        foreach ($line in $commits) {
+            $trimmed = $line.Trim()
+            if ($trimmed -match '^[0-9a-f]+\s+(?:feat|feature)(?:\([^)]+\))?:\s*(.+)$') {
+                $features.Add("- $($matches[1].Trim())")
+            } elseif ($trimmed -match '^[0-9a-f]+\s+(?:fix|bug)(?:\([^)]+\))?:\s*(.+)$') {
+                $fixes.Add("- $($matches[1].Trim())")
+            } elseif ($trimmed -match '^[0-9a-f]+\s+(?:refactor|perf|docs|chore)(?:\([^)]+\))?:\s*(.+)$') {
+                $improvements.Add("- $($matches[1].Trim())")
+            } else {
+                # General commit
+                $cleaned = $trimmed -replace '^[0-9a-f]+\s+', ''
+                $improvements.Add("- $cleaned")
+            }
+        }
+
+        $md = [System.Text.StringBuilder]::new()
+        $tag = $txtTag.Text.Trim()
+        $md.AppendLine("## What's Changed in Agents Hub $tag") | Out-Null
+        $md.AppendLine("") | Out-Null
+
+        if ($features.Count -gt 0) {
+            $md.AppendLine("### Features & Enhancements") | Out-Null
+            foreach ($f in $features) { $md.AppendLine($f) | Out-Null }
+            $md.AppendLine("") | Out-Null
+        }
+
+        if ($fixes.Count -gt 0) {
+            $md.AppendLine("### Bug Fixes") | Out-Null
+            foreach ($fx in $fixes) { $md.AppendLine($fx) | Out-Null }
+            $md.AppendLine("") | Out-Null
+        }
+
+        if ($improvements.Count -gt 0) {
+            $md.AppendLine("### Improvements & Refactoring") | Out-Null
+            foreach ($imp in $improvements) { $md.AppendLine($imp) | Out-Null }
+            $md.AppendLine("") | Out-Null
+        }
+
+        $txtNotes.Text = $md.ToString()
+        Write-LogMessage "[+] Generated release notes from $($commits.Count) commits."
+    } catch {
+        Write-LogMessage "[!] Failed to auto-generate release notes: $_"
+    }
+})
+
+$btnClearLog.Add_Click({
+    $txtLog.Text = ""
+})
+
+$btnOpenDist.Add_Click({
+    $distDir = Join-Path $rootDir "dist"
+    if (-not (Test-Path $distDir)) {
+        New-Item -ItemType Directory -Path $distDir -Force | Out-Null
+    }
+    [System.Diagnostics.Process]::Start("explorer.exe", $distDir)
 })
 
 $btnOpenReleases.Add_Click({
@@ -450,13 +633,13 @@ $btnBuildOnly.Add_Click({
 $btnPublish.Add_Click({
     $tag = $txtTag.Text.Trim()
     $title = $txtTitle.Text.Trim()
-    $token = $txtToken.Password.Trim()
+    $token = Get-ActiveToken
     $notes = $txtNotes.Text
     $shouldBuild = $chkBuildFirst.IsChecked -eq $true
     $isPre = $chkPreRelease.IsChecked -eq $true
 
     if (-not $tag) {
-        [System.Windows.MessageBox]::Show("Release Tag is required (e.g. v1.0.3).", "Validation Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        [System.Windows.MessageBox]::Show("Release Tag is required (e.g. v1.0.4).", "Validation Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
         return
     }
     if (-not $title) {
@@ -473,7 +656,7 @@ $btnPublish.Add_Click({
     # Save token for convenience
     try {
         Set-Content -Path $tokenFile -Value $token -NoNewline
-        $lblTokenStatus.Text = "Saved token in .release_token."
+        $lblTokenStatus.Text = "Saved in .release_token"
     } catch {}
 
     $btnPublish.IsEnabled = $false
