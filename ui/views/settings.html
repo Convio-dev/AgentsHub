@@ -145,6 +145,17 @@
                       <span>Enable Windows Notifications (Balloon Tips &amp; System Tray Alerts)</span>
                     </label>
 
+                    <!-- Codebase Architecture & Blast-Radius Graph Feature Toggle -->
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin: 4px 0;">
+                      <label class="checkbox-label" style="font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="setting-architecture-graph-checkbox">
+                        <span>Enable Codebase Architecture &amp; Blast-Radius Graph</span>
+                      </label>
+                      <div style="font-size: 11px; color: var(--text-dim); margin-top: 4px; margin-left: 24px;">
+                        Interactive 2D dependency graph visualizer. Maps file callers, calculates refactor blast radius, detects unused files, and generates agent prompt shields. (Default: Disabled)
+                      </div>
+                    </div>
+
                     <!-- Main Window Global Hotkey Configuration -->
                     <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; margin: 8px 0;">
                       <label class="checkbox-label" style="margin-bottom: 8px; font-weight: 600;">

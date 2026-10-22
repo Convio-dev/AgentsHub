@@ -1796,6 +1796,55 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "get_codebase_graph":
+                {
+                    string? wsPath = null;
+                    if (data.TryGetProperty("workspacePath", out var pProp)) wsPath = pProp.GetString();
+                    if (string.IsNullOrWhiteSpace(wsPath))
+                    {
+                        var curWs = AiConfigService.Instance.GetActiveWorkspace();
+                        wsPath = curWs?.WorkingDirectory;
+                    }
+                    if (string.IsNullOrWhiteSpace(wsPath))
+                    {
+                        wsPath = AppDomain.CurrentDomain.BaseDirectory;
+                    }
+
+                    int maxFiles = 300;
+                    if (data.TryGetProperty("maxFiles", out var mfProp) && mfProp.TryGetInt32(out var parsedMaxFiles))
+                    {
+                        maxFiles = parsedMaxFiles;
+                    }
+                    bool forceRefresh = data.TryGetProperty("forceRefresh", out var frProp) && frProp.GetBoolean();
+
+                    var graph = await CodebaseGraphAnalysisService.Instance.AnalyzeWorkspaceAsync(wsPath, maxFiles, forceRefresh).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { graph });
+                }
+                break;
+
+            case "calculate_blast_radius":
+                {
+                    string? wsPath = null;
+                    if (data.TryGetProperty("workspacePath", out var pProp)) wsPath = pProp.GetString();
+                    if (string.IsNullOrWhiteSpace(wsPath))
+                    {
+                        var curWs = AiConfigService.Instance.GetActiveWorkspace();
+                        wsPath = curWs?.WorkingDirectory;
+                    }
+
+                    string fileId = data.TryGetProperty("fileId", out var fProp) ? fProp.GetString() ?? "" : "";
+                    if (!string.IsNullOrWhiteSpace(fileId))
+                    {
+                        var report = await CodebaseGraphAnalysisService.Instance.CalculateBlastRadiusAsync(wsPath, fileId).ConfigureAwait(false);
+                        SendResponse(requestId, true, new { report });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, "fileId is required");
+                    }
+                }
+                break;
+
             case "batch_repo_action":
                 {
                     var idList = new List<string>();

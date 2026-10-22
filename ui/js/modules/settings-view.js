@@ -356,6 +356,18 @@
       });
     });
 
+    // Codebase Architecture & Blast-Radius Graph Feature Toggle
+    const archGraphCheckbox = document.getElementById('setting-architecture-graph-checkbox');
+    if (archGraphCheckbox) {
+      archGraphCheckbox.checked = localStorage.getItem('agents_hub_enable_architecture_graph') === 'true'; // Default false (disabled)
+      archGraphCheckbox.addEventListener('change', (e) => {
+        const isEnabled = !!e.target.checked;
+        localStorage.setItem('agents_hub_enable_architecture_graph', isEnabled ? 'true' : 'false');
+        updateArchitectureGraphNavVisibility();
+        showToast(isEnabled ? 'Architecture & Blast-Radius Graph enabled' : 'Architecture & Blast-Radius Graph disabled', 'info');
+      });
+    }
+
     // Unified Audio & Chimes Master Settings Synchronization
     const chimesCheckbox = document.getElementById('setting-audio-chimes-checkbox');
     const volumeSlider = document.getElementById('setting-audio-volume');
@@ -392,7 +404,22 @@
     setupCustomCliManager();
     setupFileWatchdogManager();
     setupSessionStateAutoSave();
+    updateArchitectureGraphNavVisibility();
   }
+
+  function updateArchitectureGraphNavVisibility() {
+    const isEnabled = localStorage.getItem('agents_hub_enable_architecture_graph') === 'true';
+    const navItem = document.getElementById('nav-item-architecture');
+    if (navItem) {
+      navItem.style.display = isEnabled ? '' : 'none';
+    }
+    const targetPane = document.getElementById('view-architecture');
+    if (!isEnabled && targetPane && targetPane.classList.contains('active')) {
+      const dashItem = document.querySelector('.nav-item[data-view="dashboard"]');
+      if (dashItem) dashItem.click();
+    }
+  }
+  window.updateArchitectureGraphNavVisibility = updateArchitectureGraphNavVisibility;
 
   let latestUpdateData = null;
 

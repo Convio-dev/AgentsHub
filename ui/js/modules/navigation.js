@@ -23,6 +23,11 @@
       }
     });
 
+    // Synchronize toggleable feature views visibility (e.g. Architecture Graph, disabled by default)
+    try {
+      window.updateArchitectureGraphNavVisibility?.();
+    } catch (e) {}
+
     // Restore active view (persists across Ctrl+R / F5 / page reloads)
     try {
       const savedView = localStorage.getItem('agents_hub_active_view');
@@ -105,6 +110,15 @@
     if (viewName === 'repositories') {
       if (typeof window.refreshRepositoriesView === 'function') {
         window.refreshRepositoriesView();
+      }
+    }
+
+    if (viewName === 'architecture') {
+      if (typeof window.initArchitectureView === 'function') {
+        window.initArchitectureView();
+      }
+      if (typeof window.fetchArchitectureGraphData === 'function') {
+        window.fetchArchitectureGraphData();
       }
     }
   }
