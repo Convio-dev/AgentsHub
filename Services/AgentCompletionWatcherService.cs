@@ -505,6 +505,22 @@ public sealed partial class AgentCompletionWatcherService : IDisposable
             }
         }
 
+        // 2b. Dispatch Pocket Commander Telegram Push Alert
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await PocketCommanderService.Instance.SendTaskCompletionAlertAsync(
+                    displayName,
+                    string.IsNullOrWhiteSpace(summary) ? "Task finished successfully." : summary,
+                    isError,
+                    isApproval,
+                    duration
+                ).ConfigureAwait(false);
+            }
+            catch { }
+        });
+
         // 3. Post Event to UI Dashboard
         _postEventToUi?.Invoke("agent_task_completed", new
         {

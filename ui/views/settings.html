@@ -842,6 +842,176 @@
                     </div>
                   </div>
                 </div>
+
+                <!-- Pocket Commander (Telegram & Discord Mobile Remote Bot) Card -->
+                <div class="dashboard-card settings-card" id="card-pocket-commander-settings" style="margin-top: 16px;">
+                  <div class="card-header" style="justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+                    <div class="card-title-group">
+                      <div class="card-icon" style="color: #0088cc;">
+                        <svg class="icon-svg" viewBox="0 0 24 24" style="fill: currentColor; width: 18px; height: 18px;">
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <div class="card-title">POCKET COMMANDER (MOBILE REMOTE BOT: TELEGRAM &amp; DISCORD)</div>
+                        <div class="card-subtitle">Control AgentsHub, inject prompts, inspect diffs, and receive task push alerts from your phone via Telegram or Discord</div>
+                      </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                      <span class="discord-status-badge searching" id="pocket-status-pill">
+                        <span class="spinner" style="width: 10px; height: 10px; border-width: 1.5px; display: none;"></span>
+                        <span id="pocket-status-text">Disabled</span>
+                      </span>
+                      <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; cursor: pointer; color: var(--text-main);">
+                        <input type="checkbox" id="chk-pocket-enabled" style="accent-color: #0088cc; cursor: pointer;" />
+                        <span>Enable Pocket Commander</span>
+                      </label>
+                      <button class="btn btn-outline" id="btn-test-pocket-bot" type="button" style="font-size: 11.5px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px;">
+                        <svg class="icon-svg" viewBox="0 0 24 24" style="width: 12px; height: 12px;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        <span>Test Active Bot</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Platform Selector Chips -->
+                  <div style="display: flex; gap: 10px; margin-bottom: 14px; align-items: center; flex-wrap: wrap;">
+                    <span style="font-size: 11.5px; font-weight: 700; color: var(--text-muted);">Choose Platform:</span>
+                    <div style="display: flex; gap: 6px;">
+                      <button type="button" class="btn btn-outline" id="btn-pocket-tab-telegram" data-platform="telegram" style="font-size: 11px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 6px; background: rgba(0, 136, 204, 0.15); border-color: #0088cc; color: var(--text-main);">
+                        <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px; color: #0088cc;"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        <span>Telegram Bot</span>
+                      </button>
+                      <button type="button" class="btn btn-outline" id="btn-pocket-tab-discord" data-platform="discord" style="font-size: 11px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 6px;">
+                        <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px; color: #5865f2;"><rect x="2" y="6" width="20" height="12" rx="3"/><circle cx="8" cy="12" r="1.5"/><circle cx="16" cy="12" r="1.5"/><line x1="12" y1="9" x2="12" y2="15"/></svg>
+                        <span>Discord Bot</span>
+                      </button>
+                      <button type="button" class="btn btn-outline" id="btn-pocket-tab-both" data-platform="both" style="font-size: 11px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 6px;">
+                        <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px; color: var(--accent-green);"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        <span>Dual Mode (Both)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Telegram Configuration Section -->
+                  <div id="pocket-section-telegram">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 14px;">
+                      <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                          <label class="form-label" for="pocket-bot-token-input" style="margin-bottom: 0;">Telegram Bot Token:</label>
+                          <a href="https://t.me/BotFather" target="_blank" style="font-size: 11px; color: #0088cc; text-decoration: none;">Get token from @BotFather &rarr;</a>
+                        </div>
+                        <input type="password" id="pocket-bot-token-input" class="input-text" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ..." style="width: 100%; font-family: var(--font-mono); font-size: 11.5px;" />
+                      </div>
+
+                      <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                          <label class="form-label" style="margin-bottom: 0;">Telegram Pairing PIN:</label>
+                          <button type="button" id="btn-gen-pocket-pin" style="background: none; border: none; font-size: 11px; color: var(--accent-cyan, #06b6d4); cursor: pointer; padding: 0;">New PIN</button>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <div id="pocket-pairing-pin-display" class="pocket-pin-box" title="Click to copy Telegram PIN" style="flex: 1; height: 32px; background: var(--bg-card); border: 1px dashed var(--border-subtle); border-radius: 4px; font-family: var(--font-mono); font-size: 14px; font-weight: 700; letter-spacing: 2px; color: var(--accent-green);">---</div>
+                          <button type="button" class="btn btn-outline" id="btn-unpair-pocket" title="Unpair current Telegram phone" style="font-size: 11px; padding: 4px 8px; display: none;">Unpair</button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Telegram Pairing Instructions Banner -->
+                    <div id="pocket-pairing-banner" style="background: rgba(0, 136, 204, 0.08); border: 1px solid rgba(0, 136, 204, 0.25); border-radius: 6px; padding: 10px 14px; margin-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                      <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-main);">
+                        <svg class="icon-svg" viewBox="0 0 24 24" style="color: #0088cc; width: 14px; height: 14px; flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        <span>Telegram Pairing: Start a chat with your Telegram bot on your phone and reply with your 6-digit PIN.</span>
+                      </div>
+                      <span id="pocket-paired-device-badge" class="badge" style="display: none; background: rgba(16, 185, 129, 0.15); color: var(--accent-green); white-space: nowrap;">Paired: @User</span>
+                    </div>
+                  </div>
+
+                  <!-- Discord Bot Configuration Section -->
+                  <div id="pocket-section-discord" style="display: none; margin-top: 12px;">
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 14px;">
+                      <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                          <label class="form-label" for="pocket-discord-token-input" style="margin-bottom: 0;">Discord Bot Token:</label>
+                          <a href="https://discord.com/developers/applications" target="_blank" style="font-size: 11px; color: #5865f2; text-decoration: none;">Get bot token from Discord Developer Portal &rarr;</a>
+                        </div>
+                        <input type="password" id="pocket-discord-token-input" class="input-text" placeholder="MTI...Discord.Bot.Token..." style="width: 100%; font-family: var(--font-mono); font-size: 11.5px;" />
+                      </div>
+
+                      <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                          <label class="form-label" style="margin-bottom: 0;">Discord Pairing PIN:</label>
+                          <button type="button" id="btn-gen-pocket-discord-pin" style="background: none; border: none; font-size: 11px; color: var(--accent-cyan, #06b6d4); cursor: pointer; padding: 0;">New PIN</button>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <div id="pocket-discord-pin-display" class="pocket-pin-box" title="Click to copy Discord PIN" style="flex: 1; height: 32px; background: var(--bg-card); border: 1px dashed var(--border-subtle); border-radius: 4px; font-family: var(--font-mono); font-size: 14px; font-weight: 700; letter-spacing: 2px; color: var(--accent-green);">---</div>
+                          <button type="button" class="btn btn-outline" id="btn-unpair-pocket-discord" title="Unpair current Discord user" style="font-size: 11px; padding: 4px 8px; display: none;">Unpair</button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Discord Pairing Instructions Banner -->
+                    <div id="pocket-discord-pairing-banner" style="background: rgba(88, 101, 242, 0.08); border: 1px solid rgba(88, 101, 242, 0.25); border-radius: 6px; padding: 10px 14px; margin-top: 10px; display: flex; flex-direction: column; gap: 6px;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-main);">
+                          <svg class="icon-svg" viewBox="0 0 24 24" style="color: #5865f2; width: 14px; height: 14px; flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                          <span><strong>Discord Pairing:</strong> Direct message (DM) your Discord bot or reply in a server channel with your 6-digit PIN.</span>
+                        </div>
+                        <span id="pocket-paired-discord-badge" class="badge" style="display: none; background: rgba(88, 101, 242, 0.15); color: #5865f2; white-space: nowrap;">Paired: @User</span>
+                      </div>
+                      <div style="font-size: 11px; color: var(--text-muted); margin-left: 22px; display: flex; align-items: center; gap: 6px;">
+                        <svg class="icon-svg" viewBox="0 0 24 24" style="width: 13px; height: 13px; color: var(--accent-cyan); flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        <span><em>Supports both <strong>Discord Slash Commands (/)</strong> and text commands (<strong>!</strong> or <strong>/</strong>). Direct messages work out-of-the-box.</em></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Permissions & Notification Rules -->
+                  <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 12px; background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 12px 14px;">
+                    <div>
+                      <div style="font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Remote Control Permissions:</div>
+                      <div style="display: flex; gap: 14px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
+                          <input type="checkbox" id="chk-pocket-allow-prompts" checked style="accent-color: #0088cc;" />
+                          <span>Allow Remote Prompts (/prompt, !prompt)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
+                          <input type="checkbox" id="chk-pocket-allow-screen" checked style="accent-color: #0088cc;" />
+                          <span>Allow Desktop Snapshots (/screen, !screen)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
+                          <input type="checkbox" id="chk-pocket-allow-diff" checked style="accent-color: #0088cc;" />
+                          <span>Allow Git Working Tree Diff (/diff, !diff)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
+                          <input type="checkbox" id="chk-pocket-allow-cancel" checked style="accent-color: #0088cc;" />
+                          <span>Allow Agent Interrupt (/stop, !stop)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div style="border-top: 1px solid var(--border-subtle); padding-top: 8px;">
+                      <div style="font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">Push Notification Filters:</div>
+                      <div style="display: flex; gap: 14px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
+                          <input type="checkbox" id="chk-pocket-notify-done" checked style="accent-color: #0088cc;" />
+                          <span>Push Alert on Completed Tasks</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
+                          <input type="checkbox" id="chk-pocket-notify-error" checked style="accent-color: #0088cc;" />
+                          <span>Push Alert on Errors &amp; Failures</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; cursor: pointer; color: var(--text-main);">
+                          <input type="checkbox" id="chk-pocket-notify-approval" checked style="accent-color: #0088cc;" />
+                          <span>Push Alert on Approval Needed</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Save Button Bar -->
+                  <div style="display: flex; justify-content: flex-end; align-items: center; margin-top: 12px; gap: 8px;">
+                    <button class="btn btn-primary" id="btn-save-pocket-config" type="button" style="font-size: 11px; padding: 4px 14px; background: #0088cc; border-color: #0088cc; color: #fff; font-weight: 600;">Save Pocket Commander</button>
+                  </div>
+                </div>
               </div>
 
               <!-- ======================================================== -->

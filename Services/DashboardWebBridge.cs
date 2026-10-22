@@ -277,6 +277,9 @@ public sealed partial class DashboardWebBridge : IDisposable
             PostEventToUi(evtName, payload);
         });
 
+        // Initialize Pocket Commander mobile remote bot gateway
+        PocketCommanderService.Instance.Initialize(_cliManager);
+
         // Initialize Git Repository Manager progress and state events
         GitRepositoryManagerService.Instance.ScanProgressChanged += (progress) =>
         {
@@ -294,6 +297,16 @@ public sealed partial class DashboardWebBridge : IDisposable
         DiscordRpcService.Instance.StatusChanged += (status) =>
         {
             PostEventToUi("discord_rpc_status_changed", status);
+        };
+
+        PocketCommanderService.Instance.StatusChanged += (evt, payload) =>
+        {
+            PostEventToUi("pocket_commander_status_changed", new { evt, payload });
+        };
+
+        PocketCommanderService.Instance.CommandReceived += (cmd, user) =>
+        {
+            PostEventToUi("pocket_commander_command_received", new { cmd, user, timestamp = DateTime.UtcNow });
         };
     }
 
@@ -974,6 +987,59 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                     bool sent = await RemoteWebhookService.Instance.SendDiscordNotificationAsync(title ?? "Test", desc ?? "Test").ConfigureAwait(false);
                     SendResponse(requestId, sent, new { success = sent });
+                }
+                break;
+
+            case "get_pocket_commander_config":
+                {
+                    var cfg = PocketCommanderService.Instance.GetConfig();
+                    SendResponse(requestId, true, cfg);
+                }
+                break;
+
+            case "save_pocket_commander_config":
+                {
+                    if (data.TryGetProperty("config", out var pCfgProp))
+                    {
+                        var cfg = JsonSerializer.Deserialize<PocketCommanderConfig>(pCfgProp.GetRawText(), CaseInsensitiveJsonOptions);
+                        if (cfg != null)
+                        {
+                            PocketCommanderService.Instance.SaveConfig(cfg);
+                            SendResponse(requestId, true, new { success = true, config = cfg });
+                            break;
+                        }
+                    }
+                    SendResponse(requestId, false, "Invalid pocket commander config payload");
+                }
+                break;
+
+            case "test_pocket_commander_token":
+                {
+                    string token = data.TryGetProperty("token", out var tProp) ? tProp.GetString() ?? "" : "";
+                    string platform = data.TryGetProperty("platform", out var pProp) ? pProp.GetString() ?? "telegram" : "telegram";
+                    
+                    var (success, username, error) = platform.Equals("discord", StringComparison.OrdinalIgnoreCase)
+                        ? await PocketCommanderService.Instance.TestDiscordBotConnectionAsync(token).ConfigureAwait(false)
+                        : await PocketCommanderService.Instance.TestTelegramBotConnectionAsync(token).ConfigureAwait(false);
+
+                    SendResponse(requestId, success, new { success, username, error, platform });
+                }
+                break;
+
+            case "generate_pocket_pairing_pin":
+                {
+                    string platform = data.TryGetProperty("platform", out var pProp) ? pProp.GetString() ?? "telegram" : "telegram";
+                    string newPin = PocketCommanderService.Instance.GenerateNewPairingPin(platform);
+                    SendResponse(requestId, true, new { pin = newPin, platform });
+                }
+                break;
+
+            case "unpair_pocket_commander":
+                {
+                    string platform = data.TryGetProperty("platform", out var pProp) ? pProp.GetString() ?? "all" : "all";
+                    PocketCommanderService.Instance.UnpairDevice(platform);
+                    var cfg = PocketCommanderService.Instance.GetConfig();
+                    SendResponse(requestId, true, new { success = true, config = cfg });
                 }
                 break;
 
