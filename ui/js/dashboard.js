@@ -62,6 +62,7 @@
   if (typeof window.setupSessionStateAutoSave === 'function') window.setupSessionStateAutoSave();
   if (typeof window.setupGlobalActions === 'function') window.setupGlobalActions();
   if (typeof window.initRepositoriesModule === 'function') window.initRepositoriesModule();
+  if (typeof window.setupOnboardingGuide === 'function') window.setupOnboardingGuide();
 
   function updateDashboardGridClasses() {
     const grid = document.querySelector('#view-dashboard .card-grid');

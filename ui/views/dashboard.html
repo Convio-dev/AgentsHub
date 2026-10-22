@@ -1,5 +1,64 @@
         <!-- VIEW 1: Dashboard & Engine -->
         <div id="view-dashboard" class="view-pane active">
+          <!-- Quick-Start Onboarding Banner -->
+          <div id="dash-quickstart-banner" class="quickstart-banner">
+            <div class="quickstart-header">
+              <div class="quickstart-title-wrap">
+                <span class="quickstart-badge">QUICK-START GUIDE</span>
+                <h3 class="quickstart-title">New to AgentsHub? Complete these 4 steps</h3>
+              </div>
+              <div class="quickstart-actions">
+                <button class="btn btn-outline" id="btn-quickstart-launch-tour" style="font-size: 11px; padding: 3px 9px;">Launch Tour (F1)</button>
+                <button class="btn-icon" id="btn-dismiss-quickstart" title="Dismiss Guide">
+                  <svg class="icon-svg" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+            <p class="quickstart-desc">Follow these 4 core steps to configure your environment, run your AI agents, and start developing:</p>
+            <div class="quickstart-steps-grid">
+              <div class="quickstart-step-card" id="qs-step-workspace">
+                <div class="qs-step-top">
+                  <div class="qs-step-num">1</div>
+                  <div class="qs-step-content">
+                    <div class="qs-step-head">Set Workspace</div>
+                    <div class="qs-step-sub">Select target project folder for safe agent edits.</div>
+                  </div>
+                </div>
+                <button class="btn btn-outline" id="btn-qs-open-workspace" style="font-size: 11px; padding: 4px 8px; margin-top: 4px;">Select Folder</button>
+              </div>
+              <div class="quickstart-step-card" id="qs-step-profile">
+                <div class="qs-step-top">
+                  <div class="qs-step-num">2</div>
+                  <div class="qs-step-content">
+                    <div class="qs-step-head">Antigravity Profile</div>
+                    <div class="qs-step-sub">Add profile, link your Google account, sync creds.</div>
+                  </div>
+                </div>
+                <button class="btn btn-outline" id="btn-qs-open-profiles" style="font-size: 11px; padding: 4px 8px; margin-top: 4px;">Learn Sign-in</button>
+              </div>
+              <div class="quickstart-step-card" id="qs-step-devtools">
+                <div class="qs-step-top">
+                  <div class="qs-step-num">3</div>
+                  <div class="qs-step-content">
+                    <div class="qs-step-head">AI Dev Tools</div>
+                    <div class="qs-step-sub">Check Git, Node, Python &amp; runtime health.</div>
+                  </div>
+                </div>
+                <button class="btn btn-outline" id="btn-qs-open-devtools" style="font-size: 11px; padding: 4px 8px; margin-top: 4px;">Check Tools</button>
+              </div>
+              <div class="quickstart-step-card highlight" id="qs-step-terminal">
+                <div class="qs-step-top">
+                  <div class="qs-step-num">4</div>
+                  <div class="qs-step-content">
+                    <div class="qs-step-head">Standalone Terminals</div>
+                    <div class="qs-step-sub">Dedicated multi-tab ConPTY terminal window.</div>
+                  </div>
+                </div>
+                <button class="btn btn-primary" id="btn-qs-open-standalone" style="font-size: 11px; padding: 4px 8px; margin-top: 4px;">Open Cockpit</button>
+              </div>
+            </div>
+          </div>
+
           <div class="card-grid">
             <div class="dashboard-card">
               <div class="card-header" style="justify-content: space-between; align-items: flex-start;">

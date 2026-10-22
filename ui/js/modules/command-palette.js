@@ -47,6 +47,15 @@
     });
     add('Show notification history', 'Read a notification you missed', () => toggleToastHistory(true));
     add('Clear notification history', 'Empty the list', () => clearToastHistory());
+    add('Open User Guide & Tour', 'Launch interactive onboarding guide (F1)', () => {
+      window.openHelpGuideModal?.('tour');
+    });
+    add('Antigravity Profiles & Sign-in Guide', 'Learn how to add Google profiles and sync credentials', () => {
+      window.openHelpGuideModal?.('profiles');
+    });
+    add('View Keyboard Shortcuts', 'Review hotkeys and shortcuts reference', () => {
+      window.openHelpGuideModal?.('shortcuts');
+    });
     add('Scan Git repositories', 'Discover and update git repositories across scan roots', () => {
       switchView('repositories');
       document.getElementById('btn-scan-repos')?.click();
