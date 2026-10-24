@@ -36,6 +36,9 @@
     add('Open standalone terminals', 'Detach the CLI workspace', () => {
       document.getElementById('btn-open-standalone-hdr')?.click();
     });
+    add('Toggle Terminal Peek Drawer', 'Slide out the CLI stream drawer in Agent Chat (F12)', () => {
+      window.AgentsHubChat?.toggleDrawer();
+    });
     add('Open live logs', 'Inspect real-time system and execution events in Settings', () => {
       switchView('settings');
       window.switchSettingsTab?.('logs');

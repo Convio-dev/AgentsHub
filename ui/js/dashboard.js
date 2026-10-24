@@ -35,6 +35,7 @@
   if (typeof window.setupPromptModalListeners === 'function') window.setupPromptModalListeners();
 
   // 5. Initialize Feature Modules
+  if (typeof window.setupChatView === 'function') window.setupChatView();
   if (typeof window.setupSettingsView === 'function') window.setupSettingsView();
   if (typeof window.setupTerminalPresets === 'function') window.setupTerminalPresets();
   if (typeof window.setupDependencies === 'function') window.setupDependencies();

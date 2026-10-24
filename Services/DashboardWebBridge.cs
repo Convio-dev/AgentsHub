@@ -63,6 +63,9 @@ public sealed partial class DashboardWebBridge : IDisposable
         PropertyNameCaseInsensitive = true
     };
     private readonly ProtonVpnService _protonVpnService;
+    private readonly HeadlessAgentWorkerService _headlessWorkerService;
+
+    public HeadlessAgentWorkerService HeadlessWorkerService => _headlessWorkerService;
 
 #if WINDOWS
     public DashboardWebBridge(Form? mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
@@ -75,6 +78,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         _lanProxyService = lanProxyService;
         _openCodeWatcher = openCodeWatcher;
         _protonVpnService = new ProtonVpnService(_openCodeWatcher);
+        _headlessWorkerService = new HeadlessAgentWorkerService(_cliManager, PostEventToUi);
 
 #if WINDOWS
         // Initialize debounced terminal stream timer (flushes every 20ms)
@@ -541,6 +545,34 @@ public sealed partial class DashboardWebBridge : IDisposable
     {
         switch (action)
         {
+            case "send_chat_message":
+                {
+                    string workerId = data.TryGetProperty("workerId", out var wProp) ? (wProp.GetString() ?? "") : "";
+                    string prompt = data.TryGetProperty("prompt", out var pProp) ? (pProp.GetString() ?? "") : "";
+                    string messageId = data.TryGetProperty("messageId", out var mProp) ? (mProp.GetString() ?? "") : Guid.NewGuid().ToString("N");
+                    var result = await _headlessWorkerService.SendMessageAsync(workerId, prompt, messageId);
+                    SendResponse(requestId, true, result);
+                }
+                break;
+
+            case "respond_chat_action":
+                {
+                    string actionId = data.TryGetProperty("actionId", out var aProp) ? (aProp.GetString() ?? "") : "";
+                    bool approved = data.TryGetProperty("approved", out var appProp) && appProp.GetBoolean();
+                    string response = data.TryGetProperty("response", out var rProp) ? (rProp.GetString() ?? "") : "";
+                    var result = await _headlessWorkerService.RespondActionAsync(actionId, approved, response);
+                    SendResponse(requestId, true, result);
+                }
+                break;
+
+            case "stop_chat_generation":
+                {
+                    string workerId = data.TryGetProperty("workerId", out var wProp) ? (wProp.GetString() ?? "") : "";
+                    var result = await _headlessWorkerService.StopGenerationAsync(workerId);
+                    SendResponse(requestId, true, result);
+                }
+                break;
+
             case "get_initial_state":
                 SendResponse(requestId, true, GetInitialStateDto());
                 break;
@@ -5489,6 +5521,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 #endif
         _streamFlushTimer.Dispose();
         _metricsTimer.Dispose();
+        _headlessWorkerService?.Dispose();
         // NetworkTelemetryService owns its own process-wide sampler and outlives this bridge.
         _promptEnhanceCts?.Dispose();
     }

@@ -52,6 +52,8 @@
     const suppressedEvents = [
       'hardware_metrics', 
       'terminal_data', 
+      'chat_token_stream',
+      'chat_thought_stream',
       'live_log_entry', 
       'opencode_status_changed', 
       'opencode_sessions_updated',

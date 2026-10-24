@@ -22,7 +22,11 @@
       </div>
 
       <nav class="sidebar-nav">
-        <div class="nav-item active" data-view="dashboard" title="Dashboard & Engine">
+        <div class="nav-item active" data-view="chat" title="Agent Chat">
+          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+          <span class="nav-text">Agent Chat</span>
+        </div>
+        <div class="nav-item" data-view="dashboard" title="Dashboard & Engine">
           <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
           <span class="nav-text">Dashboard & Engine</span>
         </div>
@@ -130,6 +134,7 @@
 
         <!-- Views Container (Loaded via Modular Partials) -->
         <div id="views-container">
+          <div data-include="views/chat.html"></div>
           <div data-include="views/dashboard.html"></div>
           <div data-include="views/terminals.html"></div>
           <div data-include="views/prompt.html"></div>
@@ -242,6 +247,7 @@
 
   <!-- Feature Modules -->
   <script src="./js/modules/navigation.js"></script>
+  <script src="./js/modules/chat-view.js"></script>
   <script src="./js/modules/command-palette.js"></script>
   <script src="./js/modules/hardware-telemetry.js"></script>
   <script src="./js/modules/network-quota.js"></script>

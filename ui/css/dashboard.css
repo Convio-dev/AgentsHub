@@ -6,6 +6,7 @@
 @import "modals.css";
 @import "toasts.css";
 @import "command-palette.css";
+@import "views/chat.css";
 @import "views/dashboard.css";
 @import "views/terminals.css";
 @import "views/prompt.css";
