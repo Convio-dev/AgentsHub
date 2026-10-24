@@ -101,7 +101,7 @@ public sealed class RemoteWebhookService
                     ["description"] = chunkText,
                     ["color"] = color,
                     ["timestamp"] = DateTime.UtcNow.ToString("o"),
-                    ["footer"] = new { text = totalParts > 1 ? $"Agents Hub v1.0.4 • Part {i + 1} of {totalParts}" : "Agents Hub v1.0.4 Remote Gateway" }
+                    ["footer"] = new { text = totalParts > 1 ? $"Agents Hub v1.0.5 • Part {i + 1} of {totalParts}" : "Agents Hub v1.0.5 Remote Gateway" }
                 };
 
                 // Attach fields only on the first part

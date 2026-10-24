@@ -83,7 +83,7 @@ $rootDir = (Get-Item "$scriptDir\..").FullName
 Set-Location $rootDir
 
 # 1. Resolve current version from AgentsHub.csproj
-$currentVersion = "1.0.4"
+$currentVersion = "1.0.5"
 $csprojPath = Join-Path $rootDir "AgentsHub.csproj"
 if (Test-Path $csprojPath) {
     $content = Get-Content $csprojPath -Raw
@@ -271,7 +271,7 @@ if (Test-Path $tokenFile) {
             </Grid>
             <TextBox Name="txtNotes" Height="130" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
                      FontFamily="Consolas" FontSize="11.5"
-                     Text="## What's Changed in Agents Hub v$currentVersion&#x0d;&#x0a;&#x0d;&#x0a;### Cross-Platform Support&#x0d;&#x0a;- Windows x64 (Native WinForms + Inno Setup)&#x0d;&#x0a;- Linux x64 &amp; Linux ARM64 (Self-contained tar.gz)&#x0d;&#x0a;- macOS Apple Silicon &amp; macOS Intel (Self-contained tar.gz)&#x0d;&#x0a;&#x0d;&#x0a;### Features &amp; Enhancements&#x0d;&#x0a;- Multi-target release engine with selective publisher GUI&#x0d;&#x0a;- Headless POSIX runtime with web control dashboard&#x0d;&#x0a;&#x0d;&#x0a;### Bug Fixes&#x0d;&#x0a;- " />
+                     Text="## What's Changed in Agents Hub v$currentVersion&#x0d;&#x0a;&#x0d;&#x0a;### New Supported Platforms!&#x0d;&#x0a;- Windows x64 (Native WinForms + Inno Setup installer &amp; portable zip)&#x0d;&#x0a;- Linux x64 &amp; Linux ARM64 (Self-contained tar.gz standalone package)&#x0d;&#x0a;- macOS Apple Silicon &amp; macOS Intel (Self-contained tar.gz standalone package)&#x0d;&#x0a;&#x0d;&#x0a;### Key Highlights&#x0d;&#x0a;- Multi-target release publisher with selective platform checkboxes&#x0d;&#x0a;- Headless Unix control-plane runtime with web dashboard at http://localhost:9119&#x0d;&#x0a;- Cross-platform POSIX terminal session redirection &amp; credentials store" />
         </StackPanel>
 
         <!-- Form Row 5: Console Output & Status -->
@@ -818,7 +818,7 @@ $btnPublish.Add_Click({
         return
     }
     if (-not $tag) {
-        [System.Windows.MessageBox]::Show("Release Tag is required (e.g. v1.0.4).", "Validation Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        [System.Windows.MessageBox]::Show("Release Tag is required (e.g. v1.0.5).", "Validation Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
         return
     }
     if (-not $title) {

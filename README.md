@@ -19,12 +19,16 @@ Agents Hub runs Hermes, Claude Code, and Antigravity side by side in a unified d
 
 ## Downloads
 
-Download the latest pre-built Windows x64 binaries directly from the **[GitHub Releases Page](https://github.com/ZerroDevs/AgentsHub/releases/latest)**:
+Download the latest pre-built multi-platform binaries directly from the **[GitHub Releases Page](https://github.com/ZerroDevs/AgentsHub/releases/latest)**:
 
-| Asset | Type | Description |
-| :--- | :--- | :--- |
-| **`AgentsHub-Setup-v1.0.4.exe`** | Inno Setup Installer | Standard installer with desktop shortcut, Start Menu entry, and optional Windows startup integration. |
-| **`AgentsHub.exe`** | Standalone Executable | Self-contained single-file portable binary. Runs immediately with no installer and no .NET runtime prerequisites. |
+| Asset | Platform | Type | Description |
+| :--- | :--- | :--- | :--- |
+| **`AgentsHub-Setup-v1.0.5.exe`** | Windows x64 | Inno Setup Installer | Standard installer with desktop shortcut, Start Menu entry, and optional Windows startup integration. |
+| **`AgentsHub-v1.0.5-win-x64.zip`** | Windows x64 | Portable Archive | Self-contained single-file portable archive. Runs immediately with no installer and no .NET runtime prerequisites. |
+| **`AgentsHub-v1.0.5-linux-x64.tar.gz`** | Linux x64 | Standalone Archive | Self-contained headless control-plane runtime with embedded web dashboard. |
+| **`AgentsHub-v1.0.5-linux-arm64.tar.gz`** | Linux ARM64 | Standalone Archive | Self-contained package for ARM64 Linux servers, SBCs, and cloud instances. |
+| **`AgentsHub-v1.0.5-osx-arm64.tar.gz`** | macOS ARM64 | Standalone Archive | Self-contained package for Apple Silicon Macs (M1/M2/M3/M4). |
+| **`AgentsHub-v1.0.5-osx-x64.tar.gz`** | macOS x64 | Standalone Archive | Self-contained package for Intel-based Macs. |
 
 ---
 
@@ -141,7 +145,7 @@ The user interface is an integrated WebView2 dashboard:
 
 ## Quick Start
 
-1. **Download**: Grab `AgentsHub-Setup-v1.0.4.exe` or portable `AgentsHub.exe` from **[Releases](https://github.com/ZerroDevs/AgentsHub/releases/latest)**.
+1. **Download**: Grab `AgentsHub-Setup-v1.0.5.exe` or portable archive from **[Releases](https://github.com/ZerroDevs/AgentsHub/releases/latest)**.
 2. **Launch**: Run the executable. No .NET runtime installation required.
 3. **Verify Dependencies**: Open **Settings -> AI Engines & Runtimes** to review detected tools (Node.js, Git, Python, Claude Code, Antigravity, Hermes). Missing tools can be installed with one click via `winget`.
 4. **Start Engine**: Click **Start Engine** on the Dashboard and launch your preferred agents.
@@ -176,13 +180,16 @@ Output path:
 bin\Release\net10.0-windows\win-x64\publish\AgentsHub.exe
 ```
 
-### Build Inno Setup Installer
+### Build Multi-Target Packages
 ```cmd
 .\build-installer.cmd
 ```
-Output path:
+Builds all platforms (Windows installer & zip, Linux tarballs, macOS tarballs) into:
 ```text
-dist\AgentsHub-Setup-v1.0.4.exe
+dist\AgentsHub-Setup-v1.0.5.exe
+dist\AgentsHub-v1.0.5-win-x64.zip
+dist\AgentsHub-v1.0.5-linux-x64.tar.gz
+dist\AgentsHub-v1.0.5-osx-arm64.tar.gz
 ```
 
 ---

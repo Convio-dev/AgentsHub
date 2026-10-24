@@ -32,7 +32,7 @@ if (-not $Version) {
             $Version = $node.InnerText.Trim()
         }
     }
-    if (-not $Version) { $Version = "1.0.4" }
+    if (-not $Version) { $Version = "1.0.5" }
 }
 
 Write-Host "========================================================" -ForegroundColor Cyan
