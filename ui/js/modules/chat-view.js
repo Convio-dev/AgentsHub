@@ -466,6 +466,15 @@
       const msg = chatMessages.find(m => m.id === msgId);
       if (msg) {
         msg.isStreaming = false;
+        if (msg.content) {
+          msg.content = msg.content
+            .replace(/^(\s*ating\.\s*|\s*nerating\.\s*)/i, '')
+            .trim();
+          const bodyEl = document.getElementById(`chat-body-${msgId}`);
+          if (bodyEl) {
+            bodyEl.innerHTML = formatMarkdown(msg.content);
+          }
+        }
       }
       setGenerating(false);
       updateWorkerStatus('idle', 'Ready');

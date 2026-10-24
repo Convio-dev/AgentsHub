@@ -112,32 +112,44 @@ public sealed partial class CliStreamParser
         var lines = cleanTail.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (lines.Length == 0) return false;
 
-        string lastLine = lines[^1];
+        // Examine only the recent tail window (last 6 non-empty lines)
+        var recentLines = lines.TakeLast(6).ToArray();
+        string lastLine = recentLines[^1];
+        string recentWindow = string.Join("\n", recentLines);
 
-        // If actively working indicators are present, not completed
-        if (cleanTail.Contains("esc to cancel", StringComparison.OrdinalIgnoreCase) ||
-            cleanTail.Contains("Generating...", StringComparison.OrdinalIgnoreCase) ||
-            cleanTail.Contains("Thinking...", StringComparison.OrdinalIgnoreCase) ||
-            cleanTail.Contains("Running command...", StringComparison.OrdinalIgnoreCase) ||
-            cleanTail.Contains("Reading file...", StringComparison.OrdinalIgnoreCase) ||
-            cleanTail.Contains("Executing tool", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        // Check if an interactive prompt or terminal prompt returned
+        // 1. Direct prompt detection on the last line
         bool isPrompt = lastLine == ">" ||
                         lastLine == "❯" ||
-                        lastLine.StartsWith("❯ ") ||
+                        lastLine == "$" ||
                         lastLine.StartsWith("> ") ||
+                        lastLine.StartsWith("❯ ") ||
                         lastLine.Contains("? for shortcuts", StringComparison.OrdinalIgnoreCase) ||
                         lastLine.Contains("Type /help", StringComparison.OrdinalIgnoreCase);
 
-        bool hasContextOrCost = cleanTail.Contains("Cost:", StringComparison.OrdinalIgnoreCase) ||
-                                cleanTail.Contains("Context left:", StringComparison.OrdinalIgnoreCase) ||
-                                cleanTail.Contains("Tokens:", StringComparison.OrdinalIgnoreCase);
+        if (isPrompt)
+        {
+            return true;
+        }
 
-        return isPrompt || hasContextOrCost;
+        // 2. Token or cost stats in the recent window indicates completed turn
+        bool hasContextOrCost = recentWindow.Contains("Cost:", StringComparison.OrdinalIgnoreCase) ||
+                                recentWindow.Contains("Context left:", StringComparison.OrdinalIgnoreCase) ||
+                                recentWindow.Contains("Tokens:", StringComparison.OrdinalIgnoreCase);
+
+        if (hasContextOrCost)
+        {
+            return true;
+        }
+
+        // 3. Actively working indicators within the RECENT window
+        bool isActivelyWorking = recentWindow.Contains("esc to cancel", StringComparison.OrdinalIgnoreCase) ||
+                                 recentWindow.Contains("Running command...", StringComparison.OrdinalIgnoreCase) ||
+                                 recentWindow.Contains("Reading file...", StringComparison.OrdinalIgnoreCase) ||
+                                 recentWindow.Contains("Executing tool", StringComparison.OrdinalIgnoreCase) ||
+                                 lastLine.Contains("Thinking...", StringComparison.OrdinalIgnoreCase) ||
+                                 lastLine.Contains("Generating...", StringComparison.OrdinalIgnoreCase);
+
+        return !isActivelyWorking;
     }
 
     public static bool IsTerminalChromeOrNoise(string line, string? activePrompt = null)
@@ -171,14 +183,67 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 4. Horizontal dividers / box-drawing characters
-        // e.g. "____________________", "────────────────────", "┌────────┐"
-        if (trimmed.Length >= 2 && trimmed.All(c => c == '─' || c == '-' || c == '_' || c == '=' || c == '┌' || c == '┐' || c == '└' || c == '┘' || c == '│' || c == '╭' || c == '╮' || c == '╰' || c == '╯' || c == ' ' || c == '·' || c == '█'))
+        // 4. Horizontal dividers, box-drawing characters & block characters
+        // Blocks: \u2580-\u259F (▀ ▄ █ ▌ ▐ ░ ▒ ▓), Box drawings: \u2500-\u257F (─ ┌ ┐ └ ┘ │ ╭ ╮ ╰ ╯)
+        if (trimmed.Length >= 2 && trimmed.All(c =>
+            c == '─' || c == '-' || c == '_' || c == '=' ||
+            c == '┌' || c == '┐' || c == '└' || c == '┘' || c == '│' ||
+            c == '╭' || c == '╮' || c == '╰' || c == '╯' || c == ' ' ||
+            c == '·' || (c >= '\u2580' && c <= '\u259F') || (c >= '\u2500' && c <= '\u257F')))
         {
             return true;
         }
 
-        // 5. Status lines, spinners & cancel hints
+        // 5. CLI product / version headers e.g. "Antigravity CLI 1.4.7", "Claude Code", "Hermes Agent"
+        if (trimmed.Contains("Antigravity CLI", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Claude Code v", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Hermes Agent v", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // 6. User account / plan badge lines e.g. "usamau32ooo@gmail.com (Google AI Pro)"
+        if (trimmed.Contains('@') &&
+            (trimmed.Contains("Google AI", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("Pro", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("Claude Pro", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("Claude Max", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("Free", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // 7. Workspace directory echo lines e.g. "C:/Users/.../APPS/ChessSenseV2"
+        if ((trimmed.StartsWith("C:/", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.StartsWith("C:\\", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.StartsWith("/")) &&
+            (trimmed.Contains("/APPS/", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("\\APPS\\", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("Folders-Z", StringComparison.OrdinalIgnoreCase) ||
+             !trimmed.Contains(' ')))
+        {
+            return true;
+        }
+
+        // 8. Default CLI startup greeting lines
+        if (trimmed.Equals("Hello! How can I help you today?", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("How can I help you today?", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("Welcome to Antigravity CLI", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // 9. Spinner remnants or fragments e.g. "ating.", "ating", "nerating.", "nerating", "ing."
+        if (trimmed.Equals("ating.", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("ating", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("nerating.", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("nerating", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("ing.", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // 10. Status lines, spinners & cancel hints
         if (trimmed.Contains("Generating", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("Generat", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("esc to cancel", StringComparison.OrdinalIgnoreCase) ||
@@ -200,7 +265,7 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 6. Terminal status bar token count e.g. "ective, 376 tokens"
+        // 11. Terminal status bar token count e.g. "ective, 376 tokens"
         if (trimmed.Contains("tokens", StringComparison.OrdinalIgnoreCase) &&
             (trimmed.Contains("ective", StringComparison.OrdinalIgnoreCase) ||
              trimmed.Contains("active", StringComparison.OrdinalIgnoreCase) ||
@@ -209,15 +274,15 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 7. Model status banners embedded with box borders e.g. "Gemini 3.8 Flash · high"
+        // 12. Model status banners embedded with box borders e.g. "Gemini 3.8 Flash · high"
         if ((trimmed.Contains("Gemini ", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Claude ", StringComparison.OrdinalIgnoreCase)) &&
             (trimmed.Contains("Flash", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Pro", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Sonnet", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("high", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("·", StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }
 
-        // 8. Lone prompt symbols
-        if (trimmed == ">" || trimmed == "❯" || trimmed == "$" || trimmed == "█")
+        // 13. Lone prompt symbols or isolated block characters
+        if (trimmed == ">" || trimmed == "❯" || trimmed == "$" || trimmed == "█" || trimmed == "▀" || trimmed == "▄")
         {
             return true;
         }
@@ -246,6 +311,20 @@ public sealed partial class CliStreamParser
             }
 
             line = line.Trim();
+
+            // Strip leading orphaned spinner remnants if concatenated with content e.g. "ating.Hello" -> "Hello"
+            if (line.StartsWith("ating.", StringComparison.OrdinalIgnoreCase))
+            {
+                line = line["ating.".Length..].TrimStart();
+            }
+            else if (line.StartsWith("nerating.", StringComparison.OrdinalIgnoreCase))
+            {
+                line = line["nerating.".Length..].TrimStart();
+            }
+            else if (line.StartsWith("ating ", StringComparison.OrdinalIgnoreCase))
+            {
+                line = line["ating ".Length..].TrimStart();
+            }
 
             if (IsTerminalChromeOrNoise(line, activePrompt))
             {

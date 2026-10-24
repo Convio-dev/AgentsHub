@@ -94,8 +94,8 @@ public sealed class HeadlessAgentWorkerService : IDisposable
         if (info.State != CliState.Running)
         {
             _cliManager.Start(sessionId);
-            // Brief wait for ConPTY initialization
-            await Task.Delay(400);
+            // Allow ConPTY initialization and startup banner to settle
+            await Task.Delay(1000);
         }
 
         var session = _sessions.GetOrAdd(sessionId, sid => new ActiveChatSession
@@ -305,6 +305,8 @@ public sealed class HeadlessAgentWorkerService : IDisposable
             lock (session)
             {
                 session.IsGenerating = false;
+                session.QuietTimer?.Dispose();
+                session.QuietTimer = null;
                 session.TailBuffer.Clear();
             }
 
@@ -321,6 +323,18 @@ public sealed class HeadlessAgentWorkerService : IDisposable
                 status = "idle",
                 text = "Ready"
             });
+        }
+        else
+        {
+            // If actively working (e.g. running background command or slow tool), re-arm watchdog to check again
+            lock (session)
+            {
+                if (session.IsGenerating && session.PendingAction == null)
+                {
+                    session.QuietTimer?.Dispose();
+                    session.QuietTimer = new System.Threading.Timer(OnQuietTimerElapsed, session, 2000, Timeout.Infinite);
+                }
+            }
         }
     }
 
