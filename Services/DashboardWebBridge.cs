@@ -8,27 +8,39 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using AgentsHub.Helpers;
 using AgentsHub.Models;
+#if WINDOWS
+using System.Windows.Forms;
 using AgentsHub.Forms;
 using Microsoft.Web.WebView2.Core;
+#endif
 
 namespace AgentsHub.Services;
 
 public sealed partial class DashboardWebBridge : IDisposable
 {
-    private readonly Form _mainForm;
+#if WINDOWS
+    private readonly Form? _mainForm;
+    private CoreWebView2? _coreWebView;
+    private CliWebviewForm? _cliWebviewForm;
+    private readonly System.Windows.Forms.Timer _streamFlushTimer;
+    private readonly System.Windows.Forms.Timer _metricsTimer;
+#else
+    private readonly object? _mainForm;
+    private readonly System.Threading.Timer _streamFlushTimer;
+    private readonly System.Threading.Timer _metricsTimer;
+#endif
+
     private readonly CliManagerService _cliManager;
     private readonly LanProxyService? _lanProxyService;
     private readonly OpenCodeWatcherService? _openCodeWatcher;
-    private CoreWebView2? _coreWebView;
-    private CliWebviewForm? _cliWebviewForm;
+
+    public event Action<string>? WebMessageBroadcast;
 
     // Debounced terminal output buffers, keyed by session id. A CliType key collapses every
     // Antigravity profile onto CliType.AntigravityCli, so a profile session's output was either
     // shown under the built-in tab or dropped entirely.
     private readonly Lock _streamLock = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.StringBuilder> _terminalStreamBuffers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly System.Windows.Forms.Timer _streamFlushTimer;
-    private readonly System.Windows.Forms.Timer _metricsTimer;
 
     private CancellationTokenSource? _promptEnhanceCts;
 
@@ -52,7 +64,11 @@ public sealed partial class DashboardWebBridge : IDisposable
     };
     private readonly ProtonVpnService _protonVpnService;
 
-    public DashboardWebBridge(Form mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
+#if WINDOWS
+    public DashboardWebBridge(Form? mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
+#else
+    public DashboardWebBridge(object? mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
+#endif
     {
         _mainForm = mainForm;
         _cliManager = cliManager;
@@ -60,6 +76,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         _openCodeWatcher = openCodeWatcher;
         _protonVpnService = new ProtonVpnService(_openCodeWatcher);
 
+#if WINDOWS
         // Initialize debounced terminal stream timer (flushes every 20ms)
         _streamFlushTimer = new System.Windows.Forms.Timer { Interval = 20 };
         _streamFlushTimer.Tick += OnStreamFlushTimerTick;
@@ -69,10 +86,15 @@ public sealed partial class DashboardWebBridge : IDisposable
         _metricsTimer = new System.Windows.Forms.Timer { Interval = 2500 };
         _metricsTimer.Tick += OnMetricsTimerTick;
         _metricsTimer.Start();
+#else
+        _streamFlushTimer = new System.Threading.Timer(_ => OnStreamFlushTimerTick(null, EventArgs.Empty), null, 20, 20);
+        _metricsTimer = new System.Threading.Timer(_ => OnMetricsTimerTick(null, EventArgs.Empty), null, 2500, 2500);
+#endif
 
         HookBackendEvents();
     }
 
+#if WINDOWS
     public void AttachWebView(CoreWebView2 coreWebView)
     {
         _coreWebView = coreWebView;
@@ -116,6 +138,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             }
         });
     }
+#endif
 
     private void HookBackendEvents()
     {
@@ -340,7 +363,11 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     private void OnStreamFlushTimerTick(object? sender, EventArgs e)
     {
-        if (_coreWebView == null) return;
+#if WINDOWS
+        if (_coreWebView == null && WebMessageBroadcast == null) return;
+#else
+        if (WebMessageBroadcast == null) return;
+#endif
 
         lock (_streamLock)
         {
@@ -387,6 +414,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         PostEventToUi("terminal_tab_switched", new { cli = AiConfigService.NormalizeCliId(cliId) });
     }
 
+#if WINDOWS
     private CliWebviewForm EnsureStandaloneTerminalForm()
     {
         if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
@@ -409,6 +437,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         }
         return _cliWebviewForm;
     }
+#endif
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct MEMORYSTATUSEX
@@ -430,7 +459,11 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     private void OnMetricsTimerTick(object? sender, EventArgs e)
     {
-        if (_coreWebView == null) return;
+#if WINDOWS
+        if (_coreWebView == null && WebMessageBroadcast == null) return;
+#else
+        if (WebMessageBroadcast == null) return;
+#endif
 
         // Sampling lives entirely inside GetSystemTelemetryDto, which owns the CPU counter.
         // Reading the counter here as well would re-read the delta back-to-back and pin it at 100%.
@@ -479,11 +512,17 @@ public sealed partial class DashboardWebBridge : IDisposable
         };
     }
 
+#if WINDOWS
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        await HandleIncomingJsonAsync(e.WebMessageAsJson);
+    }
+#endif
+
+    public async Task HandleIncomingJsonAsync(string rawJson)
     {
         try
         {
-            var rawJson = e.WebMessageAsJson;
             using var doc = JsonDocument.Parse(rawJson);
             var root = doc.RootElement;
 
@@ -1440,19 +1479,24 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "browse_editor_path":
                 {
                     string? chosenPath = null;
-                    _mainForm.Invoke(() =>
+#if WINDOWS
+                    if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
                     {
-                        using var ofd = new OpenFileDialog
+                        f.Invoke(() =>
                         {
-                            Title = "Select External Code Editor Executable",
-                            Filter = "Executable files (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All files (*.*)|*.*",
-                            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-                        };
-                        if (ofd.ShowDialog(_mainForm) == DialogResult.OK)
-                        {
-                            chosenPath = ofd.FileName;
-                        }
-                    });
+                            using var ofd = new OpenFileDialog
+                            {
+                                Title = "Select External Code Editor Executable",
+                                Filter = "Executable files (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All files (*.*)|*.*",
+                                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+                            };
+                            if (ofd.ShowDialog(f) == DialogResult.OK)
+                            {
+                                chosenPath = ofd.FileName;
+                            }
+                        });
+                    }
+#endif
 
                     if (!string.IsNullOrWhiteSpace(chosenPath))
                     {
@@ -2407,6 +2451,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 break;
 
             case "toggle_quake_hud":
+#if WINDOWS
                 if (_mainForm is MainForm mf)
                 {
                     mf.ExecuteQuakeHotkeyAction();
@@ -2416,9 +2461,13 @@ public sealed partial class DashboardWebBridge : IDisposable
                 {
                     SendResponse(requestId, false, "MainForm reference unavailable");
                 }
+#else
+                SendResponse(requestId, false, "Quake HUD is only available on Windows desktop");
+#endif
                 break;
 
             case "toggle_main_window":
+#if WINDOWS
                 if (_mainForm is MainForm mainFormToggle)
                 {
                     mainFormToggle.ShowOrHideFromHotkey();
@@ -2428,6 +2477,9 @@ public sealed partial class DashboardWebBridge : IDisposable
                 {
                     SendResponse(requestId, false, "MainForm reference unavailable");
                 }
+#else
+                SendResponse(requestId, false, "Main window toggle is only available on Windows desktop");
+#endif
                 break;
 
             case "toggle_lan_proxy":
@@ -3181,21 +3233,26 @@ public sealed partial class DashboardWebBridge : IDisposable
                     var presetName = data.TryGetProperty("preset", out var presetProp) ? presetProp.GetString() : null;
                     AiConfigService.Instance.ApplyWorkspacePreset(presetName ?? "Preset_Duo");
 
+#if WINDOWS
                     // Rebuild the standalone terminal workspace if the user has it open.
                     try
                     {
-                        _mainForm.Invoke(() =>
+                        if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
                         {
-                            if (_cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                            f.Invoke(() =>
                             {
-                                _cliWebviewForm.RebuildTabs();
-                            }
-                        });
+                                if (_cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                                {
+                                    _cliWebviewForm.RebuildTabs();
+                                }
+                            });
+                        }
                     }
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"[DashboardWebBridge] RebuildTabs after preset failed: {ex.Message}");
                     }
+#endif
 
                     var workspaces = AiConfigService.Instance.GetCliWorkspaces();
                     SendResponse(requestId, true, new
@@ -3391,25 +3448,30 @@ public sealed partial class DashboardWebBridge : IDisposable
                     }
 
                     string? selectedPath = null;
-                    _mainForm.Invoke(() =>
+#if WINDOWS
+                    if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
                     {
-                        var localPrograms = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
-                        var localAntigravity = Path.Combine(localPrograms, "antigravity");
-                        string initDir = Directory.Exists(localAntigravity) ? localAntigravity :
-                                        Directory.Exists(localPrograms) ? localPrograms :
-                                        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+                        f.Invoke(() =>
+                        {
+                            var localPrograms = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
+                            var localAntigravity = Path.Combine(localPrograms, "antigravity");
+                            string initDir = Directory.Exists(localAntigravity) ? localAntigravity :
+                                            Directory.Exists(localPrograms) ? localPrograms :
+                                            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
 
-                        using var ofd = new OpenFileDialog
-                        {
-                            Title = string.IsNullOrWhiteSpace(tool) ? "Select Executable Target" : $"Select Target Executable for {tool}",
-                            Filter = "Executables (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All Files (*.*)|*.*",
-                            InitialDirectory = initDir
-                        };
-                        if (ofd.ShowDialog(_mainForm) == DialogResult.OK)
-                        {
-                            selectedPath = ofd.FileName;
-                        }
-                    });
+                            using var ofd = new OpenFileDialog
+                            {
+                                Title = string.IsNullOrWhiteSpace(tool) ? "Select Executable Target" : $"Select Target Executable for {tool}",
+                                Filter = "Executables (*.exe;*.cmd;*.bat)|*.exe;*.cmd;*.bat|All Files (*.*)|*.*",
+                                InitialDirectory = initDir
+                            };
+                            if (ofd.ShowDialog(f) == DialogResult.OK)
+                            {
+                                selectedPath = ofd.FileName;
+                            }
+                        });
+                    }
+#endif
 
                     if (!string.IsNullOrWhiteSpace(selectedPath))
                     {
@@ -3444,14 +3506,19 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string title = data.TryGetProperty("title", out var bdTitle) ? bdTitle.GetString() ?? "Select a folder" : "Select a folder";
 
                     string? selectedFolder = null;
-                    _mainForm.Invoke(() =>
+#if WINDOWS
+                    if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
                     {
-                        using var fbd = new FolderBrowserDialog { Description = title };
-                        if (fbd.ShowDialog(_mainForm) == DialogResult.OK)
+                        f.Invoke(() =>
                         {
-                            selectedFolder = fbd.SelectedPath;
-                        }
-                    });
+                            using var fbd = new FolderBrowserDialog { Description = title };
+                            if (fbd.ShowDialog(f) == DialogResult.OK)
+                            {
+                                selectedFolder = fbd.SelectedPath;
+                            }
+                        });
+                    }
+#endif
 
                     if (!string.IsNullOrWhiteSpace(selectedFolder))
                     {
@@ -3511,37 +3578,42 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "open_standalone_terminals":
                 try
                 {
+#if WINDOWS
                     // The standalone window opens on the CLI the dashboard is showing.
                     string targetTab = data.TryGetProperty("cli", out var popCli) ? (popCli.GetString() ?? string.Empty) : string.Empty;
-                    _mainForm.Invoke(() =>
+                    if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
                     {
-                        var form = EnsureStandaloneTerminalForm();
-                        if (!string.IsNullOrWhiteSpace(targetTab))
+                        f.Invoke(() =>
                         {
-                            var workspaces = AiConfigService.Instance.GetCliWorkspaces();
-                            bool isEnabled = workspaces.Any(w => w.IsEnabled && (
-                                string.Equals(AiConfigService.NormalizeCliId(w.Id), AiConfigService.NormalizeCliId(targetTab), StringComparison.OrdinalIgnoreCase) ||
-                                (string.Equals(w.Id, "antigravity_cli", StringComparison.OrdinalIgnoreCase) && CliManagerService.IsAntigravityProfileId(targetTab, out _))
-                            ));
-                            if (isEnabled)
+                            var form = EnsureStandaloneTerminalForm();
+                            if (!string.IsNullOrWhiteSpace(targetTab))
                             {
-                                form.SwitchTab(targetTab);
+                                var workspaces = AiConfigService.Instance.GetCliWorkspaces();
+                                bool isEnabled = workspaces.Any(w => w.IsEnabled && (
+                                    string.Equals(AiConfigService.NormalizeCliId(w.Id), AiConfigService.NormalizeCliId(targetTab), StringComparison.OrdinalIgnoreCase) ||
+                                    (string.Equals(w.Id, "antigravity_cli", StringComparison.OrdinalIgnoreCase) && CliManagerService.IsAntigravityProfileId(targetTab, out _))
+                                ));
+                                if (isEnabled)
+                                {
+                                    form.SwitchTab(targetTab);
+                                }
                             }
-                        }
-                        form.ApplyTheme();
-                        if (form.WindowState == FormWindowState.Minimized)
-                        {
-                            form.WindowState = FormWindowState.Normal;
-                        }
-                        form.Show();
-                        form.BringToFront();
-                        form.Activate();
+                            form.ApplyTheme();
+                            if (form.WindowState == FormWindowState.Minimized)
+                            {
+                                form.WindowState = FormWindowState.Normal;
+                            }
+                            form.Show();
+                            form.BringToFront();
+                            form.Activate();
 
-                        if (StartupHelper.GetPreference("HideMainOnCliOpen", false))
-                        {
-                            form.HideMainFormNow();
-                        }
-                    });
+                            if (StartupHelper.GetPreference("HideMainOnCliOpen", false))
+                            {
+                                form.HideMainFormNow();
+                            }
+                        });
+                    }
+#endif
                     SendResponse(requestId, true, new { success = true });
                 }
                 catch (Exception ex)
@@ -3556,6 +3628,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "sync_terminal_tab":
                 if (data.TryGetProperty("cli", out var syncCliProp))
                 {
+#if WINDOWS
                     string syncCli = syncCliProp.GetString() ?? string.Empty;
                     if (!string.IsNullOrWhiteSpace(syncCli) && _cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
                     {
@@ -3566,13 +3639,14 @@ public sealed partial class DashboardWebBridge : IDisposable
                                 string.Equals(AiConfigService.NormalizeCliId(w.Id), AiConfigService.NormalizeCliId(syncCli), StringComparison.OrdinalIgnoreCase) ||
                                 (string.Equals(w.Id, "antigravity_cli", StringComparison.OrdinalIgnoreCase) && CliManagerService.IsAntigravityProfileId(syncCli, out _))
                             ));
-                            if (isEnabled)
+                            if (isEnabled && _mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
                             {
-                                _mainForm.Invoke(() => _cliWebviewForm.SwitchTab(syncCli));
+                                f.Invoke(() => _cliWebviewForm.SwitchTab(syncCli));
                             }
                         }
                         catch { }
                     }
+#endif
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
@@ -3583,9 +3657,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                     bool asAdmin = data.TryGetProperty("asAdmin", out var adEl) && adEl.GetBoolean();
                     bool embedShells = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false);
 
-                    if (embedShells && !asAdmin)
+#if WINDOWS
+                    if (embedShells && !asAdmin && _mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
                     {
-                        _mainForm.Invoke(() =>
+                        f.Invoke(() =>
                         {
                             var form = EnsureStandaloneTerminalForm();
                             if (shellName.Equals("powershell", StringComparison.OrdinalIgnoreCase))
@@ -3614,24 +3689,32 @@ public sealed partial class DashboardWebBridge : IDisposable
                             ShellLauncher.OpenCommandPrompt(asAdmin);
                         }
                     }
+#else
+                    Platform.PlatformHelper.OpenUrlInBrowser("terminal");
+#endif
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
 
             case "minimize_to_tray":
-                _mainForm.Invoke(() =>
+#if WINDOWS
+                if (_mainForm is Form fTray && fTray.IsHandleCreated && !fTray.IsDisposed)
                 {
-                    var allowTray = StartupHelper.GetPreference("MinimizeToTray", true);
-                    if (allowTray)
+                    fTray.Invoke(() =>
                     {
-                        _mainForm.Hide();
-                        (_mainForm as MainForm)?.ShowTrayBalloon("Agents Hub", "Agents Hub is running in the background.");
-                    }
-                    else
-                    {
-                        _mainForm.WindowState = FormWindowState.Minimized;
-                    }
-                });
+                        var allowTray = StartupHelper.GetPreference("MinimizeToTray", true);
+                        if (allowTray)
+                        {
+                            fTray.Hide();
+                            (fTray as MainForm)?.ShowTrayBalloon("Agents Hub", "Agents Hub is running in the background.");
+                        }
+                        else
+                        {
+                            fTray.WindowState = FormWindowState.Minimized;
+                        }
+                    });
+                }
+#endif
                 SendResponse(requestId, true, new { success = true });
                 break;
 
@@ -3666,6 +3749,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         StartupHelper.SetStringPreference("GlobalHotkeyKey", ghKeyEl.GetString() ?? "H");
                     }
+#if WINDOWS
                     if (_mainForm is MainForm mainForm)
                     {
                         try
@@ -3676,6 +3760,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                         {
                         }
                     }
+#endif
                     if (stProp.TryGetProperty("globalHudHotkey", out var hudHotkeyEl))
                     {
                         StartupHelper.SetPreference("GlobalHudHotkey", hudHotkeyEl.GetBoolean());
@@ -3692,6 +3777,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         StartupHelper.SetStringPreference("HudHotkeyTarget", hudTargetEl.GetString() ?? "cliwebview");
                     }
+#if WINDOWS
                     if (_mainForm is MainForm mainFormHud)
                     {
                         try
@@ -3702,6 +3788,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                         {
                         }
                     }
+#endif
                     if (stProp.TryGetProperty("maskPublicIp", out var maskEl))
                     {
                         StartupHelper.SetPreference("MaskPublicIp", maskEl.GetBoolean());
@@ -3763,13 +3850,18 @@ public sealed partial class DashboardWebBridge : IDisposable
                             : (themeStr.Equals("light", StringComparison.OrdinalIgnoreCase) ? AppTheme.Light : AppTheme.Dark);
                         ThemeManager.SetTheme(appTheme, accentStr);
 
-                        _mainForm.Invoke(() =>
+#if WINDOWS
+                        if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
                         {
-                            if (_cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                            f.Invoke(() =>
                             {
-                                _cliWebviewForm.ApplyTheme();
-                            }
-                        });
+                                if (_cliWebviewForm != null && !_cliWebviewForm.IsDisposed)
+                                {
+                                    _cliWebviewForm.ApplyTheme();
+                                }
+                            });
+                        }
+#endif
                     }
 
                     SendResponse(requestId, true, new { success = true });
@@ -3802,19 +3894,24 @@ public sealed partial class DashboardWebBridge : IDisposable
 
             case "browse_shortcut_target":
                 string? selectedFile = null;
-                _mainForm.Invoke(() =>
+#if WINDOWS
+                if (_mainForm is Form fShort && fShort.IsHandleCreated && !fShort.IsDisposed)
                 {
-                    using var ofd = new OpenFileDialog
+                    fShort.Invoke(() =>
                     {
-                        Title = "Select Application or Script Executable",
-                        Filter = "Executable & Scripts (*.exe;*.cmd;*.bat;*.ps1)|*.exe;*.cmd;*.bat;*.ps1|All Files (*.*)|*.*",
-                        InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
-                    };
-                    if (ofd.ShowDialog(_mainForm) == DialogResult.OK)
-                    {
-                        selectedFile = ofd.FileName;
-                    }
-                });
+                        using var ofd = new OpenFileDialog
+                        {
+                            Title = "Select Application or Script Executable",
+                            Filter = "Executable & Scripts (*.exe;*.cmd;*.bat;*.ps1)|*.exe;*.cmd;*.bat;*.ps1|All Files (*.*)|*.*",
+                            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)
+                        };
+                        if (ofd.ShowDialog(fShort) == DialogResult.OK)
+                        {
+                            selectedFile = ofd.FileName;
+                        }
+                    });
+                }
+#endif
                 if (!string.IsNullOrWhiteSpace(selectedFile))
                 {
                     SendResponse(requestId, true, new { path = selectedFile });
@@ -4248,10 +4345,15 @@ public sealed partial class DashboardWebBridge : IDisposable
         }
         catch (Exception ex)
         {
+#if WINDOWS
             MessageBox.Show($"Failed to launch shortcut '{target}': {ex.Message}", "Launch Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+#else
+            Console.WriteLine($"Failed to launch shortcut '{target}': {ex.Message}");
+#endif
         }
     }
 
+#if WINDOWS
     // LibraryImport, not DllImport: no parameters and an IntPtr return need no marshalling code,
     // so the source generator can emit the call. The rest of the DllImport sites stay as they are
     // until their struct marshalling is checked against the native signatures.
@@ -4262,43 +4364,47 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     public void ToggleOrShowCliWebview()
     {
-        _mainForm.Invoke(() =>
+        if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
         {
-            try
+            f.Invoke(() =>
             {
-                if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
+                try
                 {
-                    var created = EnsureStandaloneTerminalForm();
-                    created.ApplyTheme();
-                    created.Show();
-                    created.BringToFront();
-                    created.Activate();
-                    return;
-                }
-
-                IntPtr fg = GetForegroundWindow();
-                if (_cliWebviewForm.Visible && _cliWebviewForm.WindowState != FormWindowState.Minimized && fg == _cliWebviewForm.Handle)
-                {
-                    _cliWebviewForm.Hide();
-                }
-                else
-                {
-                    _cliWebviewForm.ApplyTheme();
-                    if (_cliWebviewForm.WindowState == FormWindowState.Minimized)
+                    if (_cliWebviewForm == null || _cliWebviewForm.IsDisposed)
                     {
-                        _cliWebviewForm.WindowState = FormWindowState.Normal;
+                        var created = EnsureStandaloneTerminalForm();
+                        created.ApplyTheme();
+                        created.Show();
+                        created.BringToFront();
+                        created.Activate();
+                        return;
                     }
-                    _cliWebviewForm.Show();
-                    _cliWebviewForm.BringToFront();
-                    _cliWebviewForm.Activate();
+
+                    IntPtr fg = GetForegroundWindow();
+                    if (_cliWebviewForm.Visible && _cliWebviewForm.WindowState != FormWindowState.Minimized && fg == _cliWebviewForm.Handle)
+                    {
+                        _cliWebviewForm.Hide();
+                    }
+                    else
+                    {
+                        _cliWebviewForm.ApplyTheme();
+                        if (_cliWebviewForm.WindowState == FormWindowState.Minimized)
+                        {
+                            _cliWebviewForm.WindowState = FormWindowState.Normal;
+                        }
+                        _cliWebviewForm.Show();
+                        _cliWebviewForm.BringToFront();
+                        _cliWebviewForm.Activate();
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DashboardWebBridge] ToggleOrShowCliWebview error: {ex.Message}");
-            }
-        });
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[DashboardWebBridge] ToggleOrShowCliWebview error: {ex.Message}");
+                }
+            });
+        }
     }
+#endif
 
     private void ToggleCliInternal(CliType cliType)
     {
@@ -4873,9 +4979,29 @@ public sealed partial class DashboardWebBridge : IDisposable
         });
     }
 
+    private void SendJsonMessageToClients(string envelope)
+    {
+#if WINDOWS
+        if (_coreWebView != null)
+        {
+            if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed && f.InvokeRequired)
+            {
+                f.BeginInvoke(new Action(() =>
+                {
+                    try { _coreWebView?.PostWebMessageAsJson(envelope); } catch { }
+                }));
+            }
+            else
+            {
+                _coreWebView?.PostWebMessageAsJson(envelope);
+            }
+        }
+#endif
+        WebMessageBroadcast?.Invoke(envelope);
+    }
+
     private void PostEventToUi(string eventType, object payload)
     {
-        if (_coreWebView == null) return;
         try
         {
             var envelope = JsonSerializer.Serialize(new
@@ -4885,17 +5011,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 payload
             }, CamelCaseJsonOptions);
 
-            if (_mainForm.IsHandleCreated && !_mainForm.IsDisposed && _mainForm.InvokeRequired)
-            {
-                _mainForm.BeginInvoke(new Action(() =>
-                {
-                    try { _coreWebView?.PostWebMessageAsJson(envelope); } catch { }
-                }));
-            }
-            else
-            {
-                _coreWebView.PostWebMessageAsJson(envelope);
-            }
+            SendJsonMessageToClients(envelope);
         }
         catch { }
     }
@@ -4913,7 +5029,6 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     private void SendResponse(string? requestId, bool success, object? data)
     {
-        if (_coreWebView == null) return;
         try
         {
             var envelope = JsonSerializer.Serialize(new
@@ -4923,24 +5038,13 @@ public sealed partial class DashboardWebBridge : IDisposable
                 data
             }, CamelCaseJsonOptions);
 
-            if (_mainForm.IsHandleCreated && !_mainForm.IsDisposed && _mainForm.InvokeRequired)
-            {
-                _mainForm.BeginInvoke(new Action(() =>
-                {
-                    try { _coreWebView?.PostWebMessageAsJson(envelope); } catch { }
-                }));
-            }
-            else
-            {
-                _coreWebView.PostWebMessageAsJson(envelope);
-            }
+            SendJsonMessageToClients(envelope);
         }
         catch { }
     }
 
     private void PostOpenCodeUpdate(OpenCodeStateDto stateDto)
     {
-        if (_coreWebView == null) return;
         try
         {
             var envelope = JsonSerializer.Serialize(new
@@ -4951,17 +5055,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 payload = stateDto
             }, CamelCaseJsonOptions);
 
-            if (_mainForm.IsHandleCreated && !_mainForm.IsDisposed && _mainForm.InvokeRequired)
-            {
-                _mainForm.BeginInvoke(new Action(() =>
-                {
-                    try { _coreWebView?.PostWebMessageAsJson(envelope); } catch { }
-                }));
-            }
-            else
-            {
-                _coreWebView.PostWebMessageAsJson(envelope);
-            }
+            SendJsonMessageToClients(envelope);
         }
         catch { }
     }
@@ -5389,9 +5483,11 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     public void Dispose()
     {
+#if WINDOWS
         _streamFlushTimer.Stop();
-        _streamFlushTimer.Dispose();
         _metricsTimer.Stop();
+#endif
+        _streamFlushTimer.Dispose();
         _metricsTimer.Dispose();
         // NetworkTelemetryService owns its own process-wide sampler and outlives this bridge.
         _promptEnhanceCts?.Dispose();

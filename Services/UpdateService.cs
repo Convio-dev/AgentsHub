@@ -6,7 +6,9 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+#if WINDOWS
 using System.Windows.Forms;
+#endif
 
 using AgentsHub.Helpers;
 
@@ -192,6 +194,7 @@ public sealed class UpdateService
         // Allow installer to initiate and close current instance gracefully
         try
         {
+#if WINDOWS
             if (Application.OpenForms.Count > 0 && Application.OpenForms[0]?.InvokeRequired == true)
             {
                 Application.OpenForms[0]?.BeginInvoke(new Action(() => Application.Exit()));
@@ -200,6 +203,9 @@ public sealed class UpdateService
             {
                 Application.Exit();
             }
+#else
+            Environment.Exit(0);
+#endif
         }
         catch
         {

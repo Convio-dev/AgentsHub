@@ -31,7 +31,7 @@ public static class StartupHelper
 
             if (enable)
             {
-                var exePath = Environment.ProcessPath ?? Application.ExecutablePath;
+                var exePath = Environment.ProcessPath ?? AppContext.BaseDirectory;
                 key.SetValue(AppValueName, $"\"{exePath}\" --tray");
             }
             else

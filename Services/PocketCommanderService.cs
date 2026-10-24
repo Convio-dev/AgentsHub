@@ -1,8 +1,6 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -13,7 +11,11 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+#if WINDOWS
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Windows.Forms;
+#endif
 
 namespace AgentsHub.Services;
 
@@ -1739,6 +1741,7 @@ public sealed class PocketCommanderService : IDisposable
 
     private static byte[]? CaptureDesktopSnapshot()
     {
+#if WINDOWS
         try
         {
             var bounds = Screen.PrimaryScreen?.Bounds ?? new Rectangle(0, 0, 1920, 1080);
@@ -1757,6 +1760,9 @@ public sealed class PocketCommanderService : IDisposable
             Console.WriteLine($"Screenshot capture error: {ex.Message}");
             return null;
         }
+#else
+        return null;
+#endif
     }
 
     private async Task HandleScreenshotCommandAsync(string platform, string targetId, CancellationToken ct)

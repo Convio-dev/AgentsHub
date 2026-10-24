@@ -28,6 +28,8 @@ public class ConPtySession : IDisposable
     public event Action<string>? OutputDataReceived;
     public event Action<int>? Exited;
 
+    private Process? _posixProcess;
+
     public bool Start(string commandLine, string? workingDirectory = null, short cols = 120, short rows = 32, IDictionary<string, string>? environmentVariables = null)
     {
         lock (_syncLock)
@@ -35,6 +37,11 @@ public class ConPtySession : IDisposable
             if (_isRunning)
             {
                 return false;
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                return StartPosixSession(commandLine, workingDirectory, cols, rows, environmentVariables);
             }
 
             try
@@ -164,7 +171,23 @@ public class ConPtySession : IDisposable
     {
         lock (_syncLock)
         {
-            if (!_isRunning || _inWriter == null)
+            if (!_isRunning)
+            {
+                return;
+            }
+
+            if (_posixProcess != null)
+            {
+                try
+                {
+                    _posixProcess.StandardInput.Write(data);
+                    _posixProcess.StandardInput.Flush();
+                }
+                catch { }
+                return;
+            }
+
+            if (_inWriter == null)
             {
                 return;
             }
@@ -186,19 +209,22 @@ public class ConPtySession : IDisposable
     {
         lock (_syncLock)
         {
-            if (!_isRunning || _hPC == IntPtr.Zero)
+            if (!_isRunning)
             {
                 return;
             }
 
-            try
+            if (OperatingSystem.IsWindows() && _hPC != IntPtr.Zero)
             {
-                var size = new NativePty.COORD { X = cols, Y = rows };
-                _ = NativePty.ResizePseudoConsole(_hPC, size);
-            }
-            catch
-            {
-                // Ignore transient resize errors
+                try
+                {
+                    var size = new NativePty.COORD { X = cols, Y = rows };
+                    _ = NativePty.ResizePseudoConsole(_hPC, size);
+                }
+                catch
+                {
+                    // Ignore transient resize errors
+                }
             }
         }
     }
@@ -274,6 +300,20 @@ public class ConPtySession : IDisposable
 
         try
         {
+            if (_posixProcess != null)
+            {
+                try
+                {
+                    if (!_posixProcess.HasExited)
+                    {
+                        _posixProcess.Kill(entireProcessTree: true);
+                    }
+                    _posixProcess.Dispose();
+                }
+                catch { }
+                _posixProcess = null;
+            }
+
             if (_processId > 0)
             {
                 try
@@ -290,22 +330,25 @@ public class ConPtySession : IDisposable
                 }
             }
 
-            if (_hPC != IntPtr.Zero)
+            if (OperatingSystem.IsWindows())
             {
-                NativePty.ClosePseudoConsole(_hPC);
-                _hPC = IntPtr.Zero;
-            }
+                if (_hPC != IntPtr.Zero)
+                {
+                    NativePty.ClosePseudoConsole(_hPC);
+                    _hPC = IntPtr.Zero;
+                }
 
-            if (_hThread != IntPtr.Zero)
-            {
-                NativePty.CloseHandle(_hThread);
-                _hThread = IntPtr.Zero;
-            }
+                if (_hThread != IntPtr.Zero)
+                {
+                    NativePty.CloseHandle(_hThread);
+                    _hThread = IntPtr.Zero;
+                }
 
-            if (_hProcess != IntPtr.Zero)
-            {
-                NativePty.CloseHandle(_hProcess);
-                _hProcess = IntPtr.Zero;
+                if (_hProcess != IntPtr.Zero)
+                {
+                    NativePty.CloseHandle(_hProcess);
+                    _hProcess = IntPtr.Zero;
+                }
             }
 
             _inWriter?.Dispose();
@@ -317,6 +360,96 @@ public class ConPtySession : IDisposable
         catch
         {
             // Suppress cleanup exceptions
+        }
+    }
+
+    private bool StartPosixSession(string commandLine, string? workingDirectory, short cols, short rows, IDictionary<string, string>? environmentVariables)
+    {
+        try
+        {
+            string shell = Services.Platform.PlatformHelper.GetDefaultShell();
+            string shellArgs = $"-c \"{commandLine.Replace("\"", "\\\"")}\"";
+
+            var psi = new ProcessStartInfo(shell, shellArgs)
+            {
+                WorkingDirectory = !string.IsNullOrWhiteSpace(workingDirectory) && Directory.Exists(workingDirectory)
+                    ? workingDirectory
+                    : Directory.GetCurrentDirectory(),
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            };
+
+            psi.Environment["TERM"] = "xterm-256color";
+            psi.Environment["COLUMNS"] = cols.ToString();
+            psi.Environment["LINES"] = rows.ToString();
+
+            if (environmentVariables != null)
+            {
+                foreach (var kvp in environmentVariables)
+                {
+                    if (string.IsNullOrEmpty(kvp.Value))
+                    {
+                        psi.Environment.Remove(kvp.Key);
+                    }
+                    else
+                    {
+                        psi.Environment[kvp.Key] = kvp.Value;
+                    }
+                }
+            }
+
+            _posixProcess = Process.Start(psi);
+            if (_posixProcess == null)
+            {
+                return false;
+            }
+
+            _processId = _posixProcess.Id;
+            _isRunning = true;
+
+            Task.Run(async () =>
+            {
+                var buffer = new char[4096];
+                using var reader = _posixProcess.StandardOutput;
+                while (_isRunning && !_posixProcess.HasExited)
+                {
+                    int read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                    if (read <= 0) break;
+                    OutputDataReceived?.Invoke(new string(buffer, 0, read));
+                }
+            });
+
+            Task.Run(async () =>
+            {
+                var buffer = new char[4096];
+                using var reader = _posixProcess.StandardError;
+                while (_isRunning && !_posixProcess.HasExited)
+                {
+                    int read = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                    if (read <= 0) break;
+                    OutputDataReceived?.Invoke(new string(buffer, 0, read));
+                }
+            });
+
+            Task.Run(async () =>
+            {
+                await _posixProcess.WaitForExitAsync().ConfigureAwait(false);
+                int code = _posixProcess.ExitCode;
+                _isRunning = false;
+                Exited?.Invoke(code);
+            });
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            OutputDataReceived?.Invoke($"\r\n[AgentsHub Posix] Failed to start: {ex.Message}\r\n");
+            return false;
         }
     }
 

@@ -2,7 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+#if WINDOWS
 using System.Media;
+#endif
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -117,12 +119,14 @@ public sealed class SoundpackAudioService
 
                 // Synthesize tone buffer dynamically
                 byte[] wavData = SynthesizeTone(eventName, currentTheme, vol);
+#if WINDOWS
                 if (wavData.Length > 0)
                 {
                     using var ms = new MemoryStream(wavData);
                     using var sp = new SoundPlayer(ms);
                     sp.PlaySync();
                 }
+#endif
             }
             catch { }
         });

@@ -237,6 +237,11 @@ public sealed class AntigravityProfileService : IDisposable
     /// </summary>
     public static string? ReadWindowsCredential(string target = CredentialName)
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            return ReadUnixCredential(target);
+        }
+
         try
         {
             if (!CredRead(target, CRED_TYPE_GENERIC, 0, out IntPtr ptr))
@@ -268,6 +273,11 @@ public sealed class AntigravityProfileService : IDisposable
     {
         if (string.IsNullOrWhiteSpace(secret)) return false;
 
+        if (!OperatingSystem.IsWindows())
+        {
+            return WriteUnixCredential(secret, target);
+        }
+
         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(secret);
         IntPtr blobPtr = Marshal.AllocHGlobal(bytes.Length);
         try
@@ -292,6 +302,74 @@ public sealed class AntigravityProfileService : IDisposable
         {
             Marshal.FreeHGlobal(blobPtr);
         }
+    }
+
+    private static string GetUnixCredentialFilePath()
+    {
+        string dir = Platform.PlatformHelper.GetConfigDirectory();
+        if (!Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+        return Path.Combine(dir, "credentials.json");
+    }
+
+    private static string? ReadUnixCredential(string target)
+    {
+        try
+        {
+            string file = GetUnixCredentialFilePath();
+            if (!File.Exists(file)) return null;
+            string json = File.ReadAllText(file);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty(target, out var prop))
+            {
+                return prop.GetString();
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private static bool WriteUnixCredential(string secret, string target)
+    {
+        try
+        {
+            string file = GetUnixCredentialFilePath();
+            Dictionary<string, string> store = [];
+            if (File.Exists(file))
+            {
+                try
+                {
+                    string existing = File.ReadAllText(file);
+                    store = JsonSerializer.Deserialize<Dictionary<string, string>>(existing) ?? [];
+                }
+                catch { }
+            }
+            store[target] = secret;
+            File.WriteAllText(file, JsonSerializer.Serialize(store, new JsonSerializerOptions { WriteIndented = true }));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void PurgeUnixCredential(string target)
+    {
+        try
+        {
+            string file = GetUnixCredentialFilePath();
+            if (!File.Exists(file)) return;
+            string existing = File.ReadAllText(file);
+            var store = JsonSerializer.Deserialize<Dictionary<string, string>>(existing);
+            if (store != null && store.Remove(target))
+            {
+                File.WriteAllText(file, JsonSerializer.Serialize(store, new JsonSerializerOptions { WriteIndented = true }));
+            }
+        }
+        catch { }
     }
 
     /// <summary>
@@ -1169,6 +1247,12 @@ public sealed class AntigravityProfileService : IDisposable
     /// </summary>
     public void PurgeWindowsCredential()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            PurgeUnixCredential(CredentialName);
+            return;
+        }
+
         try
         {
             bool nativeDeleted = CredDelete(CredentialName, CRED_TYPE_GENERIC, 0);

@@ -18,11 +18,13 @@ namespace AgentsHubPublisher {
         private long _bytesSent;
         private readonly ConcurrentQueue<string> _queue;
         private int _lastPercentReported = -1;
+        private readonly string _prefix;
 
-        public UploadProgressStream(Stream inner, long totalBytes, ConcurrentQueue<string> queue) {
+        public UploadProgressStream(Stream inner, long totalBytes, ConcurrentQueue<string> queue, string prefix = "") {
             _inner = inner;
             _totalBytes = totalBytes;
             _queue = queue;
+            _prefix = prefix ?? string.Empty;
         }
 
         public override bool CanRead { get { return _inner.CanRead; } }
@@ -48,7 +50,7 @@ namespace AgentsHubPublisher {
                 double mbSent = Math.Round((double)_bytesSent / (1024 * 1024), 2);
                 double mbTotal = Math.Round((double)_totalBytes / (1024 * 1024), 2);
                 if (_queue != null) {
-                    _queue.Enqueue(string.Format("PROGRESS:{0}:{1:0.00}:{2:0.00}", currentPercent, mbSent, mbTotal));
+                    _queue.Enqueue(string.Format("PROGRESS:{0}:{1:0.00}:{2:0.00}:{3}", currentPercent, mbSent, mbTotal, _prefix));
                 }
             }
         }
@@ -103,7 +105,7 @@ if (Test-Path $tokenFile) {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Agents Hub Release Publisher" Height="740" Width="720"
+        Title="Agents Hub Multi-Platform Release Publisher" Height="860" Width="760"
         WindowStartupLocation="CenterScreen"
         Background="#0B0F19" Foreground="#F8FAFC"
         FontFamily="Segoe UI" UseLayoutRounding="True">
@@ -137,6 +139,7 @@ if (Test-Path $tokenFile) {
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -153,7 +156,7 @@ if (Test-Path $tokenFile) {
                         <TextBlock Text="Agents Hub" FontWeight="Bold" FontSize="16" Foreground="#10B981" />
                         <TextBlock Text=" - GitHub Release Publisher" FontWeight="SemiBold" FontSize="16" Foreground="#F8FAFC" />
                     </StackPanel>
-                    <TextBlock Text="Target: https://github.com/ZerroDevs/AgentsHub" FontSize="10.5" Foreground="#94A3B8" Margin="0,3,0,0" />
+                    <TextBlock Text="Target: https://github.com/ZerroDevs/AgentsHub (Windows, Linux, macOS)" FontSize="10.5" Foreground="#94A3B8" Margin="0,3,0,0" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Name="btnOpenDist" Content="Open Dist Folder" 
@@ -220,8 +223,42 @@ if (Test-Path $tokenFile) {
             <TextBlock Text="Requires 'repo' scope. Saved securely to local .release_token (git-ignored)." FontSize="10" Foreground="#64748B" Margin="0,4,0,0" />
         </StackPanel>
 
-        <!-- Form Row 3: Release Notes -->
-        <StackPanel Grid.Row="3" Margin="0,0,0,12">
+        <!-- Form Row 3: Target Platforms -->
+        <Border Grid.Row="3" Background="#111827" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="4" Padding="12,10" Margin="0,0,0,12">
+            <StackPanel>
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Target Platforms to Build &amp; Publish" FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8" />
+                        <TextBlock Text=" (Default: All Selected)" FontSize="10" Foreground="#10B981" Margin="6,1,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Name="btnSelectAllTargets" Content="Select All" 
+                                Background="Transparent" Foreground="#38BDF8" BorderThickness="0"
+                                FontSize="10.5" Cursor="Hand" Margin="0,0,10,0" />
+                        <Button Name="btnSelectWinTarget" Content="Windows Only" 
+                                Background="Transparent" Foreground="#94A3B8" BorderThickness="0"
+                                FontSize="10.5" Cursor="Hand" Margin="0,0,10,0" />
+                        <Button Name="btnClearTargets" Content="Clear" 
+                                Background="Transparent" Foreground="#64748B" BorderThickness="0"
+                                FontSize="10.5" Cursor="Hand" />
+                    </StackPanel>
+                </Grid>
+                <WrapPanel Orientation="Horizontal">
+                    <CheckBox Name="chkTargetWin" Content="Windows x64 (.exe installer + .zip portable)" IsChecked="True" Margin="0,3,18,3" />
+                    <CheckBox Name="chkTargetLinuxX64" Content="Linux x64 (.tar.gz)" IsChecked="True" Margin="0,3,18,3" />
+                    <CheckBox Name="chkTargetLinuxArm64" Content="Linux ARM64 (.tar.gz)" IsChecked="True" Margin="0,3,18,3" />
+                    <CheckBox Name="chkTargetMacArm64" Content="macOS Apple Silicon (.tar.gz)" IsChecked="True" Margin="0,3,18,3" />
+                    <CheckBox Name="chkTargetMacX64" Content="macOS Intel (.tar.gz)" IsChecked="True" Margin="0,3,8,3" />
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Form Row 4: Release Notes -->
+        <StackPanel Grid.Row="4" Margin="0,0,0,12">
             <Grid Margin="0,0,0,4">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -232,13 +269,13 @@ if (Test-Path $tokenFile) {
                         Background="#1E293B" Foreground="#38BDF8" BorderThickness="1" BorderBrush="#0284C7"
                         Padding="8,2" FontSize="10.5" FontWeight="SemiBold" Cursor="Hand" ToolTip="Auto-populate release notes from recent git commits since previous tag" />
             </Grid>
-            <TextBox Name="txtNotes" Height="150" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+            <TextBox Name="txtNotes" Height="130" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
                      FontFamily="Consolas" FontSize="11.5"
-                     Text="## What's Changed in Agents Hub v$currentVersion&#x0d;&#x0a;&#x0d;&#x0a;### Features &amp; Enhancements&#x0d;&#x0a;- &#x0d;&#x0a;&#x0d;&#x0a;### Improvements&#x0d;&#x0a;- &#x0d;&#x0a;&#x0d;&#x0a;### Bug Fixes&#x0d;&#x0a;- " />
+                     Text="## What's Changed in Agents Hub v$currentVersion&#x0d;&#x0a;&#x0d;&#x0a;### Cross-Platform Support&#x0d;&#x0a;- Windows x64 (Native WinForms + Inno Setup)&#x0d;&#x0a;- Linux x64 &amp; Linux ARM64 (Self-contained tar.gz)&#x0d;&#x0a;- macOS Apple Silicon &amp; macOS Intel (Self-contained tar.gz)&#x0d;&#x0a;&#x0d;&#x0a;### Features &amp; Enhancements&#x0d;&#x0a;- Multi-target release engine with selective publisher GUI&#x0d;&#x0a;- Headless POSIX runtime with web control dashboard&#x0d;&#x0a;&#x0d;&#x0a;### Bug Fixes&#x0d;&#x0a;- " />
         </StackPanel>
 
-        <!-- Form Row 4: Console Output & Status -->
-        <Grid Grid.Row="4" Margin="0,0,0,14">
+        <!-- Form Row 5: Console Output & Status -->
+        <Grid Grid.Row="5" Margin="0,0,0,14">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -268,7 +305,7 @@ if (Test-Path $tokenFile) {
         </Grid>
 
         <!-- Footer / Action Buttons -->
-        <Grid Grid.Row="5">
+        <Grid Grid.Row="6">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -279,10 +316,10 @@ if (Test-Path $tokenFile) {
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                 <CheckBox Name="chkPreRelease" Content="Pre-release" Margin="0,0,16,0" />
-                <CheckBox Name="chkBuildFirst" Content="Compile Installer First" IsChecked="True" />
+                <CheckBox Name="chkBuildFirst" Content="Build Selected Targets First" IsChecked="True" />
             </StackPanel>
 
-            <Button Grid.Column="2" Name="btnBuildOnly" Content="Build Only" 
+            <Button Grid.Column="2" Name="btnBuildOnly" Content="Build Selected" 
                     Background="#1E293B" Foreground="#F8FAFC" BorderThickness="1" BorderBrush="#334155"
                     Padding="16,8" FontSize="12" FontWeight="SemiBold" Cursor="Hand" />
 
@@ -318,6 +355,50 @@ $btnPublish = $window.FindName("btnPublish")
 $btnOpenReleases = $window.FindName("btnOpenReleases")
 $btnOpenDist = $window.FindName("btnOpenDist")
 $btnClearLog = $window.FindName("btnClearLog")
+
+# Target platform controls
+$chkTargetWin = $window.FindName("chkTargetWin")
+$chkTargetLinuxX64 = $window.FindName("chkTargetLinuxX64")
+$chkTargetLinuxArm64 = $window.FindName("chkTargetLinuxArm64")
+$chkTargetMacArm64 = $window.FindName("chkTargetMacArm64")
+$chkTargetMacX64 = $window.FindName("chkTargetMacX64")
+$btnSelectAllTargets = $window.FindName("btnSelectAllTargets")
+$btnSelectWinTarget = $window.FindName("btnSelectWinTarget")
+$btnClearTargets = $window.FindName("btnClearTargets")
+
+function Get-SelectedTargets() {
+    $targets = [System.Collections.Generic.List[string]]::new()
+    if ($chkTargetWin.IsChecked -eq $true) { $targets.Add("win-x64") }
+    if ($chkTargetLinuxX64.IsChecked -eq $true) { $targets.Add("linux-x64") }
+    if ($chkTargetLinuxArm64.IsChecked -eq $true) { $targets.Add("linux-arm64") }
+    if ($chkTargetMacArm64.IsChecked -eq $true) { $targets.Add("osx-arm64") }
+    if ($chkTargetMacX64.IsChecked -eq $true) { $targets.Add("osx-x64") }
+    return $targets.ToArray()
+}
+
+$btnSelectAllTargets.Add_Click({
+    $chkTargetWin.IsChecked = $true
+    $chkTargetLinuxX64.IsChecked = $true
+    $chkTargetLinuxArm64.IsChecked = $true
+    $chkTargetMacArm64.IsChecked = $true
+    $chkTargetMacX64.IsChecked = $true
+})
+
+$btnSelectWinTarget.Add_Click({
+    $chkTargetWin.IsChecked = $true
+    $chkTargetLinuxX64.IsChecked = $false
+    $chkTargetLinuxArm64.IsChecked = $false
+    $chkTargetMacArm64.IsChecked = $false
+    $chkTargetMacX64.IsChecked = $false
+})
+
+$btnClearTargets.Add_Click({
+    $chkTargetWin.IsChecked = $false
+    $chkTargetLinuxX64.IsChecked = $false
+    $chkTargetLinuxArm64.IsChecked = $false
+    $chkTargetMacArm64.IsChecked = $false
+    $chkTargetMacX64.IsChecked = $false
+})
 
 function Get-ActiveToken() {
     if ($txtTokenPlain.Visibility -eq [System.Windows.Visibility]::Visible) {
@@ -475,7 +556,6 @@ $btnGenerateNotes.Add_Click({
             } elseif ($trimmed -match '^[0-9a-f]+\s+(?:refactor|perf|docs|chore)(?:\([^)]+\))?:\s*(.+)$') {
                 $improvements.Add("- $($matches[1].Trim())")
             } else {
-                # General commit
                 $cleaned = $trimmed -replace '^[0-9a-f]+\s+', ''
                 $improvements.Add("- $cleaned")
             }
@@ -485,6 +565,17 @@ $btnGenerateNotes.Add_Click({
         $tag = $txtTag.Text.Trim()
         $md.AppendLine("## What's Changed in Agents Hub $tag") | Out-Null
         $md.AppendLine("") | Out-Null
+
+        $selected = Get-SelectedTargets
+        if ($selected.Length -gt 0) {
+            $md.AppendLine("### Platforms Included") | Out-Null
+            if ($selected -contains "win-x64") { $md.AppendLine("- Windows x64 (Native Inno Setup Installer & Portable Zip)") | Out-Null }
+            if ($selected -contains "linux-x64") { $md.AppendLine("- Linux x64 (Self-contained standalone archive)") | Out-Null }
+            if ($selected -contains "linux-arm64") { $md.AppendLine("- Linux ARM64 (Self-contained standalone archive)") | Out-Null }
+            if ($selected -contains "osx-arm64") { $md.AppendLine("- macOS Apple Silicon (Self-contained standalone archive)") | Out-Null }
+            if ($selected -contains "osx-x64") { $md.AppendLine("- macOS Intel x64 (Self-contained standalone archive)") | Out-Null }
+            $md.AppendLine("") | Out-Null
+        }
 
         if ($features.Count -gt 0) {
             $md.AppendLine("### Features & Enhancements") | Out-Null
@@ -530,26 +621,109 @@ $btnOpenReleases.Add_Click({
     })
 })
 
-# "Build Only" Handler
+# Helper function to discover assets matching selected targets
+function Find-TargetAssets($distDir, $cleanVer, $targets) {
+    $assets = [System.Collections.Generic.List[psobject]]::new()
+
+    foreach ($target in $targets) {
+        switch ($target) {
+            "win-x64" {
+                # Setup exe
+                $setup = Get-ChildItem -Path $distDir -Filter "AgentsHub-Setup-v$cleanVer.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $setup) {
+                    $setup = Get-ChildItem -Path $distDir -Filter "AgentsHub-Setup*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                }
+                if ($setup) {
+                    $assets.Add([PSCustomObject]@{ Path = $setup.FullName; Name = $setup.Name; Target = "win-x64"; Kind = "Installer" })
+                }
+                # Portable zip
+                $zip = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-win-x64.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $zip) {
+                    $zip = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-win-x64.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                }
+                if ($zip) {
+                    $assets.Add([PSCustomObject]@{ Path = $zip.FullName; Name = $zip.Name; Target = "win-x64"; Kind = "Zip" })
+                }
+            }
+            "linux-x64" {
+                $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-linux-x64.tar.gz" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $tar) {
+                    $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-linux-x64.tar.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                }
+                if ($tar) {
+                    $assets.Add([PSCustomObject]@{ Path = $tar.FullName; Name = $tar.Name; Target = "linux-x64"; Kind = "Tarball" })
+                }
+            }
+            "linux-arm64" {
+                $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-linux-arm64.tar.gz" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $tar) {
+                    $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-linux-arm64.tar.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                }
+                if ($tar) {
+                    $assets.Add([PSCustomObject]@{ Path = $tar.FullName; Name = $tar.Name; Target = "linux-arm64"; Kind = "Tarball" })
+                }
+            }
+            "osx-arm64" {
+                $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-osx-arm64.tar.gz" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $tar) {
+                    $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-osx-arm64.tar.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                }
+                if ($tar) {
+                    $assets.Add([PSCustomObject]@{ Path = $tar.FullName; Name = $tar.Name; Target = "osx-arm64"; Kind = "Tarball" })
+                }
+            }
+            "osx-x64" {
+                $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-osx-x64.tar.gz" -ErrorAction SilentlyContinue | Select-Object -First 1
+                if (-not $tar) {
+                    $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-osx-x64.tar.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                }
+                if ($tar) {
+                    $assets.Add([PSCustomObject]@{ Path = $tar.FullName; Name = $tar.Name; Target = "osx-x64"; Kind = "Tarball" })
+                }
+            }
+        }
+    }
+
+    # Deduplicate by Path
+    $seen = @{}
+    $unique = [System.Collections.Generic.List[psobject]]::new()
+    foreach ($a in $assets) {
+        if (-not $seen.ContainsKey($a.Path)) {
+            $seen[$a.Path] = $true
+            $unique.Add($a)
+        }
+    }
+    return $unique.ToArray()
+}
+
+# "Build Selected" Handler
 $btnBuildOnly.Add_Click({
     $tag = $txtTag.Text.Trim()
+    $selectedTargets = Get-SelectedTargets
+
+    if ($selectedTargets.Length -eq 0) {
+        [System.Windows.MessageBox]::Show("Please select at least one target platform to build.", "No Target Selected", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        return
+    }
+
     $cleanVer = Sync-VersionToCsproj $tag
 
     $btnBuildOnly.IsEnabled = $false
     $btnPublish.IsEnabled = $false
     $pbUpload.Visibility = [System.Windows.Visibility]::Collapsed
-    $lblProgress.Text = "Compiling installer..."
+    $lblProgress.Text = "Building targets..."
     $txtLog.Text = ""
-    Write-LogMessage "Compiling self-contained single-file release package & Inno Setup installer..."
+    Write-LogMessage "Compiling packages for targets: $($selectedTargets -join ', ')..."
 
     $logQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
     $resultQueue = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
 
     $workerScript = {
-        param($rootDir, $cleanVer, $lq, $rq)
+        param($rootDir, $cleanVer, $targets, $lq, $rq)
         try {
-            $buildCmd = Join-Path $rootDir "build-installer.cmd"
-            $psi = [System.Diagnostics.ProcessStartInfo]::new("cmd.exe", "/c `"$buildCmd`"")
+            $targetsArg = $targets -join " "
+            $buildScript = Join-Path $rootDir "tools\BuildTargets.ps1"
+            $psi = [System.Diagnostics.ProcessStartInfo]::new("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File `"$buildScript`" -Targets $targetsArg -Version $cleanVer")
             $psi.WorkingDirectory = $rootDir
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError = $true
@@ -564,27 +738,16 @@ $btnBuildOnly.Add_Click({
             $proc.WaitForExit()
 
             if ($proc.ExitCode -eq 0) {
-                $distDir = Join-Path $rootDir "dist"
-                $installer = Get-ChildItem -Path $distDir -Filter "AgentsHub-Setup-v$cleanVer.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-                if (-not $installer) {
-                    $installer = Get-ChildItem -Path $distDir -Filter "AgentsHub-Setup*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-                }
-
-                if ($installer) {
-                    $sizeMb = [Math]::Round($installer.Length / 1MB, 2)
-                    $rq.Enqueue(@{ Success = $true; Path = $installer.FullName; Size = $sizeMb })
-                } else {
-                    $rq.Enqueue(@{ Success = $false; Code = 1; Error = "Installer executable not found in dist\" })
-                }
+                $rq.Enqueue(@{ Success = $true; Code = 0 })
             } else {
-                $rq.Enqueue(@{ Success = $false; Code = $proc.ExitCode })
+                $rq.Enqueue(@{ Success = $false; Code = $proc.ExitCode; Error = "Build script failed with exit code $($proc.ExitCode)" })
             }
         } catch {
             $rq.Enqueue(@{ Success = $false; Error = $_.Exception.Message })
         }
     }
 
-    $psInstance = [PowerShell]::Create().AddScript($workerScript).AddArgument($rootDir).AddArgument($cleanVer).AddArgument($logQueue).AddArgument($resultQueue)
+    $psInstance = [PowerShell]::Create().AddScript($workerScript).AddArgument($rootDir).AddArgument($cleanVer).AddArgument($selectedTargets).AddArgument($logQueue).AddArgument($resultQueue)
     $asyncHandle = $psInstance.BeginInvoke()
 
     $timer = [System.Windows.Threading.DispatcherTimer]::new()
@@ -611,15 +774,26 @@ $btnBuildOnly.Add_Click({
             $res = $null
             if ($resultQueue.TryDequeue([ref]$res)) {
                 if ($res.Success) {
-                    $lblProgress.Text = "Installer Ready ($($res.Size) MB)"
-                    Write-LogMessage "[SUCCESS] Self-contained single-file installer ready: $($res.Path)"
-                    $dlg = [System.Windows.MessageBox]::Show("Setup installer package compiled successfully ($($res.Size) MB)!`n`nLocation:`n$($res.Path)`n`nWould you like to open the dist folder in File Explorer?", "Installer Build Succeeded", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Information)
+                    $distDir = Join-Path $rootDir "dist"
+                    $foundAssets = Find-TargetAssets $distDir $cleanVer $selectedTargets
+                    $totalMb = 0
+                    foreach ($fa in $foundAssets) {
+                        $totalMb += [Math]::Round((Get-Item $fa.Path).Length / 1MB, 2)
+                    }
+
+                    $lblProgress.Text = "Build Succeeded ($($foundAssets.Length) packages)"
+                    Write-LogMessage "[SUCCESS] All selected target packages built ($totalMb MB total in dist\):"
+                    foreach ($fa in $foundAssets) {
+                        Write-LogMessage "  + $($fa.Name) ($([Math]::Round((Get-Item $fa.Path).Length / 1MB, 2)) MB)"
+                    }
+
+                    $dlg = [System.Windows.MessageBox]::Show("$($foundAssets.Length) package(s) compiled successfully ($totalMb MB total)!`n`nWould you like to open the dist folder in File Explorer?", "Build Succeeded", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Information)
                     if ($dlg -eq [System.Windows.MessageBoxResult]::Yes) {
-                        [System.Diagnostics.Process]::Start("explorer.exe", "/select,`"$($res.Path)`"")
+                        [System.Diagnostics.Process]::Start("explorer.exe", $distDir)
                     }
                 } else {
                     $lblProgress.Text = "Build Failed"
-                    [System.Windows.MessageBox]::Show("Installer build failed. Check log output for details.", "Build Failed", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
+                    [System.Windows.MessageBox]::Show("Build failed ($($res.Error)). Check log output for details.", "Build Failed", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
                 }
             }
         }
@@ -637,7 +811,12 @@ $btnPublish.Add_Click({
     $notes = $txtNotes.Text
     $shouldBuild = $chkBuildFirst.IsChecked -eq $true
     $isPre = $chkPreRelease.IsChecked -eq $true
+    $selectedTargets = Get-SelectedTargets
 
+    if ($selectedTargets.Length -eq 0) {
+        [System.Windows.MessageBox]::Show("Please select at least one target platform to publish.", "Validation Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+        return
+    }
     if (-not $tag) {
         [System.Windows.MessageBox]::Show("Release Tag is required (e.g. v1.0.4).", "Validation Error", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
         return
@@ -665,24 +844,26 @@ $btnPublish.Add_Click({
     $pbUpload.Visibility = [System.Windows.Visibility]::Collapsed
     $lblProgress.Text = ""
     $txtLog.Text = ""
-    Write-LogMessage "Starting release process for $tag..."
+    Write-LogMessage "Starting multi-target release process for $tag..."
+    Write-LogMessage "Selected targets: $($selectedTargets -join ', ')"
 
     $logQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
     $resultQueue = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
 
     $workerScript = {
-        param($rootDir, $tag, $cleanVer, $title, $token, $notes, $shouldBuild, $isPre, $lq, $rq)
+        param($rootDir, $tag, $cleanVer, $title, $token, $notes, $shouldBuild, $isPre, $targets, $lq, $rq)
 
         function Log($m) {
             $lq.Enqueue($m)
         }
 
         try {
-            # 1. Build installer if requested
+            # 1. Build targets if requested
             if ($shouldBuild) {
-                Log "[1/3] Compiling application and Inno Setup installer package..."
-                $buildCmd = Join-Path $rootDir "build-installer.cmd"
-                $psi = [System.Diagnostics.ProcessStartInfo]::new("cmd.exe", "/c `"$buildCmd`"")
+                Log "[1/3] Compiling application packages for selected targets: $($targets -join ', ')..."
+                $targetsArg = $targets -join " "
+                $buildScript = Join-Path $rootDir "tools\BuildTargets.ps1"
+                $psi = [System.Diagnostics.ProcessStartInfo]::new("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File `"$buildScript`" -Targets $targetsArg -Version $cleanVer")
                 $psi.WorkingDirectory = $rootDir
                 $psi.RedirectStandardOutput = $true
                 $psi.RedirectStandardError = $true
@@ -692,44 +873,97 @@ $btnPublish.Add_Click({
                 $proc = [System.Diagnostics.Process]::Start($psi)
                 while (-not $proc.StandardOutput.EndOfStream) {
                     $line = $proc.StandardOutput.ReadLine()
-                    if ($line -match '\[\*\]|\[1/2\]|\[2/2\]|SUCCESS') {
+                    if ($line) {
                         Log "  $line"
                     }
                 }
                 $proc.WaitForExit()
 
                 if ($proc.ExitCode -ne 0) {
-                    Log "[ERROR] build-installer.cmd exited with code $($proc.ExitCode)."
-                    $rq.Enqueue(@{ Success = $false; Message = "Build failed." })
+                    Log "[ERROR] tools\BuildTargets.ps1 exited with code $($proc.ExitCode)."
+                    $rq.Enqueue(@{ Success = $false; Message = "Target build step failed." })
                     return
                 }
             }
 
-            # 2. Check installer file existence
+            # 2. Discover target assets in dist/
             $distDir = Join-Path $rootDir "dist"
-            $installer = Get-ChildItem -Path $distDir -Filter "AgentsHub-Setup-v$cleanVer.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $installer) {
-                $installer = Get-ChildItem -Path $distDir -Filter "AgentsHub-Setup*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            $assetsToUpload = [System.Collections.Generic.List[psobject]]::new()
+
+            foreach ($target in $targets) {
+                switch ($target) {
+                    "win-x64" {
+                        $setup = Get-ChildItem -Path $distDir -Filter "AgentsHub-Setup-v$cleanVer.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if (-not $setup) {
+                            $setup = Get-ChildItem -Path $distDir -Filter "AgentsHub-Setup*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                        }
+                        if ($setup) { $assetsToUpload.Add($setup) }
+
+                        $zip = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-win-x64.zip" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if (-not $zip) {
+                            $zip = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-win-x64.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                        }
+                        if ($zip) { $assetsToUpload.Add($zip) }
+                    }
+                    "linux-x64" {
+                        $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-linux-x64.tar.gz" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if (-not $tar) {
+                            $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-linux-x64.tar.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                        }
+                        if ($tar) { $assetsToUpload.Add($tar) }
+                    }
+                    "linux-arm64" {
+                        $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-linux-arm64.tar.gz" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if (-not $tar) {
+                            $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-linux-arm64.tar.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                        }
+                        if ($tar) { $assetsToUpload.Add($tar) }
+                    }
+                    "osx-arm64" {
+                        $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-osx-arm64.tar.gz" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if (-not $tar) {
+                            $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-osx-arm64.tar.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                        }
+                        if ($tar) { $assetsToUpload.Add($tar) }
+                    }
+                    "osx-x64" {
+                        $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-v$cleanVer-osx-x64.tar.gz" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if (-not $tar) {
+                            $tar = Get-ChildItem -Path $distDir -Filter "AgentsHub-*-osx-x64.tar.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                        }
+                        if ($tar) { $assetsToUpload.Add($tar) }
+                    }
+                }
             }
 
-            if (-not $installer) {
-                Log "[ERROR] Expected installer not found in: $distDir"
-                $rq.Enqueue(@{ Success = $false; Message = "Installer missing in dist\" })
+            # Deduplicate assets
+            $uniqueAssets = @()
+            $seenPaths = @{}
+            foreach ($a in $assetsToUpload) {
+                if (-not $seenPaths.ContainsKey($a.FullName)) {
+                    $seenPaths[$a.FullName] = $true
+                    $uniqueAssets += $a
+                }
+            }
+
+            if ($uniqueAssets.Count -eq 0) {
+                Log "[ERROR] No matching release package assets found in: $distDir"
+                $rq.Enqueue(@{ Success = $false; Message = "No package assets found to upload in dist\" })
                 return
             }
 
-            $installerPath = $installer.FullName
-            $installerFileName = $installer.Name
-            $fileInfo = Get-Item $installerPath
-            $sizeMb = [Math]::Round($fileInfo.Length / 1MB, 2)
-            Log "[*] Verified installer binary ($sizeMb MB): $installerPath"
+            Log "[*] Identified $($uniqueAssets.Count) package asset(s) ready for upload:"
+            foreach ($a in $uniqueAssets) {
+                $mb = [Math]::Round($a.Length / 1MB, 2)
+                Log "  + $($a.Name) ($mb MB)"
+            }
 
-            # 3. Create Release on GitHub
+            # 3. Create or Fetch Release on GitHub
             Log "[2/3] Calling GitHub Releases API on ZerroDevs/AgentsHub..."
             $repo = "ZerroDevs/AgentsHub"
 
             $httpClient = [System.Net.Http.HttpClient]::new()
-            $httpClient.Timeout = [TimeSpan]::FromMinutes(10)
+            $httpClient.Timeout = [TimeSpan]::FromMinutes(15)
             $httpClient.DefaultRequestHeaders.Add("User-Agent", "AgentsHub-Publisher/1.0")
             $httpClient.DefaultRequestHeaders.Add("Authorization", "Bearer $token")
             $httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json")
@@ -745,56 +979,100 @@ $btnPublish.Add_Click({
             $jsonContent = [System.Net.Http.StringContent]::new($releaseBody, [System.Text.Encoding]::UTF8, "application/json")
             $createResp = $httpClient.PostAsync("https://api.github.com/repos/$repo/releases", $jsonContent).GetAwaiter().GetResult()
 
-            if (-not $createResp.IsSuccessStatusCode) {
+            $releaseData = $null
+            if ($createResp.IsSuccessStatusCode) {
+                $respJson = $createResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                $releaseData = $respJson | ConvertFrom-Json
+                Log "[*] Release record created ($($releaseData.tag_name), ID: $($releaseData.id))."
+            } elseif ($createResp.StatusCode -eq [System.Net.HttpStatusCode]::UnprocessableEntity) {
+                # Already exists? Try to get existing release
+                Log "[*] Release tag $tag may already exist on GitHub. Fetching release info..."
+                $getResp = $httpClient.GetAsync("https://api.github.com/repos/$repo/releases/tags/$tag").GetAwaiter().GetResult()
+                if ($getResp.IsSuccessStatusCode) {
+                    $respJson = $getResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                    $releaseData = $respJson | ConvertFrom-Json
+                    Log "[*] Found existing release: $($releaseData.name) (ID: $($releaseData.id))"
+                } else {
+                    $errContent = $createResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                    Log "[ERROR] GitHub Release creation failed: $errContent"
+                    $rq.Enqueue(@{ Success = $false; Message = "GitHub API error: $errContent" })
+                    return
+                }
+            } else {
                 $errContent = $createResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
                 Log "[ERROR] GitHub Release creation failed (Status: $($createResp.StatusCode)): $errContent"
                 $rq.Enqueue(@{ Success = $false; Message = "GitHub API error: $errContent" })
                 return
             }
 
-            $respJson = $createResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-            $releaseData = $respJson | ConvertFrom-Json
             $uploadUrlTemplate = $releaseData.upload_url
             $htmlUrl = $releaseData.html_url
 
-            Log "[*] Release record created ($($releaseData.tag_name))."
-            Log "[3/3] Uploading $installerFileName ($sizeMb MB)..."
+            # 4. Upload Assets Sequentially
+            Log "[3/3] Uploading $($uniqueAssets.Count) package asset(s) to GitHub..."
+            $assetIndex = 0
+            $totalSizeMb = 0
 
-            # 4. Upload Setup Binary Asset
-            $uploadUrl = $uploadUrlTemplate -replace '\{\?name,label\}', "?name=$installerFileName"
-            $fileLength = [System.IO.FileInfo]::new($installerPath).Length
-            $fileStream = [System.IO.File]::OpenRead($installerPath)
-            $progressStream = [AgentsHubPublisher.UploadProgressStream]::new($fileStream, $fileLength, $lq)
-            try {
-                $streamContent = [System.Net.Http.StreamContent]::new($progressStream, 65536)
-                $streamContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
-                $streamContent.Headers.ContentLength = $fileLength
+            foreach ($assetFile in $uniqueAssets) {
+                $assetIndex++
+                $fileName = $assetFile.Name
+                $filePath = $assetFile.FullName
+                $fileLength = $assetFile.Length
+                $sizeMb = [Math]::Round($fileLength / 1MB, 2)
+                $totalSizeMb += $sizeMb
 
-                $uploadResp = $httpClient.PostAsync($uploadUrl, $streamContent).GetAwaiter().GetResult()
-                if (-not $uploadResp.IsSuccessStatusCode) {
-                    $errContent = $uploadResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-                    Log "[ERROR] Asset upload failed (Status: $($uploadResp.StatusCode)): $errContent"
-                    $rq.Enqueue(@{ Success = $false; Message = "Asset upload error: $errContent" })
-                    return
+                # Check if asset already exists on this release
+                if ($releaseData.assets) {
+                    $existing = $releaseData.assets | Where-Object { $_.name -eq $fileName } | Select-Object -First 1
+                    if ($existing) {
+                        Log "[*] Asset $fileName already attached (ID: $($existing.id)). Deleting previous upload..."
+                        $delResp = $httpClient.DeleteAsync($existing.url).GetAwaiter().GetResult()
+                        if ($delResp.IsSuccessStatusCode) {
+                            Log "[*] Removed stale asset $fileName."
+                        }
+                    }
                 }
-            } finally {
-                $progressStream.Dispose()
+
+                $prefix = "[$assetIndex/$($uniqueAssets.Count)] $fileName"
+                Log "[*] $prefix ($sizeMb MB)..."
+
+                $uploadUrl = $uploadUrlTemplate -replace '\{\?name,label\}', "?name=$fileName"
+                $fileStream = [System.IO.File]::OpenRead($filePath)
+                $progressStream = [AgentsHubPublisher.UploadProgressStream]::new($fileStream, $fileLength, $lq, $prefix)
+
+                try {
+                    $streamContent = [System.Net.Http.StreamContent]::new($progressStream, 65536)
+                    $streamContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/octet-stream")
+                    $streamContent.Headers.ContentLength = $fileLength
+
+                    $uploadResp = $httpClient.PostAsync($uploadUrl, $streamContent).GetAwaiter().GetResult()
+                    if (-not $uploadResp.IsSuccessStatusCode) {
+                        $errContent = $uploadResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                        Log "[ERROR] Asset upload failed for $($fileName) (Status: $($uploadResp.StatusCode)): $errContent"
+                        $rq.Enqueue(@{ Success = $false; Message = "Asset upload error on $($fileName): $errContent" })
+                        return
+                    }
+                    Log "[+] Uploaded: $fileName"
+                } finally {
+                    $progressStream.Dispose()
+                }
             }
 
             Log ""
             Log "=========================================================="
             Log "SUCCESS: Release $tag is now live on GitHub!"
+            Log "Uploaded $($uniqueAssets.Count) package(s) ($totalSizeMb MB total)"
             Log "URL: $htmlUrl"
             Log "=========================================================="
 
-            $rq.Enqueue(@{ Success = $true; Tag = $tag; Url = $htmlUrl; Size = $sizeMb })
+            $rq.Enqueue(@{ Success = $true; Tag = $tag; Url = $htmlUrl; Count = $uniqueAssets.Count; Size = $totalSizeMb })
         } catch {
             Log "[EXCEPTION] $($_.Exception.Message)"
             $rq.Enqueue(@{ Success = $false; Message = $_.Exception.Message })
         }
     }
 
-    $psInstance = [PowerShell]::Create().AddScript($workerScript).AddArgument($rootDir).AddArgument($tag).AddArgument($cleanVer).AddArgument($title).AddArgument($token).AddArgument($notes).AddArgument($shouldBuild).AddArgument($isPre).AddArgument($logQueue).AddArgument($resultQueue)
+    $psInstance = [PowerShell]::Create().AddScript($workerScript).AddArgument($rootDir).AddArgument($tag).AddArgument($cleanVer).AddArgument($title).AddArgument($token).AddArgument($notes).AddArgument($shouldBuild).AddArgument($isPre).AddArgument($selectedTargets).AddArgument($logQueue).AddArgument($resultQueue)
     $asyncHandle = $psInstance.BeginInvoke()
 
     $timer = [System.Windows.Threading.DispatcherTimer]::new()
@@ -807,10 +1085,15 @@ $btnPublish.Add_Click({
                 $pct = [int]$parts[1]
                 $mbSent = $parts[2]
                 $mbTot = $parts[3]
+                $prefix = if ($parts.Length -gt 4) { $parts[4] } else { "" }
 
                 $pbUpload.Visibility = [System.Windows.Visibility]::Visible
                 $pbUpload.Value = $pct
-                $lblProgress.Text = "Uploading: $pct% ($mbSent / $mbTot MB)"
+                if ($prefix) {
+                    $lblProgress.Text = "$($prefix): $pct% ($mbSent / $mbTot MB)"
+                } else {
+                    $lblProgress.Text = "Uploading: $pct% ($mbSent / $mbTot MB)"
+                }
             } else {
                 Write-LogMessage $m
             }
@@ -835,8 +1118,8 @@ $btnPublish.Add_Click({
             if ($resultQueue.TryDequeue([ref]$res)) {
                 if ($res.Success) {
                     $pbUpload.Value = 100
-                    $lblProgress.Text = "Published Successfully!"
-                    $dlg = [System.Windows.MessageBox]::Show("Release $($res.Tag) was published to GitHub successfully with installer attached ($($res.Size) MB)!`n`nWould you like to open the release in your browser?", "Release Published", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Information)
+                    $lblProgress.Text = "Published $($res.Count) Packages Successfully!"
+                    $dlg = [System.Windows.MessageBox]::Show("Release $($res.Tag) was published to GitHub successfully with $($res.Count) platform package(s) attached ($($res.Size) MB total)!`n`nWould you like to open the release in your browser?", "Release Published", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Information)
                     if ($dlg -eq [System.Windows.MessageBoxResult]::Yes) {
                         [System.Diagnostics.Process]::Start([System.Diagnostics.ProcessStartInfo]@{
                             FileName = $res.Url

@@ -299,14 +299,14 @@ public sealed partial class CliWebTerminalServer : IDisposable
         {
             var info = _cliManager.GetInfo(endpoint.SessionId);
             var history = _cliManager.GetTerminalHistory(endpoint.SessionId);
-            var initPayload = new CliWebviewForm.TerminalInitPayload(
+            var initPayload = new Models.TerminalInitPayload(
                 "init",
                 endpoint.DisplayName,
                 info.State == CliState.Running,
                 info.StatusText,
                 history);
 
-            string initJson = JsonSerializer.Serialize(initPayload, CliWebviewForm.CliJsonContext.Default.TerminalInitPayload);
+            string initJson = JsonSerializer.Serialize(initPayload);
             await client.SendTextAsync(initJson, ct).ConfigureAwait(false);
 
             // Send current active theme immediately
@@ -395,8 +395,8 @@ public sealed partial class CliWebTerminalServer : IDisposable
     {
         if (!_endpoints.TryGetValue(sessionId, out var endpoint) || endpoint.Sockets.IsEmpty) return;
 
-        var payload = new CliWebviewForm.TerminalOutputPayload("output", text);
-        string json = JsonSerializer.Serialize(payload, CliWebviewForm.CliJsonContext.Default.TerminalOutputPayload);
+        var payload = new Models.TerminalOutputPayload("output", text);
+        string json = JsonSerializer.Serialize(payload);
 
         foreach (var client in endpoint.Sockets.Values)
         {
@@ -411,8 +411,8 @@ public sealed partial class CliWebTerminalServer : IDisposable
     {
         if (!_endpoints.TryGetValue(sessionId, out var endpoint) || endpoint.Sockets.IsEmpty) return;
 
-        var payload = new CliWebviewForm.TerminalStatusPayload("status", state == CliState.Running, message);
-        string json = JsonSerializer.Serialize(payload, CliWebviewForm.CliJsonContext.Default.TerminalStatusPayload);
+        var payload = new Models.TerminalStatusPayload("status", state == CliState.Running, message);
+        string json = JsonSerializer.Serialize(payload);
 
         foreach (var client in endpoint.Sockets.Values)
         {

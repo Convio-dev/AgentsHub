@@ -2,8 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <TargetFrameworks>net10.0-windows;net10.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -13,7 +12,6 @@
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
 
     <!-- إعدادات التوافق مع المصمم -->
-    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
     <!-- Makes the style rules in .editorconfig build errors, so the IDE and `dotnet build` agree. -->
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
@@ -25,14 +23,38 @@
     <AssemblyVersion>1.0.4.0</AssemblyVersion>
     <FileVersion>1.0.4.0</FileVersion>
     <Version>1.0.4</Version>
-    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <NoWarn>$(NoWarn);MSB3277;CA1416</NoWarn>
   </PropertyGroup>
+
+  <!-- Platform specific targets -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <UseWindowsForms>true</UseWindowsForms>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <UseWindowsForms>false</UseWindowsForms>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0-windows'">
+    <Compile Remove="MainForm.cs" />
+    <Compile Remove="MainForm.Designer.cs" />
+    <Compile Remove="CliWebviewForm.cs" />
+    <Compile Remove="CliWebviewForm.Designer.cs" />
+    <Compile Remove="HudTerminalForm.cs" />
+    <Compile Remove="HudTerminalForm.Designer.cs" />
+    <Compile Remove="ManageClisForm.cs" />
+    <Compile Remove="ManageClisForm.Designer.cs" />
+    <Compile Remove="Forms\**\*.cs" />
+    <EmbeddedResource Remove="**\*.resx" />
+  </ItemGroup>
 
   <!-- تفعيل خصائص الـ Trimming و SingleFile فقط أثناء الـ Publish ليبقى المصمم يعمل بسلاسة -->
   <PropertyGroup Condition="'$(PublishProtocol)' != '' or '$(Configuration)' == 'Release'">
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <PublishTrimmed>true</PublishTrimmed>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
@@ -50,14 +72,17 @@
 
   <ItemGroup>
     <TrimmerRootAssembly Include="AgentsHub" />
-    <TrimmerRootAssembly Include="Microsoft.Web.WebView2.Core" />
-    <TrimmerRootAssembly Include="Microsoft.Web.WebView2.WinForms" />
     <RuntimeHostConfigurationOption Include="System.Runtime.InteropServices.BuiltInComInterop.IsSupported" Value="true" />
     <RuntimeHostConfigurationOption Include="System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault" Value="true" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <TrimmerRootAssembly Include="Microsoft.Web.WebView2.Core" />
+    <TrimmerRootAssembly Include="Microsoft.Web.WebView2.WinForms" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Net.Codecrete.QrCodeGenerator" Version="3.2.1" />
   </ItemGroup>
 

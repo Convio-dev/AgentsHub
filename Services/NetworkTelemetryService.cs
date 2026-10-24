@@ -1,14 +1,10 @@
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 
 namespace AgentsHub.Services;
 
 /// <summary>
 /// Samples network throughput on a background timer.
-///
-/// <c>Bytes Total/sec</c> is a delta counter, so the primed <see cref="PerformanceCounter"/>
-/// instances are cached and reused: creating them per poll, or reading one twice in a row,
-/// would return a meaningless value. Callers only read the cheap cached snapshot, which keeps
-/// the UI thread free of counter work.
 /// </summary>
 public static class NetworkTelemetryService
 {
@@ -18,8 +14,13 @@ public static class NetworkTelemetryService
     private static readonly Lock SampleLock = new();
 
     private static System.Threading.Timer? _sampler;
+#if WINDOWS
     private static List<PerformanceCounter> _counters = [];
     private static DateTime _countersRefreshUtc = DateTime.MinValue;
+#else
+    private static long _lastTotalBytes;
+    private static DateTime _lastSampleUtc = DateTime.UtcNow;
+#endif
 
     // Written by the sampler thread, read by the UI thread. A plain int keeps the write atomic,
     // so the reader never needs the sample lock and can never be blocked by a slow pass.
@@ -56,6 +57,7 @@ public static class NetworkTelemetryService
 
     private static void SampleLocked()
     {
+#if WINDOWS
         var now = DateTime.UtcNow;
         if (_counters.Count == 0 || (now - _countersRefreshUtc).TotalMilliseconds >= CounterRefreshMs)
         {
@@ -80,8 +82,36 @@ public static class NetworkTelemetryService
 
         long kbps = (long)Math.Round(Math.Max(0.0, totalBytesPerSec) / 1024.0);
         Volatile.Write(ref _kiloBytesPerSec, (int)Math.Clamp(kbps, 0, int.MaxValue));
+#else
+        var now = DateTime.UtcNow;
+        double elapsedSec = (now - _lastSampleUtc).TotalSeconds;
+        if (elapsedSec <= 0) return;
+
+        long currentTotalBytes = 0;
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                var stats = ni.GetIPStatistics();
+                currentTotalBytes += stats.BytesReceived + stats.BytesSent;
+            }
+
+            if (_lastTotalBytes > 0 && currentTotalBytes >= _lastTotalBytes)
+            {
+                long deltaBytes = currentTotalBytes - _lastTotalBytes;
+                long kbps = (long)Math.Round((deltaBytes / elapsedSec) / 1024.0);
+                Volatile.Write(ref _kiloBytesPerSec, (int)Math.Clamp(kbps, 0, int.MaxValue));
+            }
+            _lastTotalBytes = currentTotalBytes;
+            _lastSampleUtc = now;
+        }
+        catch { }
+#endif
     }
 
+#if WINDOWS
     /// <summary>
     /// Rebuilds the adapter counter set, reusing the instances that still exist so their delta
     /// baselines survive the refresh.
@@ -170,4 +200,5 @@ public static class NetworkTelemetryService
             try { counter.Dispose(); } catch { }
         }
     }
+#endif
 }
