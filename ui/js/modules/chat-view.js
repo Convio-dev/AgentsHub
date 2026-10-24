@@ -35,23 +35,71 @@
     const drawerCliName = document.getElementById('chat-drawer-cli-name');
     const drawerContent = document.getElementById('chat-drawer-terminal-content');
 
-    // 1. Populate workers dropdown
+    // 1. Populate workers dropdown & account profiles
+    function isWorkerRunning(workerId) {
+      if (!workerId) return false;
+      if (workerId.startsWith('antigravity_')) {
+        const profName = workerId.substring('antigravity_'.length).toLowerCase();
+        const profs = window.state?.antigravity?.profiles || [];
+        const found = profs.find(p => (typeof p === 'object' ? (p.name || '') : p).toLowerCase() === profName);
+        return found && typeof found === 'object' ? !!found.isRunning : false;
+      }
+      if (workerId === 'claude_code' || workerId === 'ClaudeCode') {
+        return window.state?.claudeStatus === 'Online' || window.state?.clis?.ClaudeCode?.state === 'Running';
+      }
+      if (workerId === 'hermes' || workerId === 'Hermes') {
+        return window.state?.hermesStatus === 'Online' || window.state?.clis?.Hermes?.state === 'Running';
+      }
+      return false;
+    }
+
+    function updateWorkerPowerButton() {
+      const btnPower = document.getElementById('btn-chat-worker-toggle');
+      const lblPower = document.getElementById('lbl-worker-power');
+      const iconPower = document.getElementById('icon-worker-power');
+      if (!btnPower || !lblPower) return;
+
+      const running = isWorkerRunning(activeWorker);
+      if (running) {
+        btnPower.className = 'btn-worker-power running';
+        lblPower.textContent = 'Stop CLI';
+        btnPower.title = 'Stop this background CLI process';
+        if (iconPower) {
+          iconPower.innerHTML = '<rect width="12" height="12" x="6" y="6" rx="2" fill="currentColor"/>';
+        }
+        updateWorkerStatus('idle', 'Online (Ready)');
+      } else {
+        btnPower.className = 'btn-worker-power offline';
+        lblPower.textContent = 'Start CLI';
+        btnPower.title = 'Start this CLI process in the background';
+        if (iconPower) {
+          iconPower.innerHTML = '<polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/>';
+        }
+        updateWorkerStatus('offline', 'Offline');
+      }
+    }
+
     function refreshWorkerList() {
       if (!workerSelect) return;
       const profilesGroup = document.getElementById('chat-optgroup-antigravity');
-      if (profilesGroup && window.state?.profiles) {
+      if (profilesGroup) {
         profilesGroup.innerHTML = '';
-        const profs = Array.isArray(window.state.profiles) ? window.state.profiles : [];
+        const rawProfs = window.state?.antigravity?.profiles || window.state?.profiles || [];
+        const profs = Array.isArray(rawProfs) ? rawProfs : [];
         if (profs.length === 0) {
           const opt = document.createElement('option');
-          opt.value = 'antigravity_default';
+          opt.value = 'antigravity_Default';
           opt.textContent = 'Antigravity (Default)';
           profilesGroup.appendChild(opt);
         } else {
-          profs.forEach((p, idx) => {
+          profs.forEach((p) => {
+            const name = typeof p === 'object' ? (p.name || '') : p;
+            const email = typeof p === 'object' ? (p.email || '') : '';
+            const isRunning = typeof p === 'object' ? !!p.isRunning : false;
             const opt = document.createElement('option');
-            opt.value = `antigravity_${p.id || p.Id || idx}`;
-            opt.textContent = `Antigravity — ${p.name || p.Name || 'Profile ' + (idx + 1)}`;
+            opt.value = `antigravity_${name}`;
+            const label = email ? `${name} (${email})` : name;
+            opt.textContent = `${label} ${isRunning ? '● [Running]' : '○ [Offline]'}`;
             profilesGroup.appendChild(opt);
           });
         }
@@ -74,7 +122,60 @@
           customGroup.classList.add('hidden');
         }
       }
+
+      // Preserve activeWorker selection or set to first available
+      if (workerSelect.querySelector(`option[value="${activeWorker}"]`)) {
+        workerSelect.value = activeWorker;
+      } else {
+        const activeProf = window.state?.antigravity?.activeProfile;
+        if (activeProf && workerSelect.querySelector(`option[value="antigravity_${activeProf}"]`)) {
+          workerSelect.value = `antigravity_${activeProf}`;
+          activeWorker = `antigravity_${activeProf}`;
+        }
+      }
+
+      updateWorkerPowerButton();
     }
+
+    // Direct Start / Stop button listener
+    document.getElementById('btn-chat-worker-toggle')?.addEventListener('click', async () => {
+      const btnPower = document.getElementById('btn-chat-worker-toggle');
+      const lblPower = document.getElementById('lbl-worker-power');
+      const currentlyRunning = isWorkerRunning(activeWorker);
+
+      if (lblPower) lblPower.textContent = currentlyRunning ? 'Stopping...' : 'Starting...';
+      if (btnPower) btnPower.style.opacity = '0.6';
+
+      try {
+        if (activeWorker.startsWith('antigravity_')) {
+          const profName = activeWorker.substring('antigravity_'.length);
+          if (currentlyRunning) {
+            await window.callBridge('stop_antigravity_instance', { profile: profName });
+            if (typeof window.showToast === 'function') window.showToast(`Stopped Antigravity profile '${profName}'`, 'info');
+          } else {
+            await window.callBridge('start_antigravity_instance', { profile: profName });
+            if (typeof window.showToast === 'function') window.showToast(`Started Antigravity profile '${profName}' in background`, 'success');
+          }
+        } else if (activeWorker === 'claude_code') {
+          if (currentlyRunning) {
+            await window.callBridge('stop_cli', { cli: 'ClaudeCode' });
+          } else {
+            await window.callBridge('start_cli', { cli: 'ClaudeCode' });
+          }
+        } else if (activeWorker === 'hermes') {
+          if (currentlyRunning) {
+            await window.callBridge('stop_cli', { cli: 'Hermes' });
+          } else {
+            await window.callBridge('start_cli', { cli: 'Hermes' });
+          }
+        }
+      } catch (err) {
+        if (typeof window.showToast === 'function') window.showToast(`Failed: ${err?.message || err}`, 'error');
+      } finally {
+        if (btnPower) btnPower.style.opacity = '1';
+        setTimeout(refreshWorkerList, 300);
+      }
+    });
 
     // 2. Sync workspace badge
     function updateWorkspaceBadge() {
@@ -96,7 +197,7 @@
       if (drawerCliName) {
         drawerCliName.textContent = workerSelect.options[workerSelect.selectedIndex]?.text || activeWorker;
       }
-      updateWorkerStatus('idle', 'Ready');
+      updateWorkerPowerButton();
     });
 
     function updateWorkerStatus(status, text) {
@@ -529,6 +630,14 @@
     window.addEventListener('state-loaded', () => {
       refreshWorkerList();
       updateWorkspaceBadge();
+    });
+
+    window.addEventListener('antigravity_instance_status_changed', () => {
+      refreshWorkerList();
+    });
+
+    window.addEventListener('cli_status_changed', () => {
+      refreshWorkerList();
     });
 
     // Auto-focus chat input when switching to Agent Chat view

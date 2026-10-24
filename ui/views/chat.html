@@ -10,16 +10,20 @@
                   <div class="chat-worker-selector-wrap" title="Select which AI agent account or CLI to converse with">
                     <svg class="icon-svg" style="width: 14px; height: 14px; color: var(--accent-green);" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                     <select id="chat-worker-select" class="chat-worker-select">
-                      <optgroup label="Antigravity Accounts" id="chat-optgroup-antigravity">
-                        <option value="antigravity_default">Antigravity (Default)</option>
-                      </optgroup>
+                      <optgroup label="Antigravity Accounts (Profiles)" id="chat-optgroup-antigravity"></optgroup>
                       <optgroup label="Autonomous CLIs" id="chat-optgroup-clis">
-                        <option value="claude_code" selected>Claude Code</option>
+                        <option value="claude_code">Claude Code</option>
                         <option value="hermes">Hermes Agent</option>
                       </optgroup>
                       <optgroup label="Custom CLIs" id="chat-optgroup-custom" class="hidden"></optgroup>
                     </select>
                   </div>
+
+                  <!-- Direct Run / Stop Button for Active Account -->
+                  <button type="button" class="btn-worker-power offline" id="btn-chat-worker-toggle" title="Start or Stop this CLI account directly from this tab">
+                    <svg class="icon-svg icon-power" id="icon-worker-power" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span id="lbl-worker-power">Start CLI</span>
+                  </button>
 
                   <!-- Live Worker Status Pill -->
                   <div class="chat-status-indicator" id="chat-status-pill">

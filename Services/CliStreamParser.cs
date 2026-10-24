@@ -140,24 +140,87 @@ public sealed partial class CliStreamParser
         return isPrompt || hasContextOrCost;
     }
 
+    public static bool IsTerminalChromeOrNoise(string line, string? activePrompt = null)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return false;
+        var trimmed = line.Trim();
+
+        // 1. Filter out exact prompt echoes e.g. "> hello" or "hello"
+        if (!string.IsNullOrWhiteSpace(activePrompt))
+        {
+            var p = activePrompt.Trim();
+            if (trimmed.Equals(p, StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Equals($"> {p}", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Equals($"❯ {p}", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        // 2. Terminal mode artifacts e.g. "h0"
+        if (trimmed.Equals("h0", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("0h", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // 3. Horizontal dividers / box-drawing characters
+        // e.g. "____________________", "────────────────────", "┌────────┐"
+        if (trimmed.Length >= 2 && trimmed.All(c => c == '─' || c == '-' || c == '_' || c == '=' || c == '┌' || c == '┐' || c == '└' || c == '┘' || c == '│' || c == '╭' || c == '╮' || c == '╰' || c == '╯' || c == ' ' || c == '·' || c == '█'))
+        {
+            return true;
+        }
+
+        // 4. Status lines & cancel hints
+        if (trimmed.Contains("esc to cancel", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("esc to dismiss", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("? for shortcuts", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Tip: Press", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Verbosity is now", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Generating...", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Running command...", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Reading file...", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // 5. Model status banners embedded with box borders e.g. "Gemini 3.8 Flash · high"
+        if ((trimmed.Contains("Gemini ", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Claude ", StringComparison.OrdinalIgnoreCase)) &&
+            (trimmed.Contains("Flash", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Pro", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Sonnet", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("high", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("·", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // 6. Lone prompt symbols
+        if (trimmed == ">" || trimmed == "❯" || trimmed == "$" || trimmed == "█")
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     public static string CleanDisplayChunk(string chunk, string? activePrompt = null)
     {
         if (string.IsNullOrEmpty(chunk)) return string.Empty;
 
-        var cleaned = StripAnsi(chunk);
+        var stripped = StripAnsi(chunk);
+        if (string.IsNullOrWhiteSpace(stripped)) return string.Empty;
 
-        // Filter out prompt echoes
-        if (!string.IsNullOrWhiteSpace(activePrompt) && cleaned.Trim().Equals(activePrompt.Trim(), StringComparison.OrdinalIgnoreCase))
+        var lines = stripped.Split('\n');
+        var keptLines = new List<string>(lines.Length);
+
+        foreach (var rawLine in lines)
         {
-            return string.Empty;
+            var line = rawLine.TrimEnd('\r');
+            if (IsTerminalChromeOrNoise(line, activePrompt))
+            {
+                continue;
+            }
+            keptLines.Add(line);
         }
 
-        // Remove solitary prompt characters
-        if (cleaned.Trim() == ">" || cleaned.Trim() == "❯" || cleaned.Trim() == "$")
-        {
-            return string.Empty;
-        }
+        if (keptLines.Count == 0) return string.Empty;
 
-        return cleaned;
+        return string.Join("\n", keptLines);
     }
 }

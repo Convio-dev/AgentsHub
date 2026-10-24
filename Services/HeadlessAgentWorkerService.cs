@@ -124,8 +124,8 @@ public sealed class HeadlessAgentWorkerService : IDisposable
             text = "Thinking & Generating..."
         });
 
-        // Write prompt to the headless CLI's stdin stream
-        _cliManager.SendInput(sessionId, prompt + "\r\n");
+        // Write prompt to the headless CLI's stdin stream (terminal carriage return)
+        _cliManager.SendInput(sessionId, prompt + "\r");
 
         return new
         {
@@ -280,9 +280,9 @@ public sealed class HeadlessAgentWorkerService : IDisposable
                 return;
             }
 
-            // Reset Quiet Timer for completion detection (1800ms quiet threshold)
+            // Reset Quiet Timer for completion detection (3500ms quiet threshold)
             session.QuietTimer?.Dispose();
-            session.QuietTimer = new System.Threading.Timer(OnQuietTimerElapsed, session, 1800, Timeout.Infinite);
+            session.QuietTimer = new System.Threading.Timer(OnQuietTimerElapsed, session, 3500, Timeout.Infinite);
         }
     }
 
