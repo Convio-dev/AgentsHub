@@ -721,9 +721,9 @@ $btnBuildOnly.Add_Click({
     $workerScript = {
         param($rootDir, $cleanVer, $targets, $lq, $rq)
         try {
-            $targetsArg = $targets -join " "
+            $targetsArg = ($targets -join ",")
             $buildScript = Join-Path $rootDir "tools\BuildTargets.ps1"
-            $psi = [System.Diagnostics.ProcessStartInfo]::new("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File `"$buildScript`" -Targets $targetsArg -Version $cleanVer")
+            $psi = [System.Diagnostics.ProcessStartInfo]::new("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File `"$buildScript`" -Targets `"$targetsArg`" -Version `"$cleanVer`"")
             $psi.WorkingDirectory = $rootDir
             $psi.RedirectStandardOutput = $true
             $psi.RedirectStandardError = $true
@@ -731,10 +731,19 @@ $btnBuildOnly.Add_Click({
             $psi.CreateNoWindow = $true
 
             $proc = [System.Diagnostics.Process]::Start($psi)
-            while (-not $proc.StandardOutput.EndOfStream) {
-                $line = $proc.StandardOutput.ReadLine()
-                if ($line) { $lq.Enqueue($line) }
-            }
+            $stdoutTask = [System.Threading.Tasks.Task]::Run([Action]{
+                while (-not $proc.StandardOutput.EndOfStream) {
+                    $line = $proc.StandardOutput.ReadLine()
+                    if ($line) { $lq.Enqueue($line) }
+                }
+            })
+            $stderrTask = [System.Threading.Tasks.Task]::Run([Action]{
+                while (-not $proc.StandardError.EndOfStream) {
+                    $errLine = $proc.StandardError.ReadLine()
+                    if ($errLine) { $lq.Enqueue("  [ERROR] " + $errLine) }
+                }
+            })
+            [System.Threading.Tasks.Task]::WaitAll($stdoutTask, $stderrTask)
             $proc.WaitForExit()
 
             if ($proc.ExitCode -eq 0) {
@@ -861,9 +870,9 @@ $btnPublish.Add_Click({
             # 1. Build targets if requested
             if ($shouldBuild) {
                 Log "[1/3] Compiling application packages for selected targets: $($targets -join ', ')..."
-                $targetsArg = $targets -join " "
+                $targetsArg = ($targets -join ",")
                 $buildScript = Join-Path $rootDir "tools\BuildTargets.ps1"
-                $psi = [System.Diagnostics.ProcessStartInfo]::new("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File `"$buildScript`" -Targets $targetsArg -Version $cleanVer")
+                $psi = [System.Diagnostics.ProcessStartInfo]::new("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -File `"$buildScript`" -Targets `"$targetsArg`" -Version `"$cleanVer`"")
                 $psi.WorkingDirectory = $rootDir
                 $psi.RedirectStandardOutput = $true
                 $psi.RedirectStandardError = $true
@@ -871,12 +880,19 @@ $btnPublish.Add_Click({
                 $psi.CreateNoWindow = $true
 
                 $proc = [System.Diagnostics.Process]::Start($psi)
-                while (-not $proc.StandardOutput.EndOfStream) {
-                    $line = $proc.StandardOutput.ReadLine()
-                    if ($line) {
-                        Log "  $line"
+                $stdoutTask = [System.Threading.Tasks.Task]::Run([Action]{
+                    while (-not $proc.StandardOutput.EndOfStream) {
+                        $line = $proc.StandardOutput.ReadLine()
+                        if ($line) { Log "  $line" }
                     }
-                }
+                })
+                $stderrTask = [System.Threading.Tasks.Task]::Run([Action]{
+                    while (-not $proc.StandardError.EndOfStream) {
+                        $errLine = $proc.StandardError.ReadLine()
+                        if ($errLine) { Log "  [ERROR] $errLine" }
+                    }
+                })
+                [System.Threading.Tasks.Task]::WaitAll($stdoutTask, $stderrTask)
                 $proc.WaitForExit()
 
                 if ($proc.ExitCode -ne 0) {

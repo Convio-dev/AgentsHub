@@ -11,6 +11,25 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Normalize Targets: whether passed as an array, comma-separated string, or space-separated items
+$normalizedTargets = @()
+if ($Targets) {
+    foreach ($item in $Targets) {
+        if ($item) {
+            $parts = $item -split '[\s,]+'
+            foreach ($p in $parts) {
+                $trimmed = $p.Trim()
+                if ($trimmed) { $normalizedTargets += $trimmed }
+            }
+        }
+    }
+}
+if ($normalizedTargets.Count -gt 0) {
+    $Targets = $normalizedTargets
+} else {
+    $Targets = @("win-x64", "linux-x64", "linux-arm64", "osx-arm64", "osx-x64")
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = (Get-Item "$scriptDir\..").FullName
 Set-Location $rootDir
