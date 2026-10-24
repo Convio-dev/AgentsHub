@@ -8,6 +8,9 @@
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
+#ifndef MyAppSourceDir
+  #define MyAppSourceDir "bin\Release\net10.0-windows\win-x64\publish"
+#endif
 #define MyAppPublisher "ZeroNuxs"
 #define MyAppURL "https://github.com/ZerroDevs/AgentsHub"
 #define MyAppExeName "AgentsHub.exe"
@@ -56,7 +59,7 @@ Name: "startupicon"; Description: "Launch Agents Hub minimized to system tray on
 
 [Files]
 ; الملف التنفيذي وكافة مخرجات الـ publish (DLLs وأي ملفات runtime مصاحبة)
-Source: "bin\Release\net10.0-windows\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ملفات الواجهة الأمامية لمجلد UI بالكامل (HTML / CSS / JS / xterm)
 Source: "ui\*"; DestDir: "{app}\ui"; Flags: ignoreversion recursesubdirs createallsubdirs

@@ -77,9 +77,18 @@ foreach ($target in $Targets) {
     switch ($target) {
         "win-x64" {
             # 1. Publish net10.0-windows
+            $publishDir = Join-Path $rootDir "bin\Release\net10.0-windows\win-x64\publish"
+            if (Test-Path $publishDir) {
+                Remove-Item $publishDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            New-Item -ItemType Directory -Path $publishDir -Force | Out-Null
+
             Write-Host "  -> Publishing single-file binary (win-x64)..." -ForegroundColor Gray
-            & dotnet publish "$rootDir\AgentsHub.csproj" -f net10.0-windows -c Release -r win-x64 --self-contained -o $stagingDir
+            & dotnet publish "$rootDir\AgentsHub.csproj" -f net10.0-windows -c Release -r win-x64 --self-contained -o $publishDir
             if ($LASTEXITCODE -ne 0) { throw "Dotnet publish failed for win-x64" }
+
+            # Copy to staging for zip packaging
+            Copy-Item "$publishDir\*" $stagingDir -Recurse -Force
 
             # 2. Package Portable Zip
             $zipPath = Join-Path $OutputDir "AgentsHub-v$Version-win-x64.zip"
@@ -99,7 +108,7 @@ foreach ($target in $Targets) {
 
                 if ($iscc) {
                     Write-Host "  -> Compiling Inno Setup installer..." -ForegroundColor Gray
-                    & $iscc "/DMyAppVersion=$Version" "$rootDir\AgentsHub.iss"
+                    & $iscc "/DMyAppVersion=$Version" "/DMyAppSourceDir=$publishDir" "$rootDir\AgentsHub.iss"
                     if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
                     $installerPath = Join-Path $OutputDir "AgentsHub-Setup-v$Version.exe"
                     $results["win-x64-setup"] = $installerPath
