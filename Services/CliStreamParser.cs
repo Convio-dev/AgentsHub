@@ -32,8 +32,8 @@ public sealed partial class CliStreamParser
     {
         if (string.IsNullOrEmpty(input)) return string.Empty;
         var stripped = AnsiRegex().Replace(input, string.Empty);
-        // Normalize line endings
-        return stripped.Replace("\r\n", "\n").Replace('\r', '\n');
+        // Normalize CRLF to LF, keep isolated CR for line overwrite resolution
+        return stripped.Replace("\r\n", "\n");
     }
 
     public static (string thought, string content) ExtractThoughts(string text)
@@ -145,7 +145,13 @@ public sealed partial class CliStreamParser
         if (string.IsNullOrWhiteSpace(line)) return false;
         var trimmed = line.Trim();
 
-        // 1. Filter out exact prompt echoes e.g. "> hello" or "hello"
+        // 1. Filter out braille spinner characters e.g. ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
+        if (trimmed.Any(c => c >= '\u2800' && c <= '\u28FF'))
+        {
+            return true;
+        }
+
+        // 2. Filter out exact prompt echoes e.g. "> hello" or "hello"
         if (!string.IsNullOrWhiteSpace(activePrompt))
         {
             var p = activePrompt.Trim();
@@ -157,40 +163,60 @@ public sealed partial class CliStreamParser
             }
         }
 
-        // 2. Terminal mode artifacts e.g. "h0"
-        if (trimmed.Equals("h0", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("0h", StringComparison.OrdinalIgnoreCase))
+        // 3. Terminal mode / cursor artifacts e.g. "h0", "h0 0", "0h"
+        if (trimmed.StartsWith("h0", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("0h", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("h0 0", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        // 3. Horizontal dividers / box-drawing characters
+        // 4. Horizontal dividers / box-drawing characters
         // e.g. "____________________", "────────────────────", "┌────────┐"
         if (trimmed.Length >= 2 && trimmed.All(c => c == '─' || c == '-' || c == '_' || c == '=' || c == '┌' || c == '┐' || c == '└' || c == '┘' || c == '│' || c == '╭' || c == '╮' || c == '╰' || c == '╯' || c == ' ' || c == '·' || c == '█'))
         {
             return true;
         }
 
-        // 4. Status lines & cancel hints
-        if (trimmed.Contains("esc to cancel", StringComparison.OrdinalIgnoreCase) ||
+        // 5. Status lines, spinners & cancel hints
+        if (trimmed.Contains("Generating", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Generat", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("esc to cancel", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("esc to dismiss", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("? for shortcuts", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("Tip: Press", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Tip: Use", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("/settings to configure", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("└ Tip:", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Thought for", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("▸ Thought", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Checking user rules", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("applicable directives", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Evaluating if the current", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("Verbosity is now", StringComparison.OrdinalIgnoreCase) ||
-            trimmed.Contains("Generating...", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("Running command...", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("Reading file...", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        // 5. Model status banners embedded with box borders e.g. "Gemini 3.8 Flash · high"
+        // 6. Terminal status bar token count e.g. "ective, 376 tokens"
+        if (trimmed.Contains("tokens", StringComparison.OrdinalIgnoreCase) &&
+            (trimmed.Contains("ective", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("active", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("Context left", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // 7. Model status banners embedded with box borders e.g. "Gemini 3.8 Flash · high"
         if ((trimmed.Contains("Gemini ", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Claude ", StringComparison.OrdinalIgnoreCase)) &&
             (trimmed.Contains("Flash", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Pro", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Sonnet", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("high", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("·", StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }
 
-        // 6. Lone prompt symbols
+        // 8. Lone prompt symbols
         if (trimmed == ">" || trimmed == "❯" || trimmed == "$" || trimmed == "█")
         {
             return true;
@@ -211,12 +237,25 @@ public sealed partial class CliStreamParser
 
         foreach (var rawLine in lines)
         {
-            var line = rawLine.TrimEnd('\r');
+            string line = rawLine;
+            // Resolve carriage returns: take the latest overwritten segment
+            if (line.Contains('\r'))
+            {
+                var parts = line.Split('\r', StringSplitOptions.RemoveEmptyEntries);
+                line = parts.Length > 0 ? parts[^1] : string.Empty;
+            }
+
+            line = line.Trim();
+
             if (IsTerminalChromeOrNoise(line, activePrompt))
             {
                 continue;
             }
-            keptLines.Add(line);
+
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                keptLines.Add(line);
+            }
         }
 
         if (keptLines.Count == 0) return string.Empty;

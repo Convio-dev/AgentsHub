@@ -380,6 +380,42 @@
         const actionWrap = document.createElement('div');
         actionWrap.id = `action-wrap-${msg.id}`;
         bubble.appendChild(actionWrap);
+
+        // Copy message action footer
+        const footer = document.createElement('div');
+        footer.className = 'chat-bubble-footer';
+        footer.innerHTML = `
+          <button type="button" class="btn-copy-bubble" id="btn-copy-${msg.id}" title="Copy full response" aria-label="Copy message">
+            <svg class="icon-svg icon-copy" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            <span class="lbl-copy">Copy</span>
+          </button>
+        `;
+        bubble.appendChild(footer);
+
+        footer.querySelector('.btn-copy-bubble')?.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const btn = e.currentTarget;
+          const textToCopy = msg.content || '';
+          if (!textToCopy) return;
+
+          try {
+            await navigator.clipboard.writeText(textToCopy);
+            btn.classList.add('copied');
+            btn.innerHTML = `
+              <svg class="icon-svg" style="width: 12px; height: 12px; color: var(--accent-green);" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              <span class="lbl-copy" style="color: var(--accent-green); font-weight: 600;">Copied!</span>
+            `;
+            setTimeout(() => {
+              btn.classList.remove('copied');
+              btn.innerHTML = `
+                <svg class="icon-svg icon-copy" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                <span class="lbl-copy">Copy</span>
+              `;
+            }, 2000);
+          } catch (err) {
+            console.warn('Clipboard write failed:', err);
+          }
+        });
       } else {
         bubble.textContent = msg.content;
       }
@@ -496,7 +532,16 @@
     function formatMarkdown(text) {
       if (!text) return '';
 
-      let html = escapeHtml(text);
+      // Strip any residual braille spinner or terminal mode artifacts
+      let cleaned = text
+        .replace(/[\u2800-\u28FF]/g, '')
+        .replace(/^h0(\s*0)?\s*/i, '')
+        .replace(/^\s+|\s+$/g, '')
+        .replace(/\n{3,}/g, '\n\n');
+
+      if (!cleaned) return '';
+
+      let html = escapeHtml(cleaned);
 
       // Fenced Code blocks
       html = html.replace(/```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g, (match, lang, code) => {
@@ -519,8 +564,9 @@
       html = html.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
       html = html.replace(/\*([^*]+)\*/g, '<i>$1</i>');
 
-      // Line breaks outside pre
+      // Line breaks outside pre, collapsing consecutive line breaks
       html = html.replace(/\n/g, '<br>');
+      html = html.replace(/(<br>\s*){3,}/g, '<br><br>');
 
       return html;
     }

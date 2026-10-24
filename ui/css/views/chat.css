@@ -296,6 +296,7 @@
 /* Chat Message Bubbles */
 .chat-message-row {
   display: flex;
+  align-items: flex-start !important;
   gap: 12px;
   max-width: 860px;
   width: 100%;
@@ -361,6 +362,42 @@
   flex: 1;
   min-width: 0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.chat-bubble-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+  gap: 8px;
+}
+
+.btn-copy-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 6px);
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.btn-copy-bubble:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-main);
+  border-color: var(--border-hover, var(--accent-green));
+}
+
+.btn-copy-bubble.copied {
+  background: var(--accent-green-bg);
+  border-color: var(--accent-green);
 }
 
 /* Thinking Collapsible Accordion */
