@@ -279,6 +279,7 @@
         role: 'assistant',
         content: '',
         thought: '',
+        activities: [],
         worker: activeWorker,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         isStreaming: true
@@ -357,6 +358,25 @@
       bubble.id = `chat-bubble-${msg.id}`;
 
       if (msg.role === 'assistant') {
+        // Activity / Work Accordion (Ran commands, edited files, explored workspace)
+        const activityWrap = document.createElement('div');
+        activityWrap.className = `chat-activity-block ${(msg.activities && msg.activities.length > 0) ? '' : 'hidden'}`;
+        activityWrap.id = `activity-wrap-${msg.id}`;
+        activityWrap.innerHTML = `
+          <div class="chat-activity-header" onclick="this.parentElement.classList.toggle('collapsed')">
+            <div class="chat-activity-title">
+              <svg class="icon-svg icon-activity" style="width: 13px; height: 13px;" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              <span class="chat-activity-summary-text" id="activity-summary-${msg.id}">Worked · Ran commands &amp; edited files</span>
+            </div>
+            <div class="chat-activity-right">
+              <span class="chat-activity-count" id="activity-count-${msg.id}">${(msg.activities && msg.activities.length > 0) ? msg.activities.length + ' actions' : ''}</span>
+              <svg class="icon-svg icon-chevron" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+          </div>
+          <div class="chat-activity-body" id="activity-body-${msg.id}"></div>
+        `;
+        bubble.appendChild(activityWrap);
+
         // Thought accordion placeholder
         const thoughtWrap = document.createElement('div');
         thoughtWrap.className = 'chat-thought-block hidden';
@@ -364,7 +384,7 @@
         thoughtWrap.innerHTML = `
           <div class="chat-thought-header" onclick="this.parentElement.classList.toggle('collapsed')">
             <span>Thinking Process</span>
-            <svg class="icon-svg" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            <svg class="icon-svg icon-chevron" style="width: 12px; height: 12px;" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
           <div class="chat-thought-body" id="thought-body-${msg.id}"></div>
         `;
@@ -462,6 +482,76 @@
       }
     }
 
+    function appendChatActivity(msgId, activityText) {
+      const msg = chatMessages.find(m => m.id === msgId);
+      if (!msg) return;
+
+      if (!msg.activities) msg.activities = [];
+
+      const cleanAct = (activityText || '').trim();
+      if (!cleanAct || msg.activities.includes(cleanAct)) return;
+
+      msg.activities.push(cleanAct);
+
+      const wrap = document.getElementById(`activity-wrap-${msgId}`);
+      const body = document.getElementById(`activity-body-${msgId}`);
+      const summary = document.getElementById(`activity-summary-${msgId}`);
+      const count = document.getElementById(`activity-count-${msgId}`);
+
+      if (wrap && body) {
+        wrap.classList.remove('hidden');
+
+        const item = document.createElement('div');
+        item.className = 'chat-activity-item';
+
+        let iconSvg = '';
+        const lower = cleanAct.toLowerCase();
+        if (lower.startsWith('ran') || lower.startsWith('running')) {
+          iconSvg = '<svg class="icon-svg act-icon run" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+        } else if (lower.startsWith('edit') || lower.startsWith('wrote') || lower.startsWith('creat')) {
+          iconSvg = '<svg class="icon-svg act-icon edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+        } else if (lower.startsWith('explor') || lower.startsWith('read') || lower.startsWith('using')) {
+          iconSvg = '<svg class="icon-svg act-icon search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+        } else {
+          iconSvg = '<svg class="icon-svg act-icon default" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>';
+        }
+
+        item.innerHTML = `
+          <span class="chat-act-icon-wrap">${iconSvg}</span>
+          <span class="chat-act-text">${escapeHtml(cleanAct)}</span>
+          <span class="chat-act-status">
+            <svg class="icon-svg act-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          </span>
+        `;
+        body.appendChild(item);
+
+        if (count) {
+          count.textContent = `${msg.activities.length} ${msg.activities.length === 1 ? 'action' : 'actions'}`;
+        }
+        if (summary) {
+          const hasRun = msg.activities.some(a => a.toLowerCase().includes('ran'));
+          const hasEdit = msg.activities.some(a => a.toLowerCase().includes('edit') || a.toLowerCase().includes('creat') || a.toLowerCase().includes('wrote'));
+          const hasRead = msg.activities.some(a => a.toLowerCase().includes('explor') || a.toLowerCase().includes('read') || a.toLowerCase().includes('using'));
+
+          if (hasRun && hasEdit) {
+            summary.textContent = 'Worked · Ran commands & edited files';
+          } else if (hasEdit) {
+            summary.textContent = 'Worked · Edited files';
+          } else if (hasRun) {
+            summary.textContent = 'Worked · Ran commands';
+          } else if (hasRead) {
+            summary.textContent = 'Worked · Explored workspace';
+          } else {
+            summary.textContent = `Worked · ${msg.activities.length} actions`;
+          }
+        }
+
+        if (messagesArea) {
+          messagesArea.scrollTop = messagesArea.scrollHeight;
+        }
+      }
+    }
+
     function finalizeAssistantMessage(msgId) {
       const msg = chatMessages.find(m => m.id === msgId);
       if (msg) {
@@ -474,6 +564,11 @@
           if (bodyEl) {
             bodyEl.innerHTML = formatMarkdown(msg.content);
           }
+        }
+        // Auto-collapse activity card once finished (compact "Worked for X >" mode)
+        const actWrap = document.getElementById(`activity-wrap-${msgId}`);
+        if (actWrap && msg.activities && msg.activities.length > 0) {
+          actWrap.classList.add('collapsed');
         }
       }
       setGenerating(false);
@@ -566,6 +661,13 @@
         `;
       });
 
+      // Markdown links: [label](url)
+      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="chat-link">$1</a>');
+
+      // Headings (### Title, ## Title)
+      html = html.replace(/^###\s+(.+)$/gm, '<h4 class="chat-md-heading">$1</h4>');
+      html = html.replace(/^##\s+(.+)$/gm, '<h3 class="chat-md-heading">$1</h3>');
+
       // Inline code
       html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
@@ -635,6 +737,12 @@
     updateWorkspaceBadge();
 
     // 11. Backend Push Event Listeners
+    window.addEventListener('chat_activity_stream', (e) => {
+      if (e.detail?.messageId && e.detail?.activity) {
+        appendChatActivity(e.detail.messageId, e.detail.activity);
+      }
+    });
+
     window.addEventListener('chat_token_stream', (e) => {
       if (e.detail?.messageId && e.detail?.token) {
         appendChatToken(e.detail.messageId, e.detail.token);

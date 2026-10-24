@@ -225,30 +225,40 @@ public sealed class HeadlessAgentWorkerService : IDisposable
                 session.TailBuffer.Remove(0, session.TailBuffer.Length - 25_000);
             }
 
-            // Clean display chunk for chat bubble
-            var cleanChunk = CliStreamParser.CleanDisplayChunk(rawText, session.OriginalPrompt);
-            if (!string.IsNullOrEmpty(cleanChunk))
-            {
-                var (thought, content) = CliStreamParser.ExtractThoughts(cleanChunk);
-                if (!string.IsNullOrEmpty(thought))
-                {
-                    _postEventToUi("chat_thought_stream", new
-                    {
-                        workerId = session.WorkerId,
-                        messageId = session.MessageId,
-                        thought
-                    });
-                }
+            // Parse display chunk for activities, thoughts, and clean markdown content
+            var parsed = CliStreamParser.ParseDisplayChunk(rawText, session.OriginalPrompt);
 
-                if (!string.IsNullOrEmpty(content))
+            if (parsed.Activities.Count > 0)
+            {
+                foreach (var act in parsed.Activities)
                 {
-                    _postEventToUi("chat_token_stream", new
+                    _postEventToUi("chat_activity_stream", new
                     {
                         workerId = session.WorkerId,
                         messageId = session.MessageId,
-                        token = content
+                        activity = act
                     });
                 }
+            }
+
+            if (!string.IsNullOrEmpty(parsed.Thought))
+            {
+                _postEventToUi("chat_thought_stream", new
+                {
+                    workerId = session.WorkerId,
+                    messageId = session.MessageId,
+                    thought = parsed.Thought
+                });
+            }
+
+            if (!string.IsNullOrEmpty(parsed.Content))
+            {
+                _postEventToUi("chat_token_stream", new
+                {
+                    workerId = session.WorkerId,
+                    messageId = session.MessageId,
+                    token = parsed.Content.EndsWith("\n") ? parsed.Content : (parsed.Content + "\n")
+                });
             }
 
             // Detect action confirmations

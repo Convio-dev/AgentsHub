@@ -16,10 +16,17 @@ public class CliActionPrompt
     public string RawPrompt { get; set; } = "";
 }
 
+public class ParsedStreamChunk
+{
+    public string Thought { get; set; } = string.Empty;
+    public List<string> Activities { get; set; } = [];
+    public string Content { get; set; } = string.Empty;
+}
+
 public sealed partial class CliStreamParser
 {
-    // High-performance regex to strip ANSI VT100 / CSI escape sequences
-    [GeneratedRegex(@"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")]
+    // High-performance regex to strip ANSI VT100 / CSI escape sequences and OSC sequences
+    [GeneratedRegex(@"\x1B(?:\][^\x07\x1B]*(?:\x07|\x1B\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])")]
     private static partial Regex AnsiRegex();
 
     [GeneratedRegex(@"^\s*[>❯]\s*")]
@@ -28,12 +35,94 @@ public sealed partial class CliStreamParser
     [GeneratedRegex(@"<thought>([\s\S]*?)</thought>", RegexOptions.IgnoreCase)]
     private static partial Regex ThoughtTagRegex();
 
+    public static string CleanOsc8Links(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+
+        // 1. Standard ANSI OSC 8 hyperlinks: \x1b]8;params;url\x1b\label\x1b]8;;\x1b\
+        var oscRegex = new Regex(@"\x1B\]8;[^\x1B\x07]*;([^\x1B\x07]+)(?:\x1B\\|\x07)(.*?)\x1B\]8;;(?:\x1B\\|\x07)");
+        var result = oscRegex.Replace(input, m =>
+        {
+            var url = m.Groups[1].Value.Trim();
+            var text = m.Groups[2].Value.Trim();
+            return string.IsNullOrEmpty(text) ? url : $"[{text}]({url})";
+        });
+
+        // 2. Fallback for mangled residual OSC 8 parameters: 8;id=...;file:///...hello.pyhello.py8;;:
+        var mangledRegex = new Regex(@"8;id=[^;]+;(file:\/\/\/[^\s;]+)8;;(:?)");
+        result = mangledRegex.Replace(result, m =>
+        {
+            string raw = m.Groups[1].Value;
+            string colon = m.Groups[2].Value;
+            var slashIdx = raw.LastIndexOf('/');
+            if (slashIdx >= 0)
+            {
+                var fullFile = raw[(slashIdx + 1)..];
+                if (fullFile.Length % 2 == 0 && fullFile[..(fullFile.Length / 2)] == fullFile[(fullFile.Length / 2)..])
+                {
+                    string singleFile = fullFile[..(fullFile.Length / 2)];
+                    string url = raw[..(slashIdx + 1)] + singleFile;
+                    return $"[{singleFile}]({url}){colon}";
+                }
+                return $"[{fullFile}]({raw}){colon}";
+            }
+            return raw + colon;
+        });
+
+        // 3. Strip residual 8;; tags and keyboard shortcut hints
+        result = Regex.Replace(result, @"8;;:?", string.Empty);
+        result = Regex.Replace(result, @"\(ctrl\+[a-zA-Z]\s+to\s+expand\)", string.Empty, RegexOptions.IgnoreCase);
+
+        return result;
+    }
+
     public static string StripAnsi(string input)
     {
         if (string.IsNullOrEmpty(input)) return string.Empty;
-        var stripped = AnsiRegex().Replace(input, string.Empty);
+        var cleaned = CleanOsc8Links(input);
+        var stripped = AnsiRegex().Replace(cleaned, string.Empty);
         // Normalize CRLF to LF, keep isolated CR for line overwrite resolution
         return stripped.Replace("\r\n", "\n");
+    }
+
+    public static bool IsToolActivityLine(string line, out string cleanActivity)
+    {
+        cleanActivity = string.Empty;
+        if (string.IsNullOrWhiteSpace(line)) return false;
+
+        var trimmed = line.Trim();
+        bool startsWithBullet = trimmed.StartsWith('●') || trimmed.StartsWith('○') ||
+                                trimmed.StartsWith('▸') || trimmed.StartsWith('✔') || trimmed.StartsWith('✓');
+
+        var text = trimmed.TrimStart('●', '○', '▸', '✔', '✓', ' ', '\t');
+        text = Regex.Replace(text, @"\(ctrl\+[a-zA-Z]\s+to\s+expand\)", string.Empty, RegexOptions.IgnoreCase).Trim();
+
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        if (text.StartsWith("Ran (", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Ran ", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Running (", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Running ", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Edited ", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Editing ", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Explored ", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Exploring ", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Using ReadFile", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Using ", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Read file", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Reading file", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Wrote file", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Writing file", StringComparison.OrdinalIgnoreCase) ||
+            text.StartsWith("Created file", StringComparison.OrdinalIgnoreCase) ||
+            (startsWithBullet && (text.Contains("file", StringComparison.OrdinalIgnoreCase) ||
+                                  text.Contains("command", StringComparison.OrdinalIgnoreCase) ||
+                                  text.Contains("tool", StringComparison.OrdinalIgnoreCase))))
+        {
+            cleanActivity = text;
+            return true;
+        }
+
+        return false;
     }
 
     public static (string thought, string content) ExtractThoughts(string text)
@@ -163,7 +252,49 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 2. Filter out exact prompt echoes e.g. "> hello" or "hello"
+        // 2. Terminal mode / cursor artifacts e.g. "h0", "h0 0", "0h"
+        if (trimmed.StartsWith("h0", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("0h", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("h0 0", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // 3. Stutter words from terminal re-renders e.g. "Editinditingitingin", "filesfiles.", "file.e."
+        if (trimmed.Contains("ditingiting", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("filesfiles", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("file.e.", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("Editinditing", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("Editing files...", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("files", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("files.", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // 4. In-progress circle status lines e.g. "○ Editing 1 file..." or "○● Ran..."
+        if (trimmed.StartsWith('○'))
+        {
+            return true;
+        }
+
+        // 5. Corrupted banner redraws with block elements combined with workspace path
+        if ((trimmed.Contains('█') || trimmed.Contains('▀') || trimmed.Contains('▄')) &&
+            (trimmed.Contains("C:/", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("C:\\", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("/APPS/", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Contains("Folders-Z", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // 6. Terminal prompt echoes
+        if (trimmed.StartsWith("> ") || trimmed.StartsWith("❯ "))
+        {
+            return true;
+        }
+
+        // 7. Exact or prefix prompt echoes
         if (!string.IsNullOrWhiteSpace(activePrompt))
         {
             var p = activePrompt.Trim();
@@ -173,17 +304,15 @@ public sealed partial class CliStreamParser
             {
                 return true;
             }
+
+            if (p.Length >= 6 && (trimmed.StartsWith(p, StringComparison.OrdinalIgnoreCase) ||
+                (trimmed.Length >= 10 && p.StartsWith(trimmed, StringComparison.OrdinalIgnoreCase))))
+            {
+                return true;
+            }
         }
 
-        // 3. Terminal mode / cursor artifacts e.g. "h0", "h0 0", "0h"
-        if (trimmed.StartsWith("h0", StringComparison.OrdinalIgnoreCase) ||
-            trimmed.StartsWith("0h", StringComparison.OrdinalIgnoreCase) ||
-            trimmed.Equals("h0 0", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        // 4. Horizontal dividers, box-drawing characters & block characters
+        // 8. Horizontal dividers, box-drawing characters & block characters
         // Blocks: \u2580-\u259F (▀ ▄ █ ▌ ▐ ░ ▒ ▓), Box drawings: \u2500-\u257F (─ ┌ ┐ └ ┘ │ ╭ ╮ ╰ ╯)
         if (trimmed.Length >= 2 && trimmed.All(c =>
             c == '─' || c == '-' || c == '_' || c == '=' ||
@@ -194,7 +323,7 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 5. CLI product / version headers e.g. "Antigravity CLI 1.4.7", "Claude Code", "Hermes Agent"
+        // 9. CLI product / version headers e.g. "Antigravity CLI 1.4.7", "Claude Code", "Hermes Agent"
         if (trimmed.Contains("Antigravity CLI", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("Claude Code v", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("Hermes Agent v", StringComparison.OrdinalIgnoreCase))
@@ -202,7 +331,7 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 6. User account / plan badge lines e.g. "usamau32ooo@gmail.com (Google AI Pro)"
+        // 10. User account / plan badge lines e.g. "usamau32ooo@gmail.com (Google AI Pro)"
         if (trimmed.Contains('@') &&
             (trimmed.Contains("Google AI", StringComparison.OrdinalIgnoreCase) ||
              trimmed.Contains("Pro", StringComparison.OrdinalIgnoreCase) ||
@@ -213,7 +342,7 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 7. Workspace directory echo lines e.g. "C:/Users/.../APPS/ChessSenseV2"
+        // 11. Workspace directory echo lines e.g. "C:/Users/.../APPS/ChessSenseV2"
         if ((trimmed.StartsWith("C:/", StringComparison.OrdinalIgnoreCase) ||
              trimmed.StartsWith("C:\\", StringComparison.OrdinalIgnoreCase) ||
              trimmed.StartsWith("/")) &&
@@ -225,15 +354,16 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 8. Default CLI startup greeting lines
+        // 12. Default CLI startup greeting lines
         if (trimmed.Equals("Hello! How can I help you today?", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Equals("How can I help you today?", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Contains("How can I help you with your project today?", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Equals("Welcome to Antigravity CLI", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        // 9. Spinner remnants or fragments e.g. "ating.", "ating", "nerating.", "nerating", "ing."
+        // 13. Spinner remnants or fragments e.g. "ating.", "ating", "nerating.", "nerating", "ing."
         if (trimmed.Equals("ating.", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Equals("ating", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Equals("nerating.", StringComparison.OrdinalIgnoreCase) ||
@@ -243,7 +373,7 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 10. Status lines, spinners & cancel hints
+        // 14. Status lines, spinners & cancel hints
         if (trimmed.Contains("Generating", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("Generat", StringComparison.OrdinalIgnoreCase) ||
             trimmed.Contains("esc to cancel", StringComparison.OrdinalIgnoreCase) ||
@@ -265,7 +395,7 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 11. Terminal status bar token count e.g. "ective, 376 tokens"
+        // 15. Terminal status bar token count e.g. "ective, 376 tokens"
         if (trimmed.Contains("tokens", StringComparison.OrdinalIgnoreCase) &&
             (trimmed.Contains("ective", StringComparison.OrdinalIgnoreCase) ||
              trimmed.Contains("active", StringComparison.OrdinalIgnoreCase) ||
@@ -274,14 +404,14 @@ public sealed partial class CliStreamParser
             return true;
         }
 
-        // 12. Model status banners embedded with box borders e.g. "Gemini 3.8 Flash · high"
+        // 16. Model status banners embedded with box borders e.g. "Gemini 3.8 Flash · high"
         if ((trimmed.Contains("Gemini ", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Claude ", StringComparison.OrdinalIgnoreCase)) &&
             (trimmed.Contains("Flash", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Pro", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Sonnet", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("high", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("·", StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }
 
-        // 13. Lone prompt symbols or isolated block characters
+        // 17. Lone prompt symbols or isolated block characters
         if (trimmed == ">" || trimmed == "❯" || trimmed == "$" || trimmed == "█" || trimmed == "▀" || trimmed == "▄")
         {
             return true;
@@ -290,15 +420,16 @@ public sealed partial class CliStreamParser
         return false;
     }
 
-    public static string CleanDisplayChunk(string chunk, string? activePrompt = null)
+    public static ParsedStreamChunk ParseDisplayChunk(string chunk, string? activePrompt = null)
     {
-        if (string.IsNullOrEmpty(chunk)) return string.Empty;
+        var result = new ParsedStreamChunk();
+        if (string.IsNullOrEmpty(chunk)) return result;
 
         var stripped = StripAnsi(chunk);
-        if (string.IsNullOrWhiteSpace(stripped)) return string.Empty;
+        if (string.IsNullOrWhiteSpace(stripped)) return result;
 
         var lines = stripped.Split('\n');
-        var keptLines = new List<string>(lines.Length);
+        var keptContentLines = new List<string>(lines.Length);
 
         foreach (var rawLine in lines)
         {
@@ -331,14 +462,36 @@ public sealed partial class CliStreamParser
                 continue;
             }
 
+            // Check if this line is an action/tool activity
+            if (IsToolActivityLine(line, out string cleanAct))
+            {
+                if (!result.Activities.Contains(cleanAct))
+                {
+                    result.Activities.Add(cleanAct);
+                }
+                continue;
+            }
+
             if (!string.IsNullOrWhiteSpace(line))
             {
-                keptLines.Add(line);
+                keptContentLines.Add(line);
             }
         }
 
-        if (keptLines.Count == 0) return string.Empty;
+        if (keptContentLines.Count > 0)
+        {
+            var rawContent = string.Join("\n", keptContentLines);
+            var (thought, content) = ExtractThoughts(rawContent);
+            result.Thought = thought;
+            result.Content = content;
+        }
 
-        return string.Join("\n", keptLines);
+        return result;
+    }
+
+    public static string CleanDisplayChunk(string chunk, string? activePrompt = null)
+    {
+        var parsed = ParseDisplayChunk(chunk, activePrompt);
+        return parsed.Content;
     }
 }
