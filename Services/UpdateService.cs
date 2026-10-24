@@ -40,6 +40,7 @@ public sealed class UpdateService
     public static UpdateService Instance { get; } = new();
 
     private const string LatestReleaseApiUrl = "https://api.github.com/repos/ZerroDevs/AgentsHub/releases/latest";
+    private static readonly SemaphoreSlim _downloadLock = new(1, 1);
 
     private static readonly HttpClient _httpClient = new()
     {
@@ -147,69 +148,113 @@ public sealed class UpdateService
             throw new ArgumentException("Download URL cannot be empty.", nameof(downloadUrl));
         }
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "AgentsHub_Updates");
-        Directory.CreateDirectory(tempDir);
-
-        var uri = new Uri(downloadUrl);
-        var fileName = Path.GetFileName(uri.LocalPath);
-        if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        // Prevent parallel download attempts from colliding on the same file
+        if (!await _downloadLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
-            fileName = "AgentsHub_Setup.exe";
-        }
-        var targetFile = Path.Combine(tempDir, fileName);
-
-        using (var response = await _httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
-        {
-            response.EnsureSuccessStatusCode();
-
-            var totalBytes = response.Content.Headers.ContentLength ?? -1L;
-            await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using var fileStream = new FileStream(targetFile, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-
-            var buffer = new byte[81920];
-            long totalRead = 0;
-            int read;
-
-            while ((read = await contentStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
-            {
-                await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-                totalRead += read;
-
-                if (totalBytes > 0 && progress != null)
-                {
-                    progress.Report(Math.Clamp((double)totalRead / totalBytes, 0.0, 1.0));
-                }
-            }
+            return;
         }
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = targetFile,
-            Arguments = "/CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
-            UseShellExecute = true
-        };
-
-        Process.Start(psi);
-
-        // Allow installer to initiate and close current instance gracefully
         try
         {
+            var tempDir = Path.Combine(Path.GetTempPath(), "AgentsHub_Updates");
+            Directory.CreateDirectory(tempDir);
+
+            var uri = new Uri(downloadUrl);
+            var originalFileName = Path.GetFileName(uri.LocalPath);
+            if (string.IsNullOrWhiteSpace(originalFileName) || !originalFileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                originalFileName = "AgentsHub_Setup.exe";
+            }
+
+            var baseName = Path.GetFileNameWithoutExtension(originalFileName);
+            var tempDownloadFile = Path.Combine(tempDir, $"{baseName}_{Guid.NewGuid():N}.tmp");
+
+            using (var response = await _httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+            {
+                response.EnsureSuccessStatusCode();
+
+                var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                await using var fileStream = new FileStream(tempDownloadFile, FileMode.Create, FileAccess.Write, FileShare.Read, 81920, true);
+
+                var buffer = new byte[81920];
+                long totalRead = 0;
+                int read;
+
+                while ((read = await contentStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                    totalRead += read;
+
+                    if (totalBytes > 0 && progress != null)
+                    {
+                        progress.Report(Math.Clamp((double)totalRead / totalBytes, 0.0, 1.0));
+                    }
+                }
+            }
+
+            // Resolve executable path for launching
+            var targetFile = Path.Combine(tempDir, originalFileName);
+            string finalExecutable = tempDownloadFile;
+
+            try
+            {
+                if (File.Exists(targetFile))
+                {
+                    File.Delete(targetFile);
+                }
+                File.Move(tempDownloadFile, targetFile);
+                finalExecutable = targetFile;
+            }
+            catch
+            {
+                // If targetFile is currently locked by a running setup wizard or antivirus,
+                // move to a unique .exe path so it executes cleanly
+                var uniqueExe = Path.Combine(tempDir, $"{baseName}_{DateTime.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}.exe");
+                try
+                {
+                    File.Move(tempDownloadFile, uniqueExe);
+                    finalExecutable = uniqueExe;
+                }
+                catch
+                {
+                    finalExecutable = tempDownloadFile;
+                }
+            }
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = finalExecutable,
+                Arguments = "/CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+                UseShellExecute = true
+            };
+
+            Process.Start(psi);
+
+            // Allow installer to initiate and close current instance gracefully
+            try
+            {
 #if WINDOWS
-            if (Application.OpenForms.Count > 0 && Application.OpenForms[0]?.InvokeRequired == true)
-            {
-                Application.OpenForms[0]?.BeginInvoke(new Action(() => Application.Exit()));
-            }
-            else
-            {
-                Application.Exit();
-            }
+                if (Application.OpenForms.Count > 0 && Application.OpenForms[0]?.InvokeRequired == true)
+                {
+                    Application.OpenForms[0]?.BeginInvoke(new Action(() => Application.Exit()));
+                }
+                else
+                {
+                    Application.Exit();
+                }
 #else
-            Environment.Exit(0);
+                Environment.Exit(0);
 #endif
+            }
+            catch
+            {
+                Environment.Exit(0);
+            }
         }
-        catch
+        finally
         {
-            Environment.Exit(0);
+            _downloadLock.Release();
         }
     }
 

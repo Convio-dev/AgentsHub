@@ -1,4 +1,11 @@
+  let _updateManagerInitialized = false;
+
   function setupUpdateManager() {
+    if (_updateManagerInitialized) {
+      return;
+    }
+    _updateManagerInitialized = true;
+
     const btnCheck = document.getElementById('btn-check-updates');
     const btnCheckText = document.getElementById('btn-check-updates-text');
     const btnInstall = document.getElementById('btn-install-update');
