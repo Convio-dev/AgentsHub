@@ -30,10 +30,8 @@
 
     // Restore active view (persists across Ctrl+R / F5 / page reloads)
     try {
-      const savedView = localStorage.getItem('agents_hub_active_view');
-      if (savedView) {
-        switchView(savedView);
-      }
+      const savedView = localStorage.getItem('agents_hub_active_view') || 'chat';
+      switchView(savedView);
     } catch (e) {
       console.warn('Failed to restore active view:', e);
     }
@@ -69,6 +67,11 @@
     document.querySelectorAll('.view-pane').forEach(p => {
       p.classList.toggle('active', p.id === `view-${viewName}`);
     });
+
+    const contentContainer = document.getElementById('content-container');
+    if (contentContainer) {
+      contentContainer.classList.toggle('chat-view-active', viewName === 'chat');
+    }
 
     window.dispatchEvent(new CustomEvent('view-switched', { detail: { activeView: viewName } }));
 

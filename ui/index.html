@@ -199,13 +199,15 @@
 
       // Immediately activate saved view pane to prevent visual flash
       try {
-        const savedView = localStorage.getItem('agents_hub_active_view');
-        if (savedView && savedView !== 'dashboard') {
-          const targetPane = document.getElementById('view-' + savedView);
-          if (targetPane) {
-            document.querySelectorAll('.view-pane').forEach(p => p.classList.remove('active'));
-            targetPane.classList.add('active');
-          }
+        const savedView = localStorage.getItem('agents_hub_active_view') || 'chat';
+        const targetPane = document.getElementById('view-' + savedView);
+        if (targetPane) {
+          document.querySelectorAll('.view-pane').forEach(p => p.classList.remove('active'));
+          targetPane.classList.add('active');
+        }
+        const cc = document.getElementById('content-container');
+        if (cc) {
+          cc.classList.toggle('chat-view-active', savedView === 'chat');
         }
       } catch (e) {}
     })();
