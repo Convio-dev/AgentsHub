@@ -12,6 +12,7 @@ partial class MainForm
         {
             components?.Dispose();
             _dashboardWebBridge?.Dispose();
+            Services.Sidecar.SidecarHostService.Instance.Dispose();
             _notifyIcon?.Dispose();
             _trayContextMenu?.Dispose();
             _appIcon?.Dispose();

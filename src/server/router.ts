@@ -8,15 +8,23 @@ import { TaskQueue } from '../queue/taskQueue.ts';
 import { ShellExecutor } from '../tools/executor.ts';
 import { FsTools } from '../tools/fsTools.ts';
 import { PtyRunner } from '../tools/ptyRunner.ts';
+import { SessionManager } from '../session/sessionManager.ts';
 
 export class MessageRouter {
   private queue: TaskQueue;
   private pty: PtyRunner;
+  private sessionManager: SessionManager;
   private emit: (event: OutboundEvent) => void;
 
-  constructor(queue: TaskQueue, pty: PtyRunner, emit: (event: OutboundEvent) => void) {
+  constructor(
+    queue: TaskQueue,
+    pty: PtyRunner,
+    sessionManager: SessionManager,
+    emit: (event: OutboundEvent) => void
+  ) {
     this.queue = queue;
     this.pty = pty;
+    this.sessionManager = sessionManager;
     this.emit = emit;
   }
 
@@ -30,12 +38,29 @@ export class MessageRouter {
         });
         break;
 
+      case 'switch_account':
+        this.sessionManager.switchAccount(msg.profile, msg.provider);
+        break;
+
+      case 'list_accounts':
+        this.sessionManager.emitAccountState();
+        break;
+
+      case 'refresh_token':
+        this.sessionManager.refreshToken(msg.profile);
+        break;
+
+      case 'send_chat':
+        await this.sessionManager.handleSendChat(msg);
+        break;
+
       case 'start_task':
         this.handleStartTask(msg);
         break;
 
       case 'abort_task':
         this.queue.abort(msg.taskId, msg.reason);
+        this.sessionManager.abortSession(msg.taskId);
         break;
 
       case 'execute_tool':

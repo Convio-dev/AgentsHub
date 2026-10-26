@@ -3,7 +3,7 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["bun-types"],
+    "types": ["bun", "node"],
     "allowImportingTsExtensions": true,
     "moduleDetection": "force",
     "strict": true,
@@ -14,7 +14,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "rootDir": "./src"
+    "rootDir": "./"
   },
   "include": ["src/**/*", "build.ts"],
   "exclude": ["node_modules", "dist", "bin", "obj"]

@@ -23,11 +23,16 @@ public class SidecarClient : IDisposable
 
     public event Action<AgentStateEvent>? OnStateChanged;
     public event Action<StreamDeltaEvent>? OnStreamDelta;
+    public event Action<ChatTokenEvent>? OnChatToken;
+    public event Action<SessionStatusEvent>? OnSessionStatus;
+    public event Action<AccountStateEvent>? OnAccountState;
     public event Action<ToolStartEvent>? OnToolStart;
     public event Action<ToolOutputEvent>? OnToolOutput;
     public event Action<TaskCompletedEvent>? OnTaskCompleted;
     public event Action<TerminalDataEvent>? OnTerminalData;
     public event Action<SidecarErrorEvent>? OnError;
+    public event Action<BaseSidecarEvent>? OnEventReceived;
+    public event Action<bool>? OnStatusChanged;
     public event Action? OnDisconnected;
 
     public SidecarClient(SidecarManager manager)
@@ -50,6 +55,7 @@ public class SidecarClient : IDisposable
         await ws.ConnectAsync(uri, ct);
 
         _ws = ws;
+        OnStatusChanged?.Invoke(true);
 
         // Start receive loop
         _receiveLoopTask = Task.Run(() => ReceiveLoopAsync(_connectionCts.Token), _connectionCts.Token);
@@ -182,39 +188,94 @@ public class SidecarClient : IDisposable
 
             switch (eventType)
             {
+                case "chat_token":
+                    var chatTokEv = JsonSerializer.Deserialize<ChatTokenEvent>(json);
+                    if (chatTokEv != null)
+                    {
+                        OnChatToken?.Invoke(chatTokEv);
+                        OnEventReceived?.Invoke(chatTokEv);
+                    }
+                    break;
+
+                case "session_status":
+                    var sessStatusEv = JsonSerializer.Deserialize<SessionStatusEvent>(json);
+                    if (sessStatusEv != null)
+                    {
+                        OnSessionStatus?.Invoke(sessStatusEv);
+                        OnEventReceived?.Invoke(sessStatusEv);
+                    }
+                    break;
+
+                case "account_state":
+                    var acctEv = JsonSerializer.Deserialize<AccountStateEvent>(json);
+                    if (acctEv != null)
+                    {
+                        OnAccountState?.Invoke(acctEv);
+                        OnEventReceived?.Invoke(acctEv);
+                    }
+                    break;
+
                 case "agent_state":
                     var stateEv = JsonSerializer.Deserialize<AgentStateEvent>(json);
-                    if (stateEv != null) OnStateChanged?.Invoke(stateEv);
+                    if (stateEv != null)
+                    {
+                        OnStateChanged?.Invoke(stateEv);
+                        OnEventReceived?.Invoke(stateEv);
+                    }
                     break;
 
                 case "stream_delta":
                     var deltaEv = JsonSerializer.Deserialize<StreamDeltaEvent>(json);
-                    if (deltaEv != null) OnStreamDelta?.Invoke(deltaEv);
+                    if (deltaEv != null)
+                    {
+                        OnStreamDelta?.Invoke(deltaEv);
+                        OnEventReceived?.Invoke(deltaEv);
+                    }
                     break;
 
                 case "tool_start":
                     var toolStartEv = JsonSerializer.Deserialize<ToolStartEvent>(json);
-                    if (toolStartEv != null) OnToolStart?.Invoke(toolStartEv);
+                    if (toolStartEv != null)
+                    {
+                        OnToolStart?.Invoke(toolStartEv);
+                        OnEventReceived?.Invoke(toolStartEv);
+                    }
                     break;
 
                 case "tool_output":
                     var toolOutEv = JsonSerializer.Deserialize<ToolOutputEvent>(json);
-                    if (toolOutEv != null) OnToolOutput?.Invoke(toolOutEv);
+                    if (toolOutEv != null)
+                    {
+                        OnToolOutput?.Invoke(toolOutEv);
+                        OnEventReceived?.Invoke(toolOutEv);
+                    }
                     break;
 
                 case "task_completed":
                     var taskEv = JsonSerializer.Deserialize<TaskCompletedEvent>(json);
-                    if (taskEv != null) OnTaskCompleted?.Invoke(taskEv);
+                    if (taskEv != null)
+                    {
+                        OnTaskCompleted?.Invoke(taskEv);
+                        OnEventReceived?.Invoke(taskEv);
+                    }
                     break;
 
                 case "terminal_data":
                     var termEv = JsonSerializer.Deserialize<TerminalDataEvent>(json);
-                    if (termEv != null) OnTerminalData?.Invoke(termEv);
+                    if (termEv != null)
+                    {
+                        OnTerminalData?.Invoke(termEv);
+                        OnEventReceived?.Invoke(termEv);
+                    }
                     break;
 
                 case "error":
                     var errEv = JsonSerializer.Deserialize<SidecarErrorEvent>(json);
-                    if (errEv != null) OnError?.Invoke(errEv);
+                    if (errEv != null)
+                    {
+                        OnError?.Invoke(errEv);
+                        OnEventReceived?.Invoke(errEv);
+                    }
                     break;
             }
         }
@@ -225,6 +286,7 @@ public class SidecarClient : IDisposable
     {
         _heartbeatTimer.Change(Timeout.Infinite, Timeout.Infinite);
         _connectionCts?.Cancel();
+        OnStatusChanged?.Invoke(false);
 
         if (_ws != null)
         {

@@ -349,6 +349,7 @@
     if (!pName || typeof window.callBridge !== 'function') return;
     try {
       await window.callBridge('switch_antigravity_profile', { profile: pName });
+      await window.callBridge('switch_account', { profile: pName });
       if (window.state?.antigravity) window.state.antigravity.activeProfile = pName;
       selectedProfileTargets.clear();
       selectedProfileTargets.add(pName);
@@ -745,15 +746,20 @@
       ? Array.from(selectedProfileTargets)
       : [window.state?.antigravity?.activeProfile || 'Default'];
 
-    // 3. For each profile, spawn execution card and dispatch input with \r\n
+    const activeWs = window.state?.workspaces?.find(w => w.id === window.state?.activeWorkspaceId);
+    const cwd = activeWs?.workingDirectory || '';
+
+    // 3. For each profile, spawn execution card and dispatch via Sidecar Engine
     for (const profileName of targets) {
+      const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+
       // Complete any previous active card for this profile
       const prevCard = activeExecutionCards.get(profileName.toLowerCase());
       if (prevCard) {
         const prevBadge = prevCard.querySelector('.card-status-badge');
         if (prevBadge) {
           prevBadge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
-          prevBadge.textContent = 'Done';
+          prevBadge.textContent = 'Completed';
         }
         const ping = prevCard.querySelector('.animate-ping');
         if (ping) ping.classList.remove('animate-ping');
@@ -761,6 +767,8 @@
 
       const executionCard = document.createElement('div');
       executionCard.className = 'flex items-start space-x-3 max-w-3xl';
+      executionCard.setAttribute('data-session-id', sessionId);
+      executionCard.setAttribute('data-profile', profileName);
       executionCard.innerHTML = `
         <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center text-white text-xs flex-shrink-0 shadow-md shadow-sky-600/30">
           <i class="fa-solid fa-microchip"></i>
@@ -770,24 +778,21 @@
             <div class="flex items-center justify-between font-mono pb-2 border-b border-surface-border">
               <span class="text-content-main font-semibold flex items-center space-x-2">
                 <span class="w-2 h-2 rounded-full bg-sky-500 animate-ping"></span>
-                <span>Process: Antigravity (${escapeHtml(profileName)})</span>
+                <span>Sidecar Engine: ${escapeHtml(profileName)}</span>
               </span>
-              <span class="card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-500 border border-sky-500/30">Executing</span>
+              <span class="card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-500 border border-sky-500/30">Streaming</span>
             </div>
 
-            <!-- Live Output Snip with Clean Stripped Text -->
-            <div class="p-2.5 rounded bg-surface-deep border border-surface-border font-mono text-[11px] text-content-main space-y-1">
-              <div class="text-content-dim">// ConPTY stream buffer connected</div>
-              <div class="exec-live-line text-emerald-500 font-medium" data-profile="${escapeHtml(profileName)}">Dispatched instruction &crarr;</div>
-            </div>
+            <!-- Structured Chat Markdown Stream Content -->
+            <div class="chat-assistant-markdown font-sans text-sm text-content-main leading-relaxed space-y-2 whitespace-pre-wrap"></div>
 
-            <div class="flex items-center justify-between pt-1 text-[11px]">
+            <div class="flex items-center justify-between pt-2 border-t border-surface-border text-[11px]">
               <button onclick="if (typeof toggleHud === 'function') toggleHud(true);" class="text-sky-500 hover:text-sky-400 font-mono flex items-center space-x-1.5 transition">
                 <i class="fa-solid fa-terminal text-[10px]"></i>
-                <span>View Full ConPTY HUD (F12) &rarr;</span>
+                <span>Raw CLI HUD (F12) &rarr;</span>
               </button>
               <button onclick="if (typeof switchView === 'function') switchView('repositories');" class="text-content-muted hover:text-content-main font-mono transition">
-                Inspect Diff &rarr;
+                Inspect Workspace Diff &rarr;
               </button>
             </div>
           </div>
@@ -797,28 +802,108 @@
       stream.scrollTop = stream.scrollHeight;
       activeExecutionCards.set(profileName.toLowerCase(), executionCard);
 
-      // Dispatch to ConPTY with \r\n (Carriage Return triggers enter on Windows ConPTY)
+      // Dispatch to native Bun Sidecar via Bridge
       if (typeof window.callBridge === 'function') {
         try {
-          await window.callBridge('send_terminal_input', {
-            cli: 'antigravity_cli:' + profileName,
-            input: text + '\r\n'
+          await window.callBridge('send_chat', {
+            sessionId: sessionId,
+            prompt: text,
+            profile: profileName,
+            workingDirectory: cwd
           });
         } catch (err) {
-          appendHudLog(`[CLI Send Error (${profileName})] ${err?.message || err}`, 'rose');
+          appendHudLog(`[Sidecar Send Error (${profileName})] ${err?.message || err}`, 'rose');
+          const badge = executionCard.querySelector('.card-status-badge');
+          if (badge) {
+            badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-500 border border-rose-500/30';
+            badge.textContent = 'Failed';
+          }
         }
       }
     }
   }
   window.submitUserPrompt = submitUserPrompt;
 
-  // --- 8. Real-Time Terminal Data & Output Tracking ---
+  // --- 8. Real-Time Sidecar Token & Status Streaming ---
+  window.addEventListener('chat_token', (e) => {
+    if (!e.detail || typeof e.detail.text !== 'string') return;
+    const { sessionId, text } = e.detail;
+
+    // Find target card matching session or fallback to active card
+    let targetCard = null;
+    if (sessionId) {
+      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`);
+    }
+    if (!targetCard && activeExecutionCards.size > 0) {
+      targetCard = Array.from(activeExecutionCards.values())[0];
+    }
+
+    if (targetCard) {
+      const markdownEl = targetCard.querySelector('.chat-assistant-markdown');
+      if (markdownEl) {
+        markdownEl.textContent += text;
+        const stream = document.getElementById('chat-stream');
+        if (stream) stream.scrollTop = stream.scrollHeight;
+      }
+    }
+  });
+
+  window.addEventListener('session_status', (e) => {
+    if (!e.detail) return;
+    const { sessionId, state, error } = e.detail;
+
+    let targetCard = null;
+    if (sessionId) {
+      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`);
+    }
+    if (!targetCard && activeExecutionCards.size > 0) {
+      targetCard = Array.from(activeExecutionCards.values())[0];
+    }
+
+    if (targetCard) {
+      const badge = targetCard.querySelector('.card-status-badge');
+      const ping = targetCard.querySelector('.animate-ping');
+      if (badge) {
+        if (state === 'running') {
+          badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-500 border border-sky-500/30';
+          badge.textContent = 'Thinking...';
+        } else if (state === 'tool_executing') {
+          badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-500 border border-amber-500/30';
+          badge.textContent = 'Executing Tool';
+        } else if (state === 'error') {
+          badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-500 border border-rose-500/30';
+          badge.textContent = 'Error: ' + (error || 'Failed');
+          if (ping) ping.classList.remove('animate-ping');
+        } else if (state === 'idle' || state === 'completed') {
+          badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
+          badge.textContent = 'Completed';
+          if (ping) ping.classList.remove('animate-ping');
+        }
+      }
+    }
+  });
+
+  window.addEventListener('account_state', (e) => {
+    if (!e.detail) return;
+    const { activeAccount, profiles } = e.detail;
+
+    if (activeAccount && window.state?.antigravity) {
+      window.state.antigravity.activeProfile = activeAccount;
+    }
+    if (Array.isArray(profiles) && window.state?.antigravity) {
+      window.state.antigravity.profiles = profiles;
+    }
+
+    renderChatProfileManager();
+    appendHudLog(`[Sidecar] Active profile switched to ${activeAccount}`, 'sky');
+  });
+
+  // --- 9. Real-Time Terminal Data for ConPTY Raw CLI HUD ---
   window.addEventListener('terminal_data', (e) => {
     if (!e.detail || !e.detail.data) return;
     const rawData = String(e.detail.data);
-    const cli = String(e.detail.cli || '').toLowerCase();
 
-    // 1. Quake HUD Console Stream
+    // Quake HUD Console Stream (Preserved for Raw CLI Tab & F12)
     const hudContent = document.getElementById('hud-terminal-content');
     if (hudContent) {
       const span = document.createElement('span');
@@ -827,31 +912,6 @@
       hudContent.appendChild(span);
       if (hudContent.children.length > 500) hudContent.removeChild(hudContent.firstChild);
       hudContent.scrollTop = hudContent.scrollHeight;
-    }
-
-    // 2. Execution Cards Clean Snippet Output
-    const cleanChunk = stripAnsi(rawData);
-    if (!cleanChunk) return;
-
-    // Identify which card this stream belongs to
-    for (const [profName, card] of activeExecutionCards.entries()) {
-      if (cli.includes(profName) || activeExecutionCards.size === 1) {
-        const liveLine = card.querySelector('.exec-live-line');
-        if (liveLine) {
-          const lines = cleanChunk.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
-          const validLines = lines.filter(l => 
-            !l.includes('? for shortcuts') && 
-            !l.includes('esc to dismiss') && 
-            !l.includes('Verbosity is now') &&
-            !l.startsWith('>') &&
-            l.length > 1
-          );
-          if (validLines.length > 0) {
-            const displaySnip = validLines[validLines.length - 1];
-            liveLine.textContent = displaySnip.slice(0, 100);
-          }
-        }
-      }
     }
   });
 

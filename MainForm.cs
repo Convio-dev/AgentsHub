@@ -188,6 +188,9 @@ public partial class MainForm : Form
                 _dashboardWebBridge.AttachWebView(_webView.CoreWebView2);
             }
 
+            // Automatically start the compiled Bun Sidecar Engine in the background
+            _ = Services.Sidecar.SidecarHostService.Instance.StartAsync();
+
             // Navigate to modern dashboard
             _webView.CoreWebView2.Navigate("https://app.agentshub.local/index.html");
 

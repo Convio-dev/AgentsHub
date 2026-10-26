@@ -44,3 +44,8 @@ logs/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Bun / Node
+node_modules/
+bun.lock
+bun.lockb

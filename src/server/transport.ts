@@ -116,7 +116,7 @@ export class SidecarTransport {
     });
 
     this.registerSignalHandlers(onShutdown);
-    return this.server.port;
+    return this.server.port ?? this.options.port;
   }
 
   public broadcast(event: OutboundEvent): void {

@@ -80,6 +80,30 @@ export interface ShutdownRequest extends BaseInboundRequest {
   force?: boolean;
 }
 
+export interface SwitchAccountRequest extends BaseInboundRequest {
+  action: 'switch_account';
+  profile: string;
+  provider?: string;
+}
+
+export interface ListAccountsRequest extends BaseInboundRequest {
+  action: 'list_accounts';
+}
+
+export interface RefreshTokenRequest extends BaseInboundRequest {
+  action: 'refresh_token';
+  profile: string;
+}
+
+export interface SendChatRequest extends BaseInboundRequest {
+  action: 'send_chat';
+  sessionId: string;
+  prompt: string;
+  model?: string;
+  profile?: string;
+  workingDirectory?: string;
+}
+
 export type InboundMessage =
   | AuthRequest
   | PingRequest
@@ -88,7 +112,11 @@ export type InboundMessage =
   | ExecuteToolRequest
   | TerminalInputRequest
   | TerminalResizeRequest
-  | ShutdownRequest;
+  | ShutdownRequest
+  | SwitchAccountRequest
+  | ListAccountsRequest
+  | RefreshTokenRequest
+  | SendChatRequest;
 
 // --- Outbound Messages (Sidecar -> Host) ---
 
@@ -121,6 +149,36 @@ export interface StreamDeltaEvent {
   taskId: string;
   text: string;
   index: number;
+  timestamp: string;
+}
+
+export interface ChatTokenEvent {
+  event: 'chat_token';
+  sessionId: string;
+  text: string;
+  timestamp: string;
+}
+
+export interface SessionStatusEvent {
+  event: 'session_status';
+  sessionId: string;
+  state: 'idle' | 'running' | 'tool_executing' | 'completed' | 'error';
+  error?: string;
+  timestamp: string;
+}
+
+export interface AccountProfileInfo {
+  name: string;
+  email?: string;
+  active: boolean;
+  provider?: string;
+}
+
+export interface AccountStateEvent {
+  event: 'account_state';
+  activeAccount: string;
+  provider: string;
+  profiles: AccountProfileInfo[];
   timestamp: string;
 }
 
@@ -182,6 +240,9 @@ export type OutboundEvent =
   | PongEvent
   | AgentStateEvent
   | StreamDeltaEvent
+  | ChatTokenEvent
+  | SessionStatusEvent
+  | AccountStateEvent
   | ToolStartEvent
   | ToolOutputEvent
   | TaskCompletedEvent

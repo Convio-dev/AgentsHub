@@ -117,6 +117,50 @@ public class TerminalResizeRequest : BaseRequest
     public int Rows { get; set; } = 32;
 }
 
+public class SendChatRequest : BaseRequest
+{
+    public SendChatRequest() => Action = "send_chat";
+
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = Guid.NewGuid().ToString("N");
+
+    [JsonPropertyName("prompt")]
+    public string Prompt { get; set; } = string.Empty;
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
+    [JsonPropertyName("workingDirectory")]
+    public string? WorkingDirectory { get; set; }
+}
+
+public class SwitchAccountRequest : BaseRequest
+{
+    public SwitchAccountRequest() => Action = "switch_account";
+
+    [JsonPropertyName("profile")]
+    public string Profile { get; set; } = string.Empty;
+
+    [JsonPropertyName("provider")]
+    public string? Provider { get; set; }
+}
+
+public class ListAccountsRequest : BaseRequest
+{
+    public ListAccountsRequest() => Action = "list_accounts";
+}
+
+public class RefreshTokenRequest : BaseRequest
+{
+    public RefreshTokenRequest() => Action = "refresh_token";
+
+    [JsonPropertyName("profile")]
+    public string Profile { get; set; } = string.Empty;
+}
+
 // --- Inbound Events (Sidecar -> Host) ---
 
 public class BaseSidecarEvent
@@ -126,6 +170,54 @@ public class BaseSidecarEvent
 
     [JsonPropertyName("timestamp")]
     public string? Timestamp { get; set; }
+}
+
+public class ChatTokenEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+}
+
+public class SessionStatusEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("state")]
+    public string State { get; set; } = "idle";
+
+    [JsonPropertyName("error")]
+    public string? Error { get; set; }
+}
+
+public class AccountProfileInfo
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("email")]
+    public string? Email { get; set; }
+
+    [JsonPropertyName("active")]
+    public bool Active { get; set; }
+
+    [JsonPropertyName("provider")]
+    public string? Provider { get; set; }
+}
+
+public class AccountStateEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("activeAccount")]
+    public string ActiveAccount { get; set; } = string.Empty;
+
+    [JsonPropertyName("provider")]
+    public string Provider { get; set; } = string.Empty;
+
+    [JsonPropertyName("profiles")]
+    public List<AccountProfileInfo> Profiles { get; set; } = [];
 }
 
 public class ServerReadyEvent : BaseSidecarEvent

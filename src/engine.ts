@@ -5,6 +5,7 @@
 
 import { TaskQueue } from './queue/taskQueue.ts';
 import { PtyRunner } from './tools/ptyRunner.ts';
+import { SessionManager } from './session/sessionManager.ts';
 import { MessageRouter } from './server/router.ts';
 import { SidecarTransport } from './server/transport.ts';
 import { OutboundEvent } from './types/protocol.ts';
@@ -47,7 +48,8 @@ async function main() {
   };
 
   const taskQueue = new TaskQueue(4, handleOutbound);
-  const router = new MessageRouter(taskQueue, ptyRunner, handleOutbound);
+  const sessionManager = new SessionManager(taskQueue, handleOutbound);
+  const router = new MessageRouter(taskQueue, ptyRunner, sessionManager, handleOutbound);
 
   transport = new SidecarTransport({
     port,

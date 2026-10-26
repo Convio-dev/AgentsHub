@@ -1,0 +1,282 @@
+#nullable enable
+using System.Diagnostics;
+using System.Text.Json;
+using AgentsHub.Services.Sidecar.DTOs;
+
+namespace AgentsHub.Services.Sidecar;
+
+/// <summary>
+/// Centralized host service managing the Bun Sidecar process lifecycle,
+/// automated watchdog guarding, WebSocket IPC communication, and real-time streaming event dispatch.
+/// </summary>
+public sealed class SidecarHostService : IDisposable
+{
+    private static readonly Lazy<SidecarHostService> _lazy = new(() => new SidecarHostService());
+    public static SidecarHostService Instance => _lazy.Value;
+
+    private readonly SidecarManager _manager;
+    private readonly SidecarClient _client;
+    private readonly Lock _lock = new();
+
+    private bool _isInitialized;
+    private bool _isDisposed;
+
+    /// <summary>
+    /// Event fired whenever an event arrives from the Sidecar to be forwarded to the WebView2 UI.
+    /// EventName: e.g. "chat_token", "session_status", "account_state", "tool_output".
+    /// Payload: The parsed event payload object.
+    /// </summary>
+    public event Action<string, object?>? EventDispatched;
+
+    /// <summary>
+    /// Status text representing the sidecar health state ("Online", "Offline", "Starting", "Error").
+    /// </summary>
+    public string StatusText { get; private set; } = "Offline";
+    public bool IsOnline => _client.IsConnected;
+    public int BoundPort => _manager.Port;
+
+    private SidecarHostService()
+    {
+        _manager = new SidecarManager();
+        _client = new SidecarClient(_manager);
+
+        _manager.OnExited += HandleSidecarExited;
+        _client.OnEventReceived += HandleClientEvent;
+        _client.OnStatusChanged += (connected) =>
+        {
+            StatusText = connected ? "Online" : "Connecting";
+            EventDispatched?.Invoke("sidecar_status_changed", new
+            {
+                status = StatusText,
+                port = _manager.Port,
+                isOnline = connected
+            });
+        };
+    }
+
+    /// <summary>
+    /// Starts the sidecar process and connects WebSocket IPC in the background.
+    /// Safe to call multiple times.
+    /// </summary>
+    public async Task StartAsync(CancellationToken ct = default)
+    {
+        lock (_lock)
+        {
+            if (_isInitialized) return;
+            _isInitialized = true;
+        }
+
+        try
+        {
+            StatusText = "Starting";
+            // 1. Spawns child process with Win32 Job Object guard and negotiates dynamic port/token
+            int port = await _manager.StartAsync(ct).ConfigureAwait(false);
+
+            // 2. Connects ClientWebSocket with auto-reconnection and heartbeat
+            await _client.ConnectAsync(ct).ConfigureAwait(false);
+
+            StatusText = "Online";
+            Debug.WriteLine($"[SidecarHostService] Sidecar fully online on port {port}.");
+
+            // Query initial account state
+            _ = ListAccountsAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText = "Error";
+            Debug.WriteLine($"[SidecarHostService] Failed to start sidecar: {ex.Message}");
+            EventDispatched?.Invoke("sidecar_status_changed", new
+            {
+                status = "Error",
+                error = ex.Message,
+                isOnline = false
+            });
+        }
+    }
+
+    private void HandleSidecarExited()
+    {
+        StatusText = "Offline";
+        EventDispatched?.Invoke("sidecar_status_changed", new
+        {
+            status = "Offline",
+            isOnline = false
+        });
+
+        if (!_isDisposed)
+        {
+            // Auto-recovery: Re-initialize after brief backoff
+            Task.Run(async () =>
+            {
+                await Task.Delay(1500).ConfigureAwait(false);
+                if (!_isDisposed && !_manager.IsRunning)
+                {
+                    try
+                    {
+                        Debug.WriteLine("[SidecarHostService] Auto-recovering Sidecar process...");
+                        await _manager.StartAsync().ConfigureAwait(false);
+                        await _client.ConnectAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[SidecarHostService] Auto-recovery failed: {ex.Message}");
+                    }
+                }
+            });
+        }
+    }
+
+    private void HandleClientEvent(BaseSidecarEvent evt)
+    {
+        switch (evt.Event)
+        {
+            case "chat_token":
+                if (evt is ChatTokenEvent cte)
+                {
+                    EventDispatched?.Invoke("chat_token", new
+                    {
+                        sessionId = cte.SessionId,
+                        text = cte.Text,
+                        timestamp = cte.Timestamp
+                    });
+                }
+                break;
+
+            case "session_status":
+                if (evt is SessionStatusEvent sse)
+                {
+                    EventDispatched?.Invoke("session_status", new
+                    {
+                        sessionId = sse.SessionId,
+                        state = sse.State,
+                        error = sse.Error,
+                        timestamp = sse.Timestamp
+                    });
+                }
+                break;
+
+            case "account_state":
+                if (evt is AccountStateEvent ase)
+                {
+                    EventDispatched?.Invoke("account_state", new
+                    {
+                        activeAccount = ase.ActiveAccount,
+                        provider = ase.Provider,
+                        profiles = ase.Profiles,
+                        timestamp = ase.Timestamp
+                    });
+                }
+                break;
+
+            case "stream_delta":
+                if (evt is StreamDeltaEvent sde)
+                {
+                    EventDispatched?.Invoke("stream_delta", sde);
+                }
+                break;
+
+            case "tool_start":
+                if (evt is ToolStartEvent tse)
+                {
+                    EventDispatched?.Invoke("tool_start", tse);
+                }
+                break;
+
+            case "tool_output":
+                if (evt is ToolOutputEvent toe)
+                {
+                    EventDispatched?.Invoke("tool_output", toe);
+                }
+                break;
+
+            case "task_completed":
+                if (evt is TaskCompletedEvent tce)
+                {
+                    EventDispatched?.Invoke("task_completed", tce);
+                }
+                break;
+
+            case "terminal_data":
+                if (evt is TerminalDataEvent tde)
+                {
+                    EventDispatched?.Invoke("terminal_data", new
+                    {
+                        cli = tde.SessionId,
+                        data = tde.Data
+                    });
+                }
+                break;
+
+            default:
+                EventDispatched?.Invoke(evt.Event, evt);
+                break;
+        }
+    }
+
+    // --- High-Level RPC APIs for Frontend ---
+
+    public async Task SendChatAsync(string sessionId, string prompt, string? model = null, string? profile = null, string? workingDirectory = null)
+    {
+        await EnsureOnlineAsync().ConfigureAwait(false);
+        await _client.SendAsync(new SendChatRequest
+        {
+            SessionId = sessionId,
+            Prompt = prompt,
+            Model = model,
+            Profile = profile,
+            WorkingDirectory = workingDirectory
+        }).ConfigureAwait(false);
+    }
+
+    public async Task SwitchAccountAsync(string profileName, string? provider = null)
+    {
+        await EnsureOnlineAsync().ConfigureAwait(false);
+        await _client.SendAsync(new SwitchAccountRequest
+        {
+            Profile = profileName,
+            Provider = provider
+        }).ConfigureAwait(false);
+    }
+
+    public async Task ListAccountsAsync()
+    {
+        await EnsureOnlineAsync().ConfigureAwait(false);
+        await _client.SendAsync(new ListAccountsRequest()).ConfigureAwait(false);
+    }
+
+    public async Task RefreshTokenAsync(string profileName)
+    {
+        await EnsureOnlineAsync().ConfigureAwait(false);
+        await _client.SendAsync(new RefreshTokenRequest
+        {
+            Profile = profileName
+        }).ConfigureAwait(false);
+    }
+
+    public async Task AbortTaskAsync(string taskId, string? reason = null)
+    {
+        await EnsureOnlineAsync().ConfigureAwait(false);
+        await _client.SendAsync(new AbortTaskRequest
+        {
+            TaskId = taskId,
+            Reason = reason
+        }).ConfigureAwait(false);
+    }
+
+    private async Task EnsureOnlineAsync()
+    {
+        if (!_client.IsConnected)
+        {
+            await StartAsync().ConfigureAwait(false);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed) return;
+        _isDisposed = true;
+
+        _client.Dispose();
+        _manager.Dispose();
+    }
+}

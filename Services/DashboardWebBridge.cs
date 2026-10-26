@@ -331,6 +331,15 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             PostEventToUi("pocket_commander_command_received", new { cmd, user, timestamp = DateTime.UtcNow });
         };
+
+        // Wire native Bun Sidecar events directly to WebView2 UI
+        Sidecar.SidecarHostService.Instance.EventDispatched += (evt, payload) =>
+        {
+            if (payload != null)
+            {
+                PostEventToUi(evt, payload);
+            }
+        };
     }
 
     private void UpdateDiscordRpcAgents()
@@ -532,6 +541,55 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             case "get_initial_state":
                 SendResponse(requestId, true, GetInitialStateDto());
+                break;
+
+            case "send_chat":
+                {
+                    string sessionId = data.TryGetProperty("sessionId", out var sElem) ? sElem.GetString() ?? Guid.NewGuid().ToString("N") : Guid.NewGuid().ToString("N");
+                    string prompt = data.TryGetProperty("prompt", out var pElem) ? pElem.GetString() ?? string.Empty : string.Empty;
+                    string? model = data.TryGetProperty("model", out var mElem) ? mElem.GetString() : null;
+                    string? profile = data.TryGetProperty("profile", out var prElem) ? prElem.GetString() : null;
+                    string? cwd = data.TryGetProperty("workingDirectory", out var wdElem) ? wdElem.GetString() : null;
+
+                    await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { sent = true, sessionId });
+                }
+                break;
+
+            case "switch_account":
+                {
+                    string profile = data.TryGetProperty("profile", out var pElem) ? pElem.GetString() ?? "Default" : "Default";
+                    string? provider = data.TryGetProperty("provider", out var prElem) ? prElem.GetString() : null;
+
+                    await Sidecar.SidecarHostService.Instance.SwitchAccountAsync(profile, provider).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { success = true, profile });
+                }
+                break;
+
+            case "list_accounts":
+                {
+                    await Sidecar.SidecarHostService.Instance.ListAccountsAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, new { requested = true });
+                }
+                break;
+
+            case "refresh_token":
+                {
+                    string profile = data.TryGetProperty("profile", out var pElem) ? pElem.GetString() ?? "Default" : "Default";
+                    await Sidecar.SidecarHostService.Instance.RefreshTokenAsync(profile).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { requested = true, profile });
+                }
+                break;
+
+            case "get_sidecar_status":
+                {
+                    SendResponse(requestId, true, new
+                    {
+                        status = Sidecar.SidecarHostService.Instance.StatusText,
+                        port = Sidecar.SidecarHostService.Instance.BoundPort,
+                        isOnline = Sidecar.SidecarHostService.Instance.IsOnline
+                    });
+                }
                 break;
 
             case "get_system_telemetry":

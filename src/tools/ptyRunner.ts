@@ -19,7 +19,6 @@ export interface PtySessionConfig {
 export class PtyRunner {
   private activeSessions = new Map<string, {
     proc: any;
-    stdinWriter: WritableStreamDefaultWriter<Uint8Array> | null;
   }>();
 
   public spawnSession(config: PtySessionConfig): void {
@@ -47,11 +46,8 @@ export class PtyRunner {
       stderr: 'pipe'
     });
 
-    const stdinWriter = proc.stdin ? proc.stdin.getWriter() : null;
-
     this.activeSessions.set(config.sessionId, {
-      proc,
-      stdinWriter
+      proc
     });
 
     const pumpStream = async (stream: ReadableStream<Uint8Array> | null) => {
@@ -72,7 +68,7 @@ export class PtyRunner {
     pumpStream(proc.stdout);
     pumpStream(proc.stderr);
 
-    proc.exited.then((code) => {
+    proc.exited.then((code: number) => {
       this.activeSessions.delete(config.sessionId);
       config.onExit(code);
     });
@@ -80,11 +76,13 @@ export class PtyRunner {
 
   public writeInput(sessionId: string, data: string): boolean {
     const session = this.activeSessions.get(sessionId);
-    if (!session || !session.stdinWriter) return false;
+    if (!session || !session.proc || !session.proc.stdin) return false;
 
     try {
-      const bytes = new TextEncoder().encode(data);
-      session.stdinWriter.write(bytes);
+      session.proc.stdin.write(data);
+      if (typeof session.proc.stdin.flush === 'function') {
+        session.proc.stdin.flush();
+      }
       return true;
     } catch {
       return false;
