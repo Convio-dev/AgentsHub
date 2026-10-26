@@ -819,7 +819,7 @@ public sealed class PocketCommanderService : IDisposable
                         new
                         {
                             name = "profile",
-                            description = "Profile name or number to start (e.g. ZXR@2 or 1)",
+                            description = "Profile name or number to start (e.g. Account_2 or 1)",
                             type = 3,
                             required = false
                         }
@@ -835,7 +835,7 @@ public sealed class PocketCommanderService : IDisposable
                         new
                         {
                             name = "profile",
-                            description = "Profile name or number to set as active (e.g. ZXR@2 or 1)",
+                            description = "Profile name or number to set as active (e.g. Account_2 or 1)",
                             type = 3,
                             required = false
                         }

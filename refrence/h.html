@@ -128,7 +128,7 @@
     </div>
     <div id="hud-terminal-content" class="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1 text-slate-300 bg-black/60">
       <p class="text-slate-500">// Agents Hub Native Terminal Stream attached to ConPTY [net10.0-windows]</p>
-      <p class="text-sky-400">[Antigravity Engine] Profile ZXR@1 running in VirtualHome isolated sandbox</p>
+      <p class="text-sky-400">[Antigravity Engine] Profile instance running in VirtualHome isolated sandbox</p>
       <p class="text-emerald-400">[Gateway Proxy] 127.0.0.1:9230 routing Anthropic v1 Messages to Local Model Engine</p>
       <p class="text-slate-400">[System] Shell listener initialized. Ready for silent tool execution requests...</p>
     </div>
@@ -170,9 +170,9 @@
 
       <!-- Bottom Profile Avatar Indicator -->
       <div class="flex flex-col items-center space-y-3">
-        <button onclick="openProfileModal()" title="Current Active Profile: ZXR@1" class="relative group">
+        <button onclick="openProfileModal()" title="Current Active Profile" class="relative group">
           <div class="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-mono font-semibold text-sky-400 group-hover:border-sky-500 transition">
-            Z1
+            <i class="fa-solid fa-user-astronaut text-xs"></i>
           </div>
           <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-surface-sidebar rounded-full"></span>
         </button>
@@ -207,9 +207,9 @@
         <div class="flex items-center space-x-1.5">
           <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
           <select id="agent-profile-selector" onchange="switchAgentProfile(this.value)" class="bg-transparent text-slate-300 font-mono text-[11px] focus:outline-none cursor-pointer">
-            <option value="ZXR@1">agy: ZXR@1 (Port 9339)</option>
-            <option value="ZXR@2">agy: ZXR@2 (Port 9340)</option>
-            <option value="ZXR@3">agy: ZXR@3 (Port 9341)</option>
+            <option value="Profile-1">agy: Profile-1 (Port 9339)</option>
+            <option value="Profile-2">agy: Profile-2 (Port 9340)</option>
+            <option value="Profile-3">agy: Profile-3 (Port 9341)</option>
             <option value="ClaudeCode">Claude Code Gateway</option>
           </select>
         </div>
@@ -279,7 +279,7 @@
             </h1>
             <span class="text-xs px-2 py-0.5 rounded bg-surface-card border border-surface-border text-slate-300 font-mono flex items-center space-x-1.5">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-              <span id="header-profile-badge">Antigravity CLI (agy) • ZXR@1</span>
+              <span id="header-profile-badge">Antigravity CLI (agy)</span>
             </span>
           </div>
 
@@ -535,13 +535,13 @@
               <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-2">
                   <span class="w-3 h-3 rounded-full bg-emerald-400"></span>
-                  <span class="font-mono font-bold text-slate-100">ZXR@1</span>
+                  <span class="font-mono font-bold text-slate-100">Profile-1</span>
                   <span class="px-1.5 py-0.2 bg-sky-950 text-sky-400 border border-sky-800 text-[10px] rounded">ACTIVE</span>
                 </div>
                 <span class="font-mono text-xs text-slate-400">Port: 9339</span>
               </div>
               <div class="text-xs text-slate-400 font-mono space-y-1 bg-surface-deep p-2.5 rounded border border-surface-border">
-                <div>Identity: usamau32o@gmail.com</div>
+                <div>Identity: dev.primary@example.com</div>
                 <div>Runtime: Google Gemini 3.8 Flash High</div>
                 <div>Quota Status: 98% remaining</div>
               </div>
@@ -556,18 +556,18 @@
               <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-2">
                   <span class="w-3 h-3 rounded-full bg-slate-600"></span>
-                  <span class="font-mono font-bold text-slate-100">ZXR@2</span>
+                  <span class="font-mono font-bold text-slate-100">Profile-2</span>
                   <span class="px-1.5 py-0.2 bg-slate-800 text-slate-400 text-[10px] rounded">STANDBY</span>
                 </div>
                 <span class="font-mono text-xs text-slate-400">Port: 9340</span>
               </div>
               <div class="text-xs text-slate-400 font-mono space-y-1 bg-surface-deep p-2.5 rounded border border-surface-border">
-                <div>Identity: dev.secondary@gmail.com</div>
+                <div>Identity: dev.secondary@example.com</div>
                 <div>Runtime: Claude 3.7 Sonnet / OpenRouter</div>
                 <div>Quota Status: 100% (Clean Pool)</div>
               </div>
               <div class="flex space-x-2">
-                <button onclick="switchAgentProfile('ZXR@2')" class="flex-1 py-1.5 bg-surface-deep hover:bg-sky-600 hover:text-white text-slate-300 border border-surface-border rounded text-xs font-medium transition">Switch to this Account</button>
+                <button onclick="switchAgentProfile('Profile-2')" class="flex-1 py-1.5 bg-surface-deep hover:bg-sky-600 hover:text-white text-slate-300 border border-surface-border rounded text-xs font-medium transition">Switch to this Account</button>
               </div>
             </div>
 
@@ -576,17 +576,17 @@
               <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-2">
                   <span class="w-3 h-3 rounded-full bg-slate-600"></span>
-                  <span class="font-mono font-bold text-slate-100">ZXR@3</span>
+                  <span class="font-mono font-bold text-slate-100">Profile-3</span>
                   <span class="px-1.5 py-0.2 bg-slate-800 text-slate-400 text-[10px] rounded">OFFLINE</span>
                 </div>
                 <span class="font-mono text-xs text-slate-400">Port: 9341</span>
               </div>
               <div class="text-xs text-slate-400 font-mono space-y-1 bg-surface-deep p-2.5 rounded border border-surface-border">
-                <div>Identity: test.agent3@outlook.com</div>
+                <div>Identity: dev.agent3@example.com</div>
                 <div>Runtime: DeepSeek-R1 (Local Ollama)</div>
                 <div>Quota Status: Unlimited</div>
               </div>
-              <button onclick="switchAgentProfile('ZXR@3')" class="w-full py-1.5 bg-surface-deep hover:bg-slate-800 text-slate-300 border border-surface-border rounded text-xs font-medium">Activate Profile</button>
+              <button onclick="switchAgentProfile('Profile-3')" class="w-full py-1.5 bg-surface-deep hover:bg-slate-800 text-slate-300 border border-surface-border rounded text-xs font-medium">Activate Profile</button>
             </div>
 
             <!-- Profile 4 -->
@@ -594,7 +594,7 @@
               <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-2">
                   <span class="w-3 h-3 rounded-full bg-slate-600"></span>
-                  <span class="font-mono font-bold text-slate-100">ZXR@4</span>
+                  <span class="font-mono font-bold text-slate-100">Profile-4</span>
                   <span class="px-1.5 py-0.2 bg-slate-800 text-slate-400 text-[10px] rounded">OFFLINE</span>
                 </div>
                 <span class="font-mono text-xs text-slate-400">Port: 9342</span>

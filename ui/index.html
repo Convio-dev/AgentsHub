@@ -144,7 +144,7 @@
     </div>
     <div id="hud-terminal-content" class="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1 text-slate-300 bg-black/60">
       <p class="text-slate-500">// Agents Hub Native Terminal Stream attached to ConPTY [net10.0-windows]</p>
-      <p class="text-sky-400">[Antigravity Engine] Profile ZXR@1 running in VirtualHome isolated sandbox</p>
+      <p class="text-sky-400">[Antigravity Engine] Profile instance running in VirtualHome isolated sandbox</p>
       <p class="text-emerald-400">[Gateway Proxy] 127.0.0.1:9230 routing Anthropic v1 Messages to Local Model Engine</p>
       <p class="text-slate-400">[System] Shell listener initialized. Ready for silent tool execution requests...</p>
     </div>
@@ -204,8 +204,8 @@
 
       <!-- Bottom Profile Avatar Indicator -->
       <div class="rail-bottom-group flex flex-col items-center space-y-3">
-        <button id="btn-rail-profile" onclick="if (typeof switchView === 'function') switchView('profiles');" title="Current Active Profile: ZXR@1" class="rail-profile-btn relative group">
-          <span>Z1</span>
+        <button id="btn-rail-profile" onclick="if (typeof switchView === 'function') switchView('profiles');" title="Manage Profiles" class="rail-profile-btn relative group">
+          <i class="fa-solid fa-user-astronaut text-xs"></i>
           <span class="rail-profile-status"></span>
         </button>
       </div>
