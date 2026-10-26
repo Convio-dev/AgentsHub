@@ -189,6 +189,7 @@ export interface StreamDeltaEvent {
 export interface ChatTokenEvent {
   event: 'chat_token';
   sessionId: string;
+  profile?: string;
   text: string;
   timestamp: string;
 }
@@ -196,6 +197,7 @@ export interface ChatTokenEvent {
 export interface ThinkingEvent {
   event: 'thinking';
   sessionId: string;
+  profile?: string;
   text?: string;
   durationSeconds?: number;
   thinkingTokens?: number;
@@ -206,6 +208,7 @@ export interface ThinkingEvent {
 export interface TokenUsageEvent {
   event: 'token_usage';
   sessionId: string;
+  profile?: string;
   usage: {
     inputTokens?: number;
     outputTokens?: number;
@@ -218,6 +221,7 @@ export interface TokenUsageEvent {
 export interface QuotaUpdateEvent {
   event: 'quota_update';
   profile: string;
+  sessionId?: string;
   quotaPercent: number;
   details?: string;
   timestamp: string;
@@ -226,7 +230,9 @@ export interface QuotaUpdateEvent {
 export interface ModelInfoEvent {
   event: 'model_info';
   sessionId?: string;
+  profile?: string;
   model: string;
+  reasoningEffort?: string;
   timestamp: string;
 }
 
@@ -236,6 +242,15 @@ export interface SessionStatusEvent {
   profile?: string;
   state: 'idle' | 'thinking' | 'running' | 'tool_executing' | 'completed' | 'error';
   error?: string;
+  pid?: number;
+  model?: string;
+  quotaPercent?: number;
+  tokens?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    thinkingTokens?: number;
+    totalTokens?: number;
+  };
   timestamp: string;
 }
 
@@ -257,6 +272,7 @@ export interface AccountStateEvent {
 export interface ToolStartEvent {
   event: 'tool_start';
   sessionId?: string;
+  profile?: string;
   taskId?: string;
   callId: string;
   tool: string;
@@ -267,6 +283,7 @@ export interface ToolStartEvent {
 export interface ToolOutputEvent {
   event: 'tool_output';
   sessionId?: string;
+  profile?: string;
   taskId?: string;
   callId: string;
   tool: string;

@@ -3,10 +3,223 @@
   'use strict';
 
   let isHudOpen = false;
-  let activeExecutionCards = new Map(); // profileName -> DOM element
+  let activeExecutionCards = new Map(); // sessionId -> DOM element
   let selectedProfileTargets = new Set();
   const activeRunnerProfiles = new Set(); // tracks profiles currently running
   let currentActiveSessionId = localStorage.getItem('agents_hub_active_session_id') || 'session_default';
+
+  // Scoped Multi-Tenant State Stores
+  const sessionStates = new Map(); // sessionId -> { sessionId, profile, title, model, quotaPercent, tokens, status, pid, lastActive }
+  const profileQuotas = new Map(); // profile.toLowerCase() -> { quotaPercent, details, lastPolled }
+  let openSessionTabs = [];
+
+  function getOrCreateSessionState(sessionId, profileName = 'Default', title = '') {
+    if (!sessionId) sessionId = 'session_default';
+    let state = sessionStates.get(sessionId);
+    if (!state) {
+      const canonProfile = (profileName || 'Default').toLowerCase();
+      const cachedQuota = profileQuotas.get(canonProfile);
+      state = {
+        sessionId,
+        profile: profileName || 'Default',
+        title: title || (sessionId === 'session_default' ? 'Active Agent Session' : 'Agent Session'),
+        model: 'Gemini 3.8 Flash (High)',
+        quotaPercent: cachedQuota ? cachedQuota.quotaPercent : null,
+        tokens: { totalTokens: 0, thinkingTokens: 0, inputTokens: 0, outputTokens: 0 },
+        status: 'idle',
+        pid: null,
+        lastActive: Date.now()
+      };
+      sessionStates.set(sessionId, state);
+    } else {
+      if (profileName && profileName !== 'Default') state.profile = profileName;
+      if (title) state.title = title;
+    }
+    if (!openSessionTabs.includes(sessionId)) {
+      openSessionTabs.push(sessionId);
+      renderSessionTabsBar();
+    }
+    return state;
+  }
+
+  function getOrCreateSessionMessageContainer(sessionId) {
+    const stream = document.getElementById('chat-stream');
+    let parent = document.getElementById('chat-messages-container') || stream;
+    if (!parent) return null;
+
+    let container = parent.querySelector(`.session-message-container[data-session-id="${sessionId}"]`);
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'session-message-container space-y-4';
+      container.dataset.sessionId = sessionId;
+      if (sessionId !== currentActiveSessionId) {
+        container.style.display = 'none';
+      }
+      parent.appendChild(container);
+    }
+    return container;
+  }
+
+  function renderSessionTabsBar() {
+    const tabsContainer = document.getElementById('chat-session-tabs-container');
+    if (!tabsContainer) return;
+
+    tabsContainer.innerHTML = '';
+    if (openSessionTabs.length === 0) {
+      openSessionTabs.push(currentActiveSessionId || 'session_default');
+    }
+
+    openSessionTabs.forEach(sId => {
+      const state = getOrCreateSessionState(sId);
+      const isActive = sId === currentActiveSessionId;
+      const isRunning = state.status === 'running' || state.status === 'thinking' || state.status === 'tool_executing';
+
+      const tab = document.createElement('div');
+      tab.className = `group flex items-center space-x-1.5 px-3 py-1 rounded-t-lg text-xs transition cursor-pointer select-none max-w-[200px] border-t border-x ${
+        isActive
+          ? 'bg-surface-card border-surface-border text-sky-400 font-semibold shadow-sm'
+          : 'bg-surface-deep/60 border-transparent text-content-muted hover:text-content-main hover:bg-surface-card/40'
+      }`;
+
+      let indicatorHtml = '';
+      if (isRunning) {
+        indicatorHtml = '<i class="fa-solid fa-spinner animate-spin text-[10px] text-sky-400 flex-shrink-0"></i>';
+      } else {
+        indicatorHtml = `<span class="w-1.5 h-1.5 rounded-full ${isActive ? 'bg-sky-400' : 'bg-content-dim'} flex-shrink-0"></span>`;
+      }
+
+      const displayTitle = state.title && state.title !== 'Active Agent Session'
+        ? (state.title.length > 16 ? state.title.slice(0, 16) + '...' : state.title)
+        : (state.profile ? `${state.profile}` : 'Session');
+
+      tab.innerHTML = `
+        ${indicatorHtml}
+        <span class="truncate text-[11px] font-mono">${escapeHtml(displayTitle)}</span>
+        <button type="button" class="tab-close-btn opacity-0 group-hover:opacity-100 hover:text-rose-400 transition ml-1 p-0.5 text-[10px]" title="Close tab">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      `;
+
+      tab.onclick = (e) => {
+        if (e.target.closest('.tab-close-btn')) {
+          e.stopPropagation();
+          closeSessionTab(sId);
+          return;
+        }
+        activateSessionTab(sId);
+      };
+
+      tabsContainer.appendChild(tab);
+    });
+  }
+
+  function activateSessionTab(sessionId) {
+    if (!sessionId) return;
+    currentActiveSessionId = sessionId;
+    localStorage.setItem('agents_hub_active_session_id', sessionId);
+
+    // Show only the message container for the selected session tab
+    document.querySelectorAll('.session-message-container').forEach(el => {
+      el.style.display = (el.dataset.sessionId === sessionId) ? 'block' : 'none';
+    });
+
+    syncActiveSessionHeaderUi(sessionId);
+    loadSessionHistory();
+
+    const stream = document.getElementById('chat-stream');
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  }
+  window.activateSessionTab = activateSessionTab;
+
+  function closeSessionTab(sessionId) {
+    openSessionTabs = openSessionTabs.filter(id => id !== sessionId);
+    const container = document.querySelector(`.session-message-container[data-session-id="${sessionId}"]`);
+    if (container && container.parentNode) {
+      container.parentNode.removeChild(container);
+    }
+    if (openSessionTabs.length === 0) {
+      createNewSession();
+      return;
+    }
+    if (currentActiveSessionId === sessionId) {
+      activateSessionTab(openSessionTabs[openSessionTabs.length - 1]);
+    } else {
+      renderSessionTabsBar();
+    }
+  }
+  window.closeSessionTab = closeSessionTab;
+
+  function syncActiveSessionHeaderUi(targetSessionId) {
+    const sId = targetSessionId || currentActiveSessionId;
+    const state = sessionStates.get(sId);
+    if (!state) return;
+
+    // 1. Session Title in Context Header
+    const titleEl = document.getElementById('chat-title-text');
+    if (titleEl) {
+      titleEl.textContent = state.title || 'Active Agent Session';
+    }
+
+    // 2. Engine / Model Pill
+    const modelEl = document.getElementById('chat-model-text');
+    if (modelEl) {
+      modelEl.textContent = state.model || 'Gemini 3.8 Flash (High)';
+    }
+
+    // 3. Quota Indicator (Scoped to this session's profile)
+    const quotaEl = document.getElementById('chat-quota-text');
+    if (quotaEl) {
+      const qVal = state.quotaPercent !== null && state.quotaPercent !== undefined
+        ? state.quotaPercent
+        : profileQuotas.get(state.profile.toLowerCase())?.quotaPercent;
+
+      if (qVal !== null && qVal !== undefined && !isNaN(qVal)) {
+        quotaEl.textContent = `${qVal}% Quota`;
+        if (qVal >= 30) {
+          quotaEl.className = 'text-emerald-500 font-mono font-medium';
+        } else if (qVal >= 10) {
+          quotaEl.className = 'text-amber-500 font-mono font-medium';
+        } else {
+          quotaEl.className = 'text-rose-500 font-mono font-medium';
+        }
+      } else {
+        quotaEl.textContent = '--% Quota';
+        quotaEl.className = 'text-content-muted font-mono font-medium';
+      }
+    }
+
+    // 4. Token Counter (Strictly scoped to this session!)
+    const counterEl = document.getElementById('chat-token-counter');
+    if (counterEl) {
+      const total = state.tokens?.totalTokens || 0;
+      if (total > 0) {
+        const formatted = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : String(total);
+        counterEl.textContent = `Tokens: ~${formatted}`;
+        counterEl.title = `Total: ${total} | Thinking: ${state.tokens?.thinkingTokens || 0} | Output: ${state.tokens?.outputTokens || 0} | Input: ${state.tokens?.inputTokens || 0}`;
+      } else {
+        counterEl.textContent = 'Tokens: 0';
+        counterEl.title = 'No tokens consumed in this session';
+      }
+    }
+
+    // 5. Runner Status / Summary Label & Live Dot
+    const liveDot = document.getElementById('chat-profile-live-dot');
+    const summaryLabel = document.getElementById('chat-profile-summary-label');
+    const isRunning = state.status === 'running' || state.status === 'thinking' || state.status === 'tool_executing' || activeRunnerProfiles.has(state.profile.toLowerCase());
+
+    if (liveDot) {
+      liveDot.className = isRunning
+        ? 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse'
+        : 'w-2 h-2 rounded-full bg-content-dim';
+    }
+    if (summaryLabel) {
+      const pidStr = state.pid ? ` (PID: ${state.pid})` : '';
+      summaryLabel.textContent = `Runner: ${state.profile}${isRunning ? ' (Running' + pidStr + ')' : ''}`;
+    }
+
+    renderSessionTabsBar();
+  }
+  window.syncActiveSessionHeaderUi = syncActiveSessionHeaderUi;
 
   function escapeHtml(str) {
     return String(str || '')
@@ -631,16 +844,13 @@
 
   async function loadSession(session) {
     if (!session) return;
-    currentActiveSessionId = session.sessionId;
-    localStorage.setItem('agents_hub_active_session_id', session.sessionId);
+    const sId = session.sessionId;
+    const profileName = session.profile || window.state?.antigravity?.activeProfile || 'Default';
+    getOrCreateSessionState(sId, profileName, session.goal || sId);
+    activateSessionTab(sId);
 
-    const titleEl = document.getElementById('chat-title-text');
-    if (titleEl) {
-      titleEl.textContent = session.goal ? `Session: ${session.goal}` : `Session: ${session.sessionId}`;
-    }
-
-    const msgContainer = document.getElementById('chat-messages-container');
-    if (msgContainer) msgContainer.innerHTML = '';
+    const msgContainer = getOrCreateSessionMessageContainer(sId);
+    msgContainer.innerHTML = '';
 
     // Switch view to chat if called from elsewhere
     if (typeof window.switchView === 'function') {
@@ -695,14 +905,12 @@
   // --- 6. '+ New Agent Session' Action ---
   function createNewSession() {
     const newId = 'session_' + Date.now();
-    currentActiveSessionId = newId;
-    localStorage.setItem('agents_hub_active_session_id', newId);
+    const activeProf = window.state?.antigravity?.activeProfile || 'Default';
+    getOrCreateSessionState(newId, activeProf, 'New Agent Session');
+    activateSessionTab(newId);
 
-    const titleEl = document.getElementById('chat-title-text');
-    if (titleEl) titleEl.textContent = 'Active Agent Session';
-
-    const msgContainer = document.getElementById('chat-messages-container');
-    if (msgContainer) msgContainer.innerHTML = '';
+    const msgContainer = getOrCreateSessionMessageContainer(newId);
+    msgContainer.innerHTML = '';
 
     activeExecutionCards.clear();
 
@@ -712,6 +920,7 @@
       local.unshift({
         sessionId: newId,
         goal: 'New Agent Session',
+        profile: activeProf,
         lastActiveUtc: new Date().toISOString(),
         stepCount: 0
       });
@@ -731,9 +940,9 @@
     }
 
     if (typeof window.showToast === 'function') {
-      window.showToast('Started new agent session', 'success', 2000);
+      window.showToast('Started new agent tab', 'success', 2000);
     }
-    appendHudLog('[Session] Started new agent session', 'emerald');
+    appendHudLog('[Session] Started new agent tab', 'emerald');
   }
   window.createNewSession = createNewSession;
 
@@ -747,23 +956,6 @@
     input.value = '';
 
     const stream = document.getElementById('chat-stream');
-    const msgContainer = document.getElementById('chat-messages-container') || stream;
-    if (!msgContainer) return;
-
-    // 1. Render User Message Card
-    const userCard = document.createElement('div');
-    userCard.className = 'flex items-start space-x-3 max-w-3xl';
-    userCard.innerHTML = `
-      <div class="w-8 h-8 rounded-lg bg-surface-card border border-surface-border flex items-center justify-center font-bold text-xs text-content-main flex-shrink-0 shadow-sm">
-        YOU
-      </div>
-      <div class="flex-1 bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-content-main shadow-sm">
-        <p class="whitespace-pre-wrap">${escapeHtml(text)}</p>
-      </div>
-    `;
-    msgContainer.appendChild(userCard);
-    stream.scrollTop = stream.scrollHeight;
-
     appendHudLog(`[User Prompt] ${text.slice(0, 100)}`, 'sky');
 
     // 2. Identify Target Profiles (Multi-Working Support)
@@ -774,12 +966,38 @@
     const activeWs = window.state?.workspaces?.find(w => w.id === window.state?.activeWorkspaceId);
     const cwd = activeWs?.workingDirectory || '';
 
-    // 3. For each profile, spawn execution card and dispatch via Sidecar Engine
+    // 3. For each profile, spawn execution card in its isolated session container and dispatch
     for (const profileName of targets) {
-      const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+      const sessionId = (targets.length === 1 && currentActiveSessionId && currentActiveSessionId !== 'session_default')
+        ? currentActiveSessionId
+        : ('session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
 
-      // Complete any previous active card for this profile
-      const prevCard = activeExecutionCards.get(profileName.toLowerCase());
+      const sessState = getOrCreateSessionState(sessionId, profileName, text.slice(0, 30));
+      sessState.status = 'running';
+
+      if (targets.length === 1) {
+        currentActiveSessionId = sessionId;
+      }
+      renderSessionTabsBar();
+      syncActiveSessionHeaderUi(currentActiveSessionId);
+
+      const sessContainer = getOrCreateSessionMessageContainer(sessionId);
+
+      // Render User Message Card into this specific session container
+      const userCard = document.createElement('div');
+      userCard.className = 'flex items-start space-x-3 max-w-3xl';
+      userCard.innerHTML = `
+        <div class="w-8 h-8 rounded-lg bg-surface-card border border-surface-border flex items-center justify-center font-bold text-xs text-content-main flex-shrink-0 shadow-sm">
+          YOU
+        </div>
+        <div class="flex-1 bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-content-main shadow-sm">
+          <p class="whitespace-pre-wrap">${escapeHtml(text)}</p>
+        </div>
+      `;
+      sessContainer.appendChild(userCard);
+
+      // Complete any previous active card for this session
+      const prevCard = activeExecutionCards.get(sessionId);
       if (prevCard) {
         const prevBadge = prevCard.querySelector('.card-status-badge');
         if (prevBadge) {
@@ -834,9 +1052,11 @@
           </div>
         </div>
       `;
-      msgContainer.appendChild(executionCard);
-      stream.scrollTop = stream.scrollHeight;
-      activeExecutionCards.set(profileName.toLowerCase(), executionCard);
+      sessContainer.appendChild(executionCard);
+      if (sessionId === currentActiveSessionId) {
+        stream.scrollTop = stream.scrollHeight;
+      }
+      activeExecutionCards.set(sessionId, executionCard);
 
       // Dispatch to native Bun Sidecar via Bridge
       if (typeof window.callBridge === 'function') {
@@ -1204,7 +1424,7 @@
 
     let targetCard = null;
     if (sessionId) {
-      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`);
+      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`) || activeExecutionCards.get(sessionId);
     }
     if (!targetCard && activeExecutionCards.size > 0) {
       targetCard = Array.from(activeExecutionCards.values())[0];
@@ -1247,11 +1467,13 @@
 
   window.addEventListener('chat_token', (e) => {
     if (!e.detail || typeof e.detail.text !== 'string') return;
-    const { sessionId, text } = e.detail;
+    const { sessionId, profile, text } = e.detail;
+    const targetSessionId = sessionId || currentActiveSessionId;
+    getOrCreateSessionState(targetSessionId, profile);
 
     let targetCard = null;
     if (sessionId) {
-      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`);
+      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`) || activeExecutionCards.get(sessionId);
     }
     if (!targetCard && activeExecutionCards.size > 0) {
       targetCard = Array.from(activeExecutionCards.values())[0];
@@ -1274,55 +1496,93 @@
         if (markdownEl) {
           markdownEl.innerHTML = renderMarkdown(targetCard._rawMarkdown);
           const stream = document.getElementById('chat-stream');
-          if (stream) stream.scrollTop = stream.scrollHeight;
+          if (stream && targetSessionId === currentActiveSessionId) {
+            stream.scrollTop = stream.scrollHeight;
+          }
         }
       });
     }
   });
 
-  // Dynamic Token Counter Sync
+  // Dynamic Token Counter Sync (Strictly scoped per session)
   window.addEventListener('token_usage', (e) => {
     if (!e.detail) return;
+    const { sessionId, profile } = e.detail;
     const usage = e.detail.usage || e.detail;
+    const targetSessionId = sessionId || currentActiveSessionId;
+    const state = getOrCreateSessionState(targetSessionId, profile);
+
     const total = usage.totalTokens || usage.outputTokens || 0;
-    const counterEl = document.getElementById('chat-token-counter');
-    if (counterEl && total > 0) {
-      const formatted = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : String(total);
-      counterEl.textContent = `Tokens: ~${formatted}`;
-      if (usage.thinkingTokens) {
-        counterEl.title = `Total: ${total} | Thinking: ${usage.thinkingTokens} | Output: ${usage.outputTokens || 0} | Input: ${usage.inputTokens || 0}`;
-      }
+    state.tokens = {
+      totalTokens: total,
+      thinkingTokens: usage.thinkingTokens || state.tokens.thinkingTokens || 0,
+      inputTokens: usage.inputTokens || 0,
+      outputTokens: usage.outputTokens || 0
+    };
+
+    if (targetSessionId === currentActiveSessionId) {
+      syncActiveSessionHeaderUi(currentActiveSessionId);
     }
   });
 
-  // Dynamic Quota Sync (Color-coded: >=30% emerald, 10-29% amber, <10% rose)
+  // Dynamic Quota Sync (Scoped to profile and matching sessions)
   window.addEventListener('quota_update', (e) => {
     if (!e.detail) return;
-    const pct = typeof e.detail.quotaPercent === 'number' ? e.detail.quotaPercent : parseInt(e.detail.quotaPercent, 10);
-    const quotaEl = document.getElementById('chat-quota-text');
-    if (quotaEl && !isNaN(pct)) {
-      quotaEl.textContent = `${pct}% Quota`;
-      if (pct >= 30) {
-        quotaEl.className = 'text-emerald-500 font-mono font-medium';
-      } else if (pct >= 10) {
-        quotaEl.className = 'text-amber-500 font-mono font-medium';
-      } else {
-        quotaEl.className = 'text-rose-500 font-mono font-medium';
+    const { profile, sessionId, quotaPercent } = e.detail;
+    const pct = typeof quotaPercent === 'number' ? quotaPercent : parseInt(quotaPercent, 10);
+    if (isNaN(pct)) return;
+
+    if (profile) {
+      profileQuotas.set(profile.toLowerCase(), {
+        quotaPercent: pct,
+        details: e.detail.details,
+        lastPolled: Date.now()
+      });
+    }
+
+    if (sessionId) {
+      const state = getOrCreateSessionState(sessionId, profile);
+      state.quotaPercent = pct;
+    } else if (profile) {
+      for (const s of sessionStates.values()) {
+        if (s.profile && s.profile.toLowerCase() === profile.toLowerCase()) {
+          s.quotaPercent = pct;
+        }
       }
+    }
+
+    // Context-aware update: if active session matches this profile or session, update header
+    const activeState = sessionStates.get(currentActiveSessionId);
+    if (activeState && (!sessionId || activeState.sessionId === sessionId) && (!profile || activeState.profile.toLowerCase() === profile.toLowerCase())) {
+      activeState.quotaPercent = pct;
+      syncActiveSessionHeaderUi(currentActiveSessionId);
     }
   });
 
-  // Dynamic Model Sync
+  // Dynamic Model Sync (Scoped to session)
   window.addEventListener('model_info', (e) => {
     if (!e.detail) return;
-    if (e.detail.model) {
-      updateChatModelDisplay(e.detail.model);
+    const { sessionId, profile, model, reasoningEffort } = e.detail;
+    const targetSessionId = sessionId || currentActiveSessionId;
+    const state = getOrCreateSessionState(targetSessionId, profile);
+    const displayModel = reasoningEffort ? `${model} (${reasoningEffort})` : model;
+    state.model = displayModel;
+
+    if (targetSessionId === currentActiveSessionId) {
+      syncActiveSessionHeaderUi(currentActiveSessionId);
     }
   });
 
   window.addEventListener('session_status', (e) => {
     if (!e.detail) return;
-    const { sessionId, profile, state, error } = e.detail;
+    const { sessionId, profile, state, error, pid, model, quotaPercent, tokens } = e.detail;
+    const targetSessionId = sessionId || currentActiveSessionId;
+    const sessState = getOrCreateSessionState(targetSessionId, profile);
+    sessState.status = state;
+    if (pid) sessState.pid = pid;
+    if (model) sessState.model = model;
+    if (quotaPercent !== undefined && quotaPercent !== null) sessState.quotaPercent = quotaPercent;
+    if (tokens) sessState.tokens = tokens;
 
     if (profile) {
       if (state === 'running' || state === 'tool_executing' || state === 'thinking') {
@@ -1333,9 +1593,15 @@
       renderChatProfileManager();
     }
 
+    if (targetSessionId === currentActiveSessionId) {
+      syncActiveSessionHeaderUi(currentActiveSessionId);
+    } else {
+      renderSessionTabsBar();
+    }
+
     let targetCard = null;
     if (sessionId) {
-      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`);
+      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`) || activeExecutionCards.get(sessionId);
     }
     if (!targetCard && activeExecutionCards.size > 0) {
       targetCard = Array.from(activeExecutionCards.values())[0];
@@ -1555,10 +1821,13 @@
     }
 
     // Initialize data
+    getOrCreateSessionState(currentActiveSessionId, window.state?.antigravity?.activeProfile || 'Default');
     renderWorkspacesInChat(window.state?.workspaces, window.state?.activeWorkspaceId);
     renderChatProfileManager();
     loadWorkspaceFiles();
     loadSessionHistory();
+    renderSessionTabsBar();
+    syncActiveSessionHeaderUi(currentActiveSessionId);
 
     // Initialize dynamic model display
     if (window.state?.antigravity?.model) {

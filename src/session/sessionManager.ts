@@ -34,6 +34,16 @@ export interface ChatSessionState {
   abortController?: AbortController;
   scopedEnv: Record<string, string>;
   activeProcess?: any;
+  pid?: number;
+  model?: string;
+  reasoningEffort?: string;
+  quotaPercent?: number;
+  tokens?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    thinkingTokens?: number;
+    totalTokens?: number;
+  };
 }
 
 export class SessionManager {
@@ -41,6 +51,7 @@ export class SessionManager {
   private activeProfileName: string = 'Default';
   private activeSessions = new Map<string, ChatSessionState>();
   private profileActiveSessionIds = new Map<string, string>(); // profileName -> sessionId
+  private profileQuotas = new Map<string, { quotaPercent: number; details?: string; lastPolled: number }>();
   private configPath: string;
   private emit: (event: OutboundEvent) => void;
   private taskQueue: TaskQueue;
@@ -54,9 +65,9 @@ export class SessionManager {
     // Periodic sweep for abandoned sessions to prevent memory leaks (runs every 10 min)
     setInterval(() => this.pruneInactiveSessions(), 10 * 60 * 1000);
 
-    // Initial quota poll & periodic quota polling (every 3 min)
-    setTimeout(() => this.pollQuota().catch(() => {}), 1500);
-    setInterval(() => this.pollQuota().catch(() => {}), 3 * 60 * 1000);
+    // Initial quota poll & periodic quota polling per profile context (every 3 min)
+    setTimeout(() => this.pollAllQuotas().catch(() => {}), 1500);
+    setInterval(() => this.pollAllQuotas().catch(() => {}), 3 * 60 * 1000);
   }
 
   private resolveProfilesPath(): string {
@@ -434,6 +445,7 @@ export class SessionManager {
     const abortController = new AbortController();
     const now = Date.now();
 
+    const cachedQuota = this.profileQuotas.get(targetProfile.toLowerCase());
     const sessionState: ChatSessionState = {
       sessionId,
       profileName: targetProfile,
@@ -442,18 +454,24 @@ export class SessionManager {
       startedAt: now,
       lastActiveAt: now,
       abortController,
-      scopedEnv
+      scopedEnv,
+      model: model || 'Gemini 3.8 Flash (High)',
+      quotaPercent: cachedQuota?.quotaPercent,
+      tokens: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 }
     };
 
     this.activeSessions.set(sessionId, sessionState);
     this.profileActiveSessionIds.set(targetProfile.toLowerCase(), sessionId);
 
-    // Broadcast running state
+    // Broadcast running state with scoped session telemetry
     this.emit({
       event: 'session_status',
       sessionId,
       profile: targetProfile,
       state: 'running',
+      model: sessionState.model,
+      quotaPercent: sessionState.quotaPercent,
+      tokens: sessionState.tokens,
       timestamp: new Date().toISOString()
     });
 
@@ -468,6 +486,7 @@ export class SessionManager {
         this.emit({
           event: 'tool_start',
           sessionId,
+          profile: targetProfile,
           callId,
           tool: 'bash',
           params: { command: cmd },
@@ -485,6 +504,7 @@ export class SessionManager {
             this.emit({
               event: 'chat_token',
               sessionId,
+              profile: targetProfile,
               text: chunk,
               timestamp: new Date().toISOString()
             });
@@ -493,6 +513,7 @@ export class SessionManager {
             this.emit({
               event: 'chat_token',
               sessionId,
+              profile: targetProfile,
               text: chunk,
               timestamp: new Date().toISOString()
             });
@@ -503,6 +524,7 @@ export class SessionManager {
         this.emit({
           event: 'tool_output',
           sessionId,
+          profile: targetProfile,
           callId,
           tool: 'bash',
           success: result.exitCode === 0,
@@ -518,12 +540,16 @@ export class SessionManager {
           sessionId,
           profile: targetProfile,
           state: 'thinking',
+          model: sessionState.model,
+          quotaPercent: sessionState.quotaPercent,
+          tokens: sessionState.tokens,
           timestamp: new Date().toISOString()
         });
 
         this.emit({
           event: 'thinking',
           sessionId,
+          profile: targetProfile,
           state: 'active',
           timestamp: new Date().toISOString()
         });
@@ -546,6 +572,9 @@ export class SessionManager {
         sessionId,
         profile: targetProfile,
         state: 'idle',
+        model: sessionState.model,
+        quotaPercent: sessionState.quotaPercent,
+        tokens: sessionState.tokens,
         timestamp: new Date().toISOString()
       });
     } catch (err: any) {
@@ -557,6 +586,9 @@ export class SessionManager {
         profile: targetProfile,
         state: 'error',
         error: err?.message || String(err),
+        model: sessionState.model,
+        quotaPercent: sessionState.quotaPercent,
+        tokens: sessionState.tokens,
         timestamp: new Date().toISOString()
       });
     }
@@ -602,6 +634,19 @@ export class SessionManager {
       });
 
       sessionState.activeProcess = proc;
+      sessionState.pid = proc.pid;
+
+      this.emit({
+        event: 'session_status',
+        sessionId,
+        profile: sessionState.profileName,
+        state: 'running',
+        pid: proc.pid,
+        model: sessionState.model,
+        quotaPercent: sessionState.quotaPercent,
+        tokens: sessionState.tokens,
+        timestamp: new Date().toISOString()
+      });
 
       abortController.signal.addEventListener('abort', () => {
         try { proc.kill(9); } catch {}
@@ -681,6 +726,20 @@ export class SessionManager {
     });
 
     sessionState.activeProcess = proc;
+    sessionState.pid = proc.pid;
+
+    this.emit({
+      event: 'session_status',
+      sessionId,
+      profile: sessionState.profileName,
+      state: 'running',
+      pid: proc.pid,
+      model: sessionState.model,
+      quotaPercent: sessionState.quotaPercent,
+      tokens: sessionState.tokens,
+      timestamp: new Date().toISOString()
+    });
+
     abortController.signal.addEventListener('abort', () => {
       try { proc.kill(9); } catch {}
     });
@@ -733,20 +792,30 @@ export class SessionManager {
       const durationSec = parseFloat(thoughtMatch[1]);
       const tokens = thoughtMatch[2] ? parseInt(thoughtMatch[2], 10) : undefined;
       const snippet = thoughtMatch[3] || '';
+
       this.emit({
         event: 'thinking',
         sessionId,
+        profile: sessionState.profileName,
         text: snippet,
         durationSeconds: durationSec,
         thinkingTokens: tokens,
         state: 'done',
         timestamp: new Date().toISOString()
       });
+
       if (tokens) {
+        sessionState.tokens = {
+          inputTokens: sessionState.tokens?.inputTokens || 0,
+          outputTokens: sessionState.tokens?.outputTokens || 0,
+          thinkingTokens: tokens,
+          totalTokens: tokens
+        };
         this.emit({
           event: 'token_usage',
           sessionId,
-          usage: { thinkingTokens: tokens, totalTokens: tokens },
+          profile: sessionState.profileName,
+          usage: sessionState.tokens,
           timestamp: new Date().toISOString()
         });
       }
@@ -762,6 +831,7 @@ export class SessionManager {
       this.emit({
         event: 'tool_start',
         sessionId,
+        profile: sessionState.profileName,
         callId,
         tool: 'Ran',
         params: { CommandLine: cmd },
@@ -770,6 +840,7 @@ export class SessionManager {
       this.emit({
         event: 'tool_output',
         sessionId,
+        profile: sessionState.profileName,
         callId,
         tool: 'Ran',
         success: true,
@@ -790,6 +861,7 @@ export class SessionManager {
       this.emit({
         event: 'tool_start',
         sessionId,
+        profile: sessionState.profileName,
         callId,
         tool: 'Explored',
         params: { count, files },
@@ -798,6 +870,7 @@ export class SessionManager {
       this.emit({
         event: 'tool_output',
         sessionId,
+        profile: sessionState.profileName,
         callId,
         tool: 'Explored',
         success: true,
@@ -812,6 +885,7 @@ export class SessionManager {
     this.emit({
       event: 'chat_token',
       sessionId,
+      profile: sessionState.profileName,
       text: trimmed + '\n',
       timestamp: new Date().toISOString()
     });
@@ -819,11 +893,15 @@ export class SessionManager {
 
   private processAgyEvent(sessionId: string, evt: any, sessionState: ChatSessionState): void {
     if (evt.event === 'init' && evt.init) {
-      if (evt.init.model || evt.model) {
+      const modelName = evt.init.model || evt.model;
+      if (modelName) {
+        sessionState.model = modelName;
         this.emit({
           event: 'model_info',
           sessionId,
-          model: evt.init.model || evt.model,
+          profile: sessionState.profileName,
+          model: modelName,
+          reasoningEffort: evt.init.reasoning_effort || evt.init.effort,
           timestamp: new Date().toISOString()
         });
       }
@@ -841,6 +919,7 @@ export class SessionManager {
           this.emit({
             event: 'thinking',
             sessionId,
+            profile: sessionState.profileName,
             durationSeconds: su.duration_seconds,
             thinkingTokens: thinkingTokens,
             state: 'done',
@@ -853,6 +932,7 @@ export class SessionManager {
           this.emit({
             event: 'chat_token',
             sessionId,
+            profile: sessionState.profileName,
             text: textChunk,
             timestamp: new Date().toISOString()
           });
@@ -860,15 +940,17 @@ export class SessionManager {
 
         // If usage metadata is present, emit token_usage
         if (su.usage) {
+          sessionState.tokens = {
+            inputTokens: su.usage.input_tokens,
+            outputTokens: su.usage.output_tokens,
+            thinkingTokens: su.usage.thinking_tokens,
+            totalTokens: su.usage.total_tokens
+          };
           this.emit({
             event: 'token_usage',
             sessionId,
-            usage: {
-              inputTokens: su.usage.input_tokens,
-              outputTokens: su.usage.output_tokens,
-              thinkingTokens: su.usage.thinking_tokens,
-              totalTokens: su.usage.total_tokens
-            },
+            profile: sessionState.profileName,
+            usage: sessionState.tokens,
             timestamp: new Date().toISOString()
           });
         }
@@ -894,6 +976,7 @@ export class SessionManager {
           this.emit({
             event: 'tool_start',
             sessionId,
+            profile: sessionState.profileName,
             callId,
             tool: toolDisplay,
             params: formattedParams,
@@ -907,6 +990,7 @@ export class SessionManager {
           this.emit({
             event: 'tool_output',
             sessionId,
+            profile: sessionState.profileName,
             callId,
             tool: toolDisplay,
             success: !isErr,
@@ -922,17 +1006,40 @@ export class SessionManager {
     else if (evt.event === 'result' && evt.result) {
       const res = evt.result;
       if (res.usage) {
+        sessionState.tokens = {
+          inputTokens: res.usage.input_tokens,
+          outputTokens: res.usage.output_tokens,
+          thinkingTokens: res.usage.thinking_tokens,
+          totalTokens: res.usage.total_tokens
+        };
         this.emit({
           event: 'token_usage',
           sessionId,
-          usage: {
-            inputTokens: res.usage.input_tokens,
-            outputTokens: res.usage.output_tokens,
-            thinkingTokens: res.usage.thinking_tokens,
-            totalTokens: res.usage.total_tokens
-          },
+          profile: sessionState.profileName,
+          usage: sessionState.tokens,
           timestamp: new Date().toISOString()
         });
+      }
+    }
+  }
+
+  /**
+   * Background Quota Poller: Polls all authenticated profiles independently
+   */
+  public async pollAllQuotas(): Promise<void> {
+    const profilesToPoll = new Set<string>();
+    if (this.activeProfileName) profilesToPoll.add(this.activeProfileName);
+    for (const p of this.profiles.values()) {
+      if (p.name) profilesToPoll.add(p.name);
+    }
+    for (const sess of this.activeSessions.values()) {
+      if (sess.profileName) profilesToPoll.add(sess.profileName);
+    }
+    for (const profileName of profilesToPoll) {
+      try {
+        await this.pollQuota(profileName);
+      } catch (err) {
+        console.warn(`[SessionManager] Quota poll for ${profileName} failed:`, err);
       }
     }
   }
@@ -959,6 +1066,30 @@ export class SessionManager {
       if (matches.length > 0) {
         const pcts = matches.map(m => parseInt(m[1], 10)).filter(n => !isNaN(n));
         const minPct = Math.min(...pcts);
+
+        // Cache quota for profile
+        this.profileQuotas.set(targetProfile.toLowerCase(), {
+          quotaPercent: minPct,
+          details: output.trim(),
+          lastPolled: Date.now()
+        });
+
+        // Update all active sessions belonging to this profile and emit session-scoped quota events
+        for (const sess of this.activeSessions.values()) {
+          if (sess.profileName.toLowerCase() === targetProfile.toLowerCase()) {
+            sess.quotaPercent = minPct;
+            this.emit({
+              event: 'quota_update',
+              profile: targetProfile,
+              sessionId: sess.sessionId,
+              quotaPercent: minPct,
+              details: output.trim(),
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+
+        // Also emit profile-level quota update
         this.emit({
           event: 'quota_update',
           profile: targetProfile,
@@ -972,6 +1103,18 @@ export class SessionManager {
       console.warn('[SessionManager] Quota poll failed:', err);
     }
     return { percent: 96, details: '' };
+  }
+
+  public getSessionState(sessionId: string): ChatSessionState | undefined {
+    return this.activeSessions.get(sessionId);
+  }
+
+  public getAllSessionStates(): ChatSessionState[] {
+    return Array.from(this.activeSessions.values());
+  }
+
+  public getProfileQuota(profileName: string): number | undefined {
+    return this.profileQuotas.get(profileName.toLowerCase())?.quotaPercent;
   }
 
   public abortSession(sessionId: string): boolean {

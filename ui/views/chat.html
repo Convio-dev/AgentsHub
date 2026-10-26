@@ -68,6 +68,17 @@
     </div>
   </div>
 
+  <!-- Multi-Session Agent Tabs Bar -->
+  <div id="chat-session-tabs-bar" class="h-9 border-b border-surface-border bg-surface-deep/95 px-4 flex items-center justify-between text-xs overflow-x-auto select-none z-10 flex-shrink-0">
+    <div id="chat-session-tabs-container" class="flex items-center space-x-1.5 overflow-x-auto scrollbar-none flex-1 py-1">
+      <!-- Tabs dynamically rendered here -->
+    </div>
+    <button type="button" onclick="if (typeof createNewSession === 'function') createNewSession();" title="Open New Agent Tab" class="ml-2 px-2 py-0.5 rounded bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-sky-400 transition text-[11px] flex items-center gap-1 flex-shrink-0 shadow-sm">
+      <i class="fa-solid fa-plus text-[10px]"></i>
+      <span class="hidden sm:inline">New Tab</span>
+    </button>
+  </div>
+
   <!-- Chat Scrollable Message Stream -->
   <div id="chat-stream" class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
     

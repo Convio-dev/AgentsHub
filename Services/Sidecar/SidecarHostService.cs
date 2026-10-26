@@ -161,6 +161,7 @@ public sealed class SidecarHostService : IDisposable
                     EventDispatched?.Invoke("chat_token", new
                     {
                         sessionId = cte.SessionId,
+                        profile = cte.Profile,
                         text = cte.Text,
                         timestamp = cte.Timestamp
                     });
@@ -173,6 +174,7 @@ public sealed class SidecarHostService : IDisposable
                     EventDispatched?.Invoke("thinking", new
                     {
                         sessionId = the.SessionId,
+                        profile = the.Profile,
                         text = the.Text,
                         durationSeconds = the.DurationSeconds,
                         thinkingTokens = the.ThinkingTokens,
@@ -224,6 +226,10 @@ public sealed class SidecarHostService : IDisposable
                         profile = sse.Profile,
                         state = sse.State,
                         error = sse.Error,
+                        pid = sse.Pid,
+                        model = sse.Model,
+                        quotaPercent = sse.QuotaPercent,
+                        tokens = sse.Tokens,
                         timestamp = sse.Timestamp
                     });
                 }

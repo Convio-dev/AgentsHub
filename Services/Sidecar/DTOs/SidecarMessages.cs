@@ -199,6 +199,9 @@ public class ThinkingEvent : BaseSidecarEvent
     [JsonPropertyName("sessionId")]
     public string SessionId { get; set; } = string.Empty;
 
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
     [JsonPropertyName("text")]
     public string? Text { get; set; }
 
@@ -232,6 +235,9 @@ public class TokenUsageEvent : BaseSidecarEvent
     [JsonPropertyName("sessionId")]
     public string SessionId { get; set; } = string.Empty;
 
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
     [JsonPropertyName("usage")]
     public TokenUsageInfo? Usage { get; set; }
 }
@@ -240,6 +246,9 @@ public class QuotaUpdateEvent : BaseSidecarEvent
 {
     [JsonPropertyName("profile")]
     public string Profile { get; set; } = string.Empty;
+
+    [JsonPropertyName("sessionId")]
+    public string? SessionId { get; set; }
 
     [JsonPropertyName("quotaPercent")]
     public int QuotaPercent { get; set; }
@@ -253,14 +262,23 @@ public class ModelInfoEvent : BaseSidecarEvent
     [JsonPropertyName("sessionId")]
     public string? SessionId { get; set; }
 
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
     [JsonPropertyName("model")]
     public string Model { get; set; } = string.Empty;
+
+    [JsonPropertyName("reasoningEffort")]
+    public string? ReasoningEffort { get; set; }
 }
 
 public class ChatTokenEvent : BaseSidecarEvent
 {
     [JsonPropertyName("sessionId")]
     public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
 
     [JsonPropertyName("text")]
     public string Text { get; set; } = string.Empty;
@@ -279,6 +297,18 @@ public class SessionStatusEvent : BaseSidecarEvent
 
     [JsonPropertyName("error")]
     public string? Error { get; set; }
+
+    [JsonPropertyName("pid")]
+    public int? Pid { get; set; }
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("quotaPercent")]
+    public int? QuotaPercent { get; set; }
+
+    [JsonPropertyName("tokens")]
+    public TokenUsageInfo? Tokens { get; set; }
 }
 
 public class AccountProfileInfo
@@ -391,8 +421,14 @@ public class StreamDeltaEvent : BaseSidecarEvent
 
 public class ToolStartEvent : BaseSidecarEvent
 {
+    [JsonPropertyName("sessionId")]
+    public string? SessionId { get; set; }
+
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
     [JsonPropertyName("taskId")]
-    public string TaskId { get; set; } = string.Empty;
+    public string? TaskId { get; set; }
 
     [JsonPropertyName("callId")]
     public string CallId { get; set; } = string.Empty;
@@ -406,8 +442,14 @@ public class ToolStartEvent : BaseSidecarEvent
 
 public class ToolOutputEvent : BaseSidecarEvent
 {
+    [JsonPropertyName("sessionId")]
+    public string? SessionId { get; set; }
+
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
     [JsonPropertyName("taskId")]
-    public string TaskId { get; set; } = string.Empty;
+    public string? TaskId { get; set; }
 
     [JsonPropertyName("callId")]
     public string CallId { get; set; } = string.Empty;
