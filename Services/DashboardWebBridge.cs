@@ -2904,8 +2904,21 @@ public sealed partial class DashboardWebBridge : IDisposable
                     var pName = startProfProp.GetString()?.Trim();
                     if (!string.IsNullOrWhiteSpace(pName))
                     {
-                        _cliManager.StartAntigravityProfile(pName);
-                        SendResponse(requestId, true, new { success = true, profile = pName, port = _cliManager.GetPortForProfile(pName), profiles = GetProfilesWithEmail() });
+                        bool isRawTerminal = data.TryGetProperty("rawTerminal", out var rtProp) && rtProp.GetBoolean();
+                        if (isRawTerminal)
+                        {
+                            _cliManager.StartAntigravityProfile(pName);
+                            SendResponse(requestId, true, new { success = true, profile = pName, isSidecar = false, port = _cliManager.GetPortForProfile(pName), profiles = GetProfilesWithEmail() });
+                        }
+                        else
+                        {
+                            var curWs = AiConfigService.Instance.GetActiveWorkspace();
+                            string? cwd = curWs?.WorkingDirectory;
+                            string model = "Gemini 3.8 Flash (High)";
+                            await _cliManager.SwitchAntigravityProfileAsync(pName).ConfigureAwait(false);
+                            await Sidecar.SidecarHostService.Instance.StartProfileSessionAsync(pName, cwd, "gemini-3.8-flash-high").ConfigureAwait(false);
+                            SendResponse(requestId, true, new { success = true, profile = pName, isSidecar = true, model, profiles = GetProfilesWithEmail() });
+                        }
                     }
                 }
                 break;
@@ -2916,7 +2929,8 @@ public sealed partial class DashboardWebBridge : IDisposable
                     var pName = stopProfProp.GetString()?.Trim();
                     if (!string.IsNullOrWhiteSpace(pName))
                     {
-                        await _cliManager.StopAntigravityProfileAsync(pName);
+                        await Sidecar.SidecarHostService.Instance.StopProfileSessionAsync(pName).ConfigureAwait(false);
+                        await _cliManager.StopAntigravityProfileAsync(pName).ConfigureAwait(false);
                         SendResponse(requestId, true, new { success = true, profile = pName, profiles = GetProfilesWithEmail() });
                     }
                 }
@@ -4616,7 +4630,8 @@ public sealed partial class DashboardWebBridge : IDisposable
             antigravity = new
             {
                 activeProfile = _cliManager.ProfileService.ActiveProfile,
-                profiles = GetProfilesWithEmail()
+                profiles = GetProfilesWithEmail(),
+                model = "Gemini 3.8 Flash (High)"
             },
             opencode = GetOpenCodeState(),
             aiConfig = GetAiConfigDto(),
@@ -5621,6 +5636,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             {
                 name,
                 email = AntigravityProfileService.GetAccountEmail(name) ?? string.Empty,
+                model = "Gemini 3.8 Flash (High)",
                 isRunning = _cliManager.IsProfileRunning(name),
                 port = _cliManager.GetPortForProfile(name)
             })];

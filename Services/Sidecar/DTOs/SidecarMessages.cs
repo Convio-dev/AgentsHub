@@ -161,6 +161,28 @@ public class RefreshTokenRequest : BaseRequest
     public string Profile { get; set; } = string.Empty;
 }
 
+public class StartSessionRequest : BaseRequest
+{
+    public StartSessionRequest() => Action = "start_session";
+
+    [JsonPropertyName("profile")]
+    public string Profile { get; set; } = string.Empty;
+
+    [JsonPropertyName("workingDirectory")]
+    public string? WorkingDirectory { get; set; }
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+}
+
+public class StopSessionRequest : BaseRequest
+{
+    public StopSessionRequest() => Action = "stop_session";
+
+    [JsonPropertyName("profile")]
+    public string Profile { get; set; } = string.Empty;
+}
+
 // --- Inbound Events (Sidecar -> Host) ---
 
 public class BaseSidecarEvent
@@ -170,6 +192,18 @@ public class BaseSidecarEvent
 
     [JsonPropertyName("timestamp")]
     public string? Timestamp { get; set; }
+}
+
+public class ThinkingEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("text")]
+    public string? Text { get; set; }
+
+    [JsonPropertyName("durationSeconds")]
+    public double? DurationSeconds { get; set; }
 }
 
 public class ChatTokenEvent : BaseSidecarEvent
@@ -185,6 +219,9 @@ public class SessionStatusEvent : BaseSidecarEvent
 {
     [JsonPropertyName("sessionId")]
     public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
 
     [JsonPropertyName("state")]
     public string State { get; set; } = "idle";

@@ -99,6 +99,18 @@ export interface RefreshTokenRequest extends BaseInboundRequest {
   profile: string;
 }
 
+export interface StartSessionRequest extends BaseInboundRequest {
+  action: 'start_session';
+  profile: string;
+  workingDirectory?: string;
+  model?: string;
+}
+
+export interface StopSessionRequest extends BaseInboundRequest {
+  action: 'stop_session';
+  profile: string;
+}
+
 export interface SendChatRequest extends BaseInboundRequest {
   action: 'send_chat';
   sessionId: string;
@@ -112,6 +124,8 @@ export type InboundMessage =
   | AuthRequest
   | PingRequest
   | GetStatusRequest
+  | StartSessionRequest
+  | StopSessionRequest
   | StartTaskRequest
   | AbortTaskRequest
   | ExecuteToolRequest
@@ -147,12 +161,12 @@ export interface PongEvent {
 
 export interface SidecarStatusEvent {
   event: 'sidecar_status';
-  status: string;
-  port: number;
+  status?: string;
+  port?: number;
   pid: number;
   activeSessionsCount: number;
-  uptimeSec: number;
-  version: string;
+  uptimeSec?: number;
+  version?: string;
   timestamp: string;
 }
 
@@ -179,10 +193,19 @@ export interface ChatTokenEvent {
   timestamp: string;
 }
 
+export interface ThinkingEvent {
+  event: 'thinking';
+  sessionId: string;
+  text?: string;
+  durationSeconds?: number;
+  timestamp: string;
+}
+
 export interface SessionStatusEvent {
   event: 'session_status';
   sessionId: string;
-  state: 'idle' | 'running' | 'tool_executing' | 'completed' | 'error';
+  profile?: string;
+  state: 'idle' | 'thinking' | 'running' | 'tool_executing' | 'completed' | 'error';
   error?: string;
   timestamp: string;
 }
@@ -204,18 +227,20 @@ export interface AccountStateEvent {
 
 export interface ToolStartEvent {
   event: 'tool_start';
-  taskId: string;
+  sessionId?: string;
+  taskId?: string;
   callId: string;
-  tool: ToolType;
+  tool: string;
   params: Record<string, any>;
   timestamp: string;
 }
 
 export interface ToolOutputEvent {
   event: 'tool_output';
-  taskId: string;
+  sessionId?: string;
+  taskId?: string;
   callId: string;
-  tool: ToolType;
+  tool: string;
   success: boolean;
   result?: any;
   error?: string;
@@ -262,6 +287,7 @@ export type OutboundEvent =
   | AgentStateEvent
   | StreamDeltaEvent
   | ChatTokenEvent
+  | ThinkingEvent
   | SessionStatusEvent
   | AccountStateEvent
   | ToolStartEvent

@@ -160,12 +160,26 @@ public sealed class SidecarHostService : IDisposable
                 }
                 break;
 
+            case "thinking":
+                if (evt is ThinkingEvent the)
+                {
+                    EventDispatched?.Invoke("thinking", new
+                    {
+                        sessionId = the.SessionId,
+                        text = the.Text,
+                        durationSeconds = the.DurationSeconds,
+                        timestamp = the.Timestamp
+                    });
+                }
+                break;
+
             case "session_status":
                 if (evt is SessionStatusEvent sse)
                 {
                     EventDispatched?.Invoke("session_status", new
                     {
                         sessionId = sse.SessionId,
+                        profile = sse.Profile,
                         state = sse.State,
                         error = sse.Error,
                         timestamp = sse.Timestamp
@@ -232,6 +246,26 @@ public sealed class SidecarHostService : IDisposable
     }
 
     // --- High-Level RPC APIs for Frontend ---
+
+    public async Task StartProfileSessionAsync(string profileName, string? workingDirectory = null, string? model = null)
+    {
+        await EnsureOnlineAsync().ConfigureAwait(false);
+        await _client.SendAsync(new StartSessionRequest
+        {
+            Profile = profileName,
+            WorkingDirectory = workingDirectory,
+            Model = model
+        }).ConfigureAwait(false);
+    }
+
+    public async Task StopProfileSessionAsync(string profileName)
+    {
+        await EnsureOnlineAsync().ConfigureAwait(false);
+        await _client.SendAsync(new StopSessionRequest
+        {
+            Profile = profileName
+        }).ConfigureAwait(false);
+    }
 
     public async Task SendChatAsync(string sessionId, string prompt, string? model = null, string? profile = null, string? workingDirectory = null)
     {

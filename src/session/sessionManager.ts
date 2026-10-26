@@ -1,10 +1,10 @@
 /**
  * Session & Account Manager for AgentsHub Sidecar
- * Guarantees strict multi-account and concurrent session isolation:
+ * Dispatches real agent turns to the native Antigravity CLI (agy) or ShellExecutor with:
+ * - Real stream-json token, thinking, and tool execution parsing (NO fake mock templates)
  * - Isolated VirtualHome environments per profile (USERPROFILE, HOME, APPDATA, LOCALAPPDATA)
- * - Scoped sandbox environments per session (zero collision between Antigravity, Claude Code, and custom agents)
- * - Independent event streams keyed by sessionId
- * - Complete memory-leak prevention and active session tracking
+ * - Dedicated session tracking and active sessions counter
+ * - Automatic session pruner to prevent memory leaks
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
@@ -28,17 +28,19 @@ export interface ChatSessionState {
   sessionId: string;
   profileName: string;
   workingDirectory: string;
-  status: 'idle' | 'running' | 'tool_executing' | 'completed' | 'error';
+  status: 'idle' | 'thinking' | 'running' | 'tool_executing' | 'completed' | 'error';
   startedAt: number;
   lastActiveAt: number;
   abortController?: AbortController;
   scopedEnv: Record<string, string>;
+  activeProcess?: any;
 }
 
 export class SessionManager {
   private profiles = new Map<string, ProfileRecord>();
   private activeProfileName: string = 'Default';
   private activeSessions = new Map<string, ChatSessionState>();
+  private profileActiveSessionIds = new Map<string, string>(); // profileName -> sessionId
   private configPath: string;
   private emit: (event: OutboundEvent) => void;
   private taskQueue: TaskQueue;
@@ -79,19 +81,11 @@ export class SessionManager {
       console.warn('[SessionManager] Could not load persisted profiles:', err);
     }
 
-    // Ensure at least Default profile exists
-    if (this.profiles.size === 0) {
-      this.profiles.set('default', {
-        name: 'Default',
-        email: 'user@local',
-        provider: 'Antigravity / Gemini',
-        model: 'gemini-2.5-pro'
-      });
+    // Set first profile active if exists
+    if (this.profiles.size > 0) {
+      const first = Array.from(this.profiles.values())[0];
+      this.activeProfileName = first.name;
     }
-
-    // Set first profile active
-    const first = Array.from(this.profiles.values())[0];
-    this.activeProfileName = first.name;
   }
 
   private saveProfiles(): void {
@@ -105,24 +99,27 @@ export class SessionManager {
 
   /**
    * Prepares and resolves the isolated VirtualHome directory for a given profile.
-   * Mirrors AntigravityProfileService structure with .gemini and AppData trees.
    */
   public prepareVirtualHome(profileName: string): string {
     const sanitized = profileName.replace(/[^a-zA-Z0-9_\-\.@]/g, '_');
     const home = homedir();
 
-    // Check workspace Profiles/Antigravity candidate first, then user's global gemini profiles
     const candidates = [
       join(process.cwd(), 'Profiles', 'Antigravity', sanitized, 'VirtualHome'),
+      join(process.cwd(), 'bin', 'Debug', 'net10.0-windows', 'Profiles', 'Antigravity', sanitized, 'VirtualHome'),
       join(home, '.gemini', 'antigravity', 'profiles', sanitized, 'VirtualHome')
     ];
 
     let targetDir = candidates[0];
-    const parentDir = join(process.cwd(), 'Profiles', 'Antigravity', sanitized);
+    for (const c of candidates) {
+      if (existsSync(c)) {
+        targetDir = c;
+        break;
+      }
+    }
 
-    if (!existsSync(parentDir) && !existsSync(candidates[0])) {
-      // Use standard user profile location if current workspace doesn't have Profiles directory
-      targetDir = candidates[1];
+    if (!existsSync(targetDir)) {
+      targetDir = candidates[2];
     }
 
     const virtGemini = join(targetDir, '.gemini');
@@ -135,7 +132,6 @@ export class SessionManager {
       mkdirSync(virtRoaming, { recursive: true });
       mkdirSync(virtLocal, { recursive: true });
 
-      // Synchronize initial credential files if available in source profile or user home
       const parentProfileDir = join(targetDir, '..');
       const credFiles = ['gemini_credential.json', 'google_accounts.json', 'oauth_creds.json'];
 
@@ -158,9 +154,6 @@ export class SessionManager {
     return targetDir;
   }
 
-  /**
-   * Generates a deterministic isolated port offset for a profile to prevent local proxy collisions
-   */
   private allocatePortForProfile(profileName: string): number {
     let hash = 0;
     for (let i = 0; i < profileName.length; i++) {
@@ -171,10 +164,6 @@ export class SessionManager {
     return 9340 + offset;
   }
 
-  /**
-   * Constructs an isolated environment variable map for a specific session and profile.
-   * Guaranteed not to collide with other concurrent sessions.
-   */
   public buildScopedEnvironment(
     profileName: string,
     sessionId: string,
@@ -193,12 +182,11 @@ export class SessionManager {
       ANTIGRAVITY_PORT: String(allocatedPort),
       AGENTS_SESSION_ID: sessionId,
       AGENTS_PROFILE_NAME: profileName,
-      AGENTS_MODEL: model || 'gemini-2.5-pro',
+      AGENTS_MODEL: model || 'gemini-3.8-flash-high',
       FORCE_COLOR: '0',
       TERM: 'dumb'
     };
 
-    // Claude Code isolated configuration
     if (profileName.toLowerCase().includes('claude') || (model && model.toLowerCase().includes('claude'))) {
       scoped.ANTHROPIC_MODEL = model || 'claude-3-7-sonnet';
     }
@@ -246,7 +234,6 @@ export class SessionManager {
     let record = this.profiles.get(key);
 
     if (!record) {
-      // Auto-register new profile dynamically
       record = {
         name: profileName,
         email: `${profileName.toLowerCase()}@local`,
@@ -280,7 +267,6 @@ export class SessionManager {
       return { success: false, message: `Profile '${profileName}' not found` };
     }
 
-    // Refresh timestamp and validate state
     record.lastUsed = new Date().toISOString();
     this.saveProfiles();
     this.emitAccountState();
@@ -288,10 +274,115 @@ export class SessionManager {
     return { success: true, message: `Token validated for ${profileName}` };
   }
 
+  /**
+   * Starts and activates a runner profile session inside the Sidecar.
+   * Increments active sessions counter and broadcasts real-time state.
+   */
+  public async startSession(
+    profileName: string,
+    workingDirectory?: string,
+    model?: string
+  ): Promise<{ success: boolean; sessionId: string; activeSessionsCount: number }> {
+    const key = profileName.toLowerCase();
+    const sessionId = this.profileActiveSessionIds.get(key) || `session_${key}_${Date.now()}`;
+    this.profileActiveSessionIds.set(key, sessionId);
+
+    const virtualHomeDir = this.prepareVirtualHome(profileName);
+    const scopedEnv = this.buildScopedEnvironment(profileName, sessionId, virtualHomeDir, model);
+    const cwd = workingDirectory && existsSync(workingDirectory) ? resolve(workingDirectory) : virtualHomeDir;
+
+    const sessionState: ChatSessionState = {
+      sessionId,
+      profileName,
+      workingDirectory: cwd,
+      status: 'running',
+      startedAt: Date.now(),
+      lastActiveAt: Date.now(),
+      scopedEnv
+    };
+
+    this.activeSessions.set(sessionId, sessionState);
+
+    // Auto-register profile in registry
+    if (!this.profiles.has(key)) {
+      this.profiles.set(key, {
+        name: profileName,
+        email: `${key}@local`,
+        provider: 'Antigravity',
+        model: model || 'gemini-3.8-flash-high',
+        lastUsed: new Date().toISOString()
+      });
+      this.saveProfiles();
+    }
+
+    this.emit({
+      event: 'session_status',
+      sessionId,
+      profile: profileName,
+      state: 'running',
+      timestamp: new Date().toISOString()
+    });
+
+    this.emit({
+      event: 'sidecar_status',
+      pid: process.pid,
+      activeSessionsCount: this.getActiveSessionsCount(),
+      timestamp: new Date().toISOString()
+    });
+
+    return {
+      success: true,
+      sessionId,
+      activeSessionsCount: this.getActiveSessionsCount()
+    };
+  }
+
+  /**
+   * Stops an active runner profile session in the Sidecar.
+   */
+  public async stopSession(profileName: string): Promise<{ success: boolean }> {
+    const key = profileName.toLowerCase();
+    const sessionId = this.profileActiveSessionIds.get(key);
+
+    if (sessionId) {
+      const session = this.activeSessions.get(sessionId);
+      if (session) {
+        if (session.abortController) {
+          try { session.abortController.abort(); } catch {}
+        }
+        if (session.activeProcess) {
+          try { session.activeProcess.kill(9); } catch {}
+        }
+        session.status = 'idle';
+        session.lastActiveAt = Date.now();
+      }
+
+      this.activeSessions.delete(sessionId);
+      this.profileActiveSessionIds.delete(key);
+
+      this.emit({
+        event: 'session_status',
+        sessionId,
+        profile: profileName,
+        state: 'idle',
+        timestamp: new Date().toISOString()
+      });
+
+      this.emit({
+        event: 'sidecar_status',
+        pid: process.pid,
+        activeSessionsCount: this.getActiveSessionsCount(),
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    return { success: true };
+  }
+
   public getActiveSessionsCount(): number {
     let count = 0;
     for (const session of this.activeSessions.values()) {
-      if (session.status === 'running' || session.status === 'tool_executing') {
+      if (session.status === 'running' || session.status === 'tool_executing' || session.status === 'thinking') {
         count++;
       }
     }
@@ -322,7 +413,6 @@ export class SessionManager {
     const { sessionId, prompt, model, profile, workingDirectory } = params;
     const targetProfile = profile || this.activeProfileName;
 
-    // 1. Prepare isolated VirtualHome and environment sandbox
     const virtualHomeDir = this.prepareVirtualHome(targetProfile);
     const scopedEnv = this.buildScopedEnvironment(targetProfile, sessionId, virtualHomeDir, model);
 
@@ -346,35 +436,33 @@ export class SessionManager {
 
     this.activeSessions.set(sessionId, sessionState);
 
-    // 2. Emit status: running
+    // Broadcast running state
     this.emit({
       event: 'session_status',
       sessionId,
+      profile: targetProfile,
       state: 'running',
       timestamp: new Date().toISOString()
     });
 
     try {
-      // 3. Execute agent reasoning or task loop
       if (prompt.startsWith('/exec ') || prompt.startsWith('> ')) {
+        // Direct Command Execution with Tool Card
         const cmd = prompt.replace(/^(\/exec\s+|>)/, '').trim();
         sessionState.status = 'tool_executing';
         sessionState.lastActiveAt = Date.now();
 
+        const callId = `exec_${Date.now()}`;
         this.emit({
-          event: 'session_status',
+          event: 'tool_start',
           sessionId,
-          state: 'tool_executing',
+          callId,
+          tool: 'bash',
+          params: { command: cmd },
           timestamp: new Date().toISOString()
         });
 
-        this.emit({
-          event: 'chat_token',
-          sessionId,
-          text: `Executing in isolated environment [Profile: \`${targetProfile}\`]:\n\`\`\`bash\n$ ${cmd}\n`,
-          timestamp: new Date().toISOString()
-        });
-
+        const startTime = performance.now();
         const result = await ShellExecutor.execute({
           command: cmd,
           cwd,
@@ -399,55 +487,62 @@ export class SessionManager {
           }
         });
 
+        const durationMs = Math.round(performance.now() - startTime);
         this.emit({
-          event: 'chat_token',
+          event: 'tool_output',
           sessionId,
-          text: `\n\`\`\`\n*Exit code: ${result.exitCode} (${(result.durationMs / 1000).toFixed(2)}s)*\n`,
+          callId,
+          tool: 'bash',
+          success: result.exitCode === 0,
+          exitCode: result.exitCode,
+          durationMs,
           timestamp: new Date().toISOString()
         });
       } else {
-        // High-performance streaming chat response
-        const chunks = [
-          `**[Profile: ${targetProfile}]** Processing query with isolated VirtualHome sandbox.\n\n`,
-          `Instruction: *"${prompt}"*\n\n`,
-          `### Session Context & Isolation Summary\n`,
-          `- **Session ID:** \`${sessionId}\`\n`,
-          `- **Active Profile:** \`${targetProfile}\`\n`,
-          `- **VirtualHome Sandbox:** \`${virtualHomeDir}\`\n`,
-          `- **Target Workspace:** \`${cwd}\`\n`,
-          `- **Model Pipeline:** \`${model || 'gemini-3.8-flash'}\`\n\n`,
-          `Environment isolated with zero token collision. Ready for operations.`
-        ];
+        // Real Execution through Antigravity CLI (agy)
+        sessionState.status = 'thinking';
+        this.emit({
+          event: 'session_status',
+          sessionId,
+          profile: targetProfile,
+          state: 'thinking',
+          timestamp: new Date().toISOString()
+        });
 
-        for (const token of chunks) {
-          if (abortController.signal.aborted) break;
-          this.emit({
-            event: 'chat_token',
-            sessionId,
-            text: token,
-            timestamp: new Date().toISOString()
-          });
-          await Bun.sleep(30);
-        }
+        this.emit({
+          event: 'thinking',
+          sessionId,
+          text: 'Analyzing prompt and repository state...',
+          timestamp: new Date().toISOString()
+        });
+
+        await this.executeAgyTurn({
+          sessionId,
+          prompt,
+          model,
+          cwd,
+          scopedEnv,
+          abortController,
+          sessionState
+        });
       }
 
-      // 4. Mark session completed / idle
       sessionState.status = 'idle';
       sessionState.lastActiveAt = Date.now();
-
       this.emit({
         event: 'session_status',
         sessionId,
+        profile: targetProfile,
         state: 'idle',
         timestamp: new Date().toISOString()
       });
     } catch (err: any) {
       sessionState.status = 'error';
       sessionState.lastActiveAt = Date.now();
-
       this.emit({
         event: 'session_status',
         sessionId,
+        profile: targetProfile,
         state: 'error',
         error: err?.message || String(err),
         timestamp: new Date().toISOString()
@@ -455,15 +550,246 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Executes a prompt turn through agy with stream-json NDJSON parsing.
+   * Dispatches live thinking, tokens, and tool calls directly to the UI.
+   */
+  private async executeAgyTurn(opts: {
+    sessionId: string;
+    prompt: string;
+    model?: string;
+    cwd: string;
+    scopedEnv: Record<string, string>;
+    abortController: AbortController;
+    sessionState: ChatSessionState;
+  }): Promise<void> {
+    const { sessionId, prompt, model, cwd, scopedEnv, abortController, sessionState } = opts;
+
+    // Detect agy CLI binary
+    const agyCmd = process.platform === 'win32' ? 'agy.exe' : 'agy';
+    const agyArgs = [
+      '--output-format', 'stream-json',
+      '--continue',
+      '--dangerously-skip-permissions'
+    ];
+
+    if (model) {
+      agyArgs.push('--model', model);
+    }
+    agyArgs.push('-p', prompt);
+
+    let hasReceivedAnyToken = false;
+
+    try {
+      const proc = Bun.spawn([agyCmd, ...agyArgs], {
+        cwd,
+        env: scopedEnv,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        stdin: 'ignore'
+      });
+
+      sessionState.activeProcess = proc;
+
+      abortController.signal.addEventListener('abort', () => {
+        try { proc.kill(9); } catch {}
+      });
+
+      // Stream stdout NDJSON lines
+      if (proc.stdout) {
+        const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            if (trimmed.startsWith('{')) {
+              try {
+                const evt = JSON.parse(trimmed);
+                this.processAgyEvent(sessionId, evt, sessionState);
+                hasReceivedAnyToken = true;
+              } catch {}
+            } else {
+              // Raw non-JSON diagnostic line (filter out banner headers)
+              if (!trimmed.includes('Usage of agy') && !trimmed.includes('Fetching available models')) {
+                this.emit({
+                  event: 'chat_token',
+                  sessionId,
+                  text: trimmed + '\n',
+                  timestamp: new Date().toISOString()
+                });
+                hasReceivedAnyToken = true;
+              }
+            }
+          }
+        }
+      }
+
+      await proc.exited;
+    } catch (err: any) {
+      // If first attempt failed with --continue (no previous conversation), retry without --continue
+      if (!hasReceivedAnyToken && !abortController.signal.aborted) {
+        await this.executeAgyFresh(opts);
+        return;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Fresh conversation turn if --continue was rejected
+   */
+  private async executeAgyFresh(opts: {
+    sessionId: string;
+    prompt: string;
+    model?: string;
+    cwd: string;
+    scopedEnv: Record<string, string>;
+    abortController: AbortController;
+    sessionState: ChatSessionState;
+  }): Promise<void> {
+    const { sessionId, prompt, model, cwd, scopedEnv, abortController, sessionState } = opts;
+    const agyCmd = process.platform === 'win32' ? 'agy.exe' : 'agy';
+    const agyArgs = [
+      '--output-format', 'stream-json',
+      '--dangerously-skip-permissions'
+    ];
+    if (model) agyArgs.push('--model', model);
+    agyArgs.push('-p', prompt);
+
+    const proc = Bun.spawn([agyCmd, ...agyArgs], {
+      cwd,
+      env: scopedEnv,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      stdin: 'ignore'
+    });
+
+    sessionState.activeProcess = proc;
+    abortController.signal.addEventListener('abort', () => {
+      try { proc.kill(9); } catch {}
+    });
+
+    if (proc.stdout) {
+      const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('{')) {
+            try {
+              const evt = JSON.parse(trimmed);
+              this.processAgyEvent(sessionId, evt, sessionState);
+            } catch {}
+          }
+        }
+      }
+    }
+    await proc.exited;
+  }
+
+  private processAgyEvent(sessionId: string, evt: any, sessionState: ChatSessionState): void {
+    if (evt.event === 'step_update' && evt.step_update) {
+      const su = evt.step_update;
+
+      // 1. Thinking step
+      if (su.step_type === 'thinking') {
+        sessionState.status = 'thinking';
+        this.emit({
+          event: 'thinking',
+          sessionId,
+          text: su.text_delta || 'Synthesizing response...',
+          durationSeconds: su.duration_seconds,
+          timestamp: new Date().toISOString()
+        });
+      }
+      // 2. Token output
+      else if (su.step_type === 'agent_response' && typeof su.text_delta === 'string') {
+        sessionState.status = 'running';
+        this.emit({
+          event: 'chat_token',
+          sessionId,
+          text: su.text_delta,
+          timestamp: new Date().toISOString()
+        });
+      }
+      // 3. Tool call started
+      else if (su.step_type === 'tool_call') {
+        sessionState.status = 'tool_executing';
+        const toolName = su.tool_name || su.call?.name || 'tool';
+        const toolParams = su.tool_args || su.call?.arguments || {};
+        const callId = su.call_id || `tool_${Date.now()}`;
+
+        this.emit({
+          event: 'tool_start',
+          sessionId,
+          callId,
+          tool: toolName,
+          params: toolParams,
+          timestamp: new Date().toISOString()
+        });
+      }
+      // 4. Tool call completed
+      else if (su.step_type === 'tool_result' || (su.state === 'DONE' && su.step_type === 'tool_call')) {
+        this.emit({
+          event: 'tool_output',
+          sessionId,
+          callId: su.call_id || '',
+          tool: su.tool_name || 'tool',
+          success: su.status !== 'ERROR' && su.state !== 'ERROR',
+          result: su.result || su.output,
+          durationMs: su.duration_seconds ? Math.round(su.duration_seconds * 1000) : 0,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+    // Final Turn Result
+    else if (evt.event === 'result' && evt.result) {
+      if (evt.result.usage?.thinking_tokens) {
+        this.emit({
+          event: 'thinking',
+          sessionId,
+          durationSeconds: evt.result.duration_seconds,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  }
+
   public abortSession(sessionId: string): boolean {
     const session = this.activeSessions.get(sessionId);
-    if (session && session.abortController) {
-      session.abortController.abort();
+    if (session) {
+      if (session.abortController) session.abortController.abort();
+      if (session.activeProcess) {
+        try { session.activeProcess.kill(9); } catch {}
+      }
       session.status = 'idle';
       session.lastActiveAt = Date.now();
+
       this.emit({
         event: 'session_status',
         sessionId,
+        profile: session.profileName,
         state: 'idle',
         timestamp: new Date().toISOString()
       });
@@ -472,9 +798,6 @@ export class SessionManager {
     return false;
   }
 
-  /**
-   * Sweeps and prunes completed/idle sessions older than 30 minutes to prevent memory leaks
-   */
   private pruneInactiveSessions(): void {
     const expirationThresholdMs = 30 * 60 * 1000;
     const now = Date.now();

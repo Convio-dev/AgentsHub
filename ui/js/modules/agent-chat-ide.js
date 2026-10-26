@@ -393,14 +393,20 @@
   async function startProfileFromChat(pName) {
     if (!pName) return;
     try {
-      appendHudLog(`[Antigravity] Starting instance for profile: ${pName}...`, 'sky');
+      appendHudLog(`[Sidecar] Registering and starting runner for profile: ${pName}...`, 'sky');
       if (typeof window.callBridge === 'function') {
-        await window.callBridge('start_antigravity_instance', { profile: pName });
+        const res = await window.callBridge('start_antigravity_instance', { profile: pName });
+        if (res && res.model) {
+          updateChatModelDisplay(res.model);
+        }
       }
       if (typeof window.showToast === 'function') {
         window.showToast(`Started profile: ${pName}`, 'success', 2500);
       }
-      setTimeout(renderChatProfileManager, 500);
+      setTimeout(renderChatProfileManager, 300);
+      if (window.sidecarStatus && typeof window.sidecarStatus.refresh === 'function') {
+        window.sidecarStatus.refresh();
+      }
     } catch (err) {
       appendHudLog(`[Profile Start Error] ${err?.message || err}`, 'rose');
     }
@@ -410,14 +416,17 @@
   async function stopProfileFromChat(pName) {
     if (!pName) return;
     try {
-      appendHudLog(`[Antigravity] Stopping profile: ${pName}...`, 'amber');
+      appendHudLog(`[Sidecar] Stopping runner for profile: ${pName}...`, 'amber');
       if (typeof window.callBridge === 'function') {
         await window.callBridge('stop_antigravity_instance', { profile: pName });
       }
       if (typeof window.showToast === 'function') {
         window.showToast(`Stopped profile: ${pName}`, 'info', 2500);
       }
-      setTimeout(renderChatProfileManager, 500);
+      setTimeout(renderChatProfileManager, 300);
+      if (window.sidecarStatus && typeof window.sidecarStatus.refresh === 'function') {
+        window.sidecarStatus.refresh();
+      }
     } catch (err) {
       appendHudLog(`[Profile Stop Error] ${err?.message || err}`, 'rose');
     }
@@ -769,22 +778,33 @@
       executionCard.className = 'flex items-start space-x-3 max-w-3xl';
       executionCard.setAttribute('data-session-id', sessionId);
       executionCard.setAttribute('data-profile', profileName);
+      executionCard._rawMarkdown = '';
+      executionCard._thinkingStartTime = Date.now();
       executionCard.innerHTML = `
         <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center text-white text-xs flex-shrink-0 shadow-md shadow-sky-600/30">
           <i class="fa-solid fa-microchip"></i>
         </div>
-        <div class="flex-1 space-y-3">
-          <div class="bg-surface-card border border-surface-border rounded-xl p-4 text-xs space-y-2.5 shadow-sm">
+        <div class="flex-1 space-y-3 min-w-0">
+          <div class="bg-surface-card border border-surface-border rounded-xl p-4 text-xs space-y-3 shadow-sm">
             <div class="flex items-center justify-between font-mono pb-2 border-b border-surface-border">
               <span class="text-content-main font-semibold flex items-center space-x-2">
                 <span class="w-2 h-2 rounded-full bg-sky-500 animate-ping"></span>
                 <span>Sidecar Engine: ${escapeHtml(profileName)}</span>
               </span>
-              <span class="card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-500 border border-sky-500/30">Streaming</span>
+              <span class="card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-500 border border-sky-500/30">Thinking...</span>
             </div>
 
+            <!-- Sleek Thinking Component Container -->
+            <div class="chat-thinking-container"></div>
+
+            <!-- Interactive Tool Calls Cards Container -->
+            <div class="chat-tools-container space-y-2"></div>
+
             <!-- Structured Chat Markdown Stream Content -->
-            <div class="chat-assistant-markdown font-sans text-sm text-content-main leading-relaxed space-y-2 whitespace-pre-wrap"></div>
+            <div class="chat-assistant-markdown font-sans text-sm text-content-main leading-relaxed space-y-1"></div>
+
+            <!-- Clean Error Alert Container -->
+            <div class="chat-error-container hidden"></div>
 
             <div class="flex items-center justify-between pt-2 border-t border-surface-border text-[11px]">
               <button onclick="if (typeof toggleHud === 'function') toggleHud(true);" class="text-sky-500 hover:text-sky-400 font-mono flex items-center space-x-1.5 transition">
@@ -824,12 +844,174 @@
   }
   window.submitUserPrompt = submitUserPrompt;
 
-  // --- 8. Real-Time Sidecar Token & Status Streaming ---
-  window.addEventListener('chat_token', (e) => {
-    if (!e.detail || typeof e.detail.text !== 'string') return;
-    const { sessionId, text } = e.detail;
+  // --- Dynamic Model Display Helper ---
+  function updateChatModelDisplay(modelName) {
+    const el = document.getElementById('chat-model-text');
+    if (el && modelName) {
+      el.textContent = modelName;
+    }
+  }
+  window.updateChatModelDisplay = updateChatModelDisplay;
 
-    // Find target card matching session or fallback to active card
+  // --- Helper: Select tool icon based on tool name ---
+  function getToolIcon(toolName) {
+    const t = (toolName || '').toLowerCase();
+    if (t.includes('bash') || t.includes('exec') || t.includes('shell') || t.includes('command')) return 'fa-terminal';
+    if (t.includes('edit') || t.includes('write') || t.includes('replace') || t.includes('patch')) return 'fa-pen-to-square';
+    if (t.includes('read') || t.includes('view') || t.includes('cat')) return 'fa-book-open';
+    if (t.includes('grep') || t.includes('search')) return 'fa-magnifying-glass';
+    if (t.includes('dir') || t.includes('list') || t.includes('ls')) return 'fa-folder-tree';
+    if (t.includes('git')) return 'fa-code-branch';
+    return 'fa-wrench';
+  }
+
+  // --- Helper: Format readable parameter summary for tool header ---
+  function formatToolPreview(toolName, params) {
+    if (!params || typeof params !== 'object') return '';
+    if (params.command) return params.command;
+    if (params.CommandLine) return params.CommandLine;
+    if (params.TargetFile) return params.TargetFile;
+    if (params.AbsolutePath) return params.AbsolutePath;
+    if (params.SearchPath) return `${params.Query || ''} in ${params.SearchPath}`;
+    if (params.DirectoryPath) return params.DirectoryPath;
+    if (params.path) return params.path;
+    return Object.keys(params).slice(0, 3).map(k => `${k}: ${params[k]}`).join(', ');
+  }
+
+  // --- Modern Claude / Cursor Markdown Renderer with Fenced Code Blocks & Copy Buttons ---
+  function renderMarkdown(rawText) {
+    if (!rawText) return '';
+
+    // 1. Extract and preserve code blocks
+    const codeBlocks = [];
+    let text = rawText.replace(/```([a-zA-Z0-9_\-\+]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+      const placeholder = `___AGENTS_CODEBLOCK_${codeBlocks.length}___`;
+      codeBlocks.push({ lang: (lang || 'code').trim(), code });
+      return placeholder;
+    });
+
+    // 2. Extract and preserve inline code
+    const inlineCodes = [];
+    text = text.replace(/`([^`\n]+)`/g, (match, code) => {
+      const placeholder = `___AGENTS_INLINE_${inlineCodes.length}___`;
+      inlineCodes.push(code);
+      return placeholder;
+    });
+
+    // 3. Escape HTML
+    text = escapeHtml(text);
+
+    // 4. Headers
+    text = text.replace(/^### (.*$)/gim, '<h3 class="text-xs font-semibold text-sky-400 mt-3 mb-1 font-mono uppercase tracking-wider">$1</h3>');
+    text = text.replace(/^## (.*$)/gim, '<h2 class="text-sm font-semibold text-content-main mt-3 mb-1 pb-1 border-b border-surface-border">$1</h2>');
+    text = text.replace(/^# (.*$)/gim, '<h1 class="text-base font-bold text-content-main mt-4 mb-2 pb-1.5 border-b border-surface-border">$1</h1>');
+
+    // 5. Blockquotes
+    text = text.replace(/^\> (.*$)/gim, '<blockquote class="border-l-2 border-sky-500/60 pl-3 py-1 my-2 text-content-muted italic bg-surface-deep/40 rounded-r">$1</blockquote>');
+
+    // 6. Horizontal Rules
+    text = text.replace(/^(\-\-\-|\*\*\*|___)$/gim, '<hr class="my-3 border-surface-border" />');
+
+    // 7. Bold, Italic, Strikethrough
+    text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-content-main">$1</strong>');
+    text = text.replace(/__(.*?)__/g, '<strong class="font-semibold text-content-main">$1</strong>');
+    text = text.replace(/\*(.*?)\*/g, '<em class="italic text-content-main/90">$1</em>');
+    text = text.replace(/_(.*?)_/g, '<em class="italic text-content-main/90">$1</em>');
+    text = text.replace(/~~(.*?)~~/g, '<del class="line-through text-content-muted">$1</del>');
+
+    // 8. Links [title](url)
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline font-medium">$1</a>');
+
+    // 9. Lists
+    text = text.replace(/^\s*[\-\*]\s+(.*$)/gim, '<li class="flex items-start space-x-2 my-0.5"><span class="text-sky-400 font-bold select-none text-[11px] mt-0.5">•</span><span class="flex-1">$1</span></li>');
+    text = text.replace(/^\s*(\d+)\.\s+(.*$)/gim, '<li class="flex items-start space-x-2 my-0.5"><span class="font-mono text-sky-400 select-none text-[11px] mt-0.5">$1.</span><span class="flex-1">$2</span></li>');
+    text = text.replace(/(<li class="flex items-start[\s\S]*?<\/li>)+/g, '<ul class="space-y-1 my-2 pl-1">$0</ul>');
+
+    // 10. Restore inline code
+    inlineCodes.forEach((code, i) => {
+      text = text.replace(`___AGENTS_INLINE_${i}___`, `<code class="px-1.5 py-0.5 rounded bg-surface-deep border border-surface-border text-sky-400 font-mono text-[11.5px]">${escapeHtml(code)}</code>`);
+    });
+
+    // 11. Restore code blocks with interactive copy button
+    codeBlocks.forEach((block, i) => {
+      const langBadge = escapeHtml(block.lang || 'code');
+      const escapedCode = escapeHtml(block.code.replace(/^\n+|\n+$/g, ''));
+      const htmlBlock = `
+        <div class="codeblock-container my-3 rounded-lg overflow-hidden border border-surface-border bg-black/40 shadow-sm">
+          <div class="codeblock-header flex items-center justify-between px-3 py-1.5 bg-surface-deep text-[11px] font-mono text-content-muted border-b border-surface-border select-none">
+            <span class="font-semibold text-sky-400 lowercase flex items-center gap-1.5">
+              <i class="fa-solid fa-code text-[10px]"></i>
+              <span>${langBadge}</span>
+            </span>
+            <button type="button" class="copy-code-btn hover:text-content-main flex items-center gap-1 transition px-1.5 py-0.5 rounded hover:bg-surface-card" onclick="copyCodeBlock(this)">
+              <i class="fa-regular fa-copy text-[10px]"></i>
+              <span>Copy</span>
+            </button>
+          </div>
+          <pre class="p-3 text-xs font-mono text-sky-200 overflow-x-auto leading-relaxed whitespace-pre scrollbar-thin"><code>${escapedCode}</code></pre>
+        </div>
+      `;
+      text = text.replace(`___AGENTS_CODEBLOCK_${i}___`, htmlBlock);
+    });
+
+    // 12. Paragraph split
+    const paragraphs = text.split(/\n{2,}/);
+    text = paragraphs.map(p => {
+      const trimmed = p.trim();
+      if (!trimmed) return '';
+      if (trimmed.startsWith('<h') || trimmed.startsWith('<ul') || trimmed.startsWith('<div') || trimmed.startsWith('<blockquote') || trimmed.startsWith('<hr')) {
+        return trimmed;
+      }
+      return `<p class="leading-relaxed my-1.5">${trimmed.replace(/\n/g, '<br />')}</p>`;
+    }).join('\n');
+
+    return text;
+  }
+
+  // Global copy code block button handler
+  window.copyCodeBlock = function (btn) {
+    const container = btn.closest('.codeblock-container');
+    if (!container) return;
+    const codeEl = container.querySelector('pre code');
+    if (!codeEl) return;
+    const codeText = codeEl.innerText || codeEl.textContent;
+
+    navigator.clipboard.writeText(codeText).then(() => {
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400 text-[10px]"></i><span class="text-emerald-400 font-semibold">Copied!</span>`;
+      setTimeout(() => {
+        btn.innerHTML = originalHtml;
+      }, 2000);
+    }).catch(err => {
+      console.warn('Copy failed:', err);
+    });
+  };
+
+  // Helper to finalize thinking block once streaming or tools begin
+  function finalizeThinkingBlock(targetCard) {
+    if (!targetCard) return;
+    const thinkingBlock = targetCard.querySelector('.chat-thinking-block');
+    if (thinkingBlock && !thinkingBlock._finalized) {
+      thinkingBlock._finalized = true;
+      const pulse = thinkingBlock.querySelector('.animate-pulse');
+      if (pulse) pulse.classList.remove('animate-pulse');
+      const label = thinkingBlock.querySelector('.thinking-label');
+      const timer = thinkingBlock.querySelector('.thinking-timer');
+      if (label) {
+        label.textContent = `Thought for ${timer ? timer.textContent : 'a moment'}`;
+      }
+      const body = thinkingBlock.querySelector('.thinking-body');
+      if (body) body.classList.add('hidden');
+      const chevron = thinkingBlock.querySelector('.thinking-chevron');
+      if (chevron) chevron.className = 'fa-solid fa-chevron-right text-[9px] text-content-muted transition-transform thinking-chevron';
+    }
+  }
+
+  // --- 8. Real-Time Sidecar Token & Status Streaming ---
+  window.addEventListener('thinking', (e) => {
+    if (!e.detail) return;
+    const { sessionId, text, durationSeconds } = e.detail;
+
     let targetCard = null;
     if (sessionId) {
       targetCard = document.querySelector(`[data-session-id="${sessionId}"]`);
@@ -837,14 +1019,209 @@
     if (!targetCard && activeExecutionCards.size > 0) {
       targetCard = Array.from(activeExecutionCards.values())[0];
     }
+    if (!targetCard) return;
 
-    if (targetCard) {
-      const markdownEl = targetCard.querySelector('.chat-assistant-markdown');
-      if (markdownEl) {
-        markdownEl.textContent += text;
-        const stream = document.getElementById('chat-stream');
-        if (stream) stream.scrollTop = stream.scrollHeight;
+    const thinkingContainer = targetCard.querySelector('.chat-thinking-container');
+    if (!thinkingContainer) return;
+
+    let block = thinkingContainer.querySelector('.chat-thinking-block');
+    if (!block) {
+      block = document.createElement('div');
+      block.className = 'chat-thinking-block my-1.5 rounded-lg border border-sky-500/20 bg-sky-500/5 overflow-hidden transition-all duration-200';
+      block.innerHTML = `
+        <div class="thinking-header flex items-center justify-between px-3 py-1.5 cursor-pointer select-none text-[11px] font-mono hover:bg-sky-500/10 transition">
+          <div class="flex items-center space-x-2 text-sky-400">
+            <i class="fa-solid fa-brain text-[11px] animate-pulse"></i>
+            <span class="thinking-label font-medium">Thinking...</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="thinking-timer text-[10px] text-content-muted">0.0s</span>
+            <i class="fa-solid fa-chevron-right text-[9px] text-content-muted transition-transform thinking-chevron"></i>
+          </div>
+        </div>
+        <div class="thinking-body hidden px-3 py-2 text-xs font-mono text-content-muted border-t border-sky-500/15 max-h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed"></div>
+      `;
+
+      const header = block.querySelector('.thinking-header');
+      const body = block.querySelector('.thinking-body');
+      const chevron = block.querySelector('.thinking-chevron');
+      header.addEventListener('click', () => {
+        const isHidden = body.classList.toggle('hidden');
+        chevron.className = isHidden
+          ? 'fa-solid fa-chevron-right text-[9px] text-content-muted transition-transform thinking-chevron'
+          : 'fa-solid fa-chevron-down text-[9px] text-sky-400 transition-transform thinking-chevron';
+      });
+
+      thinkingContainer.appendChild(block);
+      targetCard._thinkingStartTime = Date.now();
+    }
+
+    if (text) {
+      const body = block.querySelector('.thinking-body');
+      if (body) {
+        body.textContent += (body.textContent ? '\n' : '') + text;
       }
+    }
+
+    const timer = block.querySelector('.thinking-timer');
+    if (timer) {
+      if (typeof durationSeconds === 'number' && durationSeconds > 0) {
+        timer.textContent = `${durationSeconds.toFixed(1)}s`;
+      } else {
+        const elapsed = ((Date.now() - (targetCard._thinkingStartTime || Date.now())) / 1000).toFixed(1);
+        timer.textContent = `${elapsed}s`;
+      }
+    }
+
+    const stream = document.getElementById('chat-stream');
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  });
+
+  window.addEventListener('tool_start', (e) => {
+    if (!e.detail) return;
+    const { sessionId, callId, tool, params } = e.detail;
+
+    let targetCard = null;
+    if (sessionId) {
+      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`);
+    }
+    if (!targetCard && activeExecutionCards.size > 0) {
+      targetCard = Array.from(activeExecutionCards.values())[0];
+    }
+    if (!targetCard) return;
+
+    // Finalize thinking state if still active
+    finalizeThinkingBlock(targetCard);
+
+    // Update overall badge
+    const badge = targetCard.querySelector('.card-status-badge');
+    if (badge) {
+      badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-500 border border-amber-500/30';
+      badge.textContent = `Executing: ${tool || 'Tool'}`;
+    }
+
+    const toolsContainer = targetCard.querySelector('.chat-tools-container');
+    if (!toolsContainer) return;
+
+    const toolCard = document.createElement('div');
+    toolCard.className = 'tool-card rounded-lg border border-surface-border bg-surface-card overflow-hidden transition shadow-sm';
+    toolCard.setAttribute('data-call-id', callId || `call_${Date.now()}`);
+    const preview = formatToolPreview(tool, params);
+
+    toolCard.innerHTML = `
+      <div class="tool-card-header flex items-center justify-between px-3 py-2 bg-surface-deep cursor-pointer select-none font-mono text-xs border-b border-surface-border hover:bg-surface-card transition">
+        <div class="flex items-center space-x-2 min-w-0">
+          <i class="fa-solid ${getToolIcon(tool)} text-sky-400"></i>
+          <span class="font-semibold text-content-main">${escapeHtml(tool || 'tool')}</span>
+          ${preview ? `<span class="text-content-muted text-[11px] truncate max-w-sm font-sans">${escapeHtml(preview)}</span>` : ''}
+        </div>
+        <div class="flex items-center space-x-2 flex-shrink-0">
+          <span class="tool-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-500 border border-amber-500/30 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+            <span>Running</span>
+          </span>
+          <i class="fa-solid fa-chevron-right text-[10px] text-content-muted tool-chevron transition-transform"></i>
+        </div>
+      </div>
+      <div class="tool-card-body hidden p-3 font-mono text-xs bg-black/30 overflow-x-auto max-h-56 leading-relaxed">
+        <div class="text-content-dim text-[10px] uppercase font-bold tracking-wider mb-1">Invocation Parameters</div>
+        <pre class="text-sky-300 whitespace-pre-wrap">${escapeHtml(typeof params === 'object' ? JSON.stringify(params, null, 2) : String(params || ''))}</pre>
+        <div class="tool-output-section mt-2 pt-2 border-t border-white/10 hidden">
+          <div class="text-content-dim text-[10px] uppercase font-bold tracking-wider mb-1">Output Result</div>
+          <pre class="tool-output-text text-emerald-300 whitespace-pre-wrap"></pre>
+        </div>
+      </div>
+    `;
+
+    const header = toolCard.querySelector('.tool-card-header');
+    const body = toolCard.querySelector('.tool-card-body');
+    const chevron = toolCard.querySelector('.tool-chevron');
+    header.addEventListener('click', () => {
+      const isHidden = body.classList.toggle('hidden');
+      chevron.className = isHidden
+        ? 'fa-solid fa-chevron-right text-[10px] text-content-muted tool-chevron transition-transform'
+        : 'fa-solid fa-chevron-down text-[10px] text-sky-400 tool-chevron transition-transform';
+    });
+
+    toolsContainer.appendChild(toolCard);
+    const stream = document.getElementById('chat-stream');
+    if (stream) stream.scrollTop = stream.scrollHeight;
+  });
+
+  window.addEventListener('tool_output', (e) => {
+    if (!e.detail) return;
+    const { sessionId, callId, success, result, error, durationMs } = e.detail;
+
+    let targetCard = null;
+    if (sessionId) {
+      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`);
+    }
+    if (!targetCard && activeExecutionCards.size > 0) {
+      targetCard = Array.from(activeExecutionCards.values())[0];
+    }
+    if (!targetCard) return;
+
+    let toolCard = null;
+    if (callId) {
+      toolCard = targetCard.querySelector(`.tool-card[data-call-id="${callId}"]`);
+    }
+    if (!toolCard) {
+      const toolCards = targetCard.querySelectorAll('.tool-card');
+      if (toolCards.length > 0) toolCard = toolCards[toolCards.length - 1];
+    }
+
+    if (toolCard) {
+      const badge = toolCard.querySelector('.tool-status-badge');
+      if (badge) {
+        if (success !== false) {
+          badge.className = 'tool-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5';
+          badge.innerHTML = `<i class="fa-solid fa-check text-[9px]"></i><span>Completed (${durationMs || 0}ms)</span>`;
+        } else {
+          badge.className = 'tool-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30 flex items-center gap-1.5';
+          badge.innerHTML = `<i class="fa-solid fa-xmark text-[9px]"></i><span>Failed</span>`;
+        }
+      }
+
+      const outputSec = toolCard.querySelector('.tool-output-section');
+      const outputText = toolCard.querySelector('.tool-output-text');
+      if (outputSec && outputText) {
+        const val = result !== undefined ? result : error;
+        outputText.textContent = typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val || '');
+        if (success === false) {
+          outputText.className = 'tool-output-text text-rose-300 whitespace-pre-wrap';
+        }
+        outputSec.classList.remove('hidden');
+      }
+    }
+  });
+
+  window.addEventListener('chat_token', (e) => {
+    if (!e.detail || typeof e.detail.text !== 'string') return;
+    const { sessionId, text } = e.detail;
+
+    let targetCard = null;
+    if (sessionId) {
+      targetCard = document.querySelector(`[data-session-id="${sessionId}"]`);
+    }
+    if (!targetCard && activeExecutionCards.size > 0) {
+      targetCard = Array.from(activeExecutionCards.values())[0];
+    }
+    if (!targetCard) return;
+
+    finalizeThinkingBlock(targetCard);
+
+    const badge = targetCard.querySelector('.card-status-badge');
+    if (badge && !badge.textContent.includes('Executing')) {
+      badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-500 border border-sky-500/30';
+      badge.textContent = 'Responding';
+    }
+
+    targetCard._rawMarkdown = (targetCard._rawMarkdown || '') + text;
+    const markdownEl = targetCard.querySelector('.chat-assistant-markdown');
+    if (markdownEl) {
+      markdownEl.innerHTML = renderMarkdown(targetCard._rawMarkdown);
+      const stream = document.getElementById('chat-stream');
+      if (stream) stream.scrollTop = stream.scrollHeight;
     }
   });
 
@@ -863,21 +1240,46 @@
     if (targetCard) {
       const badge = targetCard.querySelector('.card-status-badge');
       const ping = targetCard.querySelector('.animate-ping');
-      if (badge) {
-        if (state === 'running') {
+
+      if (state === 'running') {
+        if (badge) {
+          badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-500 border border-sky-500/30';
+          badge.textContent = 'Streaming';
+        }
+      } else if (state === 'thinking') {
+        if (badge) {
           badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-500 border border-sky-500/30';
           badge.textContent = 'Thinking...';
-        } else if (state === 'tool_executing') {
+        }
+      } else if (state === 'tool_executing') {
+        if (badge) {
           badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-500 border border-amber-500/30';
           badge.textContent = 'Executing Tool';
-        } else if (state === 'error') {
+        }
+      } else if (state === 'error') {
+        finalizeThinkingBlock(targetCard);
+        if (ping) ping.classList.remove('animate-ping');
+        if (badge) {
           badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-500 border border-rose-500/30';
-          badge.textContent = 'Error: ' + (error || 'Failed');
-          if (ping) ping.classList.remove('animate-ping');
-        } else if (state === 'idle' || state === 'completed') {
+          badge.textContent = 'Failed';
+        }
+
+        const errContainer = targetCard.querySelector('.chat-error-container');
+        if (errContainer) {
+          errContainer.className = 'chat-error-container flex items-center space-x-2.5 px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-mono my-2';
+          errContainer.innerHTML = `<i class="fa-solid fa-circle-exclamation text-rose-500 flex-shrink-0"></i><span class="truncate">${escapeHtml(error || 'Execution encountered an error')}</span>`;
+          errContainer.classList.remove('hidden');
+        }
+
+        if (typeof window.showToast === 'function') {
+          window.showToast(error || 'Execution failed', 'error', 4500);
+        }
+      } else if (state === 'idle' || state === 'completed') {
+        finalizeThinkingBlock(targetCard);
+        if (ping) ping.classList.remove('animate-ping');
+        if (badge) {
           badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
           badge.textContent = 'Completed';
-          if (ping) ping.classList.remove('animate-ping');
         }
       }
     }
@@ -892,10 +1294,31 @@
     }
     if (Array.isArray(profiles) && window.state?.antigravity) {
       window.state.antigravity.profiles = profiles;
+      const matched = profiles.find(p => p.name.toLowerCase() === (activeAccount || '').toLowerCase());
+      if (matched && matched.model) {
+        updateChatModelDisplay(matched.model);
+      }
     }
 
     renderChatProfileManager();
     appendHudLog(`[Sidecar] Active profile switched to ${activeAccount}`, 'sky');
+  });
+
+  window.addEventListener('profile_changed', (e) => {
+    if (!e.detail) return;
+    const { activeProfile, profiles, model } = e.detail;
+    if (model) {
+      updateChatModelDisplay(model);
+    } else {
+      updateChatModelDisplay('Gemini 3.8 Flash (High)');
+    }
+    if (activeProfile && window.state?.antigravity) {
+      window.state.antigravity.activeProfile = activeProfile;
+    }
+    if (Array.isArray(profiles) && window.state?.antigravity) {
+      window.state.antigravity.profiles = profiles;
+    }
+    renderChatProfileManager();
   });
 
   // --- 9. Real-Time Terminal Data for ConPTY Raw CLI HUD ---
@@ -1006,6 +1429,11 @@
     renderChatProfileManager();
     loadWorkspaceFiles();
     loadSessionHistory();
+
+    // Initialize dynamic model display
+    if (window.state?.antigravity?.model) {
+      updateChatModelDisplay(window.state.antigravity.model);
+    }
   }
   window.setupAgentChatIde = setupAgentChatIde;
 

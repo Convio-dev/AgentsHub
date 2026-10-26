@@ -58,6 +58,14 @@ export class MessageRouter {
         });
         break;
 
+      case 'start_session':
+        await this.sessionManager.startSession(msg.profile, msg.workingDirectory, msg.model);
+        break;
+
+      case 'stop_session':
+        await this.sessionManager.stopSession(msg.profile);
+        break;
+
       case 'switch_account':
         this.sessionManager.switchAccount(msg.profile, msg.provider);
         break;

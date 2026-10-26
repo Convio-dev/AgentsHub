@@ -31,26 +31,29 @@
     }
 
     // Listen to real-time status events from C# bridge
-    window.addEventListener('sidecar_status_changed', (evt) => {
+    const onStatusEvt = (evt) => {
       if (evt && evt.detail) {
         updateState(evt.detail);
       }
-    });
+    };
+    window.addEventListener('sidecar_status_changed', onStatusEvt);
+    window.addEventListener('sidecar_status', onStatusEvt);
 
     // Initial query
     fetchStatus();
 
-    // Regular health poll every 6 seconds
+    // Regular health poll every 5 seconds
     pollTimer = setInterval(() => {
       fetchStatus(false);
-    }, 6000);
+    }, 5000);
   }
 
   async function fetchStatus(isManual = false) {
-    if (!window.bridge) return;
+    const caller = window.callBridge || (window.bridge && window.bridge.call);
+    if (typeof caller !== 'function') return;
 
     try {
-      const data = await window.bridge.call('get_sidecar_status');
+      const data = await (window.callBridge ? window.callBridge('get_sidecar_status') : window.bridge.call('get_sidecar_status'));
       if (data) {
         updateState(data);
         reconnectAttempt = 0;
@@ -89,9 +92,14 @@
   function updateState(data) {
     if (!data) return;
 
+    const count = typeof data.activeSessions === 'number'
+      ? data.activeSessions
+      : (typeof data.activeSessionsCount === 'number' ? data.activeSessionsCount : currentStatus.activeSessions);
+
     currentStatus = {
       ...currentStatus,
       ...data,
+      activeSessions: count,
       isOnline: data.isOnline === true || (typeof data.status === 'string' && data.status.toLowerCase() === 'online')
     };
 

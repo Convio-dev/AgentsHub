@@ -29,6 +29,7 @@ public class SidecarClient : IDisposable
     public event Action<AgentStateEvent>? OnStateChanged;
     public event Action<StreamDeltaEvent>? OnStreamDelta;
     public event Action<ChatTokenEvent>? OnChatToken;
+    public event Action<ThinkingEvent>? OnThinking;
     public event Action<SessionStatusEvent>? OnSessionStatus;
     public event Action<AccountStateEvent>? OnAccountState;
     public event Action<ToolStartEvent>? OnToolStart;
@@ -202,6 +203,15 @@ public class SidecarClient : IDisposable
                     {
                         OnChatToken?.Invoke(chatTokEv);
                         OnEventReceived?.Invoke(chatTokEv);
+                    }
+                    break;
+
+                case "thinking":
+                    var thinkingEv = JsonSerializer.Deserialize<ThinkingEvent>(json);
+                    if (thinkingEv != null)
+                    {
+                        OnThinking?.Invoke(thinkingEv);
+                        OnEventReceived?.Invoke(thinkingEv);
                     }
                     break;
 
