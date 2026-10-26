@@ -205,91 +205,136 @@
     }
   });
 
-  function renderChatProfileManager() {
+  function getValidProfiles() {
+    const rawList = Array.isArray(window.state?.antigravity?.profiles) ? window.state.antigravity.profiles : [];
+    return rawList
+      .map(p => (typeof p === 'object' ? p.name : p))
+      .filter(name => Boolean(name) && String(name).trim().toLowerCase() !== 'default');
+  }
+
+  async function renderChatProfileManager() {
     const listContainer = document.getElementById('chat-popover-profile-list');
     const summaryLabel = document.getElementById('chat-profile-summary-label');
     const countBadge = document.getElementById('chat-popover-count');
     const liveDot = document.getElementById('chat-profile-live-dot');
     if (!listContainer) return;
 
-    const rawList = Array.isArray(window.state?.antigravity?.profiles) ? window.state.antigravity.profiles : [];
-    const normalized = rawList.map(p => (typeof p === 'object' ? p.name : p));
-    const active = window.state?.antigravity?.activeProfile || normalized[0] || 'Default';
+    if (!window.state?.antigravity?.profiles && typeof window.callBridge === 'function') {
+      try {
+        const init = await window.callBridge('get_initial_state');
+        if (init && init.antigravity) {
+          if (!window.state) window.state = {};
+          window.state.antigravity = init.antigravity;
+        }
+      } catch (e) {}
+    }
 
-    // Ensure at least one profile is targeted
-    if (selectedProfileTargets.size === 0) {
-      selectedProfileTargets.add(active);
+    const rawList = Array.isArray(window.state?.antigravity?.profiles) ? window.state.antigravity.profiles : [];
+    const validProfiles = getValidProfiles();
+
+    // Clean up selected targets: eliminate "Default" or names not in validProfiles
+    for (const t of Array.from(selectedProfileTargets)) {
+      if (!validProfiles.some(p => p.toLowerCase() === t.toLowerCase())) {
+        selectedProfileTargets.delete(t);
+      }
+    }
+
+    // Auto-select 1st available profile if none selected
+    if (selectedProfileTargets.size === 0 && validProfiles.length > 0) {
+      const activeCandidate = window.state?.antigravity?.activeProfile;
+      const matched = validProfiles.find(p => p.toLowerCase() === (activeCandidate || '').toLowerCase());
+      selectedProfileTargets.add(matched || validProfiles[0]);
     }
 
     listContainer.innerHTML = '';
     let runningCount = 0;
 
-    normalized.forEach(pName => {
-      const pObj = rawList.find(x => (typeof x === 'object' ? x.name : x).toLowerCase() === pName.toLowerCase());
-      const isRun = typeof pObj === 'object' && pObj.isRunning;
-      const port = typeof pObj === 'object' && pObj.port ? pObj.port : null;
-      if (isRun) runningCount++;
-
-      const isChecked = selectedProfileTargets.has(pName);
-
-      const row = document.createElement('div');
-      row.className = 'flex items-center justify-between p-2 rounded-lg bg-surface-deep border border-surface-border text-xs transition hover:border-surface-borderLight';
-      row.innerHTML = `
-        <label class="flex items-center space-x-2.5 cursor-pointer flex-1 min-w-0 pr-2 select-none">
-          <input type="checkbox" ${isChecked ? 'checked' : ''} class="rounded border-surface-border text-sky-600 focus:ring-0 cursor-pointer" data-profile="${escapeHtml(pName)}">
-          <div class="flex items-center space-x-1.5 truncate">
-            <span class="w-2 h-2 rounded-full ${isRun ? 'bg-emerald-500 animate-pulse' : 'bg-content-dim'} flex-shrink-0"></span>
-            <span class="font-mono font-medium ${isChecked ? 'text-content-main' : 'text-content-muted'} truncate">${escapeHtml(pName)}</span>
-          </div>
-        </label>
-        <div class="flex items-center space-x-2 flex-shrink-0">
-          <span class="text-[10px] font-mono px-1.5 py-0.5 rounded ${isRun ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-surface-card text-content-dim'}">
-            ${isRun ? (port ? `Port ${port}` : 'Online') : 'Offline'}
-          </span>
-          <button class="btn-profile-action text-[11px] px-2 py-0.5 rounded font-mono font-medium transition ${isRun ? 'bg-rose-500/15 text-rose-500 hover:bg-rose-500 hover:text-white' : 'bg-emerald-500/15 text-emerald-600 hover:bg-emerald-600 hover:text-white'}" data-profile="${escapeHtml(pName)}" data-action="${isRun ? 'stop' : 'start'}">
-            ${isRun ? 'Stop' : 'Start'}
-          </button>
+    if (validProfiles.length === 0) {
+      listContainer.innerHTML = `
+        <div class="py-4 text-center text-xs text-content-dim italic space-y-2">
+          <p>No profiles found.</p>
+          <button onclick="if (typeof switchView === 'function') switchView('profiles');" class="text-sky-500 hover:underline text-[11px] font-medium">Create profile &rarr;</button>
         </div>
       `;
+    } else {
+      validProfiles.forEach(pName => {
+        const pObj = rawList.find(x => (typeof x === 'object' ? x.name : x).toLowerCase() === pName.toLowerCase());
+        const isRun = typeof pObj === 'object' && pObj.isRunning;
+        const port = typeof pObj === 'object' && pObj.port ? pObj.port : null;
+        if (isRun) runningCount++;
 
-      // Checkbox listener
-      const cb = row.querySelector('input[type="checkbox"]');
-      cb?.addEventListener('change', (e) => {
-        if (e.target.checked) {
-          selectedProfileTargets.add(pName);
-        } else {
-          selectedProfileTargets.delete(pName);
-          if (selectedProfileTargets.size === 0) selectedProfileTargets.add(pName);
-        }
-        updateProfileSelectionUi();
+        const isChecked = selectedProfileTargets.has(pName);
+
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between p-2 rounded-lg bg-surface-deep border border-surface-border text-xs transition hover:border-surface-borderLight';
+        row.innerHTML = `
+          <label class="flex items-center space-x-2.5 cursor-pointer flex-1 min-w-0 pr-2 select-none">
+            <input type="checkbox" ${isChecked ? 'checked' : ''} class="rounded border-surface-border text-sky-600 focus:ring-0 cursor-pointer" data-profile="${escapeHtml(pName)}">
+            <div class="flex items-center space-x-1.5 truncate">
+              <span class="w-2 h-2 rounded-full ${isRun ? 'bg-emerald-500 animate-pulse' : 'bg-content-dim'} flex-shrink-0"></span>
+              <span class="font-mono font-medium ${isChecked ? 'text-content-main' : 'text-content-muted'} truncate">${escapeHtml(pName)}</span>
+            </div>
+          </label>
+          <div class="flex items-center space-x-2 flex-shrink-0">
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded ${isRun ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-surface-card text-content-dim'}">
+              ${isRun ? (port ? `Port ${port}` : 'Online') : 'Offline'}
+            </span>
+            <button class="btn-profile-action text-[11px] px-2 py-0.5 rounded font-mono font-medium transition ${isRun ? 'bg-rose-500/15 text-rose-500 hover:bg-rose-500 hover:text-white' : 'bg-emerald-500/15 text-emerald-600 hover:bg-emerald-600 hover:text-white'}" data-profile="${escapeHtml(pName)}" data-action="${isRun ? 'stop' : 'start'}">
+              ${isRun ? 'Stop' : 'Start'}
+            </button>
+          </div>
+        `;
+
+        // Checkbox listener
+        const cb = row.querySelector('input[type="checkbox"]');
+        cb?.addEventListener('change', (e) => {
+          if (e.target.checked) {
+            selectedProfileTargets.add(pName);
+          } else {
+            selectedProfileTargets.delete(pName);
+            if (selectedProfileTargets.size === 0 && validProfiles.length > 0) {
+              selectedProfileTargets.add(pName);
+              e.target.checked = true;
+            }
+          }
+          updateProfileSelectionUi();
+        });
+
+        // Start / Stop button listener
+        const actionBtn = row.querySelector('.btn-profile-action');
+        actionBtn?.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const action = actionBtn.dataset.action;
+          if (action === 'start') {
+            await startProfileFromChat(pName);
+          } else {
+            await stopProfileFromChat(pName);
+          }
+        });
+
+        listContainer.appendChild(row);
       });
+    }
 
-      // Start / Stop button listener
-      const actionBtn = row.querySelector('.btn-profile-action');
-      actionBtn?.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const action = actionBtn.dataset.action;
-        if (action === 'start') {
-          await startProfileFromChat(pName);
-        } else {
-          await stopProfileFromChat(pName);
-        }
-      });
-
-      listContainer.appendChild(row);
-    });
-
-    // Also populate sidebar agent-profile-selector if present
+    // Populate sidebar agent-profile-selector
     const sideSelector = document.getElementById('agent-profile-selector');
     if (sideSelector) {
       sideSelector.innerHTML = '';
-      normalized.forEach(pName => {
+      if (validProfiles.length === 0) {
         const opt = document.createElement('option');
-        opt.value = pName;
-        opt.textContent = `agy: ${pName}`;
-        if (pName.toLowerCase() === active.toLowerCase()) opt.selected = true;
+        opt.value = '';
+        opt.textContent = 'No Profile';
         sideSelector.appendChild(opt);
-      });
+      } else {
+        const firstTarget = Array.from(selectedProfileTargets)[0] || validProfiles[0];
+        validProfiles.forEach(pName => {
+          const opt = document.createElement('option');
+          opt.value = pName;
+          opt.textContent = `agy: ${pName}`;
+          if (pName.toLowerCase() === firstTarget.toLowerCase()) opt.selected = true;
+          sideSelector.appendChild(opt);
+        });
+      }
     }
 
     updateProfileSelectionUi();
@@ -319,7 +364,16 @@
   function updateProfileSelectionUi() {
     const summaryLabel = document.getElementById('chat-profile-summary-label');
     const countBadge = document.getElementById('chat-popover-count');
+    const liveDot = document.getElementById('chat-profile-live-dot');
+    const validProfiles = getValidProfiles();
     const count = selectedProfileTargets.size;
+
+    if (validProfiles.length === 0 || count === 0) {
+      if (summaryLabel) summaryLabel.textContent = 'Runner: No Profile';
+      if (countBadge) countBadge.textContent = 'No Profile';
+      if (liveDot) liveDot.className = 'w-2 h-2 rounded-full bg-content-dim';
+      return;
+    }
 
     if (countBadge) {
       countBadge.textContent = `${count} Selected`;
@@ -369,7 +423,67 @@
   }
   window.stopProfileFromChat = stopProfileFromChat;
 
-  // --- 5. Real Session History (Today / Yesterday / Older) ---
+  // --- 5. Real Session History (Today / Yesterday / Older) with Accordion & Deletion ---
+  const collapsedDayGroups = new Set(JSON.parse(localStorage.getItem('agents_hub_collapsed_days') || '[]'));
+
+  function toggleDayGroup(dayKey) {
+    const k = dayKey.toLowerCase();
+    if (collapsedDayGroups.has(k)) {
+      collapsedDayGroups.delete(k);
+    } else {
+      collapsedDayGroups.add(k);
+    }
+    try {
+      localStorage.setItem('agents_hub_collapsed_days', JSON.stringify(Array.from(collapsedDayGroups)));
+    } catch (e) {}
+    loadSessionHistory();
+  }
+  window.toggleDayGroup = toggleDayGroup;
+
+  function cleanSessionTitle(raw) {
+    if (!raw) return 'Agent Session';
+    let clean = String(raw)
+      .replace(/<\/?USER_REQUEST>/gi, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\r?\n/g, ' ')
+      .trim();
+    return clean || 'Agent Session';
+  }
+
+  async function deleteSessionItem(session) {
+    if (!session) return;
+
+    if (session.transcriptPath && typeof window.callBridge === 'function') {
+      try {
+        await window.callBridge('delete_agent_session', { transcriptPath: session.transcriptPath });
+      } catch (err) {
+        console.warn('Failed to delete session on bridge:', err);
+      }
+    }
+
+    try {
+      let local = JSON.parse(localStorage.getItem('agents_hub_local_sessions') || '[]');
+      local = local.filter(x => x.sessionId !== session.sessionId && (!session.transcriptPath || x.transcriptPath !== session.transcriptPath));
+      localStorage.setItem('agents_hub_local_sessions', JSON.stringify(local));
+    } catch (e) {}
+
+    if (currentActiveSessionId === session.sessionId) {
+      currentActiveSessionId = null;
+      localStorage.removeItem('agents_hub_active_session_id');
+      const msgContainer = document.getElementById('chat-messages-container');
+      if (msgContainer) msgContainer.innerHTML = '';
+      const titleEl = document.getElementById('chat-title-text');
+      if (titleEl) titleEl.textContent = 'Active Agent Session';
+    }
+
+    if (typeof window.showToast === 'function') {
+      window.showToast('Session deleted', 'info', 2000);
+    }
+
+    loadSessionHistory();
+  }
+  window.deleteSessionItem = deleteSessionItem;
+
   async function loadSessionHistory() {
     const listContainer = document.getElementById('session-history-list');
     if (!listContainer) return;
@@ -428,24 +542,54 @@
 
     const renderGroup = (title, items) => {
       if (items.length === 0) return;
+      const dayKey = title.toLowerCase();
+      const isCollapsed = collapsedDayGroups.has(dayKey);
+
       const groupEl = document.createElement('div');
       groupEl.className = 'space-y-1';
-      groupEl.innerHTML = `<span class="text-[10px] uppercase tracking-wider text-content-dim font-semibold px-2">${title}</span>`;
+
+      // Collapsible Header Button with Chevron & Item Count
+      const headerBtn = document.createElement('button');
+      headerBtn.type = 'button';
+      headerBtn.className = 'w-full flex items-center justify-between px-2 py-1.5 text-[10px] uppercase tracking-wider text-content-dim font-semibold hover:text-content-main rounded hover:bg-surface-card transition cursor-pointer select-none';
+      headerBtn.innerHTML = `
+        <span class="flex items-center space-x-1.5">
+          <i class="fa-solid ${isCollapsed ? 'fa-chevron-right' : 'fa-chevron-down'} text-[9px] text-content-dim transition-transform"></i>
+          <span>${escapeHtml(title)}</span>
+        </span>
+        <span class="font-mono text-[9px] px-1.5 py-0.2 rounded bg-surface-card border border-surface-border text-content-dim">${items.length}</span>
+      `;
+      headerBtn.onclick = () => toggleDayGroup(dayKey);
+      groupEl.appendChild(headerBtn);
 
       const subList = document.createElement('div');
-      subList.className = 'space-y-1';
+      subList.className = `space-y-1 ${isCollapsed ? 'hidden' : ''}`;
 
       items.forEach(s => {
         const isActive = s.sessionId === currentActiveSessionId;
-        const btn = document.createElement('button');
-        btn.className = `w-full text-left px-2.5 py-2 rounded-lg text-xs flex items-center space-x-2 transition ${isActive ? 'bg-surface-card border border-surface-border text-content-main shadow-sm' : 'hover:bg-surface-card text-content-muted hover:text-content-main'}`;
-        btn.innerHTML = `
+        const row = document.createElement('div');
+        row.className = `group w-full px-2.5 py-2 rounded-lg text-xs flex items-center space-x-2 transition cursor-pointer ${isActive ? 'bg-surface-card border border-surface-border text-content-main shadow-sm' : 'hover:bg-surface-card text-content-muted hover:text-content-main'}`;
+        
+        const displayTitle = cleanSessionTitle(s.goal || s.sessionId);
+
+        row.innerHTML = `
           <i class="fa-solid fa-bolt text-sky-500 text-xs flex-shrink-0"></i>
-          <span class="truncate flex-1 font-medium">${escapeHtml(s.goal || s.sessionId || 'Agent Session')}</span>
-          <span class="text-[10px] font-mono text-content-dim flex-shrink-0">${isActive ? 'active' : (s.stepCount ? `${s.stepCount} steps` : '')}</span>
+          <span class="truncate flex-1 font-medium select-none" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</span>
+          <span class="text-[10px] font-mono text-content-dim flex-shrink-0 group-hover:hidden">${isActive ? 'active' : (s.stepCount ? `${s.stepCount} steps` : '')}</span>
+          <button class="btn-del-session hidden group-hover:flex items-center justify-center w-5 h-5 rounded hover:bg-rose-500/15 text-content-dim hover:text-rose-500 transition flex-shrink-0" title="Delete Session">
+            <i class="fa-regular fa-trash-can text-[11px]"></i>
+          </button>
         `;
-        btn.onclick = () => loadSession(s);
-        subList.appendChild(btn);
+
+        row.onclick = () => loadSession(s);
+
+        const delBtn = row.querySelector('.btn-del-session');
+        delBtn?.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await deleteSessionItem(s);
+        });
+
+        subList.appendChild(row);
       });
 
       groupEl.appendChild(subList);
@@ -731,6 +875,14 @@
   });
 
   window.addEventListener('antigravity_instance_status_changed', () => {
+    renderChatProfileManager();
+  });
+
+  window.addEventListener('state_updated', () => {
+    renderChatProfileManager();
+  });
+
+  window.addEventListener('state_initialized', () => {
     renderChatProfileManager();
   });
 
