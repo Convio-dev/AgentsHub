@@ -1,148 +1,312 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" class="dark" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agents Hub</title>
+  <title>Agents Hub v2.0 - Agentic IDE & Desktop Control Plane</title>
   <link rel="icon" type="image/png" href="./app.png">
+
+  <!-- Tailwind CSS & Font Awesome Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Inter & JetBrains Mono Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              500: '#0284c7',
+              600: '#0369a1',
+            },
+            surface: {
+              deep: '#0B0F17',
+              sidebar: '#0F172A',
+              card: '#141420',
+              cardHover: '#1A1A2B',
+              border: '#1E293B',
+              borderLight: '#2C2C44',
+              input: '#12121C',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Core Stylesheets -->
   <link rel="stylesheet" href="./css/xterm.css">
   <link rel="stylesheet" href="./css/dashboard.css">
 </head>
-<body>
-  <div id="app-container">
-    <!-- Left Navigation Sidebar (Closeable / Collapsible) -->
-    <aside id="sidebar">
-      <div class="brand-section">
-        <div class="brand-title">
-          <svg class="icon-svg" style="width: 20px; height: 20px; color: var(--accent-green);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          <span class="brand-name-full" style="font-weight: 800;">AGENTS HUB</span>
-          <span class="brand-name-short" style="font-weight: 800;">AH</span>
-          <span class="brand-badge" id="brand-version"></span>
+<body class="bg-surface-deep text-slate-200 font-sans h-screen flex flex-col overflow-hidden select-none">
+
+  <!-- TOP DRAG / STATUS BAR (App Title Bar for Windows WebView2) -->
+  <header id="top-header" class="h-9 bg-surface-deep border-b border-surface-border flex items-center justify-between px-3 text-xs text-slate-400 z-30">
+    <div class="header-left-group flex items-center space-x-3">
+      <button id="btn-toggle-sidebar" class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white rounded hover:bg-surface-card transition" title="Toggle Secondary Sidebar">
+        <i class="fa-solid fa-bars text-xs"></i>
+      </button>
+
+      <div class="flex items-center space-x-2 font-semibold text-slate-200">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="tracking-wide">AGENTS HUB</span>
+        <span class="px-1.5 py-0.5 text-[10px] bg-sky-950/80 text-sky-400 border border-sky-800/60 rounded" id="brand-version">v2.0-rc</span>
+      </div>
+      <span class="text-slate-600">|</span>
+      <div class="flex items-center space-x-2">
+        <span class="text-slate-500">ConPTY:</span>
+        <span class="text-emerald-400 font-mono text-[11px] font-medium">Active</span>
+        <span class="text-slate-600">&bull;</span>
+        <div class="status-pill flex items-center gap-1.5" id="pill-hermes">
+          <span class="dot" id="dot-hermes"></span>
+          <span>Hermes: <b id="status-hermes" class="font-normal text-slate-300">Offline</b></span>
+        </div>
+        <div class="status-pill flex items-center gap-1.5" id="pill-antigravity">
+          <span class="dot" id="dot-antigravity"></span>
+          <span>Antigravity: <b id="status-antigravity" class="font-normal text-slate-300">Offline</b></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Telemetry & Action Shortcuts -->
+    <div class="header-metrics-group flex items-center space-x-3">
+      <div class="flex items-center space-x-2 font-mono text-[11px] text-slate-400">
+        <div class="metric-badge" id="metric-ram">RAM 0 MB</div>
+        <div class="metric-badge" id="metric-net">NET 0 KB/s</div>
+      </div>
+
+      <!-- Quake HUD Toggle -->
+      <button id="btn-toggle-hud" class="flex items-center space-x-1.5 px-2 py-1 rounded bg-surface-card border border-surface-border hover:border-sky-500/50 hover:text-sky-300 transition text-[11px]">
+        <i class="fa-solid fa-terminal text-[10px] text-sky-400"></i>
+        <span>HUD Console <kbd class="px-1 py-0.2 bg-black/40 rounded text-[9px] border border-slate-700">F12</kbd></span>
+      </button>
+
+      <!-- Toast History -->
+      <div class="toast-history-wrap relative">
+        <button class="btn-icon w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white" id="btn-toast-history" type="button" title="Notification history" aria-expanded="false">
+          <i class="fa-regular fa-bell text-xs"></i>
+          <span class="toast-history-badge absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-sky-500 text-[9px] text-white flex items-center justify-center" id="toast-history-count" style="display: none;">0</span>
+        </button>
+        <div class="toast-history-panel" id="toast-history-panel" style="display: none;">
+          <div class="toast-history-head flex items-center justify-between p-2 border-b border-surface-border">
+            <span class="text-xs font-semibold">Notifications</span>
+            <button class="btn btn-outline text-[10px] px-2 py-0.5" id="btn-clear-toast-history" type="button">Clear</button>
+          </div>
+          <div class="toast-history-list max-h-60 overflow-y-auto" id="toast-history-list"></div>
         </div>
       </div>
 
-      <nav class="sidebar-nav">
-        <div class="nav-item active" data-view="dashboard" title="Dashboard & Engine">
-          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
-          <span class="nav-text">Dashboard & Engine</span>
-        </div>
-        <div class="nav-item" data-view="terminals" title="Interactive Terminals">
-          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span>
-          <span class="nav-text">Interactive Terminals</span>
-        </div>
-        <div class="nav-item" data-view="prompt-enhancer" title="Prompt Enhancer">
-          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></svg></span>
-          <span class="nav-text">Prompt Enhancer</span>
-        </div>
-        <div class="nav-item" data-view="profiles" title="Antigravity Profiles">
-          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
-          <span class="nav-text">Antigravity Profiles</span>
-        </div>
-        <div class="nav-item" data-view="devtools" title="AI Dev Tools">
-          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-          <span class="nav-text">AI Dev Tools</span>
-        </div>
-        <div class="nav-item" data-view="lan" title="LAN Remote & QR">
-          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
-          <span class="nav-text">LAN Remote & QR</span>
-        </div>
-        <div class="nav-item" data-view="repositories" title="Repositories & Git">
-          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg></span>
-          <span class="nav-text">Repositories &amp; Git</span>
-        </div>
-        <div class="nav-item" id="nav-item-architecture" data-view="architecture" title="Architecture & Blast Radius" style="display: none;">
-          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></span>
-          <span class="nav-text">Architecture &amp; Blast Radius</span>
-        </div>
-        <div class="nav-item" data-view="settings" title="Settings & About">
-          <span class="nav-icon"><svg class="icon-svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
-          <span class="nav-text">Settings & About</span>
-        </div>
-      </nav>
-      <script>
-        try {
-          const v = localStorage.getItem('agents_hub_active_view');
-          if (v && v !== 'dashboard') {
-            document.querySelectorAll('.nav-item').forEach(i => i.classList.toggle('active', i.dataset.view === v));
-          }
-        } catch (e) {}
-      </script>
+      <!-- Refresh State -->
+      <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-surface-card rounded transition" id="btn-refresh-state" title="Refresh State">
+        <i class="fa-solid fa-arrows-rotate text-xs"></i>
+      </button>
 
-      <div class="sidebar-footer">
-        <button id="btn-toggle-all-clis" class="btn-sidebar-primary" title="Toggle all background CLIs">
-          <svg class="icon-svg" style="width: 15px; height: 15px;" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          <span id="lbl-toggle-all">Start All CLIs</span>
+      <!-- Windows Native Controls Emulation -->
+      <div class="flex items-center space-x-1 pl-2 border-l border-surface-border">
+        <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-surface-card rounded"><i class="fa-solid fa-minus text-[9px]"></i></button>
+        <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-surface-card rounded"><i class="fa-regular fa-square text-[9px]"></i></button>
+        <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded"><i class="fa-solid fa-xmark text-[11px]"></i></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- QUAKE-STYLE SLIDING DROP-DOWN HUD TERMINAL (OVERLAY) -->
+  <div id="quake-hud" class="absolute top-9 left-0 w-full h-[65vh] bg-surface-deep/95 backdrop-blur-xl border-b-2 border-sky-500/80 shadow-2xl z-50 flex flex-col pointer-events-none">
+    <div class="h-8 bg-surface-sidebar border-b border-surface-border flex items-center justify-between px-4 text-xs">
+      <div class="flex items-center space-x-3">
+        <i class="fa-solid fa-terminal text-sky-400"></i>
+        <span class="font-mono font-semibold text-slate-200">Native Windows ConPTY Console Stream</span>
+        <span class="text-slate-500">|</span>
+        <span class="text-slate-400 font-mono text-[11px]">Supervisor Worker Attached</span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button onclick="clearHudTerminal()" class="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded text-[11px] bg-surface-card border border-surface-border">Clear Buffer</button>
+        <button onclick="toggleHud(false)" class="text-slate-400 hover:text-white text-sm px-1.5"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    <div id="hud-terminal-content" class="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1 text-slate-300 bg-black/60">
+      <p class="text-slate-500">// Agents Hub Native Terminal Stream attached to ConPTY [net10.0-windows]</p>
+      <p class="text-sky-400">[Antigravity Engine] Profile ZXR@1 running in VirtualHome isolated sandbox</p>
+      <p class="text-emerald-400">[Gateway Proxy] 127.0.0.1:9230 routing Anthropic v1 Messages to Local Model Engine</p>
+      <p class="text-slate-400">[System] Shell listener initialized. Ready for silent tool execution requests...</p>
+    </div>
+  </div>
+
+  <!-- WORKSPACE BODY (Dual-Sidebar Shell) -->
+  <div id="app-container" class="flex-1 flex overflow-hidden relative">
+
+    <!-- 1. LEFT-MOST ICON RAIL (Ultra-compact 56px) -->
+    <nav id="primary-rail" class="w-14 bg-surface-sidebar border-r border-surface-border flex flex-col items-center py-3 justify-between z-20 flex-shrink-0">
+      <div class="rail-top-group flex flex-col items-center space-y-3">
+        <!-- Logo Icon -->
+        <div class="rail-logo-badge w-9 h-9 rounded-lg bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center text-white shadow-lg shadow-sky-500/20 cursor-pointer mb-1" onclick="if (typeof switchView === 'function') switchView('chat');" title="Agents Hub v2.0">
+          <i class="fa-solid fa-bolt text-sm"></i>
+        </div>
+
+        <!-- Primary View Switchers -->
+        <div class="rail-nav flex flex-col items-center space-y-2">
+          <button class="rail-item active w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="chat" title="AI Agent Workspace (Chat IDE)">
+            <i class="fa-solid fa-comments text-base"></i>
+          </button>
+
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="dashboard" title="Dashboard &amp; Running Ports">
+            <i class="fa-solid fa-gauge-high text-base"></i>
+          </button>
+
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="terminals" title="Interactive Terminals (ConPTY)">
+            <i class="fa-solid fa-terminal text-base"></i>
+          </button>
+
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition relative" data-view="repositories" title="Visual Git &amp; Repositories">
+            <i class="fa-solid fa-code-branch text-base"></i>
+            <span class="rail-item-badge"></span>
+          </button>
+
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="profiles" title="Antigravity Multi-Account Profiles">
+            <i class="fa-solid fa-users-gear text-base"></i>
+          </button>
+
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="mcp" title="Model Context Protocol (MCP) &amp; Skills">
+            <i class="fa-solid fa-cubes-stacked text-base"></i>
+          </button>
+
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="devtools" title="AI Dev Tools &amp; Runtimes">
+            <i class="fa-solid fa-wrench text-base"></i>
+          </button>
+
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="lan" title="LAN Remote &amp; Broadcast">
+            <i class="fa-solid fa-wifi text-base"></i>
+          </button>
+
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="settings" title="Settings &amp; Telemetry">
+            <i class="fa-solid fa-sliders text-base"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Bottom Profile Avatar Indicator -->
+      <div class="rail-bottom-group flex flex-col items-center space-y-3">
+        <button id="btn-rail-profile" onclick="if (typeof switchView === 'function') switchView('profiles');" title="Current Active Profile: ZXR@1" class="rail-profile-btn relative group">
+          <span>Z1</span>
+          <span class="rail-profile-status"></span>
         </button>
+      </div>
+    </nav>
+
+    <!-- 2. SECONDARY COLLAPSIBLE SIDEBAR: SESSIONS & WORKSPACES (260px) -->
+    <aside id="conversations-sidebar" class="w-64 bg-surface-sidebar border-r border-surface-border flex flex-col flex-shrink-0 transition-all duration-200">
+      
+      <!-- Workspace Directory Selector -->
+      <div class="p-3 border-b border-surface-border">
+        <label class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block mb-1.5">Project Workspace</label>
+        <div class="relative">
+          <select id="select-project-workspace" onchange="if (typeof onWorkspaceChange === 'function') onWorkspaceChange(this.value);" class="w-full bg-surface-card border border-surface-border text-xs text-slate-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500 cursor-pointer appearance-none pr-8 font-mono">
+            <option value="AgentsHub.v2" selected>AgentsHub.v2 (active)</option>
+            <option value="ainzara">ainzara (C:\...\ainzara)</option>
+            <option value="ChessSenseV2">ChessSenseV2</option>
+          </select>
+          <i class="fa-solid fa-chevron-down absolute right-2.5 top-2.5 text-[10px] text-slate-400 pointer-events-none"></i>
+        </div>
+
+        <!-- '+ New Agent Session' Button -->
+        <button id="btn-new-session" onclick="if (typeof createNewSession === 'function') createNewSession();" class="mt-2.5 w-full bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs py-1.5 px-3 rounded flex items-center justify-center space-x-2 transition shadow-sm">
+          <i class="fa-solid fa-plus text-xs"></i>
+          <span>New Agent Session</span>
+        </button>
+      </div>
+
+      <!-- Active Runner / Profile Selector Pill -->
+      <div class="px-3 py-2 bg-surface-deep/60 border-b border-surface-border flex items-center justify-between text-xs">
+        <span class="text-slate-400 text-[11px]">Runner:</span>
+        <div class="flex items-center space-x-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <select id="agent-profile-selector" onchange="if (typeof switchAgentProfile === 'function') switchAgentProfile(this.value);" class="bg-transparent text-slate-300 font-mono text-[11px] focus:outline-none cursor-pointer">
+            <option value="ZXR@1">agy: ZXR@1 (Port 9339)</option>
+            <option value="ZXR@2">agy: ZXR@2 (Port 9340)</option>
+            <option value="ZXR@3">agy: ZXR@3 (Port 9341)</option>
+            <option value="ClaudeCode">Claude Code Gateway</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Conversations & Work History List -->
+      <div class="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+        <div>
+          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-2">Today</span>
+          <div class="mt-1 space-y-1" id="session-history-list">
+            <button onclick="if (typeof loadSession === 'function') loadSession('UI/UX Overhaul for AgentsHub v2.0');" class="w-full text-left px-2.5 py-2 rounded-lg bg-surface-card border border-surface-borderLight text-xs text-slate-200 flex items-center space-x-2 group">
+              <i class="fa-solid fa-bolt text-sky-400 text-xs"></i>
+              <span class="truncate flex-1 font-medium">UI/UX Overhaul v2.0</span>
+              <span class="text-[10px] font-mono text-slate-400">active</span>
+            </button>
+            <button onclick="if (typeof loadSession === 'function') loadSession('Git Manager Multi-Branch Sync');" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-2 transition">
+              <i class="fa-solid fa-code-branch text-slate-500 text-xs"></i>
+              <span class="truncate flex-1">Git Multi-Branch Sync</span>
+              <span class="text-[10px] font-mono text-slate-400">1h</span>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-2">Yesterday</span>
+          <div class="mt-1 space-y-1">
+            <button onclick="if (typeof loadSession === 'function') loadSession('ConPTY Stream Terminal Buffer');" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-2 transition">
+              <i class="fa-solid fa-terminal text-slate-500 text-xs"></i>
+              <span class="truncate flex-1">ConPTY Stream Buffer</span>
+              <span class="text-[10px] font-mono text-slate-400">1d</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Active Repo Files Tree Shortcut -->
+        <div class="pt-2 border-t border-surface-border">
+          <div class="flex items-center justify-between px-2 mb-1">
+            <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Workspace Files</span>
+            <span class="text-[10px] text-slate-400 font-mono">v2redesign</span>
+          </div>
+          <div class="space-y-0.5 text-xs text-slate-400 px-2 font-mono" id="repo-file-tree">
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-folder text-amber-400"></i><span>ui/views/</span></div>
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-sky-400"></i><span>chat.html</span></div>
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-emerald-400"></i><span>repositories.html</span></div>
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-sky-400"></i><span>mcp.html</span></div>
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-folder text-amber-400"></i><span>Services/</span></div>
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file text-slate-400"></i><span>DashboardWebBridge.cs</span></div>
+          </div>
+        </div>
       </div>
     </aside>
 
-    <!-- Main Workspace Area -->
-    <main id="main-area">
-      <!-- Top Live Header -->
-      <header id="top-header">
-        <div class="header-left-group">
-          <button id="btn-toggle-sidebar" class="btn-icon" title="Toggle Sidebar">
-            <svg class="icon-svg" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
-          </button>
-          <div class="header-status-group">
-            <div class="status-pill" id="pill-hermes">
-              <span class="dot" id="dot-hermes"></span>
-              <span>Hermes: <b id="status-hermes">Offline</b></span>
-            </div>
-            <div class="status-pill" id="pill-claude">
-              <span class="dot" id="dot-claude"></span>
-              <span>Claude Code: <b id="status-claude">Offline</b></span>
-            </div>
-            <div class="status-pill" id="pill-antigravity">
-              <span class="dot" id="dot-antigravity"></span>
-              <span>Antigravity: <b id="status-antigravity">Offline</b></span>
-            </div>
-          </div>
-        </div>
-
-        <div class="header-metrics-group">
-          <div class="metric-badge" id="metric-net">NET 0 KB/s</div>
-          <div class="metric-badge" id="metric-ram">RAM 0 MB</div>
-          <div class="toast-history-wrap">
-            <button class="btn-icon" id="btn-toast-history" type="button" title="Notification history" aria-expanded="false">
-              <svg class="icon-svg" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-              <span class="toast-history-badge" id="toast-history-count" style="display: none;">0</span>
-            </button>
-            <div class="toast-history-panel" id="toast-history-panel">
-              <div class="toast-history-head">
-                <span>Notifications</span>
-                <button class="btn btn-outline" id="btn-clear-toast-history" type="button" style="padding: 2px 9px; font-size: 11px;">Clear</button>
-              </div>
-              <div class="toast-history-list" id="toast-history-list"></div>
-            </div>
-          </div>
-          <button class="btn-icon" id="btn-open-standalone-hdr" title="Open Standalone Terminals Window">
-            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          </button>
-          <button class="btn-icon" id="btn-refresh-state" title="Refresh state">
-            <svg class="icon-svg" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-          </button>
-        </div>
-      </header>
-
-      <!-- Views Container -->
-      <section id="content-container">
-
-        <!-- Views Container (Loaded via Modular Partials) -->
+    <!-- 3. MAIN WORKSPACE CONTENT CONTAINER -->
+    <main id="main-area" class="flex-1 flex flex-col bg-surface-deep overflow-hidden relative min-w-0">
+      <section id="content-container" class="flex-1 min-w-0 overflow-y-auto relative">
         <div id="views-container">
+          <div data-include="views/chat.html"></div>
           <div data-include="views/dashboard.html"></div>
           <div data-include="views/terminals.html"></div>
-          <div data-include="views/prompt.html"></div>
+          <div data-include="views/repositories.html"></div>
           <div data-include="views/profiles.html"></div>
+          <div data-include="views/mcp.html"></div>
           <div data-include="views/devtools.html"></div>
           <div data-include="views/lan.html"></div>
-          <div data-include="views/repositories.html"></div>
           <div data-include="views/architecture.html"></div>
+          <div data-include="views/prompt.html"></div>
           <div data-include="views/settings.html"></div>
         </div>
-      </section> <!-- /#content-container -->
-    </main> <!-- /#main-area -->
-  </div> <!-- /#app-container -->
+      </section>
+    </main>
+
+  </div>
 
   <!-- Modals Container (Loaded via Modular Partials) -->
   <div id="modals-container">
@@ -194,13 +358,11 @@
 
       // Immediately activate saved view pane to prevent visual flash
       try {
-        const savedView = localStorage.getItem('agents_hub_active_view');
-        if (savedView && savedView !== 'dashboard') {
-          const targetPane = document.getElementById('view-' + savedView);
-          if (targetPane) {
-            document.querySelectorAll('.view-pane').forEach(p => p.classList.remove('active'));
-            targetPane.classList.add('active');
-          }
+        const savedView = localStorage.getItem('agents_hub_active_view') || 'chat';
+        const targetPane = document.getElementById('view-' + savedView);
+        if (targetPane) {
+          document.querySelectorAll('.view-pane').forEach(p => p.classList.remove('active'));
+          targetPane.classList.add('active');
         }
       } catch (e) {}
     })();
@@ -209,9 +371,7 @@
   <!-- Modern Toast Container -->
   <div id="toast-container"></div>
 
-  <!-- Scripts -->
-
-  <!-- Command palette: Ctrl+K -->
+  <!-- Command Palette: Ctrl+K -->
   <div class="cp-overlay" id="cp-overlay" role="dialog" aria-modal="true" aria-label="Command palette" style="display: none;">
     <div class="cp-panel">
       <div class="cp-input-wrap">
@@ -221,12 +381,13 @@
       </div>
       <div class="cp-list" id="cp-list" role="listbox"></div>
       <div class="cp-foot">
-        <span><kbd class="cp-kbd">↑</kbd> <kbd class="cp-kbd">↓</kbd> to move</span>
+        <span><kbd class="cp-kbd">&uarr;</kbd> <kbd class="cp-kbd">&darr;</kbd> to move</span>
         <span><kbd class="cp-kbd">enter</kbd> to run</span>
         <span><kbd class="cp-kbd">ctrl</kbd> <kbd class="cp-kbd">K</kbd> to close</span>
       </div>
     </div>
   </div>
+
   <!-- Vendor Scripts -->
   <script src="./js/xterm.js"></script>
   <script src="./js/xterm-addon-fit.js"></script>
@@ -274,6 +435,7 @@
   <script src="./js/modules/architecture-view.js"></script>
   <script src="./js/modules/settings-view.js"></script>
   <script src="./js/modules/onboarding-guide.js"></script>
+  <script src="./js/modules/agent-chat-ide.js"></script>
   <script src="./js/settings.js"></script>
 
   <!-- Main Orchestrator -->

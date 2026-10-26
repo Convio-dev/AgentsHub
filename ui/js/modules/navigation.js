@@ -1,23 +1,25 @@
   function setupNavigation() {
-    const navItems = document.querySelectorAll('.nav-item');
+    const navItems = document.querySelectorAll('.nav-item, .rail-item');
     navItems.forEach(item => {
       item.addEventListener('click', () => {
         const targetView = item.dataset.view;
-        switchView(targetView);
+        if (targetView) switchView(targetView);
       });
     });
 
-    // Closeable / Collapsible Sidebar
+    // Closeable / Collapsible Secondary Sidebar
     const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
-    const sidebar = document.getElementById('sidebar');
+    const sidebar = document.getElementById('conversations-sidebar') || document.getElementById('sidebar');
     
     // Restore sidebar preference
     const savedCollapsed = localStorage.getItem('agents_hub_sidebar_collapsed') === 'true';
-    if (savedCollapsed) sidebar.classList.add('collapsed');
+    if (savedCollapsed && sidebar) sidebar.classList.add('collapsed');
 
     btnToggleSidebar?.addEventListener('click', () => {
-      sidebar.classList.toggle('collapsed');
-      localStorage.setItem('agents_hub_sidebar_collapsed', sidebar.classList.contains('collapsed'));
+      if (sidebar) {
+        sidebar.classList.toggle('collapsed');
+        localStorage.setItem('agents_hub_sidebar_collapsed', sidebar.classList.contains('collapsed'));
+      }
       if (state.activeView === 'terminals') {
         setTimeout(() => fitTerminalSession(terminalSessions[normalizeCliKey(state.activeTerminalCli)]), 220);
       }
@@ -28,12 +30,10 @@
       window.updateArchitectureGraphNavVisibility?.();
     } catch (e) {}
 
-    // Restore active view (persists across Ctrl+R / F5 / page reloads)
+    // Restore active view (defaults to 'chat' for v2.0 IDE)
     try {
-      const savedView = localStorage.getItem('agents_hub_active_view');
-      if (savedView) {
-        switchView(savedView);
-      }
+      const savedView = localStorage.getItem('agents_hub_active_view') || 'chat';
+      switchView(savedView);
     } catch (e) {
       console.warn('Failed to restore active view:', e);
     }
@@ -54,8 +54,8 @@
     }
 
     const targetPane = document.getElementById(`view-${viewName}`);
-    if (!targetPane && viewName !== 'dashboard') {
-      viewName = 'dashboard';
+    if (!targetPane && viewName !== 'chat' && viewName !== 'dashboard') {
+      viewName = 'chat';
     }
 
     state.activeView = viewName;
@@ -63,7 +63,7 @@
       localStorage.setItem('agents_hub_active_view', viewName);
     } catch (e) {}
 
-    document.querySelectorAll('.nav-item').forEach(i => {
+    document.querySelectorAll('.nav-item, .rail-item').forEach(i => {
       i.classList.toggle('active', i.dataset.view === viewName);
     });
     document.querySelectorAll('.view-pane').forEach(p => {
@@ -96,6 +96,12 @@
       if (typeof window.renderWorkspacesDropdown === 'function') window.renderWorkspacesDropdown(state.workspaces, state.activeWorkspaceId);
       if (typeof window.renderProfiles === 'function') window.renderProfiles();
       if (typeof window.updateProfileEmailUi === 'function') window.updateProfileEmailUi();
+    }
+
+    if (viewName === 'mcp') {
+      if (typeof window.loadMcpAndSkills === 'function') {
+        window.loadMcpAndSkills();
+      }
     }
 
     // The firewall probe runs in the background, so the LAN page renders its focal state
