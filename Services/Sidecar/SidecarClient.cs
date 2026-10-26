@@ -1,4 +1,5 @@
 #nullable enable
+using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -18,8 +19,12 @@ public class SidecarClient : IDisposable
     private readonly System.Threading.Timer _heartbeatTimer;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private bool _isDisposed;
+    private long _lastPingTimestamp;
 
     public bool IsConnected => _ws != null && _ws.State == WebSocketState.Open;
+    public int LastPingLatencyMs { get; private set; } = -1;
+    public int ActiveSessionsCount { get; private set; } = 0;
+    public int SidecarPid { get; private set; } = 0;
 
     public event Action<AgentStateEvent>? OnStateChanged;
     public event Action<StreamDeltaEvent>? OnStreamDelta;
@@ -31,6 +36,8 @@ public class SidecarClient : IDisposable
     public event Action<TaskCompletedEvent>? OnTaskCompleted;
     public event Action<TerminalDataEvent>? OnTerminalData;
     public event Action<SidecarErrorEvent>? OnError;
+    public event Action<PongEvent, int>? OnPongReceived;
+    public event Action<SidecarStatusEvent>? OnSidecarStatus;
     public event Action<BaseSidecarEvent>? OnEventReceived;
     public event Action<bool>? OnStatusChanged;
     public event Action? OnDisconnected;
@@ -132,6 +139,7 @@ public class SidecarClient : IDisposable
         if (!IsConnected) return;
         try
         {
+            _lastPingTimestamp = Stopwatch.GetTimestamp();
             await SendAsync(new PingRequest());
         }
         catch {}
@@ -275,6 +283,32 @@ public class SidecarClient : IDisposable
                     {
                         OnError?.Invoke(errEv);
                         OnEventReceived?.Invoke(errEv);
+                    }
+                    break;
+
+                case "pong":
+                    var pongEv = JsonSerializer.Deserialize<PongEvent>(json);
+                    if (pongEv != null)
+                    {
+                        int latency = _lastPingTimestamp > 0
+                            ? (int)Stopwatch.GetElapsedTime(_lastPingTimestamp).TotalMilliseconds
+                            : 1;
+                        LastPingLatencyMs = latency;
+                        ActiveSessionsCount = pongEv.ActiveSessionsCount;
+                        SidecarPid = pongEv.Pid;
+                        OnPongReceived?.Invoke(pongEv, latency);
+                        OnEventReceived?.Invoke(pongEv);
+                    }
+                    break;
+
+                case "sidecar_status":
+                    var statusEv = JsonSerializer.Deserialize<SidecarStatusEvent>(json);
+                    if (statusEv != null)
+                    {
+                        ActiveSessionsCount = statusEv.ActiveSessionsCount;
+                        SidecarPid = statusEv.Pid;
+                        OnSidecarStatus?.Invoke(statusEv);
+                        OnEventReceived?.Invoke(statusEv);
                     }
                     break;
             }

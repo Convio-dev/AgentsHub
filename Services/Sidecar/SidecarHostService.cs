@@ -34,6 +34,21 @@ public sealed class SidecarHostService : IDisposable
     public string StatusText { get; private set; } = "Offline";
     public bool IsOnline => _client.IsConnected;
     public int BoundPort => _manager.Port;
+    public int ProcessId => _manager.ProcessId;
+    public int LatencyMs => _client.LastPingLatencyMs;
+    public int ActiveSessionsCount => _client.ActiveSessionsCount;
+    public string Version => "v2.0.0";
+
+    public object GetStatusDto() => new
+    {
+        status = StatusText,
+        port = _manager.Port,
+        isOnline = IsOnline,
+        pid = _manager.ProcessId,
+        latencyMs = _client.LastPingLatencyMs >= 0 ? _client.LastPingLatencyMs : 1,
+        activeSessions = _client.ActiveSessionsCount,
+        version = Version
+    };
 
     private SidecarHostService()
     {
@@ -45,12 +60,15 @@ public sealed class SidecarHostService : IDisposable
         _client.OnStatusChanged += (connected) =>
         {
             StatusText = connected ? "Online" : "Connecting";
-            EventDispatched?.Invoke("sidecar_status_changed", new
-            {
-                status = StatusText,
-                port = _manager.Port,
-                isOnline = connected
-            });
+            EventDispatched?.Invoke("sidecar_status_changed", GetStatusDto());
+        };
+        _client.OnPongReceived += (_, _) =>
+        {
+            EventDispatched?.Invoke("sidecar_status_changed", GetStatusDto());
+        };
+        _client.OnSidecarStatus += (_) =>
+        {
+            EventDispatched?.Invoke("sidecar_status_changed", GetStatusDto());
         };
     }
 

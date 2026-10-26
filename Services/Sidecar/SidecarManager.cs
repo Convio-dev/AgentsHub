@@ -75,6 +75,60 @@ public class SidecarManager : IDisposable
     }
 
     /// <summary>
+    /// Checks if a loopback port is available for binding using a socket listener check.
+    /// </summary>
+    public static bool IsPortAvailable(int port)
+    {
+        try
+        {
+            using var tcp = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+            tcp.Start();
+            tcp.Stop();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Verifies if the preferred default port is available. If occupied by another program or zombie process,
+    /// dynamically scans for the next free loopback port or binds port 0 to let OS assign an unused ephemeral port.
+    /// </summary>
+    public static int GetAvailablePort(int preferredPort = 48921)
+    {
+        if (IsPortAvailable(preferredPort))
+        {
+            return preferredPort;
+        }
+
+        // Scan next 100 ports sequentially
+        for (int p = preferredPort + 1; p <= preferredPort + 100; p++)
+        {
+            if (IsPortAvailable(p))
+            {
+                return p;
+            }
+        }
+
+        // Ephemeral port assignment fallback
+        try
+        {
+            using var socket = new System.Net.Sockets.Socket(
+                System.Net.Sockets.AddressFamily.InterNetwork,
+                System.Net.Sockets.SocketType.Stream,
+                System.Net.Sockets.ProtocolType.Tcp);
+            socket.Bind(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+            return ((System.Net.IPEndPoint)socket.LocalEndPoint!).Port;
+        }
+        catch
+        {
+            return 0; // Handshake stdout discovery
+        }
+    }
+
+    /// <summary>
     /// Starts the sidecar process and waits asynchronously until the readiness handshake is received
     /// </summary>
     public async Task<int> StartAsync(CancellationToken ct = default)
@@ -94,6 +148,10 @@ public class SidecarManager : IDisposable
 
         SidecarProcessWatchdog.EnsureExecutablePermission(binaryPath);
 
+        // Intelligently resolve free port before spawning process
+        int targetPort = GetAvailablePort(48921);
+        _port = targetPort;
+
         // Generate cryptographic token
         byte[] tokenBytes = new byte[32];
         RandomNumberGenerator.Fill(tokenBytes);
@@ -104,7 +162,7 @@ public class SidecarManager : IDisposable
         var startInfo = new ProcessStartInfo
         {
             FileName = binaryPath,
-            Arguments = $"--port=0 --token={_authToken} --headless",
+            Arguments = $"--port {targetPort} --token {_authToken} --headless",
             WorkingDirectory = Path.GetDirectoryName(binaryPath) ?? AppContext.BaseDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -113,6 +171,7 @@ public class SidecarManager : IDisposable
             CreateNoWindow = true
         };
 
+        startInfo.Environment["AGENTS_SIDECAR_PORT"] = targetPort.ToString();
         startInfo.Environment["AGENTS_SIDECAR_TOKEN"] = _authToken;
 
         var proc = new Process { StartInfo = startInfo, EnableRaisingEvents = true };

@@ -36,6 +36,10 @@ export interface PingRequest extends BaseInboundRequest {
   action: 'ping';
 }
 
+export interface GetStatusRequest extends BaseInboundRequest {
+  action: 'get_status';
+}
+
 export interface StartTaskRequest extends BaseInboundRequest {
   action: 'start_task';
   taskId: string;
@@ -107,6 +111,7 @@ export interface SendChatRequest extends BaseInboundRequest {
 export type InboundMessage =
   | AuthRequest
   | PingRequest
+  | GetStatusRequest
   | StartTaskRequest
   | AbortTaskRequest
   | ExecuteToolRequest
@@ -132,7 +137,22 @@ export interface ServerReadyEvent {
 
 export interface PongEvent {
   event: 'pong';
-  replyTo: string;
+  replyTo?: string;
+  pid: number;
+  activeSessionsCount: number;
+  port?: number;
+  uptimeSec?: number;
+  timestamp: string;
+}
+
+export interface SidecarStatusEvent {
+  event: 'sidecar_status';
+  status: string;
+  port: number;
+  pid: number;
+  activeSessionsCount: number;
+  uptimeSec: number;
+  version: string;
   timestamp: string;
 }
 
@@ -238,6 +258,7 @@ export interface ErrorEvent {
 export type OutboundEvent =
   | ServerReadyEvent
   | PongEvent
+  | SidecarStatusEvent
   | AgentStateEvent
   | StreamDeltaEvent
   | ChatTokenEvent

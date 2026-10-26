@@ -238,6 +238,45 @@ public class ServerReadyEvent : BaseSidecarEvent
     public string Version { get; set; } = string.Empty;
 }
 
+public class PongEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("replyTo")]
+    public string? ReplyTo { get; set; }
+
+    [JsonPropertyName("pid")]
+    public int Pid { get; set; }
+
+    [JsonPropertyName("activeSessionsCount")]
+    public int ActiveSessionsCount { get; set; }
+
+    [JsonPropertyName("port")]
+    public int? Port { get; set; }
+
+    [JsonPropertyName("uptimeSec")]
+    public int? UptimeSec { get; set; }
+}
+
+public class SidecarStatusEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = "online";
+
+    [JsonPropertyName("port")]
+    public int Port { get; set; }
+
+    [JsonPropertyName("pid")]
+    public int Pid { get; set; }
+
+    [JsonPropertyName("activeSessionsCount")]
+    public int ActiveSessionsCount { get; set; }
+
+    [JsonPropertyName("uptimeSec")]
+    public int UptimeSec { get; set; }
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = "2.0.0";
+}
+
 public class AgentStateEvent : BaseSidecarEvent
 {
     [JsonPropertyName("taskId")]

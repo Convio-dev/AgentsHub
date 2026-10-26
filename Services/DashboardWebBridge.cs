@@ -583,12 +583,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
             case "get_sidecar_status":
                 {
-                    SendResponse(requestId, true, new
-                    {
-                        status = Sidecar.SidecarHostService.Instance.StatusText,
-                        port = Sidecar.SidecarHostService.Instance.BoundPort,
-                        isOnline = Sidecar.SidecarHostService.Instance.IsOnline
-                    });
+                    SendResponse(requestId, true, Sidecar.SidecarHostService.Instance.GetStatusDto());
                 }
                 break;
 

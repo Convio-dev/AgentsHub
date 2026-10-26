@@ -15,9 +15,15 @@ function parseArgs(): { port: number; token: string; headless: boolean } {
   let token = '';
   let headless = false;
 
-  for (const arg of process.argv.slice(2)) {
-    if (arg.startsWith('--port=')) {
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--port' && i + 1 < args.length) {
+      port = parseInt(args[++i], 10);
+    } else if (arg.startsWith('--port=')) {
       port = parseInt(arg.split('=')[1], 10);
+    } else if (arg === '--token' && i + 1 < args.length) {
+      token = args[++i];
     } else if (arg.startsWith('--token=')) {
       token = arg.split('=')[1];
     } else if (arg === '--headless') {
@@ -42,6 +48,7 @@ async function main() {
   const ptyRunner = new PtyRunner();
 
   let transport: SidecarTransport;
+  let boundPort = 0;
 
   const handleOutbound = (event: OutboundEvent) => {
     transport?.broadcast(event);
@@ -49,7 +56,7 @@ async function main() {
 
   const taskQueue = new TaskQueue(4, handleOutbound);
   const sessionManager = new SessionManager(taskQueue, handleOutbound);
-  const router = new MessageRouter(taskQueue, ptyRunner, sessionManager, handleOutbound);
+  const router = new MessageRouter(taskQueue, ptyRunner, sessionManager, handleOutbound, () => boundPort);
 
   transport = new SidecarTransport({
     port,
@@ -63,7 +70,7 @@ async function main() {
     }
   });
 
-  const boundPort = transport.start();
+  boundPort = transport.start();
 
   // Emits machine-readable handshake for parent process (C# .NET)
   const handshake = `[AGENTS_ENGINE_READY] port=${boundPort} pid=${process.pid} token=${token} platform=${process.platform}`;

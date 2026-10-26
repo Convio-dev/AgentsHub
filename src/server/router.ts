@@ -15,17 +15,20 @@ export class MessageRouter {
   private pty: PtyRunner;
   private sessionManager: SessionManager;
   private emit: (event: OutboundEvent) => void;
+  private getPort?: () => number;
 
   constructor(
     queue: TaskQueue,
     pty: PtyRunner,
     sessionManager: SessionManager,
-    emit: (event: OutboundEvent) => void
+    emit: (event: OutboundEvent) => void,
+    getPort?: () => number
   ) {
     this.queue = queue;
     this.pty = pty;
     this.sessionManager = sessionManager;
     this.emit = emit;
+    this.getPort = getPort;
   }
 
   public async handleMessage(msg: InboundMessage): Promise<void> {
@@ -34,6 +37,23 @@ export class MessageRouter {
         this.emit({
           event: 'pong',
           replyTo: msg.id,
+          pid: process.pid,
+          activeSessionsCount: this.sessionManager.getActiveSessionsCount(),
+          port: this.getPort ? this.getPort() : 0,
+          uptimeSec: Math.round(process.uptime()),
+          timestamp: new Date().toISOString()
+        });
+        break;
+
+      case 'get_status':
+        this.emit({
+          event: 'sidecar_status',
+          status: 'online',
+          port: this.getPort ? this.getPort() : 0,
+          pid: process.pid,
+          activeSessionsCount: this.sessionManager.getActiveSessionsCount(),
+          uptimeSec: Math.round(process.uptime()),
+          version: '2.0.0',
           timestamp: new Date().toISOString()
         });
         break;

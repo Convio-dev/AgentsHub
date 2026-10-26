@@ -91,6 +91,48 @@
 
     <!-- Telemetry & Action Shortcuts -->
     <div class="header-metrics-group flex items-center space-x-2.5">
+      <!-- Bun Sidecar Pure Icon Indicator with Modern Hover Tooltip -->
+      <div id="sidecar-status-container" class="relative group/sidecar flex items-center">
+        <button id="sidecar-status-btn" class="w-7 h-7 rounded-lg bg-surface-card border border-surface-border flex items-center justify-center transition-all duration-200 hover:border-sky-500/50 hover:bg-surface-card/80 focus:outline-none shadow-sm cursor-pointer" aria-label="Sidecar Engine Status" type="button">
+          <div id="sidecar-icon-slot" class="relative flex items-center justify-center">
+            <span id="sidecar-pulse-ring" class="absolute inline-flex h-3 w-3 rounded-full bg-emerald-400 opacity-60 animate-ping"></span>
+            <span id="sidecar-pulse-dot" class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+          </div>
+        </button>
+
+        <!-- Interactive Hover Tooltip Popover -->
+        <div id="sidecar-tooltip" class="absolute top-full mt-2 right-0 w-64 p-3 rounded-xl bg-surface-card/95 backdrop-blur-md border border-surface-border shadow-2xl opacity-0 pointer-events-none group-hover/sidecar:opacity-100 group-hover/sidecar:pointer-events-auto transition-all duration-200 z-50 transform -translate-y-1 group-hover/sidecar:translate-y-0 text-xs">
+          <div class="flex items-center justify-between pb-2 mb-2 border-b border-surface-border/60">
+            <div class="flex items-center space-x-1.5">
+              <i class="fa-solid fa-microchip text-sky-400 text-xs"></i>
+              <span class="font-semibold text-content-main">Sidecar Runtime</span>
+            </div>
+            <span id="sidecar-tooltip-badge" class="px-1.5 py-0.5 text-[9px] font-mono rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">Active (v2.0.0)</span>
+          </div>
+          <div class="space-y-1.5 text-[11px] text-content-muted">
+            <div class="flex items-center justify-between">
+              <span>Status:</span>
+              <span id="sidecar-tooltip-status" class="font-medium text-emerald-400 flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Connected / Healthy</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span>Endpoint:</span>
+              <span id="sidecar-tooltip-endpoint" class="font-mono text-sky-400">127.0.0.1:48921</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span>Health:</span>
+              <span id="sidecar-tooltip-health" class="font-mono text-content-main">PID -- • &lt;1ms</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span>Active Sessions:</span>
+              <span id="sidecar-tooltip-sessions" class="font-mono text-amber-400 font-semibold">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Combined Compact Telemetry Pill -->
       <div class="flex items-center space-x-2 text-[11px] font-mono px-2 py-1 rounded-lg bg-surface-card border border-surface-border text-content-muted shadow-sm">
         <span id="metric-ram" class="text-sky-500 font-semibold">RAM 0 MB</span>
@@ -426,6 +468,7 @@
   <script src="./js/modules/settings-view.js"></script>
   <script src="./js/modules/onboarding-guide.js"></script>
   <script src="./js/modules/agent-chat-ide.js"></script>
+  <script src="./js/modules/sidecar-status.js"></script>
   <script src="./js/settings.js"></script>
 
   <!-- Main Orchestrator -->
