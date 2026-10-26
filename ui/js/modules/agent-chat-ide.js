@@ -5,6 +5,7 @@
   let isHudOpen = false;
   let activeExecutionCards = new Map(); // profileName -> DOM element
   let selectedProfileTargets = new Set();
+  const activeRunnerProfiles = new Set(); // tracks profiles currently running
   let currentActiveSessionId = localStorage.getItem('agents_hub_active_session_id') || 'session_default';
 
   function escapeHtml(str) {
@@ -259,7 +260,7 @@
     } else {
       validProfiles.forEach(pName => {
         const pObj = rawList.find(x => (typeof x === 'object' ? x.name : x).toLowerCase() === pName.toLowerCase());
-        const isRun = typeof pObj === 'object' && pObj.isRunning;
+        const isRun = Boolean(pObj && pObj.isRunning) || activeRunnerProfiles.has(pName.toLowerCase());
         const port = typeof pObj === 'object' && pObj.port ? pObj.port : null;
         if (isRun) runningCount++;
 
@@ -276,10 +277,10 @@
             </div>
           </label>
           <div class="flex items-center space-x-2 flex-shrink-0">
-            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded ${isRun ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-surface-card text-content-dim'}">
-              ${isRun ? (port ? `Port ${port}` : 'Online') : 'Offline'}
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold ${isRun ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-surface-card text-content-dim'}">
+              ${isRun ? (port ? `Running :${port}` : 'Running') : 'Offline'}
             </span>
-            <button class="btn-profile-action text-[11px] px-2 py-0.5 rounded font-mono font-medium transition ${isRun ? 'bg-rose-500/15 text-rose-500 hover:bg-rose-500 hover:text-white' : 'bg-emerald-500/15 text-emerald-600 hover:bg-emerald-600 hover:text-white'}" data-profile="${escapeHtml(pName)}" data-action="${isRun ? 'stop' : 'start'}">
+            <button class="btn-profile-action text-[11px] px-2.5 py-0.5 rounded font-mono font-semibold transition ${isRun ? 'bg-rose-500/15 text-rose-500 hover:bg-rose-500 hover:text-white border border-rose-500/30' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600 hover:text-white border border-emerald-500/30'}" data-profile="${escapeHtml(pName)}" data-action="${isRun ? 'stop' : 'start'}">
               ${isRun ? 'Stop' : 'Start'}
             </button>
           </div>
@@ -368,6 +369,10 @@
     const liveDot = document.getElementById('chat-profile-live-dot');
     const validProfiles = getValidProfiles();
     const count = selectedProfileTargets.size;
+    let anyRunning = false;
+    validProfiles.forEach(p => {
+      if (activeRunnerProfiles.has(p.toLowerCase())) anyRunning = true;
+    });
 
     if (validProfiles.length === 0 || count === 0) {
       if (summaryLabel) summaryLabel.textContent = 'Runner: No Profile';
@@ -383,16 +388,23 @@
     if (summaryLabel) {
       if (count === 1) {
         const singleName = Array.from(selectedProfileTargets)[0];
-        summaryLabel.textContent = `Runner: ${singleName}`;
+        const isSingleRun = activeRunnerProfiles.has(singleName.toLowerCase());
+        summaryLabel.textContent = `Runner: ${singleName}${isSingleRun ? ' (Running)' : ''}`;
       } else {
         summaryLabel.textContent = `Runners: ${count} Active Parallel`;
       }
+    }
+
+    if (liveDot) {
+      liveDot.className = `w-2 h-2 rounded-full ${anyRunning ? 'bg-emerald-500 animate-pulse' : 'bg-content-dim'}`;
     }
   }
 
   async function startProfileFromChat(pName) {
     if (!pName) return;
     try {
+      activeRunnerProfiles.add(pName.toLowerCase());
+      renderChatProfileManager();
       appendHudLog(`[Sidecar] Registering and starting runner for profile: ${pName}...`, 'sky');
       if (typeof window.callBridge === 'function') {
         const res = await window.callBridge('start_antigravity_instance', { profile: pName });
@@ -403,11 +415,13 @@
       if (typeof window.showToast === 'function') {
         window.showToast(`Started profile: ${pName}`, 'success', 2500);
       }
-      setTimeout(renderChatProfileManager, 300);
+      renderChatProfileManager();
       if (window.sidecarStatus && typeof window.sidecarStatus.refresh === 'function') {
         window.sidecarStatus.refresh();
       }
     } catch (err) {
+      activeRunnerProfiles.delete(pName.toLowerCase());
+      renderChatProfileManager();
       appendHudLog(`[Profile Start Error] ${err?.message || err}`, 'rose');
     }
   }
@@ -416,6 +430,8 @@
   async function stopProfileFromChat(pName) {
     if (!pName) return;
     try {
+      activeRunnerProfiles.delete(pName.toLowerCase());
+      renderChatProfileManager();
       appendHudLog(`[Sidecar] Stopping runner for profile: ${pName}...`, 'amber');
       if (typeof window.callBridge === 'function') {
         await window.callBridge('stop_antigravity_instance', { profile: pName });
@@ -423,7 +439,7 @@
       if (typeof window.showToast === 'function') {
         window.showToast(`Stopped profile: ${pName}`, 'info', 2500);
       }
-      setTimeout(renderChatProfileManager, 300);
+      renderChatProfileManager();
       if (window.sidecarStatus && typeof window.sidecarStatus.refresh === 'function') {
         window.sidecarStatus.refresh();
       }
@@ -885,7 +901,7 @@
     // 1. Extract and preserve code blocks
     const codeBlocks = [];
     let text = rawText.replace(/```([a-zA-Z0-9_\-\+]*)\n([\s\S]*?)```/g, (match, lang, code) => {
-      const placeholder = `___AGENTS_CODEBLOCK_${codeBlocks.length}___`;
+      const placeholder = `%%AGENTSCODEBLOCK${codeBlocks.length}%%`;
       codeBlocks.push({ lang: (lang || 'code').trim(), code });
       return placeholder;
     });
@@ -893,7 +909,7 @@
     // 2. Extract and preserve inline code
     const inlineCodes = [];
     text = text.replace(/`([^`\n]+)`/g, (match, code) => {
-      const placeholder = `___AGENTS_INLINE_${inlineCodes.length}___`;
+      const placeholder = `%%AGENTSINLINE${inlineCodes.length}%%`;
       inlineCodes.push(code);
       return placeholder;
     });
@@ -923,13 +939,13 @@
     text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-sky-400 hover:text-sky-300 underline font-medium">$1</a>');
 
     // 9. Lists
-    text = text.replace(/^\s*[\-\*]\s+(.*$)/gim, '<li class="flex items-start space-x-2 my-0.5"><span class="text-sky-400 font-bold select-none text-[11px] mt-0.5">•</span><span class="flex-1">$1</span></li>');
+    text = text.replace(/^\s*[\-\*•]\s+(.*$)/gim, '<li class="flex items-start space-x-2 my-0.5"><span class="text-sky-400 font-bold select-none text-[11px] mt-0.5">•</span><span class="flex-1">$1</span></li>');
     text = text.replace(/^\s*(\d+)\.\s+(.*$)/gim, '<li class="flex items-start space-x-2 my-0.5"><span class="font-mono text-sky-400 select-none text-[11px] mt-0.5">$1.</span><span class="flex-1">$2</span></li>');
-    text = text.replace(/(<li class="flex items-start[\s\S]*?<\/li>)+/g, '<ul class="space-y-1 my-2 pl-1">$0</ul>');
+    text = text.replace(/(?:<li class="flex items-start[\s\S]*?<\/li>\s*)+/g, (match) => `<ul class="space-y-1 my-2 pl-1">${match}</ul>`);
 
     // 10. Restore inline code
     inlineCodes.forEach((code, i) => {
-      text = text.replace(`___AGENTS_INLINE_${i}___`, `<code class="px-1.5 py-0.5 rounded bg-surface-deep border border-surface-border text-sky-400 font-mono text-[11.5px]">${escapeHtml(code)}</code>`);
+      text = text.replace(`%%AGENTSINLINE${i}%%`, () => `<code class="px-1.5 py-0.5 rounded bg-surface-deep border border-surface-border text-sky-400 font-mono text-[11.5px]">${escapeHtml(code)}</code>`);
     });
 
     // 11. Restore code blocks with interactive copy button
@@ -951,7 +967,7 @@
           <pre class="p-3 text-xs font-mono text-sky-200 overflow-x-auto leading-relaxed whitespace-pre scrollbar-thin"><code>${escapedCode}</code></pre>
         </div>
       `;
-      text = text.replace(`___AGENTS_CODEBLOCK_${i}___`, htmlBlock);
+      text = text.replace(`%%AGENTSCODEBLOCK${i}%%`, () => htmlBlock);
     });
 
     // 12. Paragraph split
@@ -988,8 +1004,12 @@
   };
 
   // Helper to finalize thinking block once streaming or tools begin
-  function finalizeThinkingBlock(targetCard) {
+  function finalizeThinkingBlock(targetCard, durationSeconds, tokens) {
     if (!targetCard) return;
+    if (targetCard._thinkingInterval) {
+      clearInterval(targetCard._thinkingInterval);
+      targetCard._thinkingInterval = null;
+    }
     const thinkingBlock = targetCard.querySelector('.chat-thinking-block');
     if (thinkingBlock && !thinkingBlock._finalized) {
       thinkingBlock._finalized = true;
@@ -997,8 +1017,24 @@
       if (pulse) pulse.classList.remove('animate-pulse');
       const label = thinkingBlock.querySelector('.thinking-label');
       const timer = thinkingBlock.querySelector('.thinking-timer');
+
+      let durText = '';
+      if (typeof durationSeconds === 'number' && durationSeconds > 0) {
+        durText = `${durationSeconds.toFixed(1)}s`;
+      } else if (timer && timer.textContent && timer.textContent !== '0.0s') {
+        durText = timer.textContent;
+      } else if (targetCard._thinkingStartTime) {
+        durText = `${((Date.now() - targetCard._thinkingStartTime) / 1000).toFixed(1)}s`;
+      } else {
+        durText = 'a moment';
+      }
+
+      const tokCount = tokens || targetCard._thinkingTokens;
       if (label) {
-        label.textContent = `Thought for ${timer ? timer.textContent : 'a moment'}`;
+        label.textContent = `Thought for ${durText}${tokCount ? ` (${tokCount} tokens)` : ''}`;
+      }
+      if (timer) {
+        timer.textContent = durText;
       }
       const body = thinkingBlock.querySelector('.thinking-body');
       if (body) body.classList.add('hidden');
@@ -1010,7 +1046,7 @@
   // --- 8. Real-Time Sidecar Token & Status Streaming ---
   window.addEventListener('thinking', (e) => {
     if (!e.detail) return;
-    const { sessionId, text, durationSeconds } = e.detail;
+    const { sessionId, text, durationSeconds, thinkingTokens, state } = e.detail;
 
     let targetCard = null;
     if (sessionId) {
@@ -1020,6 +1056,10 @@
       targetCard = Array.from(activeExecutionCards.values())[0];
     }
     if (!targetCard) return;
+
+    if (thinkingTokens) {
+      targetCard._thinkingTokens = thinkingTokens;
+    }
 
     const thinkingContainer = targetCard.querySelector('.chat-thinking-container');
     if (!thinkingContainer) return;
@@ -1054,6 +1094,22 @@
 
       thinkingContainer.appendChild(block);
       targetCard._thinkingStartTime = Date.now();
+
+      // Start live ticking timer
+      if (!targetCard._thinkingInterval) {
+        targetCard._thinkingInterval = setInterval(() => {
+          if (!block || block._finalized) {
+            clearInterval(targetCard._thinkingInterval);
+            targetCard._thinkingInterval = null;
+            return;
+          }
+          const tEl = block.querySelector('.thinking-timer');
+          if (tEl) {
+            const elSec = ((Date.now() - (targetCard._thinkingStartTime || Date.now())) / 1000).toFixed(1);
+            tEl.textContent = `${elSec}s`;
+          }
+        }, 100);
+      }
     }
 
     if (text) {
@@ -1063,14 +1119,8 @@
       }
     }
 
-    const timer = block.querySelector('.thinking-timer');
-    if (timer) {
-      if (typeof durationSeconds === 'number' && durationSeconds > 0) {
-        timer.textContent = `${durationSeconds.toFixed(1)}s`;
-      } else {
-        const elapsed = ((Date.now() - (targetCard._thinkingStartTime || Date.now())) / 1000).toFixed(1);
-        timer.textContent = `${elapsed}s`;
-      }
+    if (state === 'done' || (typeof durationSeconds === 'number' && durationSeconds > 0)) {
+      finalizeThinkingBlock(targetCard, durationSeconds, thinkingTokens);
     }
 
     const stream = document.getElementById('chat-stream');
@@ -1217,17 +1267,71 @@
     }
 
     targetCard._rawMarkdown = (targetCard._rawMarkdown || '') + text;
-    const markdownEl = targetCard.querySelector('.chat-assistant-markdown');
-    if (markdownEl) {
-      markdownEl.innerHTML = renderMarkdown(targetCard._rawMarkdown);
-      const stream = document.getElementById('chat-stream');
-      if (stream) stream.scrollTop = stream.scrollHeight;
+    if (!targetCard._streamRaf) {
+      targetCard._streamRaf = requestAnimationFrame(() => {
+        targetCard._streamRaf = null;
+        const markdownEl = targetCard.querySelector('.chat-assistant-markdown');
+        if (markdownEl) {
+          markdownEl.innerHTML = renderMarkdown(targetCard._rawMarkdown);
+          const stream = document.getElementById('chat-stream');
+          if (stream) stream.scrollTop = stream.scrollHeight;
+        }
+      });
+    }
+  });
+
+  // Dynamic Token Counter Sync
+  window.addEventListener('token_usage', (e) => {
+    if (!e.detail) return;
+    const usage = e.detail.usage || e.detail;
+    const total = usage.totalTokens || usage.outputTokens || 0;
+    const counterEl = document.getElementById('chat-token-counter');
+    if (counterEl && total > 0) {
+      const formatted = total >= 1000 ? (total / 1000).toFixed(1) + 'k' : String(total);
+      counterEl.textContent = `Tokens: ~${formatted}`;
+      if (usage.thinkingTokens) {
+        counterEl.title = `Total: ${total} | Thinking: ${usage.thinkingTokens} | Output: ${usage.outputTokens || 0} | Input: ${usage.inputTokens || 0}`;
+      }
+    }
+  });
+
+  // Dynamic Quota Sync (Color-coded: >=30% emerald, 10-29% amber, <10% rose)
+  window.addEventListener('quota_update', (e) => {
+    if (!e.detail) return;
+    const pct = typeof e.detail.quotaPercent === 'number' ? e.detail.quotaPercent : parseInt(e.detail.quotaPercent, 10);
+    const quotaEl = document.getElementById('chat-quota-text');
+    if (quotaEl && !isNaN(pct)) {
+      quotaEl.textContent = `${pct}% Quota`;
+      if (pct >= 30) {
+        quotaEl.className = 'text-emerald-500 font-mono font-medium';
+      } else if (pct >= 10) {
+        quotaEl.className = 'text-amber-500 font-mono font-medium';
+      } else {
+        quotaEl.className = 'text-rose-500 font-mono font-medium';
+      }
+    }
+  });
+
+  // Dynamic Model Sync
+  window.addEventListener('model_info', (e) => {
+    if (!e.detail) return;
+    if (e.detail.model) {
+      updateChatModelDisplay(e.detail.model);
     }
   });
 
   window.addEventListener('session_status', (e) => {
     if (!e.detail) return;
-    const { sessionId, state, error } = e.detail;
+    const { sessionId, profile, state, error } = e.detail;
+
+    if (profile) {
+      if (state === 'running' || state === 'tool_executing' || state === 'thinking') {
+        activeRunnerProfiles.add(profile.toLowerCase());
+      } else if (state === 'idle' || state === 'completed' || state === 'error') {
+        activeRunnerProfiles.delete(profile.toLowerCase());
+      }
+      renderChatProfileManager();
+    }
 
     let targetCard = null;
     if (sessionId) {
@@ -1258,6 +1362,14 @@
         }
       } else if (state === 'error') {
         finalizeThinkingBlock(targetCard);
+        if (targetCard._streamRaf) {
+          cancelAnimationFrame(targetCard._streamRaf);
+          targetCard._streamRaf = null;
+        }
+        if (targetCard._rawMarkdown) {
+          const markdownEl = targetCard.querySelector('.chat-assistant-markdown');
+          if (markdownEl) markdownEl.innerHTML = renderMarkdown(targetCard._rawMarkdown);
+        }
         if (ping) ping.classList.remove('animate-ping');
         if (badge) {
           badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/15 text-rose-500 border border-rose-500/30';
@@ -1276,6 +1388,14 @@
         }
       } else if (state === 'idle' || state === 'completed') {
         finalizeThinkingBlock(targetCard);
+        if (targetCard._streamRaf) {
+          cancelAnimationFrame(targetCard._streamRaf);
+          targetCard._streamRaf = null;
+        }
+        if (targetCard._rawMarkdown) {
+          const markdownEl = targetCard.querySelector('.chat-assistant-markdown');
+          if (markdownEl) markdownEl.innerHTML = renderMarkdown(targetCard._rawMarkdown);
+        }
         if (ping) ping.classList.remove('animate-ping');
         if (badge) {
           badge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
@@ -1375,7 +1495,17 @@
     renderChatProfileManager();
   });
 
-  window.addEventListener('antigravity_instance_status_changed', () => {
+  window.addEventListener('antigravity_instance_status_changed', (e) => {
+    if (e.detail?.profile) {
+      if (e.detail.isRunning) {
+        activeRunnerProfiles.add(e.detail.profile.toLowerCase());
+      } else {
+        activeRunnerProfiles.delete(e.detail.profile.toLowerCase());
+      }
+    }
+    if (e.detail?.model) {
+      updateChatModelDisplay(e.detail.model);
+    }
     renderChatProfileManager();
   });
 

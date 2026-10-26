@@ -204,6 +204,57 @@ public class ThinkingEvent : BaseSidecarEvent
 
     [JsonPropertyName("durationSeconds")]
     public double? DurationSeconds { get; set; }
+
+    [JsonPropertyName("thinkingTokens")]
+    public int? ThinkingTokens { get; set; }
+
+    [JsonPropertyName("state")]
+    public string? State { get; set; }
+}
+
+public class TokenUsageInfo
+{
+    [JsonPropertyName("inputTokens")]
+    public int? InputTokens { get; set; }
+
+    [JsonPropertyName("outputTokens")]
+    public int? OutputTokens { get; set; }
+
+    [JsonPropertyName("thinkingTokens")]
+    public int? ThinkingTokens { get; set; }
+
+    [JsonPropertyName("totalTokens")]
+    public int? TotalTokens { get; set; }
+}
+
+public class TokenUsageEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("usage")]
+    public TokenUsageInfo? Usage { get; set; }
+}
+
+public class QuotaUpdateEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("profile")]
+    public string Profile { get; set; } = string.Empty;
+
+    [JsonPropertyName("quotaPercent")]
+    public int QuotaPercent { get; set; }
+
+    [JsonPropertyName("details")]
+    public string? Details { get; set; }
+}
+
+public class ModelInfoEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("sessionId")]
+    public string? SessionId { get; set; }
+
+    [JsonPropertyName("model")]
+    public string Model { get; set; } = string.Empty;
 }
 
 public class ChatTokenEvent : BaseSidecarEvent

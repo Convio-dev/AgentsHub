@@ -2917,6 +2917,8 @@ public sealed partial class DashboardWebBridge : IDisposable
                             string model = "Gemini 3.8 Flash (High)";
                             await _cliManager.SwitchAntigravityProfileAsync(pName).ConfigureAwait(false);
                             await Sidecar.SidecarHostService.Instance.StartProfileSessionAsync(pName, cwd, "gemini-3.8-flash-high").ConfigureAwait(false);
+                            PostEventToUi("antigravity_instance_status_changed", new { profile = pName, isRunning = true, model });
+                            PostEventToUi("profile_changed", new { activeProfile = pName, model, profiles = GetProfilesWithEmail() });
                             SendResponse(requestId, true, new { success = true, profile = pName, isSidecar = true, model, profiles = GetProfilesWithEmail() });
                         }
                     }
@@ -2931,6 +2933,8 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         await Sidecar.SidecarHostService.Instance.StopProfileSessionAsync(pName).ConfigureAwait(false);
                         await _cliManager.StopAntigravityProfileAsync(pName).ConfigureAwait(false);
+                        PostEventToUi("antigravity_instance_status_changed", new { profile = pName, isRunning = false });
+                        PostEventToUi("profile_changed", new { activeProfile = pName, profiles = GetProfilesWithEmail() });
                         SendResponse(requestId, true, new { success = true, profile = pName, profiles = GetProfilesWithEmail() });
                     }
                 }
@@ -5637,7 +5641,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 name,
                 email = AntigravityProfileService.GetAccountEmail(name) ?? string.Empty,
                 model = "Gemini 3.8 Flash (High)",
-                isRunning = _cliManager.IsProfileRunning(name),
+                isRunning = _cliManager.IsProfileRunning(name) || Sidecar.SidecarHostService.Instance.IsProfileActive(name),
                 port = _cliManager.GetPortForProfile(name)
             })];
     }

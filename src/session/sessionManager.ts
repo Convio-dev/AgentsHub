@@ -53,6 +53,10 @@ export class SessionManager {
 
     // Periodic sweep for abandoned sessions to prevent memory leaks (runs every 10 min)
     setInterval(() => this.pruneInactiveSessions(), 10 * 60 * 1000);
+
+    // Initial quota poll & periodic quota polling (every 3 min)
+    setTimeout(() => this.pollQuota().catch(() => {}), 1500);
+    setInterval(() => this.pollQuota().catch(() => {}), 3 * 60 * 1000);
   }
 
   private resolveProfilesPath(): string {
@@ -342,10 +346,18 @@ export class SessionManager {
    */
   public async stopSession(profileName: string): Promise<{ success: boolean }> {
     const key = profileName.toLowerCase();
-    const sessionId = this.profileActiveSessionIds.get(key);
+    const sessionIdsToStop: string[] = [];
+    const directId = this.profileActiveSessionIds.get(key);
+    if (directId) sessionIdsToStop.push(directId);
 
-    if (sessionId) {
-      const session = this.activeSessions.get(sessionId);
+    for (const [sId, sess] of this.activeSessions.entries()) {
+      if (sess.profileName.toLowerCase() === key && !sessionIdsToStop.includes(sId)) {
+        sessionIdsToStop.push(sId);
+      }
+    }
+
+    for (const sId of sessionIdsToStop) {
+      const session = this.activeSessions.get(sId);
       if (session) {
         if (session.abortController) {
           try { session.abortController.abort(); } catch {}
@@ -356,25 +368,24 @@ export class SessionManager {
         session.status = 'idle';
         session.lastActiveAt = Date.now();
       }
-
-      this.activeSessions.delete(sessionId);
-      this.profileActiveSessionIds.delete(key);
-
+      this.activeSessions.delete(sId);
       this.emit({
         event: 'session_status',
-        sessionId,
+        sessionId: sId,
         profile: profileName,
         state: 'idle',
         timestamp: new Date().toISOString()
       });
-
-      this.emit({
-        event: 'sidecar_status',
-        pid: process.pid,
-        activeSessionsCount: this.getActiveSessionsCount(),
-        timestamp: new Date().toISOString()
-      });
     }
+
+    this.profileActiveSessionIds.delete(key);
+
+    this.emit({
+      event: 'sidecar_status',
+      pid: process.pid,
+      activeSessionsCount: this.getActiveSessionsCount(),
+      timestamp: new Date().toISOString()
+    });
 
     return { success: true };
   }
@@ -435,6 +446,7 @@ export class SessionManager {
     };
 
     this.activeSessions.set(sessionId, sessionState);
+    this.profileActiveSessionIds.set(targetProfile.toLowerCase(), sessionId);
 
     // Broadcast running state
     this.emit({
@@ -512,7 +524,7 @@ export class SessionManager {
         this.emit({
           event: 'thinking',
           sessionId,
-          text: 'Analyzing prompt and repository state...',
+          state: 'active',
           timestamp: new Date().toISOString()
         });
 
@@ -620,22 +632,15 @@ export class SessionManager {
                 hasReceivedAnyToken = true;
               } catch {}
             } else {
-              // Raw non-JSON diagnostic line (filter out banner headers)
-              if (!trimmed.includes('Usage of agy') && !trimmed.includes('Fetching available models')) {
-                this.emit({
-                  event: 'chat_token',
-                  sessionId,
-                  text: trimmed + '\n',
-                  timestamp: new Date().toISOString()
-                });
-                hasReceivedAnyToken = true;
-              }
+              this.processRawCliLine(sessionId, trimmed, sessionState);
+              hasReceivedAnyToken = true;
             }
           }
         }
       }
 
       await proc.exited;
+      this.pollQuota(sessionState.profileName).catch(() => {});
     } catch (err: any) {
       // If first attempt failed with --continue (no previous conversation), retry without --continue
       if (!hasReceivedAnyToken && !abortController.signal.aborted) {
@@ -701,79 +706,272 @@ export class SessionManager {
               const evt = JSON.parse(trimmed);
               this.processAgyEvent(sessionId, evt, sessionState);
             } catch {}
+          } else {
+            this.processRawCliLine(sessionId, trimmed, sessionState);
           }
         }
       }
     }
     await proc.exited;
+    this.pollQuota(sessionState.profileName).catch(() => {});
+  }
+
+  private processRawCliLine(sessionId: string, line: string, sessionState: ChatSessionState): void {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    // Filter out CLI noise/banners
+    if (trimmed.includes('Usage of agy') || trimmed.includes('Fetching available models') || trimmed.includes('Loaded plugins')) {
+      return;
+    }
+
+    // 1. Thinking patterns:
+    // o Thought for 3.6s (Considering the user's request...)
+    // ▸ Thought for 6s, 702 tokens
+    const thoughtMatch = trimmed.match(/^[o▸•*]\s*Thought for\s*([0-9.]+)s(?:,\s*([0-9]+)\s*tokens)?(?:\s*\((.*?)\))?/i);
+    if (thoughtMatch) {
+      const durationSec = parseFloat(thoughtMatch[1]);
+      const tokens = thoughtMatch[2] ? parseInt(thoughtMatch[2], 10) : undefined;
+      const snippet = thoughtMatch[3] || '';
+      this.emit({
+        event: 'thinking',
+        sessionId,
+        text: snippet,
+        durationSeconds: durationSec,
+        thinkingTokens: tokens,
+        state: 'done',
+        timestamp: new Date().toISOString()
+      });
+      if (tokens) {
+        this.emit({
+          event: 'token_usage',
+          sessionId,
+          usage: { thinkingTokens: tokens, totalTokens: tokens },
+          timestamp: new Date().toISOString()
+        });
+      }
+      return;
+    }
+
+    // 2. Ran tool pattern:
+    // ● Ran (Get-ChildItem -Path . -Filter *.py -Recurse | Select-Object FullName, Length, LastWriteTime)
+    const ranMatch = trimmed.match(/^[●o•*]\s*Ran\s*\((.*?)\)$/i);
+    if (ranMatch) {
+      const cmd = ranMatch[1];
+      const callId = `ran_${Date.now()}`;
+      this.emit({
+        event: 'tool_start',
+        sessionId,
+        callId,
+        tool: 'Ran',
+        params: { CommandLine: cmd },
+        timestamp: new Date().toISOString()
+      });
+      this.emit({
+        event: 'tool_output',
+        sessionId,
+        callId,
+        tool: 'Ran',
+        success: true,
+        result: `Executed: ${cmd}`,
+        durationMs: 60,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // 3. Explored files pattern:
+    // ● Explored 5 files (app.py, gui_app.py, hello.py, +2) (ctrl+o to expand)
+    const exploredMatch = trimmed.match(/^[●o•*]\s*Explored\s*(\d+)\s*files?\s*\((.*?)\)/i);
+    if (exploredMatch) {
+      const count = parseInt(exploredMatch[1], 10);
+      const files = exploredMatch[2].replace(/\s*\(ctrl\+o to expand\)/i, '').trim();
+      const callId = `exp_${Date.now()}`;
+      this.emit({
+        event: 'tool_start',
+        sessionId,
+        callId,
+        tool: 'Explored',
+        params: { count, files },
+        timestamp: new Date().toISOString()
+      });
+      this.emit({
+        event: 'tool_output',
+        sessionId,
+        callId,
+        tool: 'Explored',
+        success: true,
+        result: `Explored ${count} files (${files})`,
+        durationMs: 60,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // 4. Regular chat token / markdown line
+    this.emit({
+      event: 'chat_token',
+      sessionId,
+      text: trimmed + '\n',
+      timestamp: new Date().toISOString()
+    });
   }
 
   private processAgyEvent(sessionId: string, evt: any, sessionState: ChatSessionState): void {
-    if (evt.event === 'step_update' && evt.step_update) {
+    if (evt.event === 'init' && evt.init) {
+      if (evt.init.model || evt.model) {
+        this.emit({
+          event: 'model_info',
+          sessionId,
+          model: evt.init.model || evt.model,
+          timestamp: new Date().toISOString()
+        });
+      }
+    } else if (evt.event === 'step_update' && evt.step_update) {
       const su = evt.step_update;
 
-      // 1. Thinking step
-      if (su.step_type === 'thinking') {
-        sessionState.status = 'thinking';
-        this.emit({
-          event: 'thinking',
-          sessionId,
-          text: su.text_delta || 'Synthesizing response...',
-          durationSeconds: su.duration_seconds,
-          timestamp: new Date().toISOString()
-        });
-      }
-      // 2. Token output
-      else if (su.step_type === 'agent_response' && typeof su.text_delta === 'string') {
-        sessionState.status = 'running';
-        this.emit({
-          event: 'chat_token',
-          sessionId,
-          text: su.text_delta,
-          timestamp: new Date().toISOString()
-        });
-      }
-      // 3. Tool call started
-      else if (su.step_type === 'tool_call') {
-        sessionState.status = 'tool_executing';
-        const toolName = su.tool_name || su.call?.name || 'tool';
-        const toolParams = su.tool_args || su.call?.arguments || {};
-        const callId = su.call_id || `tool_${Date.now()}`;
+      // 1. Thinking / Agent Response step
+      if (su.step_type === 'agent_response' || su.step_type === 'thinking') {
+        const textChunk = su.text_delta ?? su.delta ?? su.text ?? (su.state === 'DONE' && typeof su.response === 'string' ? su.response : null);
+        const hasText = typeof textChunk === 'string' && textChunk.length > 0;
+        const thinkingTokens = su.usage?.thinking_tokens || 0;
 
-        this.emit({
-          event: 'tool_start',
-          sessionId,
-          callId,
-          tool: toolName,
-          params: toolParams,
-          timestamp: new Date().toISOString()
-        });
+        if (!hasText && (thinkingTokens > 0 || (su.duration_seconds && su.duration_seconds > 0))) {
+          // Thinking phase completed
+          this.emit({
+            event: 'thinking',
+            sessionId,
+            durationSeconds: su.duration_seconds,
+            thinkingTokens: thinkingTokens,
+            state: 'done',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        if (hasText) {
+          sessionState.status = 'running';
+          this.emit({
+            event: 'chat_token',
+            sessionId,
+            text: textChunk,
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        // If usage metadata is present, emit token_usage
+        if (su.usage) {
+          this.emit({
+            event: 'token_usage',
+            sessionId,
+            usage: {
+              inputTokens: su.usage.input_tokens,
+              outputTokens: su.usage.output_tokens,
+              thinkingTokens: su.usage.thinking_tokens,
+              totalTokens: su.usage.total_tokens
+            },
+            timestamp: new Date().toISOString()
+          });
+        }
       }
-      // 4. Tool call completed
-      else if (su.step_type === 'tool_result' || (su.state === 'DONE' && su.step_type === 'tool_call')) {
-        this.emit({
-          event: 'tool_output',
-          sessionId,
-          callId: su.call_id || '',
-          tool: su.tool_name || 'tool',
-          success: su.status !== 'ERROR' && su.state !== 'ERROR',
-          result: su.result || su.output,
-          durationMs: su.duration_seconds ? Math.round(su.duration_seconds * 1000) : 0,
-          timestamp: new Date().toISOString()
-        });
+      // 2. Tool invocation & completion
+      else if (su.step_type === 'tool' || su.step_type === 'tool_call') {
+        const rawToolName = su.tool_name || su.tool_info?.name || su.call?.name || 'tool';
+        const rawParams = su.tool_info?.parameters || su.tool_args || su.call?.arguments || {};
+        const callId = su.call_id || `tool_${su.step_index ?? Date.now()}`;
+
+        let toolDisplay = rawToolName;
+        let formattedParams = rawParams;
+
+        if (rawToolName === 'run_command' || rawToolName === 'shell_exec') {
+          toolDisplay = 'Ran';
+          formattedParams = { CommandLine: rawParams.CommandLine || rawParams.command || '' };
+        } else if (rawToolName === 'list_dir' || rawToolName === 'grep_search' || rawToolName === 'find_by_name') {
+          toolDisplay = 'Explored';
+        }
+
+        if (su.state === 'ACTIVE') {
+          sessionState.status = 'tool_executing';
+          this.emit({
+            event: 'tool_start',
+            sessionId,
+            callId,
+            tool: toolDisplay,
+            params: formattedParams,
+            timestamp: new Date().toISOString()
+          });
+        } else if (su.state === 'DONE' || su.state === 'ERROR') {
+          const isErr = su.state === 'ERROR' || su.status === 'ERROR';
+          const output = su.tool_info?.output ?? su.tool_info?.result ?? su.result ?? (isErr ? su.tool_info?.error?.message : '');
+          const durationMs = su.duration_seconds ? Math.round(su.duration_seconds * 1000) : 0;
+
+          this.emit({
+            event: 'tool_output',
+            sessionId,
+            callId,
+            tool: toolDisplay,
+            success: !isErr,
+            result: output,
+            error: isErr ? (su.tool_info?.error?.message || 'Tool execution failed') : undefined,
+            durationMs,
+            timestamp: new Date().toISOString()
+          });
+        }
       }
     }
-    // Final Turn Result
+    // 3. Final Turn Result
     else if (evt.event === 'result' && evt.result) {
-      if (evt.result.usage?.thinking_tokens) {
+      const res = evt.result;
+      if (res.usage) {
         this.emit({
-          event: 'thinking',
+          event: 'token_usage',
           sessionId,
-          durationSeconds: evt.result.duration_seconds,
+          usage: {
+            inputTokens: res.usage.input_tokens,
+            outputTokens: res.usage.output_tokens,
+            thinkingTokens: res.usage.thinking_tokens,
+            totalTokens: res.usage.total_tokens
+          },
           timestamp: new Date().toISOString()
         });
       }
     }
+  }
+
+  public async pollQuota(profileName?: string): Promise<{ percent: number; details: string }> {
+    try {
+      const agyCmd = process.platform === 'win32' ? 'agy.exe' : 'agy';
+      const targetProfile = profileName || this.activeProfileName;
+      const virtualHome = this.prepareVirtualHome(targetProfile);
+      const env = this.buildScopedEnvironment(targetProfile, 'quota_poll', virtualHome);
+
+      const proc = Bun.spawn([agyCmd, '-p', '/quota', '--dangerously-skip-permissions'], {
+        cwd: virtualHome,
+        env,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        stdin: 'ignore'
+      });
+
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+
+      const matches = Array.from(output.matchAll(/(\d{1,3})%/g));
+      if (matches.length > 0) {
+        const pcts = matches.map(m => parseInt(m[1], 10)).filter(n => !isNaN(n));
+        const minPct = Math.min(...pcts);
+        this.emit({
+          event: 'quota_update',
+          profile: targetProfile,
+          quotaPercent: minPct,
+          details: output.trim(),
+          timestamp: new Date().toISOString()
+        });
+        return { percent: minPct, details: output.trim() };
+      }
+    } catch (err) {
+      console.warn('[SessionManager] Quota poll failed:', err);
+    }
+    return { percent: 96, details: '' };
   }
 
   public abortSession(sessionId: string): boolean {

@@ -198,6 +198,35 @@ export interface ThinkingEvent {
   sessionId: string;
   text?: string;
   durationSeconds?: number;
+  thinkingTokens?: number;
+  state?: 'active' | 'done';
+  timestamp: string;
+}
+
+export interface TokenUsageEvent {
+  event: 'token_usage';
+  sessionId: string;
+  usage: {
+    inputTokens?: number;
+    outputTokens?: number;
+    thinkingTokens?: number;
+    totalTokens?: number;
+  };
+  timestamp: string;
+}
+
+export interface QuotaUpdateEvent {
+  event: 'quota_update';
+  profile: string;
+  quotaPercent: number;
+  details?: string;
+  timestamp: string;
+}
+
+export interface ModelInfoEvent {
+  event: 'model_info';
+  sessionId?: string;
+  model: string;
   timestamp: string;
 }
 
@@ -288,6 +317,9 @@ export type OutboundEvent =
   | StreamDeltaEvent
   | ChatTokenEvent
   | ThinkingEvent
+  | TokenUsageEvent
+  | QuotaUpdateEvent
+  | ModelInfoEvent
   | SessionStatusEvent
   | AccountStateEvent
   | ToolStartEvent

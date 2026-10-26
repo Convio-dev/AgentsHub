@@ -34,6 +34,9 @@ public class SidecarClient : IDisposable
     public event Action<AccountStateEvent>? OnAccountState;
     public event Action<ToolStartEvent>? OnToolStart;
     public event Action<ToolOutputEvent>? OnToolOutput;
+    public event Action<TokenUsageEvent>? OnTokenUsage;
+    public event Action<QuotaUpdateEvent>? OnQuotaUpdate;
+    public event Action<ModelInfoEvent>? OnModelInfo;
     public event Action<TaskCompletedEvent>? OnTaskCompleted;
     public event Action<TerminalDataEvent>? OnTerminalData;
     public event Action<SidecarErrorEvent>? OnError;
@@ -319,6 +322,33 @@ public class SidecarClient : IDisposable
                         SidecarPid = statusEv.Pid;
                         OnSidecarStatus?.Invoke(statusEv);
                         OnEventReceived?.Invoke(statusEv);
+                    }
+                    break;
+
+                case "token_usage":
+                    var tokEv = JsonSerializer.Deserialize<TokenUsageEvent>(json);
+                    if (tokEv != null)
+                    {
+                        OnTokenUsage?.Invoke(tokEv);
+                        OnEventReceived?.Invoke(tokEv);
+                    }
+                    break;
+
+                case "quota_update":
+                    var qEv = JsonSerializer.Deserialize<QuotaUpdateEvent>(json);
+                    if (qEv != null)
+                    {
+                        OnQuotaUpdate?.Invoke(qEv);
+                        OnEventReceived?.Invoke(qEv);
+                    }
+                    break;
+
+                case "model_info":
+                    var mEv = JsonSerializer.Deserialize<ModelInfoEvent>(json);
+                    if (mEv != null)
+                    {
+                        OnModelInfo?.Invoke(mEv);
+                        OnEventReceived?.Invoke(mEv);
                     }
                     break;
             }

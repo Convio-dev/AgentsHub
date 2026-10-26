@@ -39,6 +39,13 @@ public sealed class SidecarHostService : IDisposable
     public int ActiveSessionsCount => _client.ActiveSessionsCount;
     public string Version => "v2.0.0";
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _activeProfiles = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsProfileActive(string profileName) =>
+        !string.IsNullOrWhiteSpace(profileName) && _activeProfiles.TryGetValue(profileName, out var active) && active;
+
+    public IEnumerable<string> GetActiveProfiles() => _activeProfiles.Keys;
+
     public object GetStatusDto() => new
     {
         status = StatusText,
@@ -168,14 +175,49 @@ public sealed class SidecarHostService : IDisposable
                         sessionId = the.SessionId,
                         text = the.Text,
                         durationSeconds = the.DurationSeconds,
+                        thinkingTokens = the.ThinkingTokens,
+                        state = the.State,
                         timestamp = the.Timestamp
                     });
+                }
+                break;
+
+            case "token_usage":
+                if (evt is TokenUsageEvent tue)
+                {
+                    EventDispatched?.Invoke("token_usage", tue);
+                }
+                break;
+
+            case "quota_update":
+                if (evt is QuotaUpdateEvent que)
+                {
+                    EventDispatched?.Invoke("quota_update", que);
+                }
+                break;
+
+            case "model_info":
+                if (evt is ModelInfoEvent mie)
+                {
+                    EventDispatched?.Invoke("model_info", mie);
                 }
                 break;
 
             case "session_status":
                 if (evt is SessionStatusEvent sse)
                 {
+                    if (!string.IsNullOrWhiteSpace(sse.Profile))
+                    {
+                        if (sse.State == "running" || sse.State == "tool_executing" || sse.State == "thinking")
+                        {
+                            _activeProfiles[sse.Profile] = true;
+                        }
+                        else if (sse.State == "idle" || sse.State == "completed" || sse.State == "error")
+                        {
+                            _activeProfiles.TryRemove(sse.Profile, out _);
+                        }
+                    }
+
                     EventDispatched?.Invoke("session_status", new
                     {
                         sessionId = sse.SessionId,
@@ -249,6 +291,7 @@ public sealed class SidecarHostService : IDisposable
 
     public async Task StartProfileSessionAsync(string profileName, string? workingDirectory = null, string? model = null)
     {
+        _activeProfiles[profileName] = true;
         await EnsureOnlineAsync().ConfigureAwait(false);
         await _client.SendAsync(new StartSessionRequest
         {
@@ -260,6 +303,7 @@ public sealed class SidecarHostService : IDisposable
 
     public async Task StopProfileSessionAsync(string profileName)
     {
+        _activeProfiles.TryRemove(profileName, out _);
         await EnsureOnlineAsync().ConfigureAwait(false);
         await _client.SendAsync(new StopSessionRequest
         {
