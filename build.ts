@@ -75,7 +75,7 @@ async function compileTarget(target: TargetConfig, rootDir: string): Promise<boo
   const start = performance.now();
 
   const proc = Bun.spawn([
-    'bun',
+    process.execPath,
     'build',
     entryPoint,
     '--compile',

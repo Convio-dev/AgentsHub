@@ -96,7 +96,20 @@
     <None Update="scripts\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <Content Include="bin\win-x64\AgentsEngine.exe" Condition="Exists('bin\win-x64\AgentsEngine.exe')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="bin\osx-arm64\AgentsEngine" Condition="Exists('bin\osx-arm64\AgentsEngine')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+    <Content Include="bin\linux-x64\AgentsEngine" Condition="Exists('bin\linux-x64\AgentsEngine')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
   </ItemGroup>
+
 
   <!-- Terminate any running instance before build to prevent MSB3021 file lock -->
   <Target Name="CloseRunningInstance" BeforeTargets="BeforeBuild" Condition="'$(OS)' == 'Windows_NT'">
