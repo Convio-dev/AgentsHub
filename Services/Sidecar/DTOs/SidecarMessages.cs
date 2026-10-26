@@ -1,0 +1,264 @@
+#nullable enable
+using System.Text.Json.Serialization;
+
+namespace AgentsHub.Services.Sidecar.DTOs;
+
+public enum AgentState
+{
+    Idle,
+    Thinking,
+    ExecutingTool,
+    Streaming,
+    Completed,
+    Error,
+    Aborted
+}
+
+// --- Outbound Requests (Host -> Sidecar) ---
+
+public class BaseRequest
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    [JsonPropertyName("action")]
+    public string Action { get; set; } = string.Empty;
+}
+
+public class AuthRequest : BaseRequest
+{
+    public AuthRequest() => Action = "auth";
+
+    [JsonPropertyName("token")]
+    public string Token { get; set; } = string.Empty;
+}
+
+public class PingRequest : BaseRequest
+{
+    public PingRequest() => Action = "ping";
+}
+
+public class StartTaskRequest : BaseRequest
+{
+    public StartTaskRequest() => Action = "start_task";
+
+    [JsonPropertyName("taskId")]
+    public string TaskId { get; set; } = Guid.NewGuid().ToString("N");
+
+    [JsonPropertyName("prompt")]
+    public string Prompt { get; set; } = string.Empty;
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
+    [JsonPropertyName("workingDirectory")]
+    public string? WorkingDirectory { get; set; }
+
+    [JsonPropertyName("environment")]
+    public Dictionary<string, string>? Environment { get; set; }
+}
+
+public class AbortTaskRequest : BaseRequest
+{
+    public AbortTaskRequest() => Action = "abort_task";
+
+    [JsonPropertyName("taskId")]
+    public string TaskId { get; set; } = string.Empty;
+
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+}
+
+public class ExecuteToolRequest : BaseRequest
+{
+    public ExecuteToolRequest() => Action = "execute_tool";
+
+    [JsonPropertyName("callId")]
+    public string CallId { get; set; } = Guid.NewGuid().ToString("N");
+
+    [JsonPropertyName("taskId")]
+    public string? TaskId { get; set; }
+
+    [JsonPropertyName("tool")]
+    public string Tool { get; set; } = string.Empty;
+
+    [JsonPropertyName("params")]
+    public Dictionary<string, object?> Params { get; set; } = [];
+
+    [JsonPropertyName("timeoutMs")]
+    public int? TimeoutMs { get; set; }
+}
+
+public class TerminalInputRequest : BaseRequest
+{
+    public TerminalInputRequest() => Action = "terminal_input";
+
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("data")]
+    public string Data { get; set; } = string.Empty;
+}
+
+public class TerminalResizeRequest : BaseRequest
+{
+    public TerminalResizeRequest() => Action = "terminal_resize";
+
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("cols")]
+    public int Cols { get; set; } = 120;
+
+    [JsonPropertyName("rows")]
+    public int Rows { get; set; } = 32;
+}
+
+// --- Inbound Events (Sidecar -> Host) ---
+
+public class BaseSidecarEvent
+{
+    [JsonPropertyName("event")]
+    public string Event { get; set; } = string.Empty;
+
+    [JsonPropertyName("timestamp")]
+    public string? Timestamp { get; set; }
+}
+
+public class ServerReadyEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("port")]
+    public int Port { get; set; }
+
+    [JsonPropertyName("pid")]
+    public int Pid { get; set; }
+
+    [JsonPropertyName("platform")]
+    public string Platform { get; set; } = string.Empty;
+
+    [JsonPropertyName("arch")]
+    public string Arch { get; set; } = string.Empty;
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+}
+
+public class AgentStateEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("taskId")]
+    public string? TaskId { get; set; }
+
+    [JsonPropertyName("state")]
+    public string State { get; set; } = "idle";
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+}
+
+public class StreamDeltaEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("taskId")]
+    public string TaskId { get; set; } = string.Empty;
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+
+    [JsonPropertyName("index")]
+    public int Index { get; set; }
+}
+
+public class ToolStartEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("taskId")]
+    public string TaskId { get; set; } = string.Empty;
+
+    [JsonPropertyName("callId")]
+    public string CallId { get; set; } = string.Empty;
+
+    [JsonPropertyName("tool")]
+    public string Tool { get; set; } = string.Empty;
+
+    [JsonPropertyName("params")]
+    public System.Text.Json.JsonElement Params { get; set; }
+}
+
+public class ToolOutputEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("taskId")]
+    public string TaskId { get; set; } = string.Empty;
+
+    [JsonPropertyName("callId")]
+    public string CallId { get; set; } = string.Empty;
+
+    [JsonPropertyName("tool")]
+    public string Tool { get; set; } = string.Empty;
+
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("result")]
+    public System.Text.Json.JsonElement? Result { get; set; }
+
+    [JsonPropertyName("error")]
+    public string? Error { get; set; }
+
+    [JsonPropertyName("exitCode")]
+    public int? ExitCode { get; set; }
+
+    [JsonPropertyName("durationMs")]
+    public long DurationMs { get; set; }
+}
+
+public class TaskCompletedSummary
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("durationMs")]
+    public long DurationMs { get; set; }
+
+    [JsonPropertyName("tokensUsed")]
+    public int? TokensUsed { get; set; }
+
+    [JsonPropertyName("stepsCount")]
+    public int StepsCount { get; set; }
+
+    [JsonPropertyName("error")]
+    public string? Error { get; set; }
+
+    [JsonPropertyName("completedAt")]
+    public string? CompletedAt { get; set; }
+}
+
+public class TaskCompletedEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("taskId")]
+    public string TaskId { get; set; } = string.Empty;
+
+    [JsonPropertyName("summary")]
+    public TaskCompletedSummary? Summary { get; set; }
+}
+
+public class TerminalDataEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("data")]
+    public string Data { get; set; } = string.Empty;
+}
+
+public class SidecarErrorEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("replyTo")]
+    public string? ReplyTo { get; set; }
+
+    [JsonPropertyName("code")]
+    public string Code { get; set; } = string.Empty;
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+}

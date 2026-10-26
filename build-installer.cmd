@@ -11,5 +11,16 @@ if /i "%~1"=="osx" set "ARGS=osx-arm64 osx-x64"
 if /i "%~1"=="mac" set "ARGS=osx-arm64 osx-x64"
 if /i "%~1"=="all" set "ARGS=win-x64 linux-x64 linux-arm64 osx-arm64 osx-x64"
 
+if /i "%~1"=="sidecar" (
+    call "%~dp0build-sidecar.cmd" --all
+    exit /b %ERRORLEVEL%
+)
+
+:: Build sidecar binary if missing for local run
+if not exist "%~dp0bin\win-x64\AgentsEngine.exe" (
+    echo [*] Sidecar binary missing. Building local sidecar engine first...
+    call "%~dp0build-sidecar.cmd" --target=win-x64
+)
+
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\BuildTargets.ps1" -Targets "%ARGS%"
 exit /b %ERRORLEVEL%

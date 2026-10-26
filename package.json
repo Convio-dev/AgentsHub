@@ -1,0 +1,20 @@
+{
+  "name": "agents-hub-sidecar",
+  "version": "1.0.0",
+  "description": "High-Performance Cross-Platform Desktop Sidecar Engine for AgentsHub",
+  "main": "src/engine.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/engine.ts --port=0 --token=dev-secret",
+    "build": "bun run build.ts",
+    "build:all": "bun run build.ts --all",
+    "build:win": "bun run build.ts --target=win-x64",
+    "build:mac": "bun run build.ts --target=osx-arm64",
+    "build:linux": "bun run build.ts --target=linux-x64",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["bun-types"],
+    "allowImportingTsExtensions": true,
+    "moduleDetection": "force",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*", "build.ts"],
+  "exclude": ["node_modules", "dist", "bin", "obj"]
+}
