@@ -2,6 +2,8 @@
   "name": "agents-hub-sidecar",
   "version": "1.0.0",
   "description": "High-Performance Cross-Platform Desktop Sidecar Engine for AgentsHub",
+  "author": "ZerroDevs (https://github.com/ZerroDevs)",
+  "license": "SEE LICENSE IN LICENSE",
   "main": "src/engine.ts",
   "type": "module",
   "scripts": {

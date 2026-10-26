@@ -272,4 +272,6 @@ Contributions, bug reports, and feature proposals are welcome. Please read our *
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE) © 2026 ZeroNuxs / ZerroDevs.
+This project is licensed under a custom Source-Available (Non-Commercial, Copyleft & Trademark-Protected) License. See the **[LICENSE](LICENSE)** file for complete terms and conditions.
+
+Copyright © 2026 [ZerroDevs](https://github.com/ZerroDevs). All Rights Reserved.

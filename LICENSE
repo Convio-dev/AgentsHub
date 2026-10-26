@@ -1,21 +1,21 @@
-MIT License
+Copyright (c) 2026 ZerroDevs (https://github.com/ZerroDevs). All Rights Reserved.
 
-Copyright (c) 2026 ZeroNuxs
+This license governs the use, viewing, modification, and redistribution of the accompanying software, source code, designs, documentation, and related assets (collectively, the "Software"). By downloading, accessing, copying, running, or modifying the Software, you irrevocably agree to the following terms and conditions:
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. PERMITTED NON-COMMERCIAL USE:
+   You are granted a personal, revocable, non-exclusive, non-transferable license to view, download, compile, execute, study, and modify the Software solely for personal, non-commercial, research, testing, or educational purposes.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. STRICT COMMERCIAL RESTRICTIONS:
+   You MAY NOT use, host, run as a service, sublicense, rent, sell, redistribute, embed, or incorporate this Software (in whole or in part, in source or binary format) for any commercial advantage, monetary compensation, enterprise or internal business operation, or paid software/cloud service without an express, separate, prior written commercial license granted by ZerroDevs.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. RECIPROCAL SHARE-ALIKE (COPYLEFT REQUIREMENT):
+   If you modify, fork, adapt, or build upon the Software for authorized non-commercial purposes, and distribute, share, or make those modifications available to any third party:
+   (a) You must distribute the modified software under this identical license without altering these terms or restrictions.
+   (b) You must make the complete source code of your modifications publicly and freely available under the same conditions.
+   (c) You must prominently retain all original copyright notices, contributor attributions, and references to ZerroDevs.
+
+4. TRADEMARKS, LOGOS & BRANDING ASSETS:
+   This license does NOT grant any rights to use trademarks, trade names, logos, mascots, custom UI icons, or branding associated with ZerroDevs or "AgentsHub". All visual identities, mascot designs, and project branding remain the exclusive intellectual property of ZerroDevs and are strictly prohibited from being reused or extracted for other software or projects.
+
+5. DISCLAIMER OF WARRANTY:
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL ZERRODEVS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
