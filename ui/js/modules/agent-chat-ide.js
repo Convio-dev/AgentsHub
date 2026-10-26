@@ -575,9 +575,9 @@
         row.innerHTML = `
           <i class="fa-solid fa-bolt text-sky-500 text-xs flex-shrink-0"></i>
           <span class="truncate flex-1 font-medium select-none" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</span>
-          <span class="text-[10px] font-mono text-content-dim flex-shrink-0 group-hover:hidden">${isActive ? 'active' : (s.stepCount ? `${s.stepCount} steps` : '')}</span>
-          <button class="btn-del-session hidden group-hover:flex items-center justify-center w-5 h-5 rounded hover:bg-rose-500/15 text-content-dim hover:text-rose-500 transition flex-shrink-0" title="Delete Session">
-            <i class="fa-regular fa-trash-can text-[11px]"></i>
+          <span class="text-[10px] font-mono text-content-dim flex-shrink-0 mr-1">${isActive ? 'active' : (s.stepCount ? `${s.stepCount} steps` : '')}</span>
+          <button type="button" class="btn-del-session flex items-center justify-center w-5 h-5 rounded text-content-dim hover:text-rose-500 hover:bg-rose-500/15 transition flex-shrink-0 cursor-pointer" title="Delete Session" style="opacity: 0.7;">
+            <i class="fa-regular fa-trash-can text-[11px] pointer-events-none"></i>
           </button>
         `;
 
@@ -586,6 +586,7 @@
         const delBtn = row.querySelector('.btn-del-session');
         delBtn?.addEventListener('click', async (e) => {
           e.stopPropagation();
+          e.preventDefault();
           await deleteSessionItem(s);
         });
 
