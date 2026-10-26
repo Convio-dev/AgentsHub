@@ -66,40 +66,48 @@
       <div class="flex items-center space-x-2 font-semibold text-content-main">
         <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
         <span class="tracking-wide">AGENTS HUB</span>
-        <span class="px-1.5 py-0.5 text-[10px] bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30 rounded" id="brand-version">v1.0.5</span>
+        <span class="px-1.5 py-0.5 text-[10px] bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30 rounded" id="brand-version">v2.0</span>
       </div>
+
       <span class="opacity-30">|</span>
-      <div class="flex items-center space-x-2">
-        <span class="text-content-muted">ConPTY:</span>
-        <span class="text-emerald-500 font-mono text-[11px] font-medium">Active</span>
-        <span class="opacity-30">&bull;</span>
-        <div class="status-pill flex items-center gap-1.5" id="pill-hermes">
-          <span class="dot" id="dot-hermes"></span>
-          <span>Hermes: <b id="status-hermes" class="font-normal text-content-main">Offline</b></span>
-        </div>
-        <div class="status-pill flex items-center gap-1.5" id="pill-antigravity">
-          <span class="dot" id="dot-antigravity"></span>
-          <span>Antigravity: <b id="status-antigravity" class="font-normal text-content-main">Offline</b></span>
-        </div>
+
+      <!-- Global Project Workspace & Git Branch Context -->
+      <div class="flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-surface-card border border-surface-border text-xs shadow-sm">
+        <i class="fa-regular fa-folder-open text-amber-500 text-[11px]"></i>
+        <span id="header-ws-name" class="font-medium text-content-main">Default Workspace</span>
+        <span class="opacity-30">/</span>
+        <span id="header-branch-name" class="font-mono text-[10px] text-sky-500 flex items-center gap-1">
+          <i class="fa-solid fa-code-branch text-[9px]"></i>
+          <span id="header-branch-text">main</span>
+        </span>
       </div>
     </div>
 
+    <!-- Center ConPTY Status -->
+    <div class="flex items-center space-x-2 text-xs font-mono text-content-muted">
+      <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+      <span>ConPTY: <strong class="text-emerald-500 font-semibold">Active</strong></span>
+    </div>
+
     <!-- Telemetry & Action Shortcuts -->
-    <div class="header-metrics-group flex items-center space-x-3">
-      <div class="flex items-center space-x-2 font-mono text-[11px] text-content-muted">
-        <div class="metric-badge" id="metric-ram">RAM 0 MB</div>
-        <div class="metric-badge" id="metric-net">NET 0 KB/s</div>
+    <div class="header-metrics-group flex items-center space-x-2.5">
+      <!-- Combined Compact Telemetry Pill -->
+      <div class="flex items-center space-x-2 text-[11px] font-mono px-2 py-1 rounded-lg bg-surface-card border border-surface-border text-content-muted shadow-sm">
+        <span id="metric-ram" class="text-sky-500 font-semibold">RAM 0 MB</span>
+        <span class="opacity-30">|</span>
+        <span id="metric-net" class="text-emerald-500">NET 0 KB/s</span>
       </div>
 
       <!-- Quake HUD Toggle -->
-      <button id="btn-toggle-hud" class="flex items-center space-x-1.5 px-2 py-1 rounded bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-content-main transition text-[11px] shadow-sm">
+      <button id="btn-toggle-hud" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-content-main transition text-xs shadow-sm" title="Toggle HUD Terminal (F12)">
         <i class="fa-solid fa-terminal text-[10px] text-sky-500"></i>
-        <span>HUD Console <kbd class="px-1 py-0.2 bg-black/10 dark:bg-black/40 rounded text-[9px] border border-surface-border text-content-muted">F12</kbd></span>
+        <span>HUD</span>
+        <kbd class="px-1 py-0.2 bg-black/10 dark:bg-black/40 rounded text-[9px] border border-surface-border font-mono">F12</kbd>
       </button>
 
       <!-- Toast History -->
       <div class="toast-history-wrap relative">
-        <button class="btn-icon w-6 h-6 flex items-center justify-center text-content-muted hover:text-content-main rounded hover:bg-surface-card" id="btn-toast-history" type="button" title="Notification history" aria-expanded="false">
+        <button class="btn-icon w-6 h-6 flex items-center justify-center text-content-muted hover:text-content-main rounded hover:bg-surface-card transition" id="btn-toast-history" type="button" title="Notification history" aria-expanded="false">
           <i class="fa-regular fa-bell text-xs"></i>
           <span class="toast-history-badge absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-sky-500 text-[9px] text-white flex items-center justify-center" id="toast-history-count" style="display: none;">0</span>
         </button>
@@ -240,47 +248,29 @@
       </div>
 
       <!-- Conversations & Work History List -->
-      <div class="flex-1 overflow-y-auto px-2 py-3 space-y-4">
-        <div>
-          <span class="text-[10px] uppercase tracking-wider text-content-dim font-semibold px-2">Today</span>
-          <div class="mt-1 space-y-1" id="session-history-list">
-            <button onclick="if (typeof loadSession === 'function') loadSession('UI/UX Overhaul for AgentsHub v2.0');" class="w-full text-left px-2.5 py-2 rounded-lg bg-surface-card border border-surface-border text-xs text-content-main flex items-center space-x-2 group shadow-sm">
-              <i class="fa-solid fa-bolt text-sky-500 text-xs"></i>
-              <span class="truncate flex-1 font-medium">UI/UX Overhaul v2.0</span>
-              <span class="text-[10px] font-mono text-content-dim">active</span>
-            </button>
-            <button onclick="if (typeof loadSession === 'function') loadSession('Git Manager Multi-Branch Sync');" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-content-muted hover:text-content-main flex items-center space-x-2 transition">
-              <i class="fa-solid fa-code-branch text-content-dim text-xs"></i>
-              <span class="truncate flex-1">Git Multi-Branch Sync</span>
-              <span class="text-[10px] font-mono text-content-dim">1h</span>
-            </button>
+      <div class="flex-1 overflow-y-auto px-2 py-3 space-y-4" id="sessions-scroll-container">
+        <!-- Dynamic Session Groups (Today, Yesterday, Earlier) -->
+        <div id="session-history-list" class="space-y-3">
+          <div class="py-4 text-center text-xs text-content-dim italic flex flex-col items-center gap-1.5">
+            <i class="fa-solid fa-spinner animate-spin text-sm text-sky-500"></i>
+            <span>Loading sessions...</span>
           </div>
         </div>
 
-        <div>
-          <span class="text-[10px] uppercase tracking-wider text-content-dim font-semibold px-2">Yesterday</span>
-          <div class="mt-1 space-y-1">
-            <button onclick="if (typeof loadSession === 'function') loadSession('ConPTY Stream Terminal Buffer');" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-content-muted hover:text-content-main flex items-center space-x-2 transition">
-              <i class="fa-solid fa-terminal text-content-dim text-xs"></i>
-              <span class="truncate flex-1">ConPTY Stream Buffer</span>
-              <span class="text-[10px] font-mono text-content-dim">1d</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Active Repo Files Tree Shortcut -->
+        <!-- Active Repo Files Tree (Live Real Filesystem) -->
         <div class="pt-2 border-t border-surface-border">
           <div class="flex items-center justify-between px-2 mb-1">
             <span class="text-[10px] uppercase tracking-wider text-content-dim font-semibold">Workspace Files</span>
-            <span class="text-[10px] text-content-dim font-mono">v2redesign</span>
+            <span class="text-[10px] text-sky-500 font-mono flex items-center gap-1" id="workspace-branch-badge">
+              <i class="fa-solid fa-code-branch text-[9px]"></i>
+              <span id="workspace-branch-text">main</span>
+            </span>
           </div>
-          <div class="space-y-0.5 text-xs text-content-muted px-2 font-mono" id="repo-file-tree">
-            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-folder text-amber-500"></i><span>ui/views/</span></div>
-            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-sky-500"></i><span>chat.html</span></div>
-            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-emerald-500"></i><span>repositories.html</span></div>
-            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-sky-500"></i><span>mcp.html</span></div>
-            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-folder text-amber-500"></i><span>Services/</span></div>
-            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file text-content-dim"></i><span>DashboardWebBridge.cs</span></div>
+          <div class="space-y-0.5 text-xs text-content-muted px-1 font-mono max-h-60 overflow-y-auto" id="repo-file-tree">
+            <div class="py-2 px-1 text-[11px] text-content-dim italic flex items-center gap-1.5">
+              <i class="fa-solid fa-spinner animate-spin text-[10px] text-sky-500"></i>
+              <span>Scanning files...</span>
+            </div>
           </div>
         </div>
       </div>

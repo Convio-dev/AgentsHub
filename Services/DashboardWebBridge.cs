@@ -2440,6 +2440,97 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "get_workspace_files":
+                {
+                    string? targetDir = null;
+                    if (data.TryGetProperty("path", out var targetPathProp))
+                    {
+                        targetDir = targetPathProp.GetString();
+                    }
+                    if (string.IsNullOrWhiteSpace(targetDir))
+                    {
+                        var activeWs = AiConfigService.Instance.GetActiveWorkspace();
+                        targetDir = activeWs?.WorkingDirectory;
+                    }
+                    if (string.IsNullOrWhiteSpace(targetDir) || !Directory.Exists(targetDir))
+                    {
+                        targetDir = Directory.GetCurrentDirectory();
+                    }
+
+                    var branch = "main";
+                    try
+                    {
+                        var repo = GitRepositoryManagerService.Instance.GetRepository(targetDir);
+                        if (repo != null && !string.IsNullOrWhiteSpace(repo.Branch))
+                        {
+                            branch = repo.Branch;
+                        }
+                    }
+                    catch { }
+
+                    var fileEntries = new List<object>();
+                    try
+                    {
+                        var dirInfo = new DirectoryInfo(targetDir);
+                        var ignoredNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ".git", ".vs", "bin", "obj", "node_modules", ".agents", "dist", "build"
+                        };
+
+                        foreach (var subDir in dirInfo.GetDirectories().OrderBy(d => d.Name))
+                        {
+                            if (ignoredNames.Contains(subDir.Name) || subDir.Name.StartsWith('.')) continue;
+                            fileEntries.Add(new
+                            {
+                                name = subDir.Name + "/",
+                                path = subDir.Name,
+                                isDirectory = true,
+                                extension = ""
+                            });
+
+                            try
+                            {
+                                foreach (var childFile in subDir.GetFiles().Take(6).OrderBy(f => f.Name))
+                                {
+                                    fileEntries.Add(new
+                                    {
+                                        name = childFile.Name,
+                                        path = Path.Combine(subDir.Name, childFile.Name).Replace('\\', '/'),
+                                        isDirectory = false,
+                                        extension = childFile.Extension.ToLowerInvariant()
+                                    });
+                                }
+                            }
+                            catch { }
+                        }
+
+                        foreach (var file in dirInfo.GetFiles().OrderBy(f => f.Name))
+                        {
+                            if (file.Name.StartsWith('.') || file.Name.EndsWith(".user")) continue;
+                            fileEntries.Add(new
+                            {
+                                name = file.Name,
+                                path = file.Name,
+                                isDirectory = false,
+                                extension = file.Extension.ToLowerInvariant()
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        SendResponse(requestId, false, ex.Message);
+                        break;
+                    }
+
+                    SendResponse(requestId, true, new
+                    {
+                        rootPath = targetDir,
+                        branch,
+                        files = fileEntries
+                    });
+                }
+                break;
+
             case "get_token_telemetry":
                 SendResponse(requestId, true, ProxyTelemetryService.Instance.GetSummary());
                 break;
