@@ -747,6 +747,18 @@
 
     // 3. For each profile, spawn execution card and dispatch input with \r\n
     for (const profileName of targets) {
+      // Complete any previous active card for this profile
+      const prevCard = activeExecutionCards.get(profileName.toLowerCase());
+      if (prevCard) {
+        const prevBadge = prevCard.querySelector('.card-status-badge');
+        if (prevBadge) {
+          prevBadge.className = 'card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
+          prevBadge.textContent = 'Done';
+        }
+        const ping = prevCard.querySelector('.animate-ping');
+        if (ping) ping.classList.remove('animate-ping');
+      }
+
       const executionCard = document.createElement('div');
       executionCard.className = 'flex items-start space-x-3 max-w-3xl';
       executionCard.innerHTML = `
@@ -789,7 +801,7 @@
       if (typeof window.callBridge === 'function') {
         try {
           await window.callBridge('send_terminal_input', {
-            cli: 'antigravity_profile:' + profileName,
+            cli: 'antigravity_cli:' + profileName,
             input: text + '\r\n'
           });
         } catch (err) {
@@ -827,11 +839,16 @@
         const liveLine = card.querySelector('.exec-live-line');
         if (liveLine) {
           const lines = cleanChunk.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
-          if (lines.length > 0) {
-            const displaySnip = lines[lines.length - 1];
-            if (displaySnip.length > 0) {
-              liveLine.textContent = displaySnip.slice(0, 100);
-            }
+          const validLines = lines.filter(l => 
+            !l.includes('? for shortcuts') && 
+            !l.includes('esc to dismiss') && 
+            !l.includes('Verbosity is now') &&
+            !l.startsWith('>') &&
+            l.length > 1
+          );
+          if (validLines.length > 0) {
+            const displaySnip = validLines[validLines.length - 1];
+            liveLine.textContent = displaySnip.slice(0, 100);
           }
         }
       }

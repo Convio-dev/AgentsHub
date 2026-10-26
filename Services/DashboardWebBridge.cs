@@ -393,18 +393,7 @@ public sealed partial class DashboardWebBridge : IDisposable
     // the session that is actually running instead of at an empty "antigravity_cli" buffer.
     private string ResolveTerminalSessionId(string cli)
     {
-        if (CliManagerService.IsAntigravityProfileId(cli, out _)) return cli;
-
-        string norm = AiConfigService.NormalizeCliId(cli);
-        if (!string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase)) return norm;
-
-        var profile = _cliManager.ProfileService.ActiveProfile;
-        if (string.IsNullOrWhiteSpace(profile))
-        {
-            var profiles = _cliManager.ProfileService.GetProfiles();
-            profile = profiles.Count > 0 ? profiles[0] : "Default";
-        }
-        return CliManagerService.FormatAntigravityProfileId(profile);
+        return _cliManager.ResolveSessionId(cli);
     }
 
     // The dashboard terminal and the standalone workspace show the same sessions, so a tab change
@@ -2806,7 +2795,19 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "send_terminal_input":
                 if (data.TryGetProperty("cli", out var inCli) && data.TryGetProperty("input", out var inData))
                 {
-                    _cliManager.SendInput(ResolveTerminalSessionId(inCli.GetString() ?? string.Empty), inData.GetString() ?? string.Empty);
+                    string targetCli = ResolveTerminalSessionId(inCli.GetString() ?? string.Empty);
+                    string rawInput = inData.GetString() ?? string.Empty;
+
+                    if (CliManagerService.IsAntigravityProfileId(targetCli, out _))
+                    {
+                        var cliInfo = _cliManager.GetInfo(targetCli);
+                        if (cliInfo.State != CliState.Running && cliInfo.State != CliState.Starting)
+                        {
+                            _cliManager.Start(targetCli);
+                        }
+                    }
+
+                    _cliManager.SendInput(targetCli, rawInput);
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;

@@ -173,6 +173,11 @@ public class CliManagerService : IDisposable
             profileName = id["antigravity_cli:".Length..].Trim();
             return !string.IsNullOrEmpty(profileName);
         }
+        if (id.StartsWith("antigravity_profile:", StringComparison.OrdinalIgnoreCase))
+        {
+            profileName = id["antigravity_profile:".Length..].Trim();
+            return !string.IsNullOrEmpty(profileName);
+        }
         profileName = string.Empty;
         return false;
     }
@@ -180,6 +185,47 @@ public class CliManagerService : IDisposable
     public static string FormatAntigravityProfileId(string profileName)
     {
         return $"antigravity_cli:{profileName.Trim()}";
+    }
+
+    public string ResolveSessionId(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            var act = _profileService.ActiveProfile;
+            if (string.IsNullOrWhiteSpace(act))
+            {
+                var profs = _profileService.GetProfiles();
+                act = profs.Count > 0 ? profs[0] : "Default";
+            }
+            return FormatAntigravityProfileId(act);
+        }
+
+        id = id.Trim();
+
+        if (IsAntigravityProfileId(id, out var profName))
+        {
+            return FormatAntigravityProfileId(profName);
+        }
+
+        var allProfiles = _profileService.GetProfiles();
+        var matched = allProfiles.FirstOrDefault(p => string.Equals(p, id, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrEmpty(matched))
+        {
+            return FormatAntigravityProfileId(matched);
+        }
+
+        string norm = AiConfigService.NormalizeCliId(id);
+        if (string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
+        {
+            var act = _profileService.ActiveProfile;
+            if (string.IsNullOrWhiteSpace(act))
+            {
+                act = allProfiles.Count > 0 ? allProfiles[0] : "Default";
+            }
+            return FormatAntigravityProfileId(act);
+        }
+
+        return norm;
     }
 
     public int AllocatePortForProfile(string profileName)
@@ -387,26 +433,14 @@ public class CliManagerService : IDisposable
 
     public void Start(string id)
     {
+        id = ResolveSessionId(id);
         bool isAgyProf = IsAntigravityProfileId(id, out var profileName);
         if (!isAgyProf)
         {
-            id = AiConfigService.NormalizeCliId(id);
             if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
             {
                 _hermesService.Start();
                 return;
-            }
-
-            if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
-            {
-                var activeProf = _profileService.ActiveProfile;
-                if (string.IsNullOrWhiteSpace(activeProf))
-                {
-                    var allProfs = _profileService.GetProfiles();
-                    activeProf = allProfs.Count > 0 ? allProfs[0] : "Default";
-                }
-                id = FormatAntigravityProfileId(activeProf);
-                isAgyProf = IsAntigravityProfileId(id, out profileName);
             }
         }
 
@@ -786,24 +820,14 @@ public class CliManagerService : IDisposable
 
     public async Task StopAsync(string id)
     {
+        id = ResolveSessionId(id);
         bool isAgyProf = IsAntigravityProfileId(id, out var profileName);
         if (!isAgyProf)
         {
-            id = AiConfigService.NormalizeCliId(id);
             if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
             {
                 await _hermesService.StopAsync();
                 return;
-            }
-
-            if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
-            {
-                var activeProf = _profileService.ActiveProfile;
-                if (!string.IsNullOrWhiteSpace(activeProf))
-                {
-                    id = FormatAntigravityProfileId(activeProf);
-                    isAgyProf = IsAntigravityProfileId(id, out profileName);
-                }
             }
         }
 
@@ -869,10 +893,7 @@ public class CliManagerService : IDisposable
 
     public void SendInput(string id, string data)
     {
-        if (!IsAntigravityProfileId(id, out _))
-        {
-            id = AiConfigService.NormalizeCliId(id);
-        }
+        id = ResolveSessionId(id);
         if (_terminalSessions.TryGetValue(id, out var session) && session.IsRunning)
         {
             session.Write(data);
@@ -884,10 +905,7 @@ public class CliManagerService : IDisposable
 
     public void Resize(string id, short cols, short rows)
     {
-        if (!IsAntigravityProfileId(id, out _))
-        {
-            id = AiConfigService.NormalizeCliId(id);
-        }
+        id = ResolveSessionId(id);
         if (_terminalSessions.TryGetValue(id, out var session) && session.IsRunning)
         {
             session.Resize(cols, rows);
@@ -898,10 +916,7 @@ public class CliManagerService : IDisposable
 
     public string GetTerminalHistory(string id)
     {
-        if (!IsAntigravityProfileId(id, out _))
-        {
-            id = AiConfigService.NormalizeCliId(id);
-        }
+        id = ResolveSessionId(id);
         if (_terminalBuffers.TryGetValue(id, out var buf))
         {
             lock (buf)
@@ -917,10 +932,7 @@ public class CliManagerService : IDisposable
 
     public void ClearTerminalHistory(string id)
     {
-        if (!IsAntigravityProfileId(id, out _))
-        {
-            id = AiConfigService.NormalizeCliId(id);
-        }
+        id = ResolveSessionId(id);
         if (_terminalBuffers.TryGetValue(id, out var buf))
         {
             lock (buf)
