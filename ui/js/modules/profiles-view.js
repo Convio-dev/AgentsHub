@@ -382,6 +382,10 @@
       summary.textContent = `Antigravity Profile: ${active}`;
     }
 
+    if (typeof window.renderProfilesInChat === 'function') {
+      window.renderProfilesInChat(rawProfiles, active);
+    }
+
     [sel, cardSel].forEach(dropdown => {
       if (!dropdown) return;
       dropdown.innerHTML = '';

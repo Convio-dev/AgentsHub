@@ -1,4 +1,13 @@
   function setupNavigation() {
+    // Resilient event delegation on document for all navigation and rail items
+    document.addEventListener('click', (e) => {
+      const item = e.target.closest('.nav-item, .rail-item');
+      if (item && item.dataset.view) {
+        e.preventDefault();
+        switchView(item.dataset.view);
+      }
+    });
+
     const navItems = document.querySelectorAll('.nav-item, .rail-item');
     navItems.forEach(item => {
       item.addEventListener('click', () => {
@@ -67,7 +76,10 @@
       i.classList.toggle('active', i.dataset.view === viewName);
     });
     document.querySelectorAll('.view-pane').forEach(p => {
-      p.classList.toggle('active', p.id === `view-${viewName}`);
+      const isActive = p.id === `view-${viewName}`;
+      p.classList.toggle('active', isActive);
+      p.classList.toggle('hidden', !isActive);
+      p.style.display = isActive ? 'flex' : 'none';
     });
 
     window.dispatchEvent(new CustomEvent('view-switched', { detail: { activeView: viewName } }));
@@ -182,7 +194,7 @@
       hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
     }
     if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
-      hex = '#4049B9';
+      hex = '#0284C7';
     }
     hex = hex.toUpperCase();
 
@@ -195,6 +207,7 @@
     const rootStyle = document.documentElement.style;
 
     document.documentElement.setAttribute('data-theme', activeTheme);
+    document.documentElement.classList.toggle('dark', activeTheme === 'dark');
 
     if (activeTheme === 'dark') {
       // Discord-style Dark Surface Hierarchy modulated by intensity

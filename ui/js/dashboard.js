@@ -10,7 +10,7 @@
   // 2. Initialize Theme immediately
   try {
     const savedTheme = localStorage.getItem('agents_hub_theme') || 'dark';
-    const savedColor = localStorage.getItem('agents_hub_accent_color') || '#4049B9';
+    const savedColor = localStorage.getItem('agents_hub_accent_color') || '#0284C7';
     if (typeof window.applyAdaptiveTheme === 'function') {
       window.applyAdaptiveTheme(savedTheme, savedColor);
     }
@@ -63,6 +63,7 @@
   if (typeof window.setupGlobalActions === 'function') window.setupGlobalActions();
   if (typeof window.initRepositoriesModule === 'function') window.initRepositoriesModule();
   if (typeof window.setupOnboardingGuide === 'function') window.setupOnboardingGuide();
+  if (typeof window.setupAgentChatIde === 'function') window.setupAgentChatIde();
 
   function updateDashboardGridClasses() {
     const grid = document.querySelector('#view-dashboard .card-grid');

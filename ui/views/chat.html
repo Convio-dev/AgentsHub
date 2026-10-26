@@ -1,5 +1,5 @@
 <!-- VIEW 0: AI Agent Chat IDE (Primary Workspace) -->
-<div id="view-chat" class="view-pane active flex-1 flex flex-col h-full overflow-hidden bg-surface-deep text-slate-200">
+<div id="view-chat" class="view-pane active bg-surface-deep text-slate-200">
   
   <!-- Chat Context Header -->
   <div class="h-12 border-b border-surface-border px-5 flex items-center justify-between bg-surface-deep/90 backdrop-blur z-10 flex-shrink-0">
@@ -10,7 +10,7 @@
       </h1>
       <span class="text-xs px-2.5 py-0.5 rounded bg-surface-card border border-surface-border text-slate-300 font-mono flex items-center space-x-1.5">
         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-        <span id="header-profile-badge">Antigravity CLI (agy) • ZXR@1</span>
+        <span id="header-profile-badge">Antigravity CLI (agy)</span>
       </span>
     </div>
 
@@ -46,107 +46,17 @@
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-2 font-semibold text-slate-100">
           <i class="fa-solid fa-layer-group text-sky-400"></i>
-          <span>Workspace Context Attached: <strong id="chat-active-workspace-label" class="font-mono text-sky-300">AgentsHub.v2</strong></span>
+          <span>Workspace Context: <strong id="chat-active-workspace-label" class="font-mono text-sky-300">Default Workspace</strong></span>
         </div>
         <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">VirtualHome Isolated</span>
       </div>
       <p class="text-slate-400 leading-relaxed">
-        Headless supervised execution active. Commands and file operations dispatch directly to local CLI backends. You can send code prompts below or toggle the full ConPTY terminal with <kbd class="px-1 py-0.5 bg-black/40 rounded border border-slate-700 text-[10px]">F12</kbd>.
+        Headless supervised execution active. Prompts and commands dispatch directly to the active ConPTY CLI process. You can send prompts below or inspect real-time logs via the Quake HUD (<kbd class="px-1 py-0.5 bg-black/40 rounded border border-slate-700 text-[10px]">F12</kbd>).
       </p>
     </div>
 
-    <!-- USER PROMPT MESSAGE (Example Seed) -->
-    <div class="flex items-start space-x-3 max-w-3xl">
-      <div class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-slate-300 flex-shrink-0">
-        YOU
-      </div>
-      <div class="flex-1 bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-slate-200">
-        <p>Inspect active project workspace and configure the dark-mode agentic IDE interface.</p>
-      </div>
-    </div>
-
-    <!-- AGENT RESPONSE + HEADLESS TOOL CALL CARDS -->
-    <div class="flex items-start space-x-3 max-w-3xl">
-      <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center text-white text-xs flex-shrink-0 shadow-md shadow-sky-600/30">
-        <i class="fa-solid fa-microchip"></i>
-      </div>
-      <div class="flex-1 space-y-3">
-        
-        <!-- Reasoning Collapsible Block -->
-        <details class="bg-surface-card/70 border border-surface-border rounded-lg text-xs group" open>
-          <summary class="px-3 py-2 cursor-pointer text-slate-400 hover:text-slate-200 flex items-center justify-between font-mono">
-            <span class="flex items-center space-x-2">
-              <i class="fa-solid fa-brain text-sky-400"></i>
-              <span>Agent Execution Plan</span>
-            </span>
-            <i class="fa-solid fa-chevron-down text-[10px] group-open:rotate-180 transition-transform"></i>
-          </summary>
-          <div class="px-3 pb-3 pt-1 text-slate-400 border-t border-surface-border/50 text-[11px] space-y-1 font-mono">
-            <p>1. Attached to VirtualHome environment on port <code class="text-sky-300 font-bold">9339</code>.</p>
-            <p>2. Verified Git repository status on branch <code class="text-emerald-400">v2redesign</code>.</p>
-            <p>3. Active tooling: Model Context Protocol (MCP) and supervised background ConPTY listeners ready.</p>
-          </div>
-        </details>
-
-        <!-- TOOL EXECUTION CARD 1: File Read -->
-        <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs flex items-center justify-between">
-          <div class="flex items-center space-x-2.5">
-            <div class="w-6 h-6 rounded bg-sky-950/70 border border-sky-800/60 flex items-center justify-center text-sky-400">
-              <i class="fa-regular fa-file-lines text-xs"></i>
-            </div>
-            <div>
-              <span class="font-mono text-slate-300 font-medium">Read File:</span>
-              <span class="font-mono text-slate-400 ml-1">AgentsHub/MainForm.cs</span>
-            </div>
-          </div>
-          <span class="text-[11px] text-emerald-400 font-mono flex items-center space-x-1">
-            <i class="fa-solid fa-check text-[10px]"></i>
-            <span>Completed (1,225 lines)</span>
-          </span>
-        </div>
-
-        <!-- TOOL EXECUTION CARD 2: File Modification with Diff Trigger -->
-        <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs flex items-center justify-between">
-          <div class="flex items-center space-x-2.5">
-            <div class="w-6 h-6 rounded bg-amber-950/70 border border-amber-800/60 flex items-center justify-center text-amber-400">
-              <i class="fa-solid fa-pen-to-square text-xs"></i>
-            </div>
-            <div>
-              <span class="font-mono text-slate-300 font-medium">Modified File:</span>
-              <span class="font-mono text-slate-400 ml-1">ui/index.html</span>
-              <span class="ml-2 px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">+48 -12 lines</span>
-            </div>
-          </div>
-          <button onclick="if (typeof switchView === 'function') switchView('repositories');" class="px-2.5 py-1 bg-surface-deep hover:bg-slate-800 text-sky-300 hover:text-sky-200 border border-surface-border rounded font-mono text-[11px] transition flex items-center space-x-1.5">
-            <i class="fa-solid fa-code-compare text-[10px]"></i>
-            <span>Review Diff</span>
-          </button>
-        </div>
-
-        <!-- TOOL EXECUTION CARD 3: Silent Headless CLI Run -->
-        <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs flex items-center justify-between">
-          <div class="flex items-center space-x-2.5">
-            <div class="w-6 h-6 rounded bg-emerald-950/70 border border-emerald-800/60 flex items-center justify-center text-emerald-400">
-              <i class="fa-solid fa-play text-xs"></i>
-            </div>
-            <div>
-              <span class="font-mono text-slate-300 font-medium">Headless CLI Run:</span>
-              <span class="font-mono text-slate-400 ml-1">git branch -a</span>
-            </div>
-          </div>
-          <span class="text-[11px] text-emerald-400 font-mono flex items-center space-x-1">
-            <i class="fa-solid fa-circle-check text-[10px]"></i>
-            <span>Exit Code 0 (Success)</span>
-          </span>
-        </div>
-
-        <!-- Agent Written Conclusion & Code Sample -->
-        <div class="bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-slate-200 space-y-3">
-          <p>AgentsHub v2.0 AI Agent Workspace is active and ready. All background runners, Quake HUD overlays, and Git synchronizers are online.</p>
-        </div>
-
-      </div>
-    </div>
+    <!-- Dynamic Messages Container -->
+    <div id="chat-messages-container" class="space-y-4 max-w-3xl mx-auto"></div>
 
   </div>
 

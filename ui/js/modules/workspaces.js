@@ -13,6 +13,11 @@
     const effectiveActiveId = activeId || state.activeWorkspaceId;
     const activeWs = list.find(w => w.id === effectiveActiveId) || list[0] || null;
 
+    // Sync Chat IDE workspace selector
+    if (typeof window.renderWorkspacesInChat === 'function') {
+      window.renderWorkspacesInChat(list, effectiveActiveId);
+    }
+
     // Header active badge in Profiles view
     const badge = document.getElementById('active-workspace-status-badge');
     if (badge) {

@@ -10,6 +10,7 @@
     const tabRules = document.getElementById('tab-btn-rules');
     const tabSessions = document.getElementById('tab-btn-sessions');
     const tabAutomations = document.getElementById('tab-btn-automations');
+    const mcpWrapper = document.getElementById('mcp-section-wrapper');
     const mcpContainer = document.getElementById('mcp-servers-container');
     const skillsContainer = document.getElementById('agent-skills-container');
     const skillsGrid = document.getElementById('agent-skills-grid');
@@ -96,17 +97,33 @@
     });
 
     function switchSubTab(target) {
-      tabMcp?.classList.toggle('active', target === 'mcp');
-      tabSkills?.classList.toggle('active', target === 'skills');
-      tabRules?.classList.toggle('active', target === 'rules');
-      tabSessions?.classList.toggle('active', target === 'sessions');
-      tabAutomations?.classList.toggle('active', target === 'automations');
+      const subtabs = [
+        { id: 'mcp', btn: tabMcp },
+        { id: 'skills', btn: tabSkills },
+        { id: 'rules', btn: tabRules },
+        { id: 'sessions', btn: tabSessions },
+        { id: 'automations', btn: tabAutomations }
+      ];
 
+      subtabs.forEach(st => {
+        if (!st.btn) return;
+        const isActive = st.id === target;
+        st.btn.classList.toggle('active', isActive);
+        if (isActive) {
+          st.btn.classList.add('bg-sky-950/60', 'text-sky-400', 'border-sky-800/50');
+          st.btn.classList.remove('hover:bg-surface-card', 'text-slate-400', 'border-transparent');
+        } else {
+          st.btn.classList.remove('bg-sky-950/60', 'text-sky-400', 'border-sky-800/50');
+          st.btn.classList.add('hover:bg-surface-card', 'text-slate-400', 'border-transparent');
+        }
+      });
+
+      if (mcpWrapper) mcpWrapper.style.display = target === 'mcp' ? 'block' : 'none';
       if (mcpContainer) mcpContainer.style.display = target === 'mcp' ? 'grid' : 'none';
-      if (skillsContainer) skillsContainer.style.display = target === 'skills' ? 'flex' : 'none';
-      if (rulesContainer) rulesContainer.style.display = target === 'rules' ? 'flex' : 'none';
-      if (sessionsContainer) sessionsContainer.style.display = target === 'sessions' ? 'flex' : 'none';
-      if (automationsContainer) automationsContainer.style.display = target === 'automations' ? 'flex' : 'none';
+      if (skillsContainer) skillsContainer.style.display = target === 'skills' ? 'block' : 'none';
+      if (rulesContainer) rulesContainer.style.display = target === 'rules' ? 'block' : 'none';
+      if (sessionsContainer) sessionsContainer.style.display = target === 'sessions' ? 'block' : 'none';
+      if (automationsContainer) automationsContainer.style.display = target === 'automations' ? 'block' : 'none';
 
       if (btnAdd) btnAdd.style.display = target === 'mcp' ? 'inline-flex' : 'none';
       if (btnAddSkill) btnAddSkill.style.display = target === 'skills' ? 'inline-flex' : 'none';

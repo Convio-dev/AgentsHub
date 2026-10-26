@@ -361,8 +361,12 @@
         const savedView = localStorage.getItem('agents_hub_active_view') || 'chat';
         const targetPane = document.getElementById('view-' + savedView);
         if (targetPane) {
-          document.querySelectorAll('.view-pane').forEach(p => p.classList.remove('active'));
-          targetPane.classList.add('active');
+          document.querySelectorAll('.view-pane').forEach(p => {
+            const isTarget = (p === targetPane);
+            p.classList.toggle('active', isTarget);
+            p.classList.toggle('hidden', !isTarget);
+            p.style.display = isTarget ? 'flex' : 'none';
+          });
         }
       } catch (e) {}
     })();
