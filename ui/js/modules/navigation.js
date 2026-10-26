@@ -22,12 +22,16 @@
     
     // Restore sidebar preference
     const savedCollapsed = localStorage.getItem('agents_hub_sidebar_collapsed') === 'true';
-    if (savedCollapsed && sidebar) sidebar.classList.add('collapsed');
+    if (savedCollapsed && sidebar) {
+      sidebar.classList.add('collapsed');
+      sidebar.style.display = 'none';
+    }
 
     btnToggleSidebar?.addEventListener('click', () => {
       if (sidebar) {
-        sidebar.classList.toggle('collapsed');
-        localStorage.setItem('agents_hub_sidebar_collapsed', sidebar.classList.contains('collapsed'));
+        const isCollapsed = sidebar.classList.toggle('collapsed');
+        sidebar.style.display = isCollapsed ? 'none' : 'flex';
+        localStorage.setItem('agents_hub_sidebar_collapsed', isCollapsed);
       }
       if (state.activeView === 'terminals') {
         setTimeout(() => fitTerminalSession(terminalSessions[normalizeCliKey(state.activeTerminalCli)]), 220);
@@ -71,6 +75,24 @@
     try {
       localStorage.setItem('agents_hub_active_view', viewName);
     } catch (e) {}
+
+    document.documentElement.dataset.activeView = viewName;
+    document.body.dataset.activeView = viewName;
+
+    // Sidebar isolation: secondary sidebar is exclusive to chat view
+    const sidebar = document.getElementById('conversations-sidebar') || document.getElementById('sidebar');
+    const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
+    if (sidebar) {
+      if (viewName === 'chat') {
+        const isCollapsed = localStorage.getItem('agents_hub_sidebar_collapsed') === 'true';
+        sidebar.classList.toggle('collapsed', isCollapsed);
+        sidebar.style.display = isCollapsed ? 'none' : 'flex';
+        if (btnToggleSidebar) btnToggleSidebar.style.display = 'flex';
+      } else {
+        sidebar.style.display = 'none';
+        if (btnToggleSidebar) btnToggleSidebar.style.display = 'none';
+      }
+    }
 
     document.querySelectorAll('.nav-item, .rail-item').forEach(i => {
       i.classList.toggle('active', i.dataset.view === viewName);
@@ -208,6 +230,8 @@
 
     document.documentElement.setAttribute('data-theme', activeTheme);
     document.documentElement.classList.toggle('dark', activeTheme === 'dark');
+    document.body.setAttribute('data-theme', activeTheme);
+    document.body.classList.toggle('dark', activeTheme === 'dark');
 
     if (activeTheme === 'dark') {
       // Discord-style Dark Surface Hierarchy modulated by intensity
@@ -228,6 +252,8 @@
       rootStyle.setProperty('--text-main', '#f8fafc');
       rootStyle.setProperty('--text-muted', `hsl(${h}, 12%, 68%)`);
       rootStyle.setProperty('--text-dim', `hsl(${h}, 10%, 48%)`);
+      rootStyle.setProperty('--accent-sky', '#38BDF8');
+      rootStyle.setProperty('--accent-cyan', '#38BDF8');
 
       const darkAccent = l < 42 ? `hsl(${h}, ${Math.max(s, 50)}%, 52%)` : hex;
       const lum = getPerceivedLuminance(darkAccent);
@@ -255,6 +281,8 @@
       rootStyle.setProperty('--text-main', `hsl(${h}, 28%, 11%)`);
       rootStyle.setProperty('--text-muted', `hsl(${h}, 16%, 36%)`);
       rootStyle.setProperty('--text-dim', `hsl(${h}, 10%, 52%)`);
+      rootStyle.setProperty('--accent-sky', '#0284C7');
+      rootStyle.setProperty('--accent-cyan', '#0284C7');
 
       const lightAccent = l > 48 ? `hsl(${h}, ${Math.max(s, 60)}%, 42%)` : hex;
       const lum = getPerceivedLuminance(lightAccent);

@@ -17,6 +17,7 @@
   --accent-blue: #0284C7;
   --accent-blue-hover: #0369A1;
   --accent-sky: #38BDF8;
+  --accent-cyan: #38BDF8;
   --accent-sky-bg: rgba(2, 132, 199, 0.15);
   --accent-green: #10B981;
   --accent-green-hover: #059669;
@@ -39,7 +40,8 @@
 }
 
 html[data-theme="light"],
-:root[data-theme="light"] {
+:root[data-theme="light"],
+body[data-theme="light"] {
   --bg-app: #F8FAFC;
   --bg-sidebar: #FFFFFF;
   --bg-header: #FFFFFF;
@@ -52,5 +54,7 @@ html[data-theme="light"],
   --text-main: #0F172A;
   --text-muted: #475569;
   --text-dim: #64748B;
+  --accent-sky: #0284C7;
+  --accent-cyan: #0284C7;
   --bg-terminal: #0F172A;
 }

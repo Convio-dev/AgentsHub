@@ -31,13 +31,18 @@
               600: '#0369a1',
             },
             surface: {
-              deep: '#0B0F17',
-              sidebar: '#0F172A',
-              card: '#141420',
-              cardHover: '#1A1A2B',
-              border: '#1E293B',
-              borderLight: '#2C2C44',
-              input: '#12121C',
+              deep: 'var(--bg-app)',
+              sidebar: 'var(--bg-sidebar)',
+              card: 'var(--bg-card)',
+              cardHover: 'var(--bg-card-hover)',
+              border: 'var(--border-subtle)',
+              borderLight: 'var(--border-subtle)',
+              input: 'var(--bg-input)',
+            },
+            content: {
+              main: 'var(--text-main)',
+              muted: 'var(--text-muted)',
+              dim: 'var(--text-dim)',
             }
           }
         }
@@ -49,58 +54,58 @@
   <link rel="stylesheet" href="./css/xterm.css">
   <link rel="stylesheet" href="./css/dashboard.css">
 </head>
-<body class="bg-surface-deep text-slate-200 font-sans h-screen flex flex-col overflow-hidden select-none">
+<body class="bg-surface-deep text-content-main font-sans h-screen flex flex-col overflow-hidden select-none">
 
   <!-- TOP DRAG / STATUS BAR (App Title Bar for Windows WebView2) -->
-  <header id="top-header" class="h-9 bg-surface-deep border-b border-surface-border flex items-center justify-between px-3 text-xs text-slate-400 z-30">
+  <header id="top-header" class="h-9 bg-surface-deep border-b border-surface-border flex items-center justify-between px-3 text-xs text-content-muted z-30">
     <div class="header-left-group flex items-center space-x-3">
-      <button id="btn-toggle-sidebar" class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white rounded hover:bg-surface-card transition" title="Toggle Secondary Sidebar">
+      <button id="btn-toggle-sidebar" class="w-6 h-6 flex items-center justify-center text-content-muted hover:text-content-main rounded hover:bg-surface-card transition" title="Toggle Secondary Sidebar">
         <i class="fa-solid fa-bars text-xs"></i>
       </button>
 
-      <div class="flex items-center space-x-2 font-semibold text-slate-200">
+      <div class="flex items-center space-x-2 font-semibold text-content-main">
         <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
         <span class="tracking-wide">AGENTS HUB</span>
-        <span class="px-1.5 py-0.5 text-[10px] bg-sky-950/80 text-sky-400 border border-sky-800/60 rounded" id="brand-version">v2.0-rc</span>
+        <span class="px-1.5 py-0.5 text-[10px] bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30 rounded" id="brand-version">v1.0.5</span>
       </div>
-      <span class="text-slate-600">|</span>
+      <span class="opacity-30">|</span>
       <div class="flex items-center space-x-2">
-        <span class="text-slate-500">ConPTY:</span>
-        <span class="text-emerald-400 font-mono text-[11px] font-medium">Active</span>
-        <span class="text-slate-600">&bull;</span>
+        <span class="text-content-muted">ConPTY:</span>
+        <span class="text-emerald-500 font-mono text-[11px] font-medium">Active</span>
+        <span class="opacity-30">&bull;</span>
         <div class="status-pill flex items-center gap-1.5" id="pill-hermes">
           <span class="dot" id="dot-hermes"></span>
-          <span>Hermes: <b id="status-hermes" class="font-normal text-slate-300">Offline</b></span>
+          <span>Hermes: <b id="status-hermes" class="font-normal text-content-main">Offline</b></span>
         </div>
         <div class="status-pill flex items-center gap-1.5" id="pill-antigravity">
           <span class="dot" id="dot-antigravity"></span>
-          <span>Antigravity: <b id="status-antigravity" class="font-normal text-slate-300">Offline</b></span>
+          <span>Antigravity: <b id="status-antigravity" class="font-normal text-content-main">Offline</b></span>
         </div>
       </div>
     </div>
 
     <!-- Telemetry & Action Shortcuts -->
     <div class="header-metrics-group flex items-center space-x-3">
-      <div class="flex items-center space-x-2 font-mono text-[11px] text-slate-400">
+      <div class="flex items-center space-x-2 font-mono text-[11px] text-content-muted">
         <div class="metric-badge" id="metric-ram">RAM 0 MB</div>
         <div class="metric-badge" id="metric-net">NET 0 KB/s</div>
       </div>
 
       <!-- Quake HUD Toggle -->
-      <button id="btn-toggle-hud" class="flex items-center space-x-1.5 px-2 py-1 rounded bg-surface-card border border-surface-border hover:border-sky-500/50 hover:text-sky-300 transition text-[11px]">
-        <i class="fa-solid fa-terminal text-[10px] text-sky-400"></i>
-        <span>HUD Console <kbd class="px-1 py-0.2 bg-black/40 rounded text-[9px] border border-slate-700">F12</kbd></span>
+      <button id="btn-toggle-hud" class="flex items-center space-x-1.5 px-2 py-1 rounded bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-content-main transition text-[11px] shadow-sm">
+        <i class="fa-solid fa-terminal text-[10px] text-sky-500"></i>
+        <span>HUD Console <kbd class="px-1 py-0.2 bg-black/10 dark:bg-black/40 rounded text-[9px] border border-surface-border text-content-muted">F12</kbd></span>
       </button>
 
       <!-- Toast History -->
       <div class="toast-history-wrap relative">
-        <button class="btn-icon w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white" id="btn-toast-history" type="button" title="Notification history" aria-expanded="false">
+        <button class="btn-icon w-6 h-6 flex items-center justify-center text-content-muted hover:text-content-main rounded hover:bg-surface-card" id="btn-toast-history" type="button" title="Notification history" aria-expanded="false">
           <i class="fa-regular fa-bell text-xs"></i>
           <span class="toast-history-badge absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-sky-500 text-[9px] text-white flex items-center justify-center" id="toast-history-count" style="display: none;">0</span>
         </button>
         <div class="toast-history-panel" id="toast-history-panel" style="display: none;">
           <div class="toast-history-head flex items-center justify-between p-2 border-b border-surface-border">
-            <span class="text-xs font-semibold">Notifications</span>
+            <span class="text-xs font-semibold text-content-main">Notifications</span>
             <button class="btn btn-outline text-[10px] px-2 py-0.5" id="btn-clear-toast-history" type="button">Clear</button>
           </div>
           <div class="toast-history-list max-h-60 overflow-y-auto" id="toast-history-list"></div>
@@ -108,27 +113,21 @@
       </div>
 
       <!-- Refresh State -->
-      <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-surface-card rounded transition" id="btn-refresh-state" title="Refresh State">
+      <button class="w-6 h-6 flex items-center justify-center text-content-muted hover:text-content-main hover:bg-surface-card rounded transition" id="btn-refresh-state" title="Refresh State">
         <i class="fa-solid fa-arrows-rotate text-xs"></i>
       </button>
 
-      <!-- Windows Native Controls Emulation -->
-      <div class="flex items-center space-x-1 pl-2 border-l border-surface-border">
-        <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-surface-card rounded"><i class="fa-solid fa-minus text-[9px]"></i></button>
-        <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-surface-card rounded"><i class="fa-regular fa-square text-[9px]"></i></button>
-        <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded"><i class="fa-solid fa-xmark text-[11px]"></i></button>
-      </div>
     </div>
   </header>
 
   <!-- QUAKE-STYLE SLIDING DROP-DOWN HUD TERMINAL (OVERLAY) -->
-  <div id="quake-hud" class="absolute top-9 left-0 w-full h-[65vh] bg-surface-deep/95 backdrop-blur-xl border-b-2 border-sky-500/80 shadow-2xl z-50 flex flex-col pointer-events-none">
+  <div id="quake-hud" class="absolute top-9 left-0 w-full h-[65vh] bg-surface-deep border-b-2 border-sky-500/80 shadow-2xl z-50 flex flex-col pointer-events-none">
     <div class="h-8 bg-surface-sidebar border-b border-surface-border flex items-center justify-between px-4 text-xs">
       <div class="flex items-center space-x-3">
-        <i class="fa-solid fa-terminal text-sky-400"></i>
-        <span class="font-mono font-semibold text-slate-200">Native Windows ConPTY Console Stream</span>
-        <span class="text-slate-500">|</span>
-        <span class="text-slate-400 font-mono text-[11px]">Supervisor Worker Attached</span>
+        <i class="fa-solid fa-terminal text-sky-500"></i>
+        <span class="font-mono font-semibold text-content-main">Native Windows ConPTY Console Stream</span>
+        <span class="opacity-30">|</span>
+        <span class="text-content-muted font-mono text-[11px]">Supervisor Worker Attached</span>
       </div>
       <div class="flex items-center space-x-2">
         <button onclick="clearHudTerminal()" class="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded text-[11px] bg-surface-card border border-surface-border">Clear Buffer</button>
@@ -156,40 +155,40 @@
 
         <!-- Primary View Switchers -->
         <div class="rail-nav flex flex-col items-center space-y-2">
-          <button class="rail-item active w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="chat" title="AI Agent Workspace (Chat IDE)">
+          <button class="rail-item active w-10 h-10 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main transition" data-view="chat" title="AI Agent Workspace (Chat IDE)">
             <i class="fa-solid fa-comments text-base"></i>
           </button>
 
-          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="dashboard" title="Dashboard &amp; Running Ports">
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main transition" data-view="dashboard" title="Dashboard &amp; Running Ports">
             <i class="fa-solid fa-gauge-high text-base"></i>
           </button>
 
-          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="terminals" title="Interactive Terminals (ConPTY)">
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main transition" data-view="terminals" title="Interactive Terminals (ConPTY)">
             <i class="fa-solid fa-terminal text-base"></i>
           </button>
 
-          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition relative" data-view="repositories" title="Visual Git &amp; Repositories">
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main transition relative" data-view="repositories" title="Visual Git &amp; Repositories">
             <i class="fa-solid fa-code-branch text-base"></i>
             <span class="rail-item-badge"></span>
           </button>
 
-          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="profiles" title="Antigravity Multi-Account Profiles">
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main transition" data-view="profiles" title="Antigravity Multi-Account Profiles">
             <i class="fa-solid fa-users-gear text-base"></i>
           </button>
 
-          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="mcp" title="Model Context Protocol (MCP) &amp; Skills">
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main transition" data-view="mcp" title="Model Context Protocol (MCP) &amp; Skills">
             <i class="fa-solid fa-cubes-stacked text-base"></i>
           </button>
 
-          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="devtools" title="AI Dev Tools &amp; Runtimes">
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main transition" data-view="devtools" title="AI Dev Tools &amp; Runtimes">
             <i class="fa-solid fa-wrench text-base"></i>
           </button>
 
-          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="lan" title="LAN Remote &amp; Broadcast">
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main transition" data-view="lan" title="LAN Remote &amp; Broadcast">
             <i class="fa-solid fa-wifi text-base"></i>
           </button>
 
-          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 transition" data-view="settings" title="Settings &amp; Telemetry">
+          <button class="rail-item w-10 h-10 rounded-lg flex items-center justify-center text-content-muted hover:text-content-main transition" data-view="settings" title="Settings &amp; Telemetry">
             <i class="fa-solid fa-sliders text-base"></i>
           </button>
         </div>
@@ -209,14 +208,14 @@
       
       <!-- Workspace Directory Selector -->
       <div class="p-3 border-b border-surface-border">
-        <label class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block mb-1.5">Project Workspace</label>
+        <label class="text-[10px] uppercase tracking-wider text-content-dim font-semibold block mb-1.5">Project Workspace</label>
         <div class="relative">
-          <select id="select-project-workspace" onchange="if (typeof onWorkspaceChange === 'function') onWorkspaceChange(this.value);" class="w-full bg-surface-card border border-surface-border text-xs text-slate-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500 cursor-pointer appearance-none pr-8 font-mono">
+          <select id="select-project-workspace" onchange="if (typeof onWorkspaceChange === 'function') onWorkspaceChange(this.value);" class="w-full bg-surface-card border border-surface-border text-xs text-content-main rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500 cursor-pointer appearance-none pr-8 font-mono">
             <option value="AgentsHub.v2" selected>AgentsHub.v2 (active)</option>
             <option value="ainzara">ainzara (C:\...\ainzara)</option>
             <option value="ChessSenseV2">ChessSenseV2</option>
           </select>
-          <i class="fa-solid fa-chevron-down absolute right-2.5 top-2.5 text-[10px] text-slate-400 pointer-events-none"></i>
+          <i class="fa-solid fa-chevron-down absolute right-2.5 top-2.5 text-[10px] text-content-dim pointer-events-none"></i>
         </div>
 
         <!-- '+ New Agent Session' Button -->
@@ -227,11 +226,11 @@
       </div>
 
       <!-- Active Runner / Profile Selector Pill -->
-      <div class="px-3 py-2 bg-surface-deep/60 border-b border-surface-border flex items-center justify-between text-xs">
-        <span class="text-slate-400 text-[11px]">Runner:</span>
+      <div class="px-3 py-2 bg-surface-deep border-b border-surface-border flex items-center justify-between text-xs">
+        <span class="text-content-dim text-[11px]">Runner:</span>
         <div class="flex items-center space-x-1.5">
-          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          <select id="agent-profile-selector" onchange="if (typeof switchAgentProfile === 'function') switchAgentProfile(this.value);" class="bg-transparent text-slate-300 font-mono text-[11px] focus:outline-none cursor-pointer">
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <select id="agent-profile-selector" onchange="if (typeof switchAgentProfile === 'function') switchAgentProfile(this.value);" class="bg-transparent text-content-main font-mono text-[11px] focus:outline-none cursor-pointer">
             <option value="ZXR@1">agy: ZXR@1 (Port 9339)</option>
             <option value="ZXR@2">agy: ZXR@2 (Port 9340)</option>
             <option value="ZXR@3">agy: ZXR@3 (Port 9341)</option>
@@ -243,28 +242,28 @@
       <!-- Conversations & Work History List -->
       <div class="flex-1 overflow-y-auto px-2 py-3 space-y-4">
         <div>
-          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-2">Today</span>
+          <span class="text-[10px] uppercase tracking-wider text-content-dim font-semibold px-2">Today</span>
           <div class="mt-1 space-y-1" id="session-history-list">
-            <button onclick="if (typeof loadSession === 'function') loadSession('UI/UX Overhaul for AgentsHub v2.0');" class="w-full text-left px-2.5 py-2 rounded-lg bg-surface-card border border-surface-borderLight text-xs text-slate-200 flex items-center space-x-2 group">
-              <i class="fa-solid fa-bolt text-sky-400 text-xs"></i>
+            <button onclick="if (typeof loadSession === 'function') loadSession('UI/UX Overhaul for AgentsHub v2.0');" class="w-full text-left px-2.5 py-2 rounded-lg bg-surface-card border border-surface-border text-xs text-content-main flex items-center space-x-2 group shadow-sm">
+              <i class="fa-solid fa-bolt text-sky-500 text-xs"></i>
               <span class="truncate flex-1 font-medium">UI/UX Overhaul v2.0</span>
-              <span class="text-[10px] font-mono text-slate-400">active</span>
+              <span class="text-[10px] font-mono text-content-dim">active</span>
             </button>
-            <button onclick="if (typeof loadSession === 'function') loadSession('Git Manager Multi-Branch Sync');" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-2 transition">
-              <i class="fa-solid fa-code-branch text-slate-500 text-xs"></i>
+            <button onclick="if (typeof loadSession === 'function') loadSession('Git Manager Multi-Branch Sync');" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-content-muted hover:text-content-main flex items-center space-x-2 transition">
+              <i class="fa-solid fa-code-branch text-content-dim text-xs"></i>
               <span class="truncate flex-1">Git Multi-Branch Sync</span>
-              <span class="text-[10px] font-mono text-slate-400">1h</span>
+              <span class="text-[10px] font-mono text-content-dim">1h</span>
             </button>
           </div>
         </div>
 
         <div>
-          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-2">Yesterday</span>
+          <span class="text-[10px] uppercase tracking-wider text-content-dim font-semibold px-2">Yesterday</span>
           <div class="mt-1 space-y-1">
-            <button onclick="if (typeof loadSession === 'function') loadSession('ConPTY Stream Terminal Buffer');" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-2 transition">
-              <i class="fa-solid fa-terminal text-slate-500 text-xs"></i>
+            <button onclick="if (typeof loadSession === 'function') loadSession('ConPTY Stream Terminal Buffer');" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-content-muted hover:text-content-main flex items-center space-x-2 transition">
+              <i class="fa-solid fa-terminal text-content-dim text-xs"></i>
               <span class="truncate flex-1">ConPTY Stream Buffer</span>
-              <span class="text-[10px] font-mono text-slate-400">1d</span>
+              <span class="text-[10px] font-mono text-content-dim">1d</span>
             </button>
           </div>
         </div>
@@ -272,16 +271,16 @@
         <!-- Active Repo Files Tree Shortcut -->
         <div class="pt-2 border-t border-surface-border">
           <div class="flex items-center justify-between px-2 mb-1">
-            <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Workspace Files</span>
-            <span class="text-[10px] text-slate-400 font-mono">v2redesign</span>
+            <span class="text-[10px] uppercase tracking-wider text-content-dim font-semibold">Workspace Files</span>
+            <span class="text-[10px] text-content-dim font-mono">v2redesign</span>
           </div>
-          <div class="space-y-0.5 text-xs text-slate-400 px-2 font-mono" id="repo-file-tree">
-            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-folder text-amber-400"></i><span>ui/views/</span></div>
-            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-sky-400"></i><span>chat.html</span></div>
-            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-emerald-400"></i><span>repositories.html</span></div>
-            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-sky-400"></i><span>mcp.html</span></div>
-            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-folder text-amber-400"></i><span>Services/</span></div>
-            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file text-slate-400"></i><span>DashboardWebBridge.cs</span></div>
+          <div class="space-y-0.5 text-xs text-content-muted px-2 font-mono" id="repo-file-tree">
+            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-folder text-amber-500"></i><span>ui/views/</span></div>
+            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-sky-500"></i><span>chat.html</span></div>
+            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-emerald-500"></i><span>repositories.html</span></div>
+            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-sky-500"></i><span>mcp.html</span></div>
+            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-folder text-amber-500"></i><span>Services/</span></div>
+            <div class="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file text-content-dim"></i><span>DashboardWebBridge.cs</span></div>
           </div>
         </div>
       </div>

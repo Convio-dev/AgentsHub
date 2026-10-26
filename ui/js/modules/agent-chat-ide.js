@@ -190,10 +190,10 @@
     const userCard = document.createElement('div');
     userCard.className = 'flex items-start space-x-3 max-w-3xl';
     userCard.innerHTML = `
-      <div class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-slate-300 flex-shrink-0">
+      <div class="w-8 h-8 rounded-lg bg-surface-card border border-surface-border flex items-center justify-center font-bold text-xs text-content-main flex-shrink-0 shadow-sm">
         YOU
       </div>
-      <div class="flex-1 bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-slate-200 shadow-sm">
+      <div class="flex-1 bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-content-main shadow-sm">
         <p class="whitespace-pre-wrap">${escapeHtml(text)}</p>
       </div>
     `;
@@ -212,27 +212,27 @@
         <i class="fa-solid fa-microchip"></i>
       </div>
       <div class="flex-1 space-y-3">
-        <div class="bg-surface-card border border-surface-border rounded-xl p-4 text-xs space-y-2.5">
-          <div class="flex items-center justify-between font-mono pb-2 border-b border-surface-border/60">
-            <span class="text-slate-300 font-semibold flex items-center space-x-2">
+        <div class="bg-surface-card border border-surface-border rounded-xl p-4 text-xs space-y-2.5 shadow-sm">
+          <div class="flex items-center justify-between font-mono pb-2 border-b border-surface-border">
+            <span class="text-content-main font-semibold flex items-center space-x-2">
               <span class="w-2 h-2 rounded-full bg-sky-400 animate-ping"></span>
               <span>Process: Antigravity (${escapeHtml(activeProfile)})</span>
             </span>
-            <span class="card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-950/70 text-sky-400 border border-sky-800/60">Executing</span>
+            <span class="card-status-badge px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-500 border border-sky-500/30">Executing</span>
           </div>
 
           <!-- Live Output Snip -->
-          <div class="p-2.5 rounded bg-black/50 border border-surface-border font-mono text-[11px] text-slate-300 space-y-1">
-            <div class="text-slate-500">// Dispatched to background ConPTY supervisor</div>
-            <div class="exec-live-line text-emerald-400 font-medium">Ready...</div>
+          <div class="p-2.5 rounded bg-surface-deep border border-surface-border font-mono text-[11px] text-content-main space-y-1">
+            <div class="text-content-dim">// Dispatched to background ConPTY supervisor</div>
+            <div class="exec-live-line text-emerald-500 font-medium">Ready...</div>
           </div>
 
           <div class="flex items-center justify-between pt-1 text-[11px]">
-            <button onclick="if (typeof toggleHud === 'function') toggleHud(true);" class="text-sky-400 hover:text-sky-300 font-mono flex items-center space-x-1.5 transition">
+            <button onclick="if (typeof toggleHud === 'function') toggleHud(true);" class="text-sky-500 hover:text-sky-400 font-mono flex items-center space-x-1.5 transition">
               <i class="fa-solid fa-terminal text-[10px]"></i>
               <span>View Full Terminal (F12) &rarr;</span>
             </button>
-            <button onclick="if (typeof switchView === 'function') switchView('repositories');" class="text-slate-400 hover:text-slate-200 font-mono transition">
+            <button onclick="if (typeof switchView === 'function') switchView('repositories');" class="text-content-muted hover:text-content-main font-mono transition">
               Inspect Diff &rarr;
             </button>
           </div>

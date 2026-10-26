@@ -1,37 +1,37 @@
 <!-- VIEW 0: AI Agent Chat IDE (Primary Workspace) -->
-<div id="view-chat" class="view-pane active bg-surface-deep text-slate-200">
+<div id="view-chat" class="view-pane active bg-surface-deep text-content-main">
   
   <!-- Chat Context Header -->
-  <div class="h-12 border-b border-surface-border px-5 flex items-center justify-between bg-surface-deep/90 backdrop-blur z-10 flex-shrink-0">
+  <div class="h-12 border-b border-surface-border px-5 flex items-center justify-between bg-surface-deep z-10 flex-shrink-0">
     <div class="flex items-center space-x-3">
-      <h1 id="chat-title" class="text-sm font-semibold text-slate-100 flex items-center space-x-2">
-        <i class="fa-solid fa-bolt text-sky-400 text-xs"></i>
+      <h1 id="chat-title" class="text-sm font-semibold text-content-main flex items-center space-x-2">
+        <i class="fa-solid fa-bolt text-sky-500 text-xs"></i>
         <span id="chat-title-text">Active Agent Session</span>
       </h1>
-      <span class="text-xs px-2.5 py-0.5 rounded bg-surface-card border border-surface-border text-slate-300 font-mono flex items-center space-x-1.5">
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="text-xs px-2.5 py-0.5 rounded bg-surface-card border border-surface-border text-content-main font-mono flex items-center space-x-1.5 shadow-sm">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
         <span id="header-profile-badge">Antigravity CLI (agy)</span>
       </span>
     </div>
 
     <div class="flex items-center space-x-3">
       <!-- Quota Monitor Pill -->
-      <div class="flex items-center space-x-2 text-xs bg-surface-card border border-surface-border px-2.5 py-1 rounded">
-        <span class="text-slate-400">Quota:</span>
-        <span id="chat-quota-text" class="text-emerald-400 font-mono font-medium">96% Safe</span>
-        <span class="text-slate-600">|</span>
-        <span class="text-slate-400">Engine:</span>
-        <span id="chat-model-text" class="text-sky-300 font-medium">Gemini 3.8 Flash High</span>
+      <div class="flex items-center space-x-2 text-xs bg-surface-card border border-surface-border px-2.5 py-1 rounded text-content-muted shadow-sm">
+        <span class="text-content-muted">Quota:</span>
+        <span id="chat-quota-text" class="text-emerald-500 font-mono font-medium">96% Safe</span>
+        <span class="opacity-40">|</span>
+        <span class="text-content-muted">Engine:</span>
+        <span id="chat-model-text" class="text-sky-500 font-medium">Gemini 3.8 Flash High</span>
       </div>
 
       <!-- Quick Diff Trigger -->
-      <button onclick="if (typeof switchView === 'function') switchView('repositories');" title="Inspect Current Workspace Diff" class="px-2.5 py-1 rounded bg-surface-card border border-surface-border hover:border-sky-500/50 hover:text-sky-300 text-xs text-slate-300 flex items-center space-x-1.5 transition">
-        <i class="fa-solid fa-code-compare text-sky-400"></i>
+      <button onclick="if (typeof switchView === 'function') switchView('repositories');" title="Inspect Current Workspace Diff" class="px-2.5 py-1 rounded bg-surface-card border border-surface-border hover:border-sky-500/50 hover:text-sky-500 text-xs text-content-muted flex items-center space-x-1.5 transition shadow-sm">
+        <i class="fa-solid fa-code-compare text-sky-500"></i>
         <span>Review Diff</span>
       </button>
 
       <!-- Toggle Quake HUD Terminal -->
-      <button onclick="if (typeof toggleHud === 'function') toggleHud();" title="Toggle HUD ConPTY Terminal (F12 / ~)" class="px-2.5 py-1 rounded bg-surface-card border border-surface-border hover:border-slate-500 text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-1 transition">
+      <button onclick="if (typeof toggleHud === 'function') toggleHud();" title="Toggle HUD ConPTY Terminal (F12 / ~)" class="px-2.5 py-1 rounded bg-surface-card border border-surface-border hover:border-sky-500 text-xs text-content-muted hover:text-content-main flex items-center space-x-1 transition shadow-sm">
         <i class="fa-solid fa-terminal text-[10px]"></i>
         <span>HUD</span>
       </button>
@@ -42,16 +42,16 @@
   <div id="chat-stream" class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
     
     <!-- Welcome & Context Card -->
-    <div id="chat-welcome-banner" class="max-w-3xl mx-auto p-4 rounded-xl bg-surface-card/60 border border-surface-border text-xs text-slate-300 space-y-2">
+    <div id="chat-welcome-banner" class="max-w-3xl mx-auto p-4 rounded-xl bg-surface-card border border-surface-border text-xs text-content-muted space-y-2 shadow-sm">
       <div class="flex items-center justify-between">
-        <div class="flex items-center space-x-2 font-semibold text-slate-100">
-          <i class="fa-solid fa-layer-group text-sky-400"></i>
-          <span>Workspace Context: <strong id="chat-active-workspace-label" class="font-mono text-sky-300">Default Workspace</strong></span>
+        <div class="flex items-center space-x-2 font-semibold text-content-main">
+          <i class="fa-solid fa-layer-group text-sky-500"></i>
+          <span>Workspace Context: <strong id="chat-active-workspace-label" class="font-mono text-sky-500">Default Workspace</strong></span>
         </div>
-        <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">VirtualHome Isolated</span>
+        <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">VirtualHome Isolated</span>
       </div>
-      <p class="text-slate-400 leading-relaxed">
-        Headless supervised execution active. Prompts and commands dispatch directly to the active ConPTY CLI process. You can send prompts below or inspect real-time logs via the Quake HUD (<kbd class="px-1 py-0.5 bg-black/40 rounded border border-slate-700 text-[10px]">F12</kbd>).
+      <p class="text-content-muted leading-relaxed">
+        Headless supervised execution active. Prompts and commands dispatch directly to the active ConPTY CLI process. You can send prompts below or inspect real-time logs via the Quake HUD (<kbd class="px-1 py-0.5 bg-black/10 dark:bg-black/40 rounded border border-surface-border text-[10px]">F12</kbd>).
       </p>
     </div>
 
@@ -65,18 +65,18 @@
     <div class="max-w-4xl mx-auto bg-surface-card border border-surface-border focus-within:border-sky-500 rounded-2xl shadow-xl transition p-2">
       
       <textarea id="prompt-input" rows="2" placeholder="Send instructions to active agent (e.g. 'Build an express route', '/diff', '/switch-profile')..." 
-        class="w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none px-3 py-1 font-sans"></textarea>
+        class="w-full bg-transparent text-sm text-content-main placeholder:text-content-dim focus:outline-none resize-none px-3 py-1 font-sans"></textarea>
 
-      <div class="flex items-center justify-between pt-2 px-2 border-t border-surface-border/50 text-xs text-slate-400">
+      <div class="flex items-center justify-between pt-2 px-2 border-t border-surface-border text-xs text-content-muted">
         <div class="flex items-center space-x-2">
-          <button id="btn-chat-attach" title="Attach Workspace File" class="hover:text-slate-200 p-1 rounded hover:bg-surface-deep transition"><i class="fa-solid fa-paperclip"></i></button>
-          <span class="text-slate-700">|</span>
-          <button id="btn-chat-exec" title="Execute with Bash / PowerShell" class="hover:text-slate-200 p-1 rounded hover:bg-surface-deep font-mono text-[11px] transition"><i class="fa-solid fa-terminal mr-1 text-[10px]"></i>Exec</button>
-          <button id="btn-chat-git" title="Run Git Diff Check" onclick="if (typeof switchView === 'function') switchView('repositories');" class="hover:text-slate-200 p-1 rounded hover:bg-surface-deep font-mono text-[11px] transition"><i class="fa-solid fa-code-branch mr-1 text-[10px]"></i>Git</button>
+          <button id="btn-chat-attach" title="Attach Workspace File" class="hover:text-content-main p-1 rounded hover:bg-surface-deep transition"><i class="fa-solid fa-paperclip"></i></button>
+          <span class="opacity-30">|</span>
+          <button id="btn-chat-exec" title="Execute with Bash / PowerShell" class="hover:text-content-main p-1 rounded hover:bg-surface-deep font-mono text-[11px] transition"><i class="fa-solid fa-terminal mr-1 text-[10px]"></i>Exec</button>
+          <button id="btn-chat-git" title="Run Git Diff Check" onclick="if (typeof switchView === 'function') switchView('repositories');" class="hover:text-content-main p-1 rounded hover:bg-surface-deep font-mono text-[11px] transition"><i class="fa-solid fa-code-branch mr-1 text-[10px]"></i>Git</button>
         </div>
 
         <div class="flex items-center space-x-3">
-          <span id="chat-token-counter" class="text-[11px] font-mono text-slate-400">Tokens: ~1.2k</span>
+          <span id="chat-token-counter" class="text-[11px] font-mono text-content-muted">Tokens: ~1.2k</span>
           <button id="btn-send-prompt" class="bg-sky-600 hover:bg-sky-500 text-white w-8 h-8 rounded-xl flex items-center justify-center transition shadow-md shadow-sky-600/30">
             <i class="fa-solid fa-arrow-up text-xs"></i>
           </button>
@@ -84,8 +84,8 @@
       </div>
 
     </div>
-    <div class="text-center mt-2 text-[10px] text-slate-400">
-      Agents Hub v2.0 • Headless process supervisor directly executing against <span class="font-mono text-slate-400">ConPTY</span> with VirtualHome isolation.
+    <div class="text-center mt-2 text-[10px] text-content-dim">
+      Agents Hub v2.0 • Headless process supervisor directly executing against <span class="font-mono text-content-muted">ConPTY</span> with VirtualHome isolation.
     </div>
   </div>
 
