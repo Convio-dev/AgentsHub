@@ -29,20 +29,39 @@ export function effortLabel(effort?: string | null): string {
   return EFFORT_LABELS[effort.toLowerCase()] || effort;
 }
 
-/** The model a stored id belongs to, accepting either a base id or a concrete tier id. */
+/**
+ * The model a stored value belongs to, accepting a base id, a concrete tier id, or a display label.
+ *
+ * Label matching exists because the host reports the profile default as a label
+ * ("Gemini 3.8 Flash (High)"), and sessions created before that was fixed still carry one. Mapping
+ * it back to the catalogue keeps those sessions usable instead of falling back to the engine default.
+ */
 export function findBaseModel(models: ModelInfo[], id?: string | null): ModelInfo | undefined {
   if (!id) return undefined;
-  return (
+
+  const exact =
     models.find(model => model.id === id) ||
-    models.find(model => Object.values(model.tiers).includes(id))
+    models.find(model => Object.values(model.tiers).includes(id));
+  if (exact) return exact;
+
+  const normalised = id.trim().toLowerCase();
+  const withoutTier = normalised.replace(/\s*\((thinking|high|medium|low|xhigh|max)\)$/, '').trim();
+
+  return (
+    models.find(model => model.label.toLowerCase() === normalised) ||
+    models.find(model => model.label.toLowerCase() === withoutTier)
   );
 }
 
 /**
  * Resolves the id to hand to the engine for a base model plus effort.
  *
+ * Returns `undefined` when the input is not a model the catalog knows. Echoing an unresolved value
+ * back is what shipped a display label (`"Gemini 3.8 Flash (High)"`) to the engine as `--model`,
+ * which it rejects — better to send no model at all and let the engine use its default.
+ *
  * Falls back to the engine's high tier, then to whatever tier exists, because a model that only ships
- * a subset of tiers must still launch something valid rather than a bare base id the CLI rejects.
+ * a subset of tiers must still launch something valid.
  */
 export function resolveModelId(
   models: ModelInfo[],
@@ -52,7 +71,7 @@ export function resolveModelId(
   if (!baseId) return undefined;
 
   const base = findBaseModel(models, baseId);
-  if (!base) return baseId;
+  if (!base) return undefined;
 
   const level = effort?.toLowerCase();
   if (level && base.tiers[level]) return base.tiers[level];

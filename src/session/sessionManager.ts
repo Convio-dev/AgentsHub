@@ -689,8 +689,10 @@ export class SessionManager {
     if (model) {
       agyArgs.push('--model', model);
     }
-    // `agy --effort` accepts low|medium|high|xhigh|max; only pass it when the session has one.
-    if (sessionState.reasoningEffort) {
+    // `agy` rejects a tiered model id combined with `--effort` ("conflicts with --effort=low") and
+    // rejects `--effort` for models without tiers. The tier is already encoded in the model id, so
+    // effort is only forwarded when no model was chosen.
+    if (sessionState.reasoningEffort && !model) {
       agyArgs.push('--effort', sessionState.reasoningEffort);
     }
     agyArgs.push('-p', prompt);
@@ -823,7 +825,7 @@ export class SessionManager {
       '--dangerously-skip-permissions'
     ];
     if (model) agyArgs.push('--model', model);
-    if (sessionState.reasoningEffort) agyArgs.push('--effort', sessionState.reasoningEffort);
+    if (sessionState.reasoningEffort && !model) agyArgs.push('--effort', sessionState.reasoningEffort);
     agyArgs.push('-p', prompt);
 
     const proc = Bun.spawn([agyCmd, ...agyArgs], {

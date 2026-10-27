@@ -10,6 +10,7 @@ import { useSessionStore } from '../store/useSessionStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { ChatAttachment } from '../types/agent';
 import { profileForDispatch } from '../lib/profileName';
+import { resolveModelId, useModelStore } from '../store/useModelStore';
 
 interface DispatchTarget {
   sessionId: string;
@@ -18,13 +19,24 @@ interface DispatchTarget {
 
 function resolveContext(sessionId: string) {
   const session = useSessionStore.getState().sessions[sessionId];
+  const { models } = useModelStore.getState();
+
+  // The session stores whatever the picker last wrote, which for older sessions can be a display
+  // label rather than an id. Resolving against the catalog turns that back into a real id — or into
+  // `undefined`, which means "let the engine use its default".
+  const model =
+    models.length > 0
+      ? resolveModelId(models, session?.model, session?.reasoningEffort)
+      : session?.model || undefined;
 
   return {
-    // An empty model or profile means "let the host decide", which is what the bridge already does
-    // for a missing value. Guessing a name here is what used to hardcode a developer's account.
-    model: session?.model || undefined,
+    model,
     profile: profileForDispatch(session?.profile),
-    reasoningEffort: session?.reasoningEffort || undefined,
+    /**
+     * Effort is deliberately not sent. The engine rejects a tiered model id combined with
+     * `--effort` ("conflicts with --effort=low") and rejects `--effort` for models without tiers,
+     * because the tier is already encoded in the model id. Choosing an effort selects that id.
+     */
     workingDirectory: useWorkspaceStore.getState().activeWorkspace?.workingDirectory || undefined,
   };
 }
@@ -38,7 +50,6 @@ async function dispatch({ sessionId, prompt }: DispatchTarget): Promise<void> {
       prompt,
       model: context.model,
       profile: context.profile,
-      reasoningEffort: context.reasoningEffort,
       workingDirectory: context.workingDirectory,
     });
   } catch (err) {

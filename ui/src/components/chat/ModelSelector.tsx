@@ -144,9 +144,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     setIsEffortOpen(false);
   };
 
-  /** Switching effort re-points the model at the matching tier of the same base model. */
+  /**
+   * Switching effort re-points the model at the matching tier of the same base model. With no model
+   * chosen yet it falls back to the engine's first catalogue entry, so picking an effort on a fresh
+   * session actually applies instead of leaving the request on the engine default.
+   */
   const selectEffort = (level: string) => {
-    const baseId = activeModel?.id || model;
+    const baseId = activeModel?.id || models[0]?.id;
     const concreteId = resolveModelId(models, baseId, level);
     updateSessionTelemetry(sessionId, {
       reasoningEffort: level,

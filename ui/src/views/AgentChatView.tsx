@@ -67,7 +67,9 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
   };
 
   const handleNewTab = () => {
-    const newId = createSession(activeProfileName, defaultModel);
+    // The profile's default model is a *label* ("Gemini 3.8 Flash (High)"), not an id. Seeding the
+    // session with it made the first effort change persist that label and send it as `--model`.
+    const newId = createSession(activeProfileName);
     switchSession(newId);
   };
 
