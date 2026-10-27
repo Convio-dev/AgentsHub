@@ -49,7 +49,10 @@ public sealed class SystemDoctorService
                 {
                     Verb = "runas",
                     UseShellExecute = true,
-                    CreateNoWindow = true
+                    // CreateNoWindow is ignored when UseShellExecute is true, so an elevated console
+                    // command would still flash. WindowStyle is what ShellExecute honours.
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
                 };
                 var proc = Process.Start(psi);
                 if (proc != null)

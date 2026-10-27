@@ -4,12 +4,24 @@ using System.Text;
 
 namespace AgentsHub.Services;
 
-/// <summary>One selectable model reported by the active CLI.</summary>
-/// <param name="Id">Exact identifier handed back to the engine via <c>--model</c>.</param>
-/// <param name="Label">Human-readable name, as the engine prints it.</param>
+/// <summary>
+/// One selectable model reported by the active CLI, collapsed to its base identity.
+/// <para>
+/// The engine lists a separate id per reasoning tier (<c>gemini-3.8-flash-high</c>,
+/// <c>-medium</c>, <c>-low</c>). Showing all of them as models duplicates the list, because the
+/// composer already has a dedicated effort picker — so tiers are folded into <see cref="Tiers"/> and
+/// the UI presents one row per model.
+/// </para>
+/// </summary>
+/// <param name="Id">Base identifier, used when the chosen effort has no dedicated variant.</param>
+/// <param name="Label">Display name with the tier suffix removed.</param>
 /// <param name="Provider">Model family, derived from the id prefix.</param>
-/// <param name="Tier">Reasoning tier encoded in the id (<c>low</c>, <c>medium</c>, <c>high</c>), if any.</param>
-public sealed record ModelInfoDto(string Id, string Label, string Provider, string? Tier);
+/// <param name="Tiers">Effort level to concrete engine id, for the tiers the engine exposes.</param>
+public sealed record ModelInfoDto(
+    string Id,
+    string Label,
+    string Provider,
+    IReadOnlyDictionary<string, string> Tiers);
 
 /// <summary>The model list plus the effort levels the engine accepts.</summary>
 /// <param name="Models">Every model the CLI reported, in its own order.</param>
@@ -163,13 +175,15 @@ public sealed class ModelCatalogService
     }
 
     /// <summary>
-    /// Parses `<c>id\tLabel</c>` lines. Progress chatter such as "Fetching available models…" has no
-    /// tab and is skipped, which keeps the parser tolerant of extra output.
+    /// Parses `<c>id\tLabel</c>` lines and folds per-tier ids into one entry per base model. Progress
+    /// chatter such as "Fetching available models…" has no tab and is skipped, which keeps the parser
+    /// tolerant of extra output.
     /// </summary>
     private static List<ModelInfoDto> ParseModelList(string output)
     {
-        var models = new List<ModelInfoDto>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var order = new List<string>();
+        var groups = new Dictionary<string, (string Label, string Provider, Dictionary<string, string> Tiers)>(
+            StringComparer.OrdinalIgnoreCase);
 
         foreach (string raw in output.Split('\n'))
         {
@@ -181,12 +195,43 @@ public sealed class ModelCatalogService
 
             string id = line[..tab].Trim();
             string label = line[(tab + 1)..].Trim();
-            if (id.Length == 0 || !seen.Add(id)) continue;
+            if (id.Length == 0) continue;
 
-            models.Add(new ModelInfoDto(id, label.Length > 0 ? label : id, ProviderOf(id), TierOf(id)));
+            string? tier = TierOf(id);
+            string baseId = tier == null ? id : id[..^(tier.Length + 1)];
+            string baseLabel = tier == null ? label : StripTierSuffix(label, tier);
+
+            if (!groups.TryGetValue(baseId, out var entry))
+            {
+                entry = (baseLabel.Length > 0 ? baseLabel : baseId, ProviderOf(baseId), new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+                groups[baseId] = entry;
+                order.Add(baseId);
+            }
+
+            if (tier != null) entry.Tiers[tier] = id;
         }
 
-        return models;
+        return [.. order.Select(baseId =>
+        {
+            var entry = groups[baseId];
+            return new ModelInfoDto(baseId, entry.Label, entry.Provider, entry.Tiers);
+        })];
+    }
+
+    /// <summary>Removes a trailing " (High)" style suffix, which the effort picker now owns.</summary>
+    private static string StripTierSuffix(string label, string tier)
+    {
+        string trimmed = label.TrimEnd();
+        if (!trimmed.EndsWith(')')) return label;
+
+        int open = trimmed.LastIndexOf('(');
+        if (open < 0) return label;
+
+        string inner = trimmed[(open + 1)..^1].Trim();
+        bool matches = inner.Equals(tier, StringComparison.OrdinalIgnoreCase)
+            || (tier == "xhigh" && inner.Equals("extra high", StringComparison.OrdinalIgnoreCase));
+
+        return matches ? trimmed[..open].TrimEnd() : label;
     }
 
     private static string ProviderOf(string id)

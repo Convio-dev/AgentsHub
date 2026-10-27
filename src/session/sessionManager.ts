@@ -699,6 +699,7 @@ export class SessionManager {
 
     try {
       const proc = Bun.spawn([agyCmd, ...agyArgs], {
+        windowsHide: true,
         cwd,
         env: scopedEnv,
         stdout: 'pipe',
@@ -826,6 +827,7 @@ export class SessionManager {
     agyArgs.push('-p', prompt);
 
     const proc = Bun.spawn([agyCmd, ...agyArgs], {
+      windowsHide: true,
       cwd,
       env: scopedEnv,
       stdout: 'pipe',
@@ -936,21 +938,9 @@ export class SessionManager {
         timestamp: new Date().toISOString()
       });
 
-      if (tokens) {
-        sessionState.tokens = {
-          inputTokens: sessionState.tokens?.inputTokens || 0,
-          outputTokens: sessionState.tokens?.outputTokens || 0,
-          thinkingTokens: tokens,
-          totalTokens: tokens
-        };
-        this.emit({
-          event: 'token_usage',
-          sessionId,
-          profile: sessionState.profileName,
-          usage: sessionState.tokens,
-          timestamp: new Date().toISOString()
-        });
-      }
+      // Deliberately no `token_usage` here: a thinking line's "N tokens" is a partial count, and
+      // emitting it as usage used to overwrite the session total with just the reasoning tokens.
+      // The authoritative per-turn usage arrives with the result event below.
       return;
     }
 
@@ -1071,22 +1061,9 @@ export class SessionManager {
           });
         }
 
-        // If usage metadata is present, emit token_usage
-        if (su.usage) {
-          sessionState.tokens = {
-            inputTokens: su.usage.input_tokens,
-            outputTokens: su.usage.output_tokens,
-            thinkingTokens: su.usage.thinking_tokens,
-            totalTokens: su.usage.total_tokens
-          };
-          this.emit({
-            event: 'token_usage',
-            sessionId,
-            profile: sessionState.profileName,
-            usage: sessionState.tokens,
-            timestamp: new Date().toISOString()
-          });
-        }
+        // Per-step usage is deliberately not published: a turn emits several steps, and treating
+        // each one as the turn's usage is what made the counter inflate. The result event carries
+        // the authoritative total for the turn.
       }
       // 2. Tool invocation & completion
       else if (su.step_type === 'tool' || su.step_type === 'tool_call') {
@@ -1199,17 +1176,23 @@ export class SessionManager {
       });
 
       if (res.usage) {
-        sessionState.tokens = {
-          inputTokens: res.usage.input_tokens,
-          outputTokens: res.usage.output_tokens,
-          thinkingTokens: res.usage.thinking_tokens,
-          totalTokens: res.usage.total_tokens
-        };
+        const inputTokens = res.usage.input_tokens || 0;
+        const outputTokens = res.usage.output_tokens || 0;
+        const thinkingTokens = res.usage.thinking_tokens || 0;
+        // `total_tokens` is authoritative when the engine sends one; otherwise sum the parts rather
+        // than inventing a multiplier.
+        const reportedTotal = typeof res.usage.total_tokens === 'number' ? res.usage.total_tokens : 0;
+        const totalTokens = reportedTotal > 0 ? reportedTotal : inputTokens + outputTokens + thinkingTokens;
+
+        sessionState.tokens = { inputTokens, outputTokens, thinkingTokens, totalTokens };
+
         this.emit({
           event: 'token_usage',
           sessionId,
           profile: sessionState.profileName,
           usage: sessionState.tokens,
+          // One event per completed turn, so the UI can accumulate without guessing.
+          scope: 'turn',
           timestamp: new Date().toISOString()
         });
       }
@@ -1245,6 +1228,7 @@ export class SessionManager {
       const env = this.buildScopedEnvironment(targetProfile, 'quota_poll', virtualHome);
 
       const proc = Bun.spawn([agyCmd, '-p', '/quota', '--dangerously-skip-permissions'], {
+        windowsHide: true,
         cwd: virtualHome,
         env,
         stdout: 'pipe',

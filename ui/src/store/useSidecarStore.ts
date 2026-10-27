@@ -363,13 +363,13 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
         const sessionStore = useSessionStore.getState();
         const targetSessionId = data.sessionId || sessionStore.activeSessionId;
         const usage = data.usage || data;
-        sessionStore.updateSessionTelemetry(targetSessionId, {
-          tokens: {
-            inputTokens: usage.inputTokens || 0,
-            outputTokens: usage.outputTokens || 0,
-            thinkingTokens: usage.thinkingTokens || 0,
-            totalTokens: usage.totalTokens || (usage.inputTokens || 0) + (usage.outputTokens || 0),
-          },
+
+        // One event per completed turn; accumulate it instead of replacing the session total.
+        sessionStore.recordTurnUsage(targetSessionId, {
+          inputTokens: usage.inputTokens || 0,
+          outputTokens: usage.outputTokens || 0,
+          thinkingTokens: usage.thinkingTokens || 0,
+          totalTokens: usage.totalTokens || (usage.inputTokens || 0) + (usage.outputTokens || 0),
         });
       })
     );

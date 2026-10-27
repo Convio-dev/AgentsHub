@@ -28,6 +28,39 @@ export function effortLabel(effort?: string | null): string {
   return EFFORT_LABELS[effort.toLowerCase()] || effort;
 }
 
+/** The model a stored id belongs to, accepting either a base id or a concrete tier id. */
+export function findBaseModel(models: ModelInfo[], id?: string | null): ModelInfo | undefined {
+  if (!id) return undefined;
+  return (
+    models.find(model => model.id === id) ||
+    models.find(model => Object.values(model.tiers).includes(id))
+  );
+}
+
+/**
+ * Resolves the id to hand to the engine for a base model plus effort.
+ *
+ * Falls back to the engine's high tier, then to whatever tier exists, because a model that only ships
+ * a subset of tiers must still launch something valid rather than a bare base id the CLI rejects.
+ */
+export function resolveModelId(
+  models: ModelInfo[],
+  baseId?: string | null,
+  effort?: string | null
+): string | undefined {
+  if (!baseId) return undefined;
+
+  const base = findBaseModel(models, baseId);
+  if (!base) return baseId;
+
+  const level = effort?.toLowerCase();
+  if (level && base.tiers[level]) return base.tiers[level];
+
+  const tierIds = Object.values(base.tiers);
+  if (tierIds.length === 0) return base.id;
+  return base.tiers['high'] || tierIds[0];
+}
+
 interface ModelStoreState {
   models: ModelInfo[];
   efforts: string[];
@@ -52,11 +85,22 @@ function normaliseCatalog(raw: unknown): ModelCatalog | null {
           const item = entry as Record<string, unknown>;
           const id = typeof item.id === 'string' ? item.id.trim() : '';
           if (!id) return null;
+
+          const rawTiers = item.tiers;
+          const tiers: Record<string, string> = {};
+          if (rawTiers && typeof rawTiers === 'object') {
+            for (const [level, concreteId] of Object.entries(rawTiers as Record<string, unknown>)) {
+              if (typeof concreteId === 'string' && concreteId.trim()) {
+                tiers[level.toLowerCase()] = concreteId.trim();
+              }
+            }
+          }
+
           return {
             id,
             label: typeof item.label === 'string' && item.label.trim() ? item.label.trim() : id,
             provider: typeof item.provider === 'string' ? item.provider : '',
-            tier: typeof item.tier === 'string' ? item.tier : null,
+            tiers,
           };
         })
         .filter((model): model is ModelInfo => model !== null)

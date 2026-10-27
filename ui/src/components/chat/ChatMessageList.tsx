@@ -19,7 +19,7 @@ const ACTIVE_STATES = new Set(['running', 'thinking', 'tool_executing']);
 
 function statusLabel(message: ChatMessage): string {
   if (message.status === 'thinking') return 'Thinking';
-  if (message.status === 'tool_executing') return 'Running tool';
+  if (message.status === 'tool_executing') return 'Executing tools';
   return message.markdown ? 'Streaming' : 'Working';
 }
 
@@ -277,7 +277,9 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
                 <div className={message.timeline?.length ? 'mt-3 border-t border-surface-border/70 pt-3' : 'mt-1'}>
                   <MarkdownRenderer content={message.markdown} />
                 </div>
-              ) : isActive ? (
+              ) : isActive && (!message.timeline || message.timeline.length === 0) ? (
+                // Only before the first step lands. Once a tool starts, the stepper above is the
+                // progress indicator and this banner would be stale.
                 <div className="flex items-center gap-2 py-2 font-mono text-[11px] text-content-dim">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
                   <span>Waiting for the first token…</span>

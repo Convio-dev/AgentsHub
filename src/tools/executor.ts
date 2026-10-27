@@ -61,6 +61,9 @@ export class ShellExecutor {
     let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 
     const proc = Bun.spawn([executable, ...args], {
+      // Without this a console child of the windowless sidecar allocates its own console window,
+      // which is the black box that flashes on every tool call.
+      windowsHide: true,
       cwd: options.cwd || process.cwd(),
       env: mergedEnv,
       stdout: 'pipe',

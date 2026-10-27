@@ -20,6 +20,11 @@ export const TimelineThinkingNode: React.FC<TimelineThinkingNodeProps> = ({ node
   const isStreaming = node.status === 'running';
   const liveMs = useLiveElapsed(node.timestamp, isStreaming);
 
+  // Nothing was streamed and no reasoning tokens were counted: there is no step to show. This also
+  // covers rows restored from storage before the store learned to prune them.
+  const hasContent = Boolean(node.text?.trim()) || Boolean(node.tokens);
+  if (!hasContent && !isStreaming) return null;
+
   const elapsedMs = isStreaming ? liveMs : (node.durationSeconds || 0) * 1000;
   const durationLabel = formatDurationMs(elapsedMs);
 

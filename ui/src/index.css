@@ -58,6 +58,15 @@
 
   /* Readable-on-surface variants of the state colours (8.6:1, 9.2:1, 8.1:1, 9.4:1 on --bg-app). */
   --accent-ink: #38bdf8;
+  /* Syntax colours: distinct enough to parse, restrained enough not to fight the chrome. */
+  --syn-keyword: #7dd3fc;
+  --syn-string: #86efac;
+  --syn-number: #fdba74;
+  --syn-comment: #64748b;
+  --syn-function: #fde68a;
+  --syn-type: #a5f3fc;
+  --syn-property: #93c5fd;
+  --syn-punctuation: #94a3b8;
   --state-success: #34d399;
   --state-danger: #fb7185;
   --state-warning: #fbbf24;
@@ -108,6 +117,14 @@
 
   /* Darkened for the light surface: 5.4:1, 4.9:1, 5.9:1, 4.7:1 on #FFFFFF. */
   --accent-ink: #0369a1;
+  --syn-keyword: #0369a1;
+  --syn-string: #047857;
+  --syn-number: #b45309;
+  --syn-comment: #94a3b8;
+  --syn-function: #92400e;
+  --syn-type: #0e7490;
+  --syn-property: #1d4ed8;
+  --syn-punctuation: #475569;
   --state-success: #047857;
   --state-danger: #be123c;
   --state-warning: #b45309;
@@ -182,4 +199,74 @@ textarea {
 
 .action-ring {
   animation: actionRing 900ms linear infinite;
+}
+
+/* Prism token colours, mapped onto the theme tokens above so code blocks read correctly in both
+   themes instead of shipping a light-only Prism stylesheet. */
+.code-highlight .token.comment,
+.code-highlight .token.prolog,
+.code-highlight .token.doctype,
+.code-highlight .token.cdata {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+
+.code-highlight .token.keyword,
+.code-highlight .token.atrule,
+.code-highlight .token.rule,
+.code-highlight .token.important,
+.code-highlight .token.selector {
+  color: var(--syn-keyword);
+}
+
+.code-highlight .token.string,
+.code-highlight .token.char,
+.code-highlight .token.attr-value,
+.code-highlight .token.regex,
+.code-highlight .token.inserted {
+  color: var(--syn-string);
+}
+
+.code-highlight .token.number,
+.code-highlight .token.boolean,
+.code-highlight .token.constant,
+.code-highlight .token.symbol {
+  color: var(--syn-number);
+}
+
+.code-highlight .token.function,
+.code-highlight .token.function-name {
+  color: var(--syn-function);
+}
+
+.code-highlight .token.class-name,
+.code-highlight .token.builtin,
+.code-highlight .token.namespace,
+.code-highlight .token.tag {
+  color: var(--syn-type);
+}
+
+.code-highlight .token.property,
+.code-highlight .token.attr-name,
+.code-highlight .token.variable,
+.code-highlight .token.key,
+.code-highlight .token.entity {
+  color: var(--syn-property);
+}
+
+.code-highlight .token.operator,
+.code-highlight .token.punctuation {
+  color: var(--syn-punctuation);
+}
+
+.code-highlight .token.deleted {
+  color: var(--state-danger);
+}
+
+.code-highlight .token.bold {
+  font-weight: 600;
+}
+
+.code-highlight .token.italic {
+  font-style: italic;
 }

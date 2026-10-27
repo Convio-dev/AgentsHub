@@ -39,6 +39,7 @@ export class PtyRunner {
     };
 
     const proc = Bun.spawn([executable, ...args], {
+      windowsHide: true,
       cwd: config.cwd || process.cwd(),
       env: mergedEnv,
       stdin: 'pipe',

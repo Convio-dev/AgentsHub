@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, ChevronRight, Loader2, Sparkles } from 'lucide-react';
-import { useModelStore, effortLabel } from '../../store/useModelStore';
+import { useModelStore, effortLabel, findBaseModel, resolveModelId } from '../../store/useModelStore';
 import { useSessionStore } from '../../store/useSessionStore';
 import { ModelInfo } from '../../types/agent';
 
@@ -95,10 +95,22 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       setIsEffortOpen(false);
     };
 
-    // A stale anchor would leave the panel floating away from its trigger.
+    /**
+     * Scrolling the message list fires this too, and closing on every token would make the panel
+     * unusable while a turn streams. Re-measure instead, and only close once the trigger itself has
+     * left the viewport.
+     */
     const handleReposition = () => {
-      setIsOpen(false);
-      setIsEffortOpen(false);
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      if (rect.bottom < 0 || rect.top > window.innerHeight) {
+        setIsOpen(false);
+        setIsEffortOpen(false);
+        return;
+      }
+
+      measure();
     };
 
     document.addEventListener('mousedown', handlePointerDown);
@@ -112,20 +124,34 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       window.removeEventListener('resize', handleReposition);
       window.removeEventListener('scroll', handleReposition, true);
     };
-  }, [isOpen]);
+  }, [isOpen, measure]);
 
-  const activeModel: ModelInfo | undefined = models.find(entry => entry.id === model);
+  // `model` is stored as a base id; older sessions may still hold a concrete tier id, which
+  // findBaseModel also resolves.
+  const activeModel: ModelInfo | undefined = findBaseModel(models, model);
   const activeLabel = activeModel?.label || model || 'Default model';
   const activeEffortLabel = effortLabel(effort);
+  const dispatchModelId = resolveModelId(models, activeModel?.id || model, effort);
 
+  /**
+   * Stores the *concrete* engine id for the current effort, so dispatch never has to guess from a
+   * base id it might not be able to resolve yet.
+   */
   const selectModel = (entry: ModelInfo) => {
-    updateSessionTelemetry(sessionId, { model: entry.id });
+    const concreteId = resolveModelId(models, entry.id, effort) || entry.id;
+    updateSessionTelemetry(sessionId, { model: concreteId });
     setIsOpen(false);
     setIsEffortOpen(false);
   };
 
+  /** Switching effort re-points the model at the matching tier of the same base model. */
   const selectEffort = (level: string) => {
-    updateSessionTelemetry(sessionId, { reasoningEffort: level });
+    const baseId = activeModel?.id || model;
+    const concreteId = resolveModelId(models, baseId, level);
+    updateSessionTelemetry(sessionId, {
+      reasoningEffort: level,
+      ...(concreteId ? { model: concreteId } : {}),
+    });
     setIsEffortOpen(false);
   };
 
@@ -144,7 +170,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           </span>
         </div>
 
-        <div className="max-h-[236px] overflow-y-auto py-1" role="listbox" aria-label="Available models">
+        <div className="max-h-[340px] overflow-y-auto py-1 pr-1" role="listbox" aria-label="Available models">
           {models.length === 0 ? (
             <p className="px-3 py-4 text-center font-mono text-[11px] leading-relaxed text-content-dim">
               {isLoading
@@ -155,7 +181,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             </p>
           ) : (
             models.map(entry => {
-              const isActive = entry.id === model;
+              const isActive = entry.id === activeModel?.id;
               return (
                 <button
                   key={entry.id}
@@ -173,7 +199,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
 
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[11.5px] text-content-main">{entry.label}</span>
-                    <span className="block truncate font-mono text-[9.5px] text-content-dim">{entry.id}</span>
+                    <span className="block truncate font-mono text-[9.5px] text-content-dim">
+                      {isActive ? dispatchModelId || entry.id : entry.id}
+                    </span>
                   </span>
 
                   {entry.provider ? (

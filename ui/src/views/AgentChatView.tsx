@@ -3,7 +3,6 @@ import {
   MessageSquare,
   ChevronDown,
   Users,
-  GitCompare,
   Terminal,
   Plus,
   X,
@@ -206,16 +205,6 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
         {/* Right Controls: Review Diff, Terminals. Model, effort, quota and tokens live in the
             composer footer, where they belong to the prompt rather than to the window chrome. */}
         <div className="flex items-center space-x-2">
-          {/* Quick Diff Trigger */}
-          <button
-            onClick={onOpenGitModal}
-            title="Inspect Current Workspace Diff"
-            className="px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-xs text-content-muted hover:text-content-main flex items-center space-x-1.5 transition shadow-sm"
-          >
-            <GitCompare className="w-3.5 h-3.5 text-accent" />
-            <span>Review Diff</span>
-          </button>
-
           {/* Terminal View Trigger */}
           <button
             onClick={() => setActiveView('terminals')}
@@ -309,7 +298,8 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
           isExecuting={isExecuting}
           activeModel={activeSession?.model || defaultModel || undefined}
           reasoningEffort={activeSession?.reasoningEffort}
-          totalTokens={activeSession?.tokens?.totalTokens || 0}
+          lastTurnTokens={activeSession?.lastTurnTokens}
+          sessionTokens={activeSession?.tokens}
           onOpenGitModal={onOpenGitModal}
           onOpenTerminal={() => setActiveView('terminals')}
           activeCli={activeWorkspace?.primaryCli}

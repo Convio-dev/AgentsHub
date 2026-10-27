@@ -211,12 +211,24 @@ class WebViewBridge {
       // Mirrors the real `agy models` output so the browser dev host can render the selector.
       mockData = {
         models: [
-          { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)', provider: 'Gemini', tier: 'high' },
-          { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)', provider: 'Gemini', tier: 'medium' },
-          { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)', provider: 'Gemini', tier: 'low' },
-          { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', provider: 'Claude', tier: null },
-          { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)', provider: 'Claude', tier: null },
-          { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', provider: 'GPT-OSS', tier: 'medium' },
+          {
+            id: 'gemini-3.8-flash',
+            label: 'Gemini 3.8 Flash',
+            provider: 'Gemini',
+            tiers: {
+              high: 'gemini-3.8-flash-high',
+              medium: 'gemini-3.8-flash-medium',
+              low: 'gemini-3.8-flash-low',
+            },
+          },
+          { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', provider: 'Claude', tiers: {} },
+          { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)', provider: 'Claude', tiers: {} },
+          {
+            id: 'gpt-oss-120b',
+            label: 'GPT-OSS 120B',
+            provider: 'GPT-OSS',
+            tiers: { medium: 'gpt-oss-120b-medium' },
+          },
         ],
         efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         source: 'cli',

@@ -22,6 +22,13 @@ import { migrateTimelineNodes } from '../lib/timelineMigration';
 import { isUnsetProfile } from '../lib/profileName';
 
 const STORAGE_KEY_SESSIONS = 'agentshub_sessions_v2';
+
+/** Titles that mean "not named yet". A session holding one of these is still eligible for naming. */
+const PLACEHOLDER_TITLES = new Set(['new session', 'workspace session', 'untitled session', 'untitled', '']);
+
+function isPlaceholderTitle(title: string | undefined): boolean {
+  return PLACEHOLDER_TITLES.has((title || '').trim().toLowerCase());
+}
 const STORAGE_KEY_ACTIVE = 'agentshub_active_session_v2';
 
 /** Result of a regenerate or edit: the prompt to re-send plus the id of the new reply placeholder. */
@@ -86,6 +93,12 @@ interface SessionStoreState {
     error?: string,
     pid?: number
   ) => void;
+  /**
+   * Records one completed turn's usage: the latest turn is kept for display and its numbers are
+   * added to the session total. Called once per `token_usage` event, which the sidecar emits exactly
+   * once per turn.
+   */
+  recordTurnUsage: (sessionId: string, usage: TokenUsage) => void;
   updateSessionTelemetry: (
     sessionId: string,
     data: {
@@ -130,7 +143,9 @@ function loadPersistedSessions(): { sessions: Record<string, SessionRecord>; act
           // A session that already has messages has had its one title generation; latch it so the
           // old retitle-on-every-turn behaviour cannot come back through a stale record.
           if (typeof s.titleLocked !== 'boolean') {
-            s.titleLocked = Array.isArray(s.messages) && s.messages.length > 0;
+            // Only latch a real title. Locking a placeholder is what made sessions stay "New Session"
+            // forever: the record had messages, so it was marked as already named.
+            s.titleLocked = Array.isArray(s.messages) && s.messages.length > 0 && !isPlaceholderTitle(s.title);
           }
         }
         const activeId = rawActive && parsed[rawActive] ? rawActive : Object.keys(parsed)[0];
@@ -391,18 +406,23 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         turn,
       };
 
-      // The title is derived from the first prompt only, then latched. The previous condition
-      // (`!isCustom || title === 'New Session'`) was true on every turn, which is why each prompt
-      // overwrote the session title.
+      // Name the session from the first prompt, then latch it. A session still sitting on a
+      // placeholder (including one persisted by an older build) gets another chance here, so a stuck
+      // "New Session" recovers on its next message instead of staying nameless.
       const isFirstTurn = target.messages.length === 0;
-      const shouldGenerateTitle = isFirstTurn && !target.isTitleCustom && !target.titleLocked;
-      const newTitle = shouldGenerateTitle ? generateSessionTitle(prompt) : target.title;
+      const shouldGenerateTitle = !target.isTitleCustom && (isFirstTurn || isPlaceholderTitle(target.title));
+
+      const candidate = shouldGenerateTitle ? generateSessionTitle(prompt) : target.title;
+      // The generator returns a placeholder when the prompt carries no usable words ("hi", "thanks").
+      // Keeping the old title and staying unlocked lets a later turn try again.
+      const newTitle = isPlaceholderTitle(candidate) ? target.title : candidate;
+      const titleLocked = target.isTitleCustom || target.titleLocked || !isPlaceholderTitle(newTitle);
 
       const updated: SessionRecord = {
         ...target,
         title: newTitle,
         isTitleCustom: target.isTitleCustom,
-        titleLocked: target.titleLocked || isFirstTurn || target.isTitleCustom,
+        titleLocked,
         profile: resolvedProfile,
         status: 'thinking',
         activeExecutionCardId: assistantMsgId,
@@ -618,14 +638,23 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       } else if (thoughtIndex >= 0) {
         const current = timeline[thoughtIndex] as ThoughtTimelineNode;
         const isDone = thinkingState === 'done';
-        timeline[thoughtIndex] = {
-          ...current,
-          text: text ? current.text + (current.text ? '\n' : '') + text : current.text,
-          durationSeconds: durationSeconds !== undefined ? durationSeconds : current.durationSeconds,
-          tokens: thinkingTokens !== undefined ? thinkingTokens : current.tokens,
-          isStreaming: !isDone,
-          status: isDone ? 'completed' : 'running',
-        };
+        const mergedText = text ? current.text + (current.text ? '\n' : '') + text : current.text;
+        const mergedTokens = thinkingTokens !== undefined ? thinkingTokens : current.tokens;
+
+        // Nothing was actually said and no reasoning tokens were counted, so there is no step to
+        // show. Removing it here is what keeps "Thought" rows with an empty drawer out of the chat.
+        if (isDone && !mergedText.trim() && !mergedTokens) {
+          timeline.splice(thoughtIndex, 1);
+        } else {
+          timeline[thoughtIndex] = {
+            ...current,
+            text: mergedText,
+            durationSeconds: durationSeconds !== undefined ? durationSeconds : current.durationSeconds,
+            tokens: mergedTokens,
+            isStreaming: !isDone,
+            status: isDone ? 'completed' : 'running',
+          };
+        }
       }
 
       messages[lastIndex] = {
@@ -818,15 +847,21 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         const lastIndex = messages.length - 1;
         if (lastMsg && lastMsg.sender === 'assistant') {
           // Finalize any streaming or running timeline nodes
-          const finalizedTimeline = lastMsg.timeline.map(node => {
-            if (node.status === 'running') {
-              if (node.type === 'thought') {
-                return { ...node, status: 'completed' as const, isStreaming: false };
+          const finalizedTimeline = lastMsg.timeline
+            .filter(node => {
+              // A thought row with no text and no token count has nothing to expand.
+              if (node.type !== 'thought') return true;
+              return Boolean(node.text.trim()) || Boolean(node.tokens);
+            })
+            .map(node => {
+              if (node.status === 'running') {
+                if (node.type === 'thought') {
+                  return { ...node, status: 'completed' as const, isStreaming: false };
+                }
+                return { ...node, status: 'completed' as const };
               }
-              return { ...node, status: 'completed' as const };
-            }
-            return node;
-          });
+              return node;
+            });
 
           messages[lastIndex] = {
             ...lastMsg,
@@ -846,6 +881,32 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         pid: pid || target.pid,
         activeExecutionCardId: isTerminal ? undefined : target.activeExecutionCardId,
         messages,
+        updatedAt: Date.now(),
+      };
+
+      const nextSessions = { ...state.sessions, [sessionId]: updated };
+      persistState(nextSessions, state.activeSessionId);
+      return { sessions: nextSessions };
+    });
+  },
+
+  recordTurnUsage: (sessionId, usage) => {
+    set(state => {
+      const target = state.sessions[sessionId];
+      if (!target) return state;
+
+      const totals = target.tokens || { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 };
+      const accumulated: TokenUsage = {
+        inputTokens: totals.inputTokens + (usage.inputTokens || 0),
+        outputTokens: totals.outputTokens + (usage.outputTokens || 0),
+        thinkingTokens: totals.thinkingTokens + (usage.thinkingTokens || 0),
+        totalTokens: totals.totalTokens + (usage.totalTokens || 0),
+      };
+
+      const updated: SessionRecord = {
+        ...target,
+        tokens: accumulated,
+        lastTurnTokens: usage,
         updatedAt: Date.now(),
       };
 

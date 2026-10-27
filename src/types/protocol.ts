@@ -215,6 +215,11 @@ export interface TokenUsageEvent {
     thinkingTokens?: number;
     totalTokens?: number;
   };
+  /**
+   * What the numbers describe. `turn` means one completed turn, which is what the UI accumulates;
+   * anything else must not be added to the session total.
+   */
+  scope?: 'turn' | 'session';
   timestamp: string;
 }
 

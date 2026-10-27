@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Check, Copy, SquareTerminal } from 'lucide-react';
 import { copyToClipboard } from '../../lib/clipboard';
+import { highlightCode } from '../../lib/highlight';
 
 interface MarkdownRendererProps {
   content: string;
@@ -61,9 +62,17 @@ function splitMarkdownBlocks(content: string): BlockPart[] {
   return parts;
 }
 
+/** Above this the per-chunk highlighting cost during streaming outweighs the benefit. */
+const HIGHLIGHT_SIZE_LIMIT = 20_000;
+
 const CodeBlock: React.FC<{ language?: string; code?: string }> = ({ language = 'code', code = '' }) => {
   const [copied, setCopied] = useState(false);
   const cleanCode = code.replace(/^\n+|\n+$/g, '');
+
+  const highlighted = useMemo(() => {
+    if (cleanCode.length > HIGHLIGHT_SIZE_LIMIT) return null;
+    return highlightCode(cleanCode, language);
+  }, [cleanCode, language]);
 
   const copy = async () => {
     const ok = await copyToClipboard(cleanCode);
@@ -77,7 +86,7 @@ const CodeBlock: React.FC<{ language?: string; code?: string }> = ({ language = 
       <div className="flex select-none items-center justify-between border-b border-edge-code bg-surface-codeHeader px-3.5 py-2 font-mono text-xs">
         <span className="flex items-center gap-2 font-semibold lowercase text-accent">
           <SquareTerminal className="h-3.5 w-3.5 text-content-dim" />
-          <span>{language || 'code'}</span>
+          <span>{highlighted?.language || language || 'code'}</span>
         </span>
         <button
           type="button"
@@ -89,8 +98,13 @@ const CodeBlock: React.FC<{ language?: string; code?: string }> = ({ language = 
           <span>{copied ? 'Copied' : 'Copy'}</span>
         </button>
       </div>
-      <pre className="overflow-x-auto whitespace-pre p-4 font-mono text-xs leading-relaxed text-content-main">
-        <code>{cleanCode}</code>
+      <pre className="code-highlight overflow-x-auto whitespace-pre p-4 font-mono text-xs leading-relaxed text-content-main">
+        {highlighted ? (
+          // Prism escapes the source before wrapping tokens, so this is markup we generated.
+          <code dangerouslySetInnerHTML={{ __html: highlighted.html }} />
+        ) : (
+          <code>{cleanCode}</code>
+        )}
       </pre>
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ArrowUp, Paperclip, Square, Terminal, GitBranch, X, FileText } from 'lucide-react';
-import { ChatAttachment, SlashCommand } from '../../types/agent';
+import { ChatAttachment, SlashCommand, TokenUsage } from '../../types/agent';
 import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
 import { SlashCommandPalette } from './SlashCommandPalette';
@@ -14,7 +14,10 @@ interface ChatInputProps {
   activeModel?: string;
   /** Reasoning effort selected for the session, shown next to the model. */
   reasoningEffort?: string;
-  totalTokens?: number;
+  /** Usage reported by the last completed turn, shown as the primary number. */
+  lastTurnTokens?: TokenUsage;
+  /** Accumulated usage for the whole session, shown as the secondary number. */
+  sessionTokens?: TokenUsage;
   onOpenGitModal?: () => void;
   onOpenTerminal?: () => void;
   /** Active CLI id, so command and model discovery target the right engine. */
@@ -42,7 +45,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   isExecuting = false,
   activeModel,
   reasoningEffort,
-  totalTokens = 0,
+  lastTurnTokens,
+  sessionTokens,
   onOpenGitModal,
   onOpenTerminal,
   activeCli,
@@ -292,14 +296,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  /** Exact below a thousand, compact above it — never a rounded guess with a `~` prefix. */
   const formatTokens = (tok: number) => {
-    if (tok >= 1000) {
-      return `~${(tok / 1000).toFixed(1)}k`;
-    }
-    return `~${tok}`;
+    if (tok <= 0) return '';
+    if (tok < 1000) return String(tok);
+    if (tok < 1_000_000) return `${(tok / 1000).toFixed(1)}k`;
+    return `${(tok / 1_000_000).toFixed(2)}M`;
   };
 
   const canSend = (prompt.trim().length > 0 || attachments.length > 0) && !isExecuting;
+
+  const turnTokens = lastTurnTokens?.totalTokens || 0;
+  const sessionTotal = sessionTokens?.totalTokens || 0;
 
   return (
     <div
@@ -449,20 +457,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             <span className="opacity-30">|</span>
 
+            {/* Stays interactive while a turn runs: the change applies to the next turn, and
+                locking the picker made it look broken during long tool runs. */}
             <ModelSelector
               sessionId={sessionId}
               model={activeModel}
               effort={reasoningEffort}
               cli={activeCli}
-              disabled={isExecuting}
             />
           </div>
 
           {/* Right: optional token readout + the single morphing action button */}
           <div className="flex flex-shrink-0 items-center space-x-3">
-            {totalTokens > 0 ? (
-              <span className="text-[10.5px] font-mono text-content-dim tabular-nums" title="Tokens used in this session">
-                {formatTokens(totalTokens)}
+            {turnTokens > 0 ? (
+              <span
+                className="flex items-baseline gap-1.5 font-mono text-[10.5px] tabular-nums text-content-dim"
+                title="Tokens used by the last turn, and the running total for this session"
+              >
+                <span className="text-content-muted">{formatTokens(turnTokens)} tok</span>
+                {sessionTotal > turnTokens ? (
+                  <span className="text-content-dim">· {formatTokens(sessionTotal)} session</span>
+                ) : null}
               </span>
             ) : null}
 

@@ -138,7 +138,10 @@ export interface SessionRecord {
   model: string;
   reasoningEffort?: string;
   quotaPercent?: number;
+  /** Accumulated across every completed turn in this session. */
   tokens: TokenUsage;
+  /** Usage reported by the most recent completed turn, shown as the primary counter. */
+  lastTurnTokens?: TokenUsage;
   status: AgentExecutionState;
   pid?: number;
   messages: ChatMessage[];
@@ -147,15 +150,21 @@ export interface SessionRecord {
 
 export type SlashCommandSource = 'builtin' | 'skill' | 'mcp' | 'profile';
 
-/** One model reported by the active CLI. */
+/**
+ * One selectable model, collapsed to its base identity.
+ *
+ * The engine lists a separate id per reasoning tier (`…-high`, `…-medium`, `…-low`). Presenting those
+ * as separate models duplicates the list, so the tiers travel with the model and the effort picker
+ * chooses between them.
+ */
 export interface ModelInfo {
-  /** Exact id passed back to the engine via `--model`. */
+  /** Base id, used when the chosen effort has no dedicated variant. */
   id: string;
   label: string;
   /** Model family, derived by the host from the id prefix. */
   provider: string;
-  /** Reasoning tier encoded in the id (`low` | `medium` | `high` | `xhigh`), when present. */
-  tier?: string | null;
+  /** Effort level to concrete engine id, for the tiers the engine exposes. */
+  tiers: Record<string, string>;
 }
 
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
