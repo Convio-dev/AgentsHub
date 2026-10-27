@@ -160,13 +160,14 @@ public partial class MainForm : Form
             var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
             await _webView.EnsureCoreWebView2Async(env);
 
-            var webAssetsPath = Path.Combine(AppContext.BaseDirectory, "ui");
+            var distPath = Path.Combine(AppContext.BaseDirectory, "ui", "dist");
+            var webAssetsPath = Directory.Exists(distPath) ? distPath : Path.Combine(AppContext.BaseDirectory, "ui");
             if (!Directory.Exists(webAssetsPath))
             {
                 Directory.CreateDirectory(webAssetsPath);
             }
 
-            // Map https://app.agentshub.local to ui folder
+            // Map https://app.agentshub.local to modern React/Vite SPA dist or ui folder
             _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "app.agentshub.local",
                 webAssetsPath,
@@ -176,8 +177,8 @@ public partial class MainForm : Form
             // DevTools stay unavailable in every WebView2 the app hosts - this is a product
             // surface, not a browser. AreDevToolsEnabled = false removes the DevTools window
             // itself, the context-menu "Inspect" entry, and the F12 / Ctrl+Shift+I shortcuts.
-            _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-            _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+            _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
             _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
 

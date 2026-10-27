@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agents Hub v2.0 - Agentic IDE & Desktop Control Plane</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              500: '#0284c7',
+              600: '#0369a1',
+            },
+            surface: {
+              deep: '#0a0a0f',       // Ultra dark background
+              sidebar: '#0e0e15',    // Secondary rail & panels
+              card: '#141420',       // Cards and containers
+              cardHover: '#1a1a2b',
+              border: '#222235',     // Subtle crisp borders
+              borderLight: '#2c2c44',
+              input: '#12121c',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0a0a0f;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #232338;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #343454;
+    }
+
+    /* Quake HUD Terminal Transition */
+    #quake-hud {
+      transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+      transform: translateY(-100%);
+    }
+    #quake-hud.active {
+      transform: translateY(0%);
+    }
+  </style>
+</head>
+<body class="bg-surface-deep text-slate-200 font-sans h-screen flex flex-col overflow-hidden select-none">
+
+  <!-- TOP DRAG / STATUS BAR (App Title Bar for Windows WebView2) -->
+  <header class="h-9 bg-surface-deep border-b border-surface-border flex items-center justify-between px-3 text-xs text-slate-400 z-30">
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-2 font-semibold text-slate-200">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="tracking-wide">AGENTS HUB</span>
+        <span class="px-1.5 py-0.5 text-[10px] bg-sky-950/80 text-sky-400 border border-sky-800/60 rounded">v2.0-rc</span>
+      </div>
+      <span class="text-slate-600">|</span>
+      <div class="flex items-center space-x-2">
+        <span class="text-slate-400">Host:</span>
+        <span class="font-mono text-slate-300">127.0.0.1</span>
+        <span class="text-slate-600">•</span>
+        <span class="text-slate-400">ConPTY:</span>
+        <span class="text-emerald-400 font-mono">Active</span>
+      </div>
+    </div>
+
+    <!-- Telemetry & Action Shortcuts -->
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-2 font-mono text-[11px] text-slate-400">
+        <span>RAM: <strong class="text-slate-200 font-medium">11.4 GB / 32 GB</strong></span>
+        <span class="text-slate-600">•</span>
+        <span>NET: <strong class="text-sky-400">14.2 KB/s</strong></span>
+      </div>
+
+      <button id="btn-toggle-hud" class="flex items-center space-x-1.5 px-2 py-1 rounded bg-surface-card border border-surface-border hover:border-sky-500/50 hover:text-sky-300 transition text-[11px]">
+        <i class="fa-solid fa-terminal text-[10px] text-sky-400"></i>
+        <span>HUD Console <kbd class="px-1 py-0.2 bg-black/40 rounded text-[9px] border border-slate-700">F12</kbd></span>
+      </button>
+
+      <!-- Windows Native Controls Emulation -->
+      <div class="flex items-center space-x-1 pl-2 border-l border-surface-border">
+        <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-surface-card rounded"><i class="fa-solid fa-minus text-[9px]"></i></button>
+        <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-surface-card rounded"><i class="fa-regular fa-square text-[9px]"></i></button>
+        <button class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 rounded"><i class="fa-solid fa-xmark text-[11px]"></i></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- QUAKE-STYLE SLIDING DROP-DOWN HUD TERMINAL (OVERLAY) -->
+  <div id="quake-hud" class="absolute top-9 left-0 w-full h-[65vh] bg-surface-deep/95 backdrop-blur-xl border-b-2 border-sky-500/80 shadow-2xl z-50 flex flex-col pointer-events-none">
+    <div class="h-8 bg-surface-sidebar border-b border-surface-border flex items-center justify-between px-4 text-xs">
+      <div class="flex items-center space-x-3">
+        <i class="fa-solid fa-terminal text-sky-400"></i>
+        <span class="font-mono font-semibold text-slate-200">Native Windows ConPTY Console Stream</span>
+        <span class="text-slate-500">|</span>
+        <span class="text-slate-400 font-mono text-[11px]">PID: 19482 (Headless Child Worker)</span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button onclick="clearHudTerminal()" class="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded text-[11px] bg-surface-card border border-surface-border">Clear Buffer</button>
+        <button onclick="toggleHud(false)" class="text-slate-400 hover:text-white text-sm px-1.5"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    <div id="hud-terminal-content" class="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1 text-slate-300 bg-black/60">
+      <p class="text-slate-500">// Agents Hub Native Terminal Stream attached to ConPTY [net10.0-windows]</p>
+      <p class="text-sky-400">[Antigravity Engine] Profile instance running in VirtualHome isolated sandbox</p>
+      <p class="text-emerald-400">[Gateway Proxy] 127.0.0.1:9230 routing Anthropic v1 Messages to Local Model Engine</p>
+      <p class="text-slate-400">[System] Shell listener initialized. Ready for silent tool execution requests...</p>
+    </div>
+  </div>
+
+  <!-- WORKSPACE BODY -->
+  <div class="flex-1 flex overflow-hidden relative">
+
+    <!-- 1. LEFT-MOST ICON RAIL (Ultra-compact 56px) -->
+    <nav class="w-14 bg-surface-sidebar border-r border-surface-border flex flex-col items-center py-3 justify-between z-20 flex-shrink-0">
+      <div class="flex flex-col items-center space-y-4">
+        <!-- Logo Icon -->
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center text-white shadow-lg shadow-sky-500/20 cursor-pointer mb-2">
+          <i class="fa-solid fa-bolt-lightning text-sm"></i>
+        </div>
+
+        <!-- Primary View Switchers -->
+        <button onclick="switchMainTab('chat')" id="nav-btn-chat" title="AI Agent Workspace" class="w-10 h-10 rounded-lg flex items-center justify-center text-sky-400 bg-sky-950/40 border border-sky-800/50 transition">
+          <i class="fa-solid fa-comments text-base"></i>
+        </button>
+
+        <button onclick="switchMainTab('git')" id="nav-btn-git" title="Visual Git & Repositories" class="w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-surface-card transition relative">
+          <i class="fa-solid fa-code-branch text-base"></i>
+          <span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400"></span>
+        </button>
+
+        <button onclick="switchMainTab('profiles')" id="nav-btn-profiles" title="Antigravity Multi-Account Profiles" class="w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-surface-card transition">
+          <i class="fa-solid fa-users-gear text-base"></i>
+        </button>
+
+        <button onclick="switchMainTab('mcp')" id="nav-btn-mcp" title="Model Context Protocol (MCP) Tools" class="w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-surface-card transition">
+          <i class="fa-solid fa-cubes-stacked text-base"></i>
+        </button>
+
+        <button onclick="switchMainTab('settings')" id="nav-btn-settings" title="Engine & Gateway Settings" class="w-10 h-10 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-surface-card transition">
+          <i class="fa-solid fa-sliders text-base"></i>
+        </button>
+      </div>
+
+      <!-- Bottom Profile Avatar Indicator -->
+      <div class="flex flex-col items-center space-y-3">
+        <button onclick="openProfileModal()" title="Current Active Profile" class="relative group">
+          <div class="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-mono font-semibold text-sky-400 group-hover:border-sky-500 transition">
+            <i class="fa-solid fa-user-astronaut text-xs"></i>
+          </div>
+          <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-surface-sidebar rounded-full"></span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- 2. SECONDARY COLLAPSIBLE SIDEBAR: SESSIONS & REPOSITORIES (260px) -->
+    <aside id="conversations-sidebar" class="w-64 bg-surface-sidebar border-r border-surface-border flex flex-col flex-shrink-0 transition-all duration-200">
+      
+      <!-- Workspace Directory Selector -->
+      <div class="p-3 border-b border-surface-border">
+        <label class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold block mb-1.5">Project Workspace</label>
+        <div class="relative">
+          <select id="select-project-workspace" onchange="onWorkspaceChange(this.value)" class="w-full bg-surface-card border border-surface-border text-xs text-slate-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-sky-500 cursor-pointer appearance-none pr-8">
+            <option value="ainzara">ainzara (C:\...\ainzara)</option>
+            <option value="ChessSenseV2" selected>ChessSenseV2 (active)</option>
+            <option value="Landing-App">Landing-App (main)</option>
+          </select>
+          <i class="fa-solid fa-chevron-down absolute right-2.5 top-2.5 text-[10px] text-slate-400 pointer-events-none"></i>
+        </div>
+
+        <!-- '+ New Session' Button -->
+        <button onclick="createNewSession()" class="mt-2.5 w-full bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs py-1.5 px-3 rounded flex items-center justify-center space-x-2 transition shadow-sm">
+          <i class="fa-solid fa-plus text-xs"></i>
+          <span>New Agent Session</span>
+        </button>
+      </div>
+
+      <!-- Active Profile Dispatcher Pill -->
+      <div class="px-3 py-2 bg-surface-deep/60 border-b border-surface-border flex items-center justify-between text-xs">
+        <span class="text-slate-400 text-[11px]">Runner:</span>
+        <div class="flex items-center space-x-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <select id="agent-profile-selector" onchange="switchAgentProfile(this.value)" class="bg-transparent text-slate-300 font-mono text-[11px] focus:outline-none cursor-pointer">
+            <option value="Profile-1">agy: Profile-1 (Port 9339)</option>
+            <option value="Profile-2">agy: Profile-2 (Port 9340)</option>
+            <option value="Profile-3">agy: Profile-3 (Port 9341)</option>
+            <option value="ClaudeCode">Claude Code Gateway</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Conversations & Work History List -->
+      <div class="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+        <div>
+          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-2">Today</span>
+          <div class="mt-1 space-y-1">
+            <button onclick="loadSession('Fix CORS & Auth Headers')" class="w-full text-left px-2.5 py-2 rounded-lg bg-surface-card border border-surface-borderLight text-xs text-slate-200 flex items-center space-x-2 group">
+              <i class="fa-solid fa-code text-sky-400 text-xs"></i>
+              <span class="truncate flex-1 font-medium">Fix CORS & Auth Headers</span>
+              <span class="text-[10px] font-mono text-slate-400">12m</span>
+            </button>
+            <button onclick="loadSession('Implement Stripe Webhooks')" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-2 transition">
+              <i class="fa-solid fa-file-code text-slate-500 text-xs"></i>
+              <span class="truncate flex-1">Implement Stripe Webhooks</span>
+              <span class="text-[10px] font-mono text-slate-400">2h</span>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-2">Yesterday</span>
+          <div class="mt-1 space-y-1">
+            <button onclick="loadSession('Refactor Chess Engine API')" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-2 transition">
+              <i class="fa-solid fa-code-commit text-slate-500 text-xs"></i>
+              <span class="truncate flex-1">Refactor Chess Engine API</span>
+              <span class="text-[10px] font-mono text-slate-400">1d</span>
+            </button>
+            <button onclick="loadSession('Add Telegram Remote Bot')" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-card text-xs text-slate-400 hover:text-slate-200 flex items-center space-x-2 transition">
+              <i class="fa-solid fa-robot text-slate-500 text-xs"></i>
+              <span class="truncate flex-1">Add Telegram Remote Bot</span>
+              <span class="text-[10px] font-mono text-slate-400">1d</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Codebase Tree Shortcut -->
+        <div class="pt-2 border-t border-surface-border">
+          <div class="flex items-center justify-between px-2 mb-1">
+            <span class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Active Repo Files</span>
+            <span class="text-[10px] text-slate-400 font-mono">git:main</span>
+          </div>
+          <div class="space-y-0.5 text-xs text-slate-400 px-2 font-mono">
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-folder text-amber-400"></i><span>src/services/</span></div>
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-lines text-sky-400"></i><span>AgentEngine.cs</span></div>
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5 pl-3"><i class="fa-regular fa-file-code text-emerald-400"></i><span>WebBridge.cs</span></div>
+            <div class="py-0.5 hover:text-slate-200 cursor-pointer flex items-center space-x-1.5"><i class="fa-regular fa-file text-slate-500"></i><span>package.json</span></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 3. MAIN WORKSPACE CONTENT CONTAINER -->
+    <main class="flex-1 flex flex-col bg-surface-deep overflow-hidden relative">
+
+      <!-- VIEW A: AGENT CHAT & INTERACTIVE WORKSPACE (PRIMARY) -->
+      <section id="view-chat" class="flex-1 flex flex-col h-full overflow-hidden">
+        
+        <!-- Chat Context Header -->
+        <div class="h-12 border-b border-surface-border px-5 flex items-center justify-between bg-surface-deep/80 backdrop-blur z-10 flex-shrink-0">
+          <div class="flex items-center space-x-3">
+            <h1 id="chat-title" class="text-sm font-semibold text-slate-100 flex items-center space-x-2">
+              <span>Fix CORS & Auth Headers</span>
+            </h1>
+            <span class="text-xs px-2 py-0.5 rounded bg-surface-card border border-surface-border text-slate-300 font-mono flex items-center space-x-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span id="header-profile-badge">Antigravity CLI (agy)</span>
+            </span>
+          </div>
+
+          <div class="flex items-center space-x-3">
+            <!-- Quota Monitor Pill -->
+            <div class="flex items-center space-x-2 text-xs bg-surface-card border border-surface-border px-2.5 py-1 rounded">
+              <span class="text-slate-400">Quota:</span>
+              <span class="text-emerald-400 font-mono font-medium">94% Safe</span>
+              <span class="text-slate-600">|</span>
+              <span class="text-slate-400">Model:</span>
+              <span class="text-sky-300 font-medium">Gemini 3.8 Flash High</span>
+            </div>
+
+            <button onclick="switchMainTab('git')" title="Inspect Current Diff" class="px-2.5 py-1 rounded bg-surface-card border border-surface-border hover:border-slate-500 text-xs text-slate-300 flex items-center space-x-1.5">
+              <i class="fa-solid fa-code-compare text-sky-400"></i>
+              <span>Diff View</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Chat Scrollable Message Stream -->
+        <div id="chat-stream" class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+
+          <!-- USER PROMPT MESSAGE -->
+          <div class="flex items-start space-x-3 max-w-3xl">
+            <div class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-slate-300 flex-shrink-0">
+              YOU
+            </div>
+            <div class="flex-1 bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-slate-200">
+              <p>Please check the project in <code class="font-mono text-sky-400 bg-surface-deep px-1.5 py-0.5 rounded border border-surface-border">ChessSenseV2</code>. We are getting a CORS error when attempting to authenticate the client frontend against our local gateway.</p>
+            </div>
+          </div>
+
+          <!-- AGENT RESPONSE + HEADLESS TOOL CALL CARDS -->
+          <div class="flex items-start space-x-3 max-w-3xl">
+            <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center text-white text-xs flex-shrink-0 shadow-md shadow-sky-600/30">
+              <i class="fa-solid fa-microchip"></i>
+            </div>
+            <div class="flex-1 space-y-3">
+              
+              <!-- Reasoning Collapsible Block -->
+              <details class="bg-surface-card/60 border border-surface-border rounded-lg text-xs group" open>
+                <summary class="px-3 py-2 cursor-pointer text-slate-400 hover:text-slate-200 flex items-center justify-between font-mono">
+                  <span class="flex items-center space-x-2">
+                    <i class="fa-solid fa-brain text-sky-400"></i>
+                    <span>Agent Thinking Process</span>
+                  </span>
+                  <i class="fa-solid fa-chevron-down text-[10px] group-open:rotate-180 transition-transform"></i>
+                </summary>
+                <div class="px-3 pb-3 pt-1 text-slate-400 border-t border-surface-border/50 text-[11px] space-y-1 font-mono">
+                  <p>1. Analyzing <code class="text-slate-300">server/gateway.config.json</code> and CORS origin whitelist.</p>
+                  <p>2. Discovered missing header <code class="text-slate-300">Access-Control-Allow-Private-Network</code> for local IP requests.</p>
+                  <p>3. Executing targeted file patch to satisfy browser preflight checks.</p>
+                </div>
+              </details>
+
+              <!-- TOOL EXECUTION CARD 1: File Read -->
+              <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs flex items-center justify-between">
+                <div class="flex items-center space-x-2.5">
+                  <div class="w-6 h-6 rounded bg-sky-950/70 border border-sky-800/60 flex items-center justify-center text-sky-400">
+                    <i class="fa-regular fa-file-lines text-xs"></i>
+                  </div>
+                  <div>
+                    <span class="font-mono text-slate-300 font-medium">Read File:</span>
+                    <span class="font-mono text-slate-400 ml-1">ChessSenseV2/src/server.ts</span>
+                  </div>
+                </div>
+                <span class="text-[11px] text-emerald-400 font-mono flex items-center space-x-1">
+                  <i class="fa-solid fa-check text-[10px]"></i>
+                  <span>Completed (184 lines)</span>
+                </span>
+              </div>
+
+              <!-- TOOL EXECUTION CARD 2: File Modification with Diff Trigger -->
+              <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs flex items-center justify-between">
+                <div class="flex items-center space-x-2.5">
+                  <div class="w-6 h-6 rounded bg-amber-950/70 border border-amber-800/60 flex items-center justify-center text-amber-400">
+                    <i class="fa-solid fa-pen-to-square text-xs"></i>
+                  </div>
+                  <div>
+                    <span class="font-mono text-slate-300 font-medium">Modified File:</span>
+                    <span class="font-mono text-slate-400 ml-1">src/middleware/corsHandler.ts</span>
+                    <span class="ml-2 px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">+12 -3 lines</span>
+                  </div>
+                </div>
+                <button onclick="switchMainTab('git')" class="px-2.5 py-1 bg-surface-deep hover:bg-slate-800 text-sky-300 hover:text-sky-200 border border-surface-border rounded font-mono text-[11px] transition flex items-center space-x-1.5">
+                  <i class="fa-solid fa-code-compare text-[10px]"></i>
+                  <span>Review Diff</span>
+                </button>
+              </div>
+
+              <!-- TOOL EXECUTION CARD 3: Silent Headless CLI Run -->
+              <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs flex items-center justify-between">
+                <div class="flex items-center space-x-2.5">
+                  <div class="w-6 h-6 rounded bg-emerald-950/70 border border-emerald-800/60 flex items-center justify-center text-emerald-400">
+                    <i class="fa-solid fa-play text-xs"></i>
+                  </div>
+                  <div>
+                    <span class="font-mono text-slate-300 font-medium">Headless CLI Run:</span>
+                    <span class="font-mono text-slate-400 ml-1">npm run test:cors</span>
+                  </div>
+                </div>
+                <span class="text-[11px] text-emerald-400 font-mono flex items-center space-x-1">
+                  <i class="fa-solid fa-circle-check text-[10px]"></i>
+                  <span>Exit Code 0 (Success)</span>
+                </span>
+              </div>
+
+              <!-- Agent Written Conclusion & Code Sample -->
+              <div class="bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-slate-200 space-y-3">
+                <p>I have updated the CORS middleware to handle local origin preflights and explicitly authorized headers for incoming client connections.</p>
+                <div class="bg-surface-deep border border-surface-border rounded-lg overflow-hidden font-mono text-xs">
+                  <div class="bg-surface-sidebar px-3 py-1.5 border-b border-surface-border flex items-center justify-between text-slate-400 text-[11px]">
+                    <span>corsHandler.ts</span>
+                    <button onclick="copyCodeSnippet(this)" class="hover:text-slate-200"><i class="fa-regular fa-copy"></i> Copy</button>
+                  </div>
+                  <pre class="p-3 text-sky-300 overflow-x-auto"><code>app.use(cors({
+  origin: ['http://localhost:5173', 'http://127.0.0.1:9119'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Antigravity-Profile']
+}));</code></pre>
+                </div>
+                <p class="text-xs text-slate-400">All tests pass. Would you like me to commit these changes to the Git repository or run additional validations?</p>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Chat Bottom Floating Input Dock -->
+        <div class="p-4 bg-surface-deep border-t border-surface-border flex-shrink-0">
+          <div class="max-w-4xl mx-auto bg-surface-card border border-surface-border focus-within:border-sky-500 rounded-2xl shadow-xl transition p-2">
+            
+            <textarea id="prompt-input" rows="2" placeholder="Send instructions to active agent (e.g. 'Build an express route', '/diff', '/switch-profile')..." 
+              class="w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none resize-none px-3 py-1 font-sans"></textarea>
+
+            <div class="flex items-center justify-between pt-2 px-2 border-t border-surface-border/50 text-xs text-slate-400">
+              <div class="flex items-center space-x-2">
+                <button title="Attach Workspace File" class="hover:text-slate-200 p-1 rounded hover:bg-surface-deep"><i class="fa-solid fa-paperclip"></i></button>
+                <span class="text-slate-700">|</span>
+                <button title="Execute with Bash / PowerShell" class="hover:text-slate-200 p-1 rounded hover:bg-surface-deep font-mono text-[11px]"><i class="fa-solid fa-terminal mr-1 text-[10px]"></i>Exec</button>
+                <button title="Run Git Diff Check" onclick="switchMainTab('git')" class="hover:text-slate-200 p-1 rounded hover:bg-surface-deep font-mono text-[11px]"><i class="fa-solid fa-code-branch mr-1 text-[10px]"></i>Git</button>
+              </div>
+
+              <div class="flex items-center space-x-3">
+                <span class="text-[11px] font-mono text-slate-400">Tokens: ~1.2k</span>
+                <button id="btn-send-prompt" onclick="submitUserPrompt()" class="bg-sky-600 hover:bg-sky-500 text-white w-8 h-8 rounded-xl flex items-center justify-center transition shadow-md shadow-sky-600/30">
+                  <i class="fa-solid fa-arrow-up text-xs"></i>
+                </button>
+              </div>
+            </div>
+
+          </div>
+          <div class="text-center mt-2 text-[10px] text-slate-400">
+            Agents Hub v2.0 • Headless process supervisor directly executing against <span class="font-mono text-slate-400">ConPTY</span> with VirtualHome isolation.
+          </div>
+        </div>
+
+      </section>
+
+      <!-- VIEW B: VISUAL GIT REPOSITORIES & DIFF INSPECTOR -->
+      <section id="view-git" class="flex-1 flex-col h-full overflow-hidden hidden">
+        <div class="h-12 border-b border-surface-border px-5 flex items-center justify-between bg-surface-deep flex-shrink-0">
+          <div class="flex items-center space-x-3">
+            <h2 class="text-sm font-semibold text-slate-100 flex items-center space-x-2">
+              <i class="fa-solid fa-code-branch text-amber-400"></i>
+              <span>Git Repository Manager & Diff Inspector</span>
+            </h2>
+            <span class="text-xs px-2 py-0.5 rounded bg-surface-card border border-surface-border text-slate-300 font-mono">ChessSenseV2 (main)</span>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <button onclick="simulateGitPush()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-medium flex items-center space-x-1.5 shadow-sm transition">
+              <i class="fa-brands fa-github"></i>
+              <span>Push to GitHub</span>
+            </button>
+            <button onclick="switchMainTab('chat')" class="px-3 py-1.5 bg-surface-card hover:bg-surface-border text-slate-200 border border-surface-border rounded text-xs">
+              Back to Chat
+            </button>
+          </div>
+        </div>
+
+        <div class="flex-1 flex overflow-hidden">
+          <!-- Files with Diff List -->
+          <div class="w-72 bg-surface-sidebar border-r border-surface-border p-3 flex flex-col overflow-y-auto">
+            <div class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Uncommitted Changes (2 files)</div>
+            <div class="space-y-1">
+              <div class="p-2 rounded bg-surface-card border border-sky-500/40 text-xs cursor-pointer">
+                <div class="flex items-center justify-between font-mono text-slate-200">
+                  <span class="truncate">src/middleware/corsHandler.ts</span>
+                  <span class="text-emerald-400 text-[10px]">+12 -3</span>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-1">Modified by Antigravity Agent</div>
+              </div>
+              <div class="p-2 rounded hover:bg-surface-card border border-transparent text-xs cursor-pointer text-slate-400">
+                <div class="flex items-center justify-between font-mono">
+                  <span class="truncate">server/gateway.config.json</span>
+                  <span class="text-emerald-400 text-[10px]">+2 -0</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Commits Lane -->
+            <div class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mt-6 mb-2">Recent Commits</div>
+            <div class="space-y-2 text-xs font-mono text-slate-400">
+              <div class="border-l-2 border-sky-500 pl-2.5">
+                <div class="text-slate-200 font-medium truncate">feat: Add ConPTY stream parser</div>
+                <div class="text-[10px] text-slate-400">88febc9 • 2 hours ago</div>
+              </div>
+              <div class="border-l-2 border-slate-700 pl-2.5">
+                <div class="text-slate-300 truncate">fix: VirtualHome path resolver</div>
+                <div class="text-[10px] text-slate-400">77c12a4 • yesterday</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Color-coded Diff Canvas -->
+          <div class="flex-1 bg-surface-deep p-4 overflow-y-auto font-mono text-xs">
+            <div class="bg-surface-card border border-surface-border rounded-xl overflow-hidden">
+              <div class="bg-surface-sidebar px-4 py-2 border-b border-surface-border flex items-center justify-between text-slate-400 text-[11px]">
+                <span>Diff: src/middleware/corsHandler.ts</span>
+                <span class="text-emerald-400">Hunk @@ -14,6 +14,15 @@</span>
+              </div>
+              <div class="p-3 space-y-0.5 leading-relaxed">
+                <div class="text-slate-400"> const router = express.Router();</div>
+                <div class="bg-rose-950/30 text-rose-300 px-2 py-0.5 rounded border-l-2 border-rose-500">- app.use(cors());</div>
+                <div class="bg-emerald-950/30 text-emerald-300 px-2 py-0.5 rounded border-l-2 border-emerald-500">+ app.use(cors({</div>
+                <div class="bg-emerald-950/30 text-emerald-300 px-2 py-0.5 rounded border-l-2 border-emerald-500">+   origin: ['http://localhost:5173', 'http://127.0.0.1:9119'],</div>
+                <div class="bg-emerald-950/30 text-emerald-300 px-2 py-0.5 rounded border-l-2 border-emerald-500">+   credentials: true,</div>
+                <div class="bg-emerald-950/30 text-emerald-300 px-2 py-0.5 rounded border-l-2 border-emerald-500">+   allowedHeaders: ['Content-Type', 'Authorization', 'X-Antigravity-Profile']</div>
+                <div class="bg-emerald-950/30 text-emerald-300 px-2 py-0.5 rounded border-l-2 border-emerald-500">+ }));</div>
+                <div class="text-slate-400"> export default router;</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW C: ANTIGRAVITY PROFILES & MULTI-ACCOUNT ISOLATION -->
+      <section id="view-profiles" class="flex-1 flex-col h-full overflow-y-auto p-6 hidden">
+        <div class="max-w-4xl mx-auto space-y-6">
+          <div>
+            <h2 class="text-lg font-semibold text-slate-100">Antigravity Multi-Account Profiles</h2>
+            <p class="text-xs text-slate-400 mt-1">Each profile executes in an isolated VirtualHome sandbox. Ports allocate automatically with zero credential conflicts.</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            
+            <!-- Profile 1 (Active) -->
+            <div class="bg-surface-card border-2 border-sky-500/70 rounded-xl p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="w-3 h-3 rounded-full bg-emerald-400"></span>
+                  <span class="font-mono font-bold text-slate-100">Profile-1</span>
+                  <span class="px-1.5 py-0.2 bg-sky-950 text-sky-400 border border-sky-800 text-[10px] rounded">ACTIVE</span>
+                </div>
+                <span class="font-mono text-xs text-slate-400">Port: 9339</span>
+              </div>
+              <div class="text-xs text-slate-400 font-mono space-y-1 bg-surface-deep p-2.5 rounded border border-surface-border">
+                <div>Identity: dev.primary@example.com</div>
+                <div>Runtime: Google Gemini 3.8 Flash High</div>
+                <div>Quota Status: 98% remaining</div>
+              </div>
+              <div class="flex space-x-2">
+                <button class="flex-1 py-1.5 bg-sky-600 text-white rounded text-xs font-medium">Running Session</button>
+                <button onclick="rotateIpAddress()" class="px-2.5 py-1.5 bg-surface-deep hover:bg-slate-800 text-slate-300 border border-surface-border rounded text-xs" title="Rotate WARP IP"><i class="fa-solid fa-arrows-rotate"></i> Rotate IP</button>
+              </div>
+            </div>
+
+            <!-- Profile 2 (Standby) -->
+            <div class="bg-surface-card border border-surface-border hover:border-slate-600 rounded-xl p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="w-3 h-3 rounded-full bg-slate-600"></span>
+                  <span class="font-mono font-bold text-slate-100">Profile-2</span>
+                  <span class="px-1.5 py-0.2 bg-slate-800 text-slate-400 text-[10px] rounded">STANDBY</span>
+                </div>
+                <span class="font-mono text-xs text-slate-400">Port: 9340</span>
+              </div>
+              <div class="text-xs text-slate-400 font-mono space-y-1 bg-surface-deep p-2.5 rounded border border-surface-border">
+                <div>Identity: dev.secondary@example.com</div>
+                <div>Runtime: Claude 3.7 Sonnet / OpenRouter</div>
+                <div>Quota Status: 100% (Clean Pool)</div>
+              </div>
+              <div class="flex space-x-2">
+                <button onclick="switchAgentProfile('Profile-2')" class="flex-1 py-1.5 bg-surface-deep hover:bg-sky-600 hover:text-white text-slate-300 border border-surface-border rounded text-xs font-medium transition">Switch to this Account</button>
+              </div>
+            </div>
+
+            <!-- Profile 3 -->
+            <div class="bg-surface-card border border-surface-border rounded-xl p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="w-3 h-3 rounded-full bg-slate-600"></span>
+                  <span class="font-mono font-bold text-slate-100">Profile-3</span>
+                  <span class="px-1.5 py-0.2 bg-slate-800 text-slate-400 text-[10px] rounded">OFFLINE</span>
+                </div>
+                <span class="font-mono text-xs text-slate-400">Port: 9341</span>
+              </div>
+              <div class="text-xs text-slate-400 font-mono space-y-1 bg-surface-deep p-2.5 rounded border border-surface-border">
+                <div>Identity: dev.agent3@example.com</div>
+                <div>Runtime: DeepSeek-R1 (Local Ollama)</div>
+                <div>Quota Status: Unlimited</div>
+              </div>
+              <button onclick="switchAgentProfile('Profile-3')" class="w-full py-1.5 bg-surface-deep hover:bg-slate-800 text-slate-300 border border-surface-border rounded text-xs font-medium">Activate Profile</button>
+            </div>
+
+            <!-- Profile 4 -->
+            <div class="bg-surface-card border border-surface-border rounded-xl p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="w-3 h-3 rounded-full bg-slate-600"></span>
+                  <span class="font-mono font-bold text-slate-100">Profile-4</span>
+                  <span class="px-1.5 py-0.2 bg-slate-800 text-slate-400 text-[10px] rounded">OFFLINE</span>
+                </div>
+                <span class="font-mono text-xs text-slate-400">Port: 9342</span>
+              </div>
+              <div class="text-xs text-slate-400 font-mono space-y-1 bg-surface-deep p-2.5 rounded border border-surface-border">
+                <div>Identity: unassigned</div>
+                <div>Runtime: Configurable</div>
+                <div>Quota Status: Ready</div>
+              </div>
+              <button class="w-full py-1.5 bg-surface-deep hover:bg-slate-800 text-slate-300 border border-surface-border rounded text-xs font-medium">+ Add Credentials</button>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW D: MCP TOOLS & CAPABILITIES -->
+      <section id="view-mcp" class="flex-1 flex-col h-full overflow-y-auto p-6 hidden">
+        <div class="max-w-4xl mx-auto space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-semibold text-slate-100">Model Context Protocol (MCP) Servers</h2>
+              <p class="text-xs text-slate-400">7 Active Servers • 27 Registered Tool Definitions available for auto-calling</p>
+            </div>
+            <button class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded text-xs font-medium">+ Add MCP Server</button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+            <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs space-y-1">
+              <div class="flex items-center justify-between font-mono">
+                <strong class="text-slate-200">chrome-devtools-mcp</strong>
+                <span class="text-emerald-400 text-[10px]">32 Tools</span>
+              </div>
+              <p class="text-slate-400 text-[11px]">Enables live DOM inspection, screenshot captures, and network tracing.</p>
+            </div>
+            <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs space-y-1">
+              <div class="flex items-center justify-between font-mono">
+                <strong class="text-slate-200">codebase-memory-mcp</strong>
+                <span class="text-emerald-400 text-[10px]">17 Tools</span>
+              </div>
+              <p class="text-slate-400 text-[11px]">Maintains semantic index and AST tree memory across long conversations.</p>
+            </div>
+            <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs space-y-1">
+              <div class="flex items-center justify-between font-mono">
+                <strong class="text-slate-200">firebase-mcp-server</strong>
+                <span class="text-emerald-400 text-[10px]">19 Tools</span>
+              </div>
+              <p class="text-slate-400 text-[11px]">Direct Firestore, Auth, and Storage rule verification and deployment.</p>
+            </div>
+            <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs space-y-1">
+              <div class="flex items-center justify-between font-mono">
+                <strong class="text-slate-200">supabase</strong>
+                <span class="text-emerald-400 text-[10px]">21 Tools</span>
+              </div>
+              <p class="text-slate-400 text-[11px]">Database migrations, schema inspections, and edge function generation.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW E: SYSTEM TELEMETRY & RUNTIMES -->
+      <section id="view-settings" class="flex-1 flex-col h-full overflow-y-auto p-6 hidden">
+        <div class="max-w-3xl mx-auto space-y-5">
+          <h2 class="text-lg font-semibold text-slate-100">Gateway Engine & Host Settings</h2>
+          
+          <div class="bg-surface-card border border-surface-border rounded-xl p-4 space-y-3 text-xs">
+            <h3 class="font-semibold text-slate-200 uppercase tracking-wider text-[11px]">Port Allocations</h3>
+            <div class="grid grid-cols-2 gap-2 font-mono">
+              <div class="p-2 bg-surface-deep rounded border border-surface-border">Claude Proxy: <strong>127.0.0.1:9230</strong></div>
+              <div class="p-2 bg-surface-deep rounded border border-surface-border">Hermes Dashboard: <strong>127.0.0.1:9119</strong></div>
+              <div class="p-2 bg-surface-deep rounded border border-surface-border">LAN Mobile Gateway: <strong>0.0.0.0:9191</strong></div>
+              <div class="p-2 bg-surface-deep rounded border border-surface-border">Antigravity Base: <strong>127.0.0.1:9339</strong></div>
+            </div>
+          </div>
+
+          <div class="bg-surface-card border border-surface-border rounded-xl p-4 space-y-3 text-xs">
+            <h3 class="font-semibold text-slate-200 uppercase tracking-wider text-[11px]">Installed Toolchains</h3>
+            <div class="space-y-1.5 font-mono text-[11px] text-slate-300">
+              <div class="flex items-center justify-between p-1.5 bg-surface-deep rounded">
+                <span>Node.js v24.19.0</span>
+                <span class="text-emerald-400">Ready</span>
+              </div>
+              <div class="flex items-center justify-between p-1.5 bg-surface-deep rounded">
+                <span>Git for Windows v2.55.0</span>
+                <span class="text-emerald-400">Ready</span>
+              </div>
+              <div class="flex items-center justify-between p-1.5 bg-surface-deep rounded">
+                <span>Antigravity CLI (agy) v1.4.7</span>
+                <span class="text-emerald-400">Ready</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+  </div>
+
+  <!-- INTERACTION JAVASCRIPT -->
+  <script>
+    // --- HUD Drop-down Console Toggle (F12 or Button) ---
+    const hud = document.getElementById('quake-hud');
+    let hudOpen = false;
+
+    function toggleHud(forceState) {
+      hudOpen = typeof forceState === 'boolean' ? forceState : !hudOpen;
+      if (hudOpen) {
+        hud.classList.add('active');
+        hud.classList.remove('pointer-events-none');
+      } else {
+        hud.classList.remove('active');
+        hud.classList.add('pointer-events-none');
+      }
+    }
+
+    document.getElementById('btn-toggle-hud').addEventListener('click', () => toggleHud());
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'F12' || e.key === '`') {
+        e.preventDefault();
+        toggleHud();
+      }
+    });
+
+    function clearHudTerminal() {
+      const container = document.getElementById('hud-terminal-content');
+      container.innerHTML = '<p class="text-slate-500">// Terminal buffer cleared. ConPTY process listening...</p>';
+    }
+
+    // --- Main Tab Switching ---
+    const tabs = ['chat', 'git', 'profiles', 'mcp', 'settings'];
+
+    function switchMainTab(tabName) {
+      tabs.forEach(t => {
+        const viewEl = document.getElementById(`view-${t}`);
+        const btnEl = document.getElementById(`nav-btn-${t}`);
+        
+        if (t === tabName) {
+          viewEl.classList.remove('hidden');
+          viewEl.classList.add('flex');
+          if (btnEl) {
+            btnEl.classList.add('bg-sky-950/40', 'border-sky-800/50', 'text-sky-400');
+            btnEl.classList.remove('text-slate-400');
+          }
+        } else {
+          viewEl.classList.add('hidden');
+          viewEl.classList.remove('flex');
+          if (btnEl) {
+            btnEl.classList.remove('bg-sky-950/40', 'border-sky-800/50', 'text-sky-400');
+            btnEl.classList.add('text-slate-400');
+          }
+        }
+      });
+    }
+
+    // --- Profile & Multi-Account Switching ---
+    function switchAgentProfile(profileName) {
+      document.getElementById('agent-profile-selector').value = profileName;
+      document.getElementById('header-profile-badge').innerText = `Antigravity CLI (agy) • ${profileName}`;
+
+      // Append log entry to ConPTY HUD
+      const hudContent = document.getElementById('hud-terminal-content');
+      hudContent.innerHTML += `<p class="text-sky-400">[VirtualHome] Profile switched to ${profileName}. Active port mapped cleanly.</p>`;
+      hudContent.scrollTop = hudContent.scrollHeight;
+    }
+
+    // --- Submitting User Prompt with Headless Tool Simulation ---
+    function submitUserPrompt() {
+      const input = document.getElementById('prompt-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const stream = document.getElementById('chat-stream');
+
+      // 1. Add User Message
+      const userHtml = `
+        <div class="flex items-start space-x-3 max-w-3xl">
+          <div class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-slate-300 flex-shrink-0">
+            YOU
+          </div>
+          <div class="flex-1 bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-slate-200">
+            <p>${escapeHtml(text)}</p>
+          </div>
+        </div>
+      `;
+      stream.innerHTML += userHtml;
+      input.value = '';
+      stream.scrollTop = stream.scrollHeight;
+
+      // 2. Add Simulated Agent Response with Tool Call Badge after 600ms
+      setTimeout(() => {
+        const agentHtml = `
+          <div class="flex items-start space-x-3 max-w-3xl">
+            <div class="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center text-white text-xs flex-shrink-0 shadow-md shadow-sky-600/30">
+              <i class="fa-solid fa-microchip"></i>
+            </div>
+            <div class="flex-1 space-y-3">
+              
+              <!-- Executed Tool Card -->
+              <div class="bg-surface-card border border-surface-border rounded-lg p-3 text-xs flex items-center justify-between">
+                <div class="flex items-center space-x-2.5">
+                  <div class="w-6 h-6 rounded bg-emerald-950/70 border border-emerald-800/60 flex items-center justify-center text-emerald-400">
+                    <i class="fa-solid fa-check text-xs"></i>
+                  </div>
+                  <div>
+                    <span class="font-mono text-slate-300 font-medium">Executed Command:</span>
+                    <span class="font-mono text-slate-400 ml-1">agy --execute "${escapeHtml(text.slice(0, 30))}..."</span>
+                  </div>
+                </div>
+                <button onclick="switchMainTab('git')" class="text-sky-400 hover:text-sky-300 font-mono text-[11px]">View Changes →</button>
+              </div>
+
+              <!-- Message Text -->
+              <div class="bg-surface-card border border-surface-border rounded-xl p-4 text-sm text-slate-200">
+                <p>Task completed successfully in your project context. The background CLI dispatched all file updates without errors.</p>
+              </div>
+
+            </div>
+          </div>
+        `;
+        stream.innerHTML += agentHtml;
+        stream.scrollTop = stream.scrollHeight;
+
+        // Bridge notification to C# .NET host if inside WebView2
+        if (window.chrome && window.chrome.webview) {
+          window.chrome.webview.postMessage({
+            event: 'agent_prompt_submitted',
+            prompt: text,
+            profile: document.getElementById('agent-profile-selector').value
+          });
+        }
+      }, 700);
+    }
+
+    // Enter Key to Send
+    document.getElementById('prompt-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitUserPrompt();
+      }
+    });
+
+    // --- Utilities ---
+    function escapeHtml(string) {
+      return String(string).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function copyCodeSnippet(btn) {
+      const pre = btn.closest('div').nextElementSibling;
+      const text = pre.innerText;
+      const dummy = document.createElement('textarea');
+      document.body.appendChild(dummy);
+      dummy.value = text;
+      dummy.select();
+      document.execCommand('copy');
+      document.body.removeChild(dummy);
+      
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-check text-emerald-400"></i> Copied!';
+      setTimeout(() => btn.innerHTML = originalText, 1800);
+    }
+
+    function createNewSession() {
+      const stream = document.getElementById('chat-stream');
+      stream.innerHTML = `
+        <div class="text-center py-16 space-y-3">
+          <div class="w-12 h-12 rounded-2xl bg-sky-950/60 border border-sky-800/50 flex items-center justify-center text-sky-400 text-xl mx-auto shadow-lg">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+          </div>
+          <h3 class="text-sm font-semibold text-slate-200">New Agent Session Started</h3>
+          <p class="text-xs text-slate-400 max-w-sm mx-auto">Active runner attached to current workspace. Type your prompt below to inspect, write code, or execute commands.</p>
+        </div>
+      `;
+      document.getElementById('chat-title').innerText = 'New Task Session';
+    }
+
+    function loadSession(title) {
+      document.getElementById('chat-title').innerText = title;
+      switchMainTab('chat');
+    }
+
+    function simulateGitPush() {
+      alert("Changes pushed to remote origin via AgentsHub Git manager.");
+    }
+
+    function rotateIpAddress() {
+      const hudContent = document.getElementById('hud-terminal-content');
+      hudContent.innerHTML += `<p class="text-amber-400">[WARP Proxy] Rotating dual-stack IP address for account quota refresh...</p>`;
+      hudContent.scrollTop = hudContent.scrollHeight;
+    }
+  </script>
+</body>
+</html>

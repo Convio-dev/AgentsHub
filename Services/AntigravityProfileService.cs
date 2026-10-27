@@ -70,6 +70,22 @@ public sealed class AntigravityProfileService : IDisposable
         {
             lock (_lock)
             {
+                if (string.IsNullOrWhiteSpace(_activeProfile) || string.Equals(_activeProfile, "default", StringComparison.OrdinalIgnoreCase))
+                {
+                    var profs = Directory.Exists(ProfilesBaseDir)
+                        ? Directory.GetDirectories(ProfilesBaseDir)
+                            .Select(Path.GetFileName)
+                            .Where(n => !string.IsNullOrWhiteSpace(n) && !string.Equals(n, "default", StringComparison.OrdinalIgnoreCase))
+                            .Select(n => n!)
+                            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                            .ToList()
+                        : new List<string>();
+
+                    if (profs.Count > 0)
+                    {
+                        _activeProfile = profs[0];
+                    }
+                }
                 return _activeProfile;
             }
         }
@@ -170,11 +186,14 @@ public sealed class AntigravityProfileService : IDisposable
     {
         try
         {
-            string defaultDir = Path.Combine(ProfilesBaseDir, "Default");
-            if (Directory.Exists(defaultDir) && !HasValidSavedCredentials("Default"))
+            foreach (var name in new[] { "Default", "default" })
             {
-                Directory.Delete(defaultDir, true);
-                Log("Removed unauthenticated Default profile directory.");
+                string defaultDir = Path.Combine(ProfilesBaseDir, name);
+                if (Directory.Exists(defaultDir) && !HasValidSavedCredentials(name))
+                {
+                    Directory.Delete(defaultDir, true);
+                    Log($"Removed unauthenticated {name} profile directory.");
+                }
             }
         }
         catch
@@ -194,10 +213,13 @@ public sealed class AntigravityProfileService : IDisposable
                     return [];
                 }
 
+                RemoveUnauthenticatedDefaultProfile();
+
                 var dirs = Directory.GetDirectories(ProfilesBaseDir)
                     .Select(Path.GetFileName)
                     .Where(n => !string.IsNullOrWhiteSpace(n))
                     .Select(n => n!)
+                    .Where(n => !string.Equals(n, "default", StringComparison.OrdinalIgnoreCase) || HasValidSavedCredentials(n))
                     .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 

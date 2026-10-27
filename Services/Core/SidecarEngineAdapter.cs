@@ -33,7 +33,7 @@ public class SidecarEngineAdapter : IEngineAdapter
 
         _client.OnToolOutput += (ev) =>
         {
-            OnToolExecuted?.Invoke(ev.TaskId, ev.Tool, ev.Success);
+            OnToolExecuted?.Invoke(ev.TaskId ?? ev.SessionId ?? "global", ev.Tool, ev.Success);
         };
 
         _client.OnTerminalData += (ev) =>

@@ -131,7 +131,10 @@ public static class DependencyCheckerService
             [
                 @"%APPDATA%\npm\claude.cmd",
                 @"%APPDATA%\npm\claude",
-                @"%USERPROFILE%\.claude\local\claude.exe"
+                @"%USERPROFILE%\.claude\local\claude.exe",
+                @"~/.local/bin/claude",
+                @"/usr/local/bin/claude",
+                @"/opt/homebrew/bin/claude"
             ]
         },
         new DependencyDefinition
@@ -148,7 +151,11 @@ public static class DependencyCheckerService
             FallbackPaths =
             [
                 @"%LOCALAPPDATA%\Programs\Antigravity CLI\agy.exe",
-                @"%APPDATA%\npm\agy.cmd"
+                @"%APPDATA%\npm\agy.cmd",
+                @"~/.local/bin/agy",
+                @"~/.agy/bin/agy",
+                @"/usr/local/bin/agy",
+                @"/opt/homebrew/bin/agy"
             ]
         },
         new DependencyDefinition
@@ -313,8 +320,10 @@ public static class DependencyCheckerService
         var pathVariable = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrWhiteSpace(pathVariable)) return null;
 
-        var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var extensions = OperatingSystem.IsWindows()
+            ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : ["", ".sh"];
 
         foreach (var directory in pathVariable.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
@@ -339,8 +348,11 @@ public static class DependencyCheckerService
                     var candidate = Path.Combine(trimmed, command + extension.ToLowerInvariant());
                     if (File.Exists(candidate)) return candidate;
 
-                    candidate = Path.Combine(trimmed, command + extension.ToUpperInvariant());
-                    if (File.Exists(candidate)) return candidate;
+                    if (!string.IsNullOrEmpty(extension))
+                    {
+                        candidate = Path.Combine(trimmed, command + extension.ToUpperInvariant());
+                        if (File.Exists(candidate)) return candidate;
+                    }
                 }
                 catch
                 {
@@ -405,6 +417,11 @@ public static class DependencyCheckerService
 
         var expanded = Environment.ExpandEnvironmentVariables(template);
 
+        if (expanded.StartsWith("~/") || expanded.StartsWith("~\\"))
+        {
+            expanded = Path.Combine(UserProfile, expanded[2..]);
+        }
+
         // ProgramFiles(x86) is not expanded by ExpandEnvironmentVariables on 64-bit hosts.
         if (template.Contains("%ProgramFiles(x86)%", StringComparison.OrdinalIgnoreCase))
         {
@@ -415,7 +432,7 @@ public static class DependencyCheckerService
     }
 
     /// <summary>
-    /// Runs "&lt;tool&gt; --version" and pulls the version out of the output. Returns an empty
+    /// Runs "<tool> --version" and pulls the version out of the output. Returns an empty
     /// string when the probe times out or prints nothing useful.
     /// </summary>
     private static string ProbeVersion(string executablePath)
@@ -426,7 +443,7 @@ public static class DependencyCheckerService
             string arguments = "--version";
 
             var extension = Path.GetExtension(executablePath).ToLowerInvariant();
-            if (extension is ".cmd" or ".bat")
+            if (OperatingSystem.IsWindows() && extension is ".cmd" or ".bat")
             {
                 // cmd scripts cannot be launched directly with UseShellExecute = false.
                 fileName = "cmd.exe";

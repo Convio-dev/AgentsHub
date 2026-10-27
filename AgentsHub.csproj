@@ -93,6 +93,11 @@
     <None Update="ui\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <Content Include="ui\dist\**" Condition="Exists('ui\dist')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Visible>false</Visible>
+    </Content>
     <None Update="scripts\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

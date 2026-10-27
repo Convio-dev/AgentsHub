@@ -1017,7 +1017,11 @@ public sealed partial class OpenCodeWatcherService : IDisposable
             Path.Combine(programFiles, "OpenCode", "OpenCode.exe"),
             Path.Combine(programFilesX86, "OpenCode", "OpenCode.exe"),
             Path.Combine(appData, "npm", "opencode.cmd"),
-            Path.Combine(userProfile, "AppData", "Roaming", "npm", "opencode.cmd")
+            Path.Combine(userProfile, "AppData", "Roaming", "npm", "opencode.cmd"),
+            Path.Combine(userProfile, ".local", "bin", "opencode"),
+            "/usr/local/bin/opencode",
+            "/opt/homebrew/bin/opencode",
+            "/Applications/OpenCode.app/Contents/MacOS/OpenCode"
         };
 
         foreach (var path in candidatePaths)
@@ -1026,7 +1030,9 @@ public sealed partial class OpenCodeWatcherService : IDisposable
         }
 
         var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        var exesToCheck = new[] { "OpenCode.exe", "opencode.cmd", "opencode.exe" };
+        var exesToCheck = OperatingSystem.IsWindows()
+            ? new[] { "OpenCode.exe", "opencode.cmd", "opencode.exe" }
+            : new[] { "opencode", "OpenCode" };
         foreach (var folder in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             foreach (var exeName in exesToCheck)

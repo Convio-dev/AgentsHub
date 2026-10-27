@@ -502,7 +502,7 @@ public sealed class HudTerminalForm : Form
             await _webView.EnsureCoreWebView2Async(env);
 
             _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
             _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
 

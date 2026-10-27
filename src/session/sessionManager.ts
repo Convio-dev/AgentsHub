@@ -38,6 +38,7 @@ export interface ChatSessionState {
   model?: string;
   reasoningEffort?: string;
   quotaPercent?: number;
+  streamedText?: string;
   tokens?: {
     inputTokens?: number;
     outputTokens?: number;
@@ -48,7 +49,7 @@ export interface ChatSessionState {
 
 export class SessionManager {
   private profiles = new Map<string, ProfileRecord>();
-  private activeProfileName: string = 'Default';
+  private activeProfileName: string = 'ZXR@1';
   private activeSessions = new Map<string, ChatSessionState>();
   private profileActiveSessionIds = new Map<string, string>(); // profileName -> sessionId
   private profileQuotas = new Map<string, { quotaPercent: number; details?: string; lastPolled: number }>();
@@ -88,7 +89,9 @@ export class SessionManager {
         const list: ProfileRecord[] = JSON.parse(raw);
         if (Array.isArray(list)) {
           for (const item of list) {
-            this.profiles.set(item.name.toLowerCase(), item);
+            if (item.name.toLowerCase() !== 'default') {
+              this.profiles.set(item.name.toLowerCase(), item);
+            }
           }
         }
       }
@@ -96,16 +99,21 @@ export class SessionManager {
       console.warn('[SessionManager] Could not load persisted profiles:', err);
     }
 
+    // Clean any unauthenticated default profile from map
+    this.profiles.delete('default');
+
     // Set first profile active if exists
     if (this.profiles.size > 0) {
       const first = Array.from(this.profiles.values())[0];
       this.activeProfileName = first.name;
+    } else {
+      this.activeProfileName = 'ZXR@1';
     }
   }
 
   private saveProfiles(): void {
     try {
-      const list = Array.from(this.profiles.values());
+      const list = Array.from(this.profiles.values()).filter(p => p.name.toLowerCase() !== 'default');
       writeFileSync(this.configPath, JSON.stringify(list, null, 2), 'utf-8');
     } catch (err) {
       console.error('[SessionManager] Failed to persist profiles:', err);
@@ -116,12 +124,21 @@ export class SessionManager {
    * Prepares and resolves the isolated VirtualHome directory for a given profile.
    */
   public prepareVirtualHome(profileName: string): string {
-    const sanitized = profileName.replace(/[^a-zA-Z0-9_\-\.@]/g, '_');
+    let resolved = profileName;
+    if (!resolved || resolved.toLowerCase() === 'default') {
+      resolved = this.activeProfileName.toLowerCase() !== 'default'
+        ? this.activeProfileName
+        : (Array.from(this.profiles.values()).find(p => p.name.toLowerCase() !== 'default')?.name || 'ZXR@1');
+    }
+
+    const sanitized = resolved.replace(/[^a-zA-Z0-9_\-\.@]/g, '_');
     const home = homedir();
 
     const candidates = [
       join(process.cwd(), 'Profiles', 'Antigravity', sanitized, 'VirtualHome'),
       join(process.cwd(), 'bin', 'Debug', 'net10.0-windows', 'Profiles', 'Antigravity', sanitized, 'VirtualHome'),
+      join(process.cwd(), 'bin', 'Debug', 'net10.0', 'Profiles', 'Antigravity', sanitized, 'VirtualHome'),
+      join(process.cwd(), 'bin', 'Release', 'net10.0', 'Profiles', 'Antigravity', sanitized, 'VirtualHome'),
       join(home, '.gemini', 'antigravity', 'profiles', sanitized, 'VirtualHome')
     ];
 
@@ -214,17 +231,23 @@ export class SessionManager {
     provider: string;
     profiles: AccountProfileInfo[];
   } {
-    const list: AccountProfileInfo[] = Array.from(this.profiles.values()).map(p => ({
-      name: p.name,
-      email: p.email,
-      provider: p.provider || 'Antigravity',
-      active: p.name.toLowerCase() === this.activeProfileName.toLowerCase()
-    }));
+    const list: AccountProfileInfo[] = Array.from(this.profiles.values())
+      .filter(p => p.name.toLowerCase() !== 'default')
+      .map(p => ({
+        name: p.name,
+        email: p.email,
+        provider: p.provider || 'Antigravity',
+        active: p.name.toLowerCase() === this.activeProfileName.toLowerCase()
+      }));
 
-    const active = this.profiles.get(this.activeProfileName.toLowerCase()) || {
-      name: this.activeProfileName,
-      provider: 'Antigravity'
-    };
+    let active = this.profiles.get(this.activeProfileName.toLowerCase());
+    if (!active || active.name.toLowerCase() === 'default') {
+      active = Array.from(this.profiles.values()).find(p => p.name.toLowerCase() !== 'default') || {
+        name: 'ZXR@1',
+        provider: 'Antigravity'
+      };
+      this.activeProfileName = active.name;
+    }
 
     return {
       activeAccount: active.name,
@@ -245,6 +268,10 @@ export class SessionManager {
   }
 
   public switchAccount(profileName: string, provider?: string): { success: boolean; activeProfile: string } {
+    if (profileName.toLowerCase() === 'default') {
+      return { success: false, activeProfile: this.activeProfileName };
+    }
+
     const key = profileName.toLowerCase();
     let record = this.profiles.get(key);
 
@@ -310,7 +337,7 @@ export class SessionManager {
       sessionId,
       profileName,
       workingDirectory: cwd,
-      status: 'running',
+      status: 'idle',
       startedAt: Date.now(),
       lastActiveAt: Date.now(),
       scopedEnv
@@ -334,7 +361,7 @@ export class SessionManager {
       event: 'session_status',
       sessionId,
       profile: profileName,
-      state: 'running',
+      state: 'idle',
       timestamp: new Date().toISOString()
     });
 
@@ -433,7 +460,12 @@ export class SessionManager {
     workingDirectory?: string;
   }): Promise<void> {
     const { sessionId, prompt, model, profile, workingDirectory } = params;
-    const targetProfile = profile || this.activeProfileName;
+    let targetProfile = profile || this.activeProfileName;
+    if (!targetProfile || targetProfile.toLowerCase() === 'default') {
+      targetProfile = this.activeProfileName.toLowerCase() !== 'default'
+        ? this.activeProfileName
+        : (Array.from(this.profiles.values()).find(p => p.name.toLowerCase() !== 'default')?.name || 'ZXR@1');
+    }
 
     const virtualHomeDir = this.prepareVirtualHome(targetProfile);
     const scopedEnv = this.buildScopedEnvironment(targetProfile, sessionId, virtualHomeDir, model);
@@ -595,6 +627,38 @@ export class SessionManager {
   }
 
   /**
+   * Resolves the agy binary across Windows, macOS, and Linux platforms.
+   * Handles .exe / .cmd on Windows, standard Unix bin paths on macOS & Linux,
+   * without assuming hardcoded user directories.
+   */
+  public resolveAgyCommand(): string {
+    if (process.platform === 'win32') {
+      const candidates = [
+        process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'agy', 'bin', 'agy.exe') : '',
+        process.env.USERPROFILE ? join(process.env.USERPROFILE, 'AppData', 'Local', 'agy', 'bin', 'agy.exe') : '',
+        process.env.APPDATA ? join(process.env.APPDATA, 'npm', 'agy.cmd') : '',
+        process.env.APPDATA ? join(process.env.APPDATA, 'npm', 'agy.exe') : '',
+        'agy.exe',
+        'agy.cmd',
+        'agy'
+      ];
+      return candidates.find(c => Boolean(c) && existsSync(c)) || 'agy.exe';
+    }
+
+    // macOS (Darwin) & Linux
+    const home = homedir();
+    const unixCandidates = [
+      join(home, '.local', 'bin', 'agy'),
+      join(home, '.agy', 'bin', 'agy'),
+      '/opt/homebrew/bin/agy',
+      '/usr/local/bin/agy',
+      '/usr/bin/agy',
+      'agy'
+    ];
+    return unixCandidates.find(c => Boolean(c) && existsSync(c)) || 'agy';
+  }
+
+  /**
    * Executes a prompt turn through agy with stream-json NDJSON parsing.
    * Dispatches live thinking, tokens, and tool calls directly to the UI.
    */
@@ -609,8 +673,9 @@ export class SessionManager {
   }): Promise<void> {
     const { sessionId, prompt, model, cwd, scopedEnv, abortController, sessionState } = opts;
 
-    // Detect agy CLI binary
-    const agyCmd = process.platform === 'win32' ? 'agy.exe' : 'agy';
+    // Detect agy CLI binary cross-platform
+    const agyCmd = this.resolveAgyCommand();
+
     const agyArgs = [
       '--output-format', 'stream-json',
       '--continue',
@@ -652,6 +717,24 @@ export class SessionManager {
         try { proc.kill(9); } catch {}
       });
 
+      // Consume stderr in background to prevent pipe deadlock
+      if (proc.stderr) {
+        (async () => {
+          try {
+            const errReader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
+            const errDecoder = new TextDecoder();
+            while (true) {
+              const { done, value } = await errReader.read();
+              if (done) break;
+              const errText = errDecoder.decode(value, { stream: true });
+              if (errText.trim()) {
+                console.warn(`[agy stderr]: ${errText.trim()}`);
+              }
+            }
+          } catch {}
+        })();
+      }
+
       // Stream stdout NDJSON lines
       if (proc.stdout) {
         const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
@@ -684,7 +767,23 @@ export class SessionManager {
         }
       }
 
-      await proc.exited;
+      const exitCode = await proc.exited;
+
+      if ((exitCode !== 0 || !hasReceivedAnyToken) && !abortController.signal.aborted) {
+        console.warn(`[executeAgyTurn] Initial turn exited with code ${exitCode} and receivedToken=${hasReceivedAnyToken}. Falling back to fresh conversation...`);
+        await this.executeAgyFresh(opts);
+        return;
+      }
+
+      // Always ensure thinking state is marked done upon process exit
+      this.emit({
+        event: 'thinking',
+        sessionId,
+        profile: sessionState.profileName,
+        state: 'done',
+        timestamp: new Date().toISOString()
+      });
+
       this.pollQuota(sessionState.profileName).catch(() => {});
     } catch (err: any) {
       // If first attempt failed with --continue (no previous conversation), retry without --continue
@@ -709,7 +808,7 @@ export class SessionManager {
     sessionState: ChatSessionState;
   }): Promise<void> {
     const { sessionId, prompt, model, cwd, scopedEnv, abortController, sessionState } = opts;
-    const agyCmd = process.platform === 'win32' ? 'agy.exe' : 'agy';
+    const agyCmd = this.resolveAgyCommand();
     const agyArgs = [
       '--output-format', 'stream-json',
       '--dangerously-skip-permissions'
@@ -744,6 +843,21 @@ export class SessionManager {
       try { proc.kill(9); } catch {}
     });
 
+    if (proc.stderr) {
+      (async () => {
+        try {
+          const errReader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
+          const errDecoder = new TextDecoder();
+          while (true) {
+            const { done, value } = await errReader.read();
+            if (done) break;
+            const errText = errDecoder.decode(value, { stream: true });
+            if (errText.trim()) console.warn(`[agy fresh stderr]: ${errText.trim()}`);
+          }
+        } catch {}
+      })();
+    }
+
     if (proc.stdout) {
       const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
       const decoder = new TextDecoder();
@@ -772,6 +886,15 @@ export class SessionManager {
       }
     }
     await proc.exited;
+
+    this.emit({
+      event: 'thinking',
+      sessionId,
+      profile: sessionState.profileName,
+      state: 'done',
+      timestamp: new Date().toISOString()
+    });
+
     this.pollQuota(sessionState.profileName).catch(() => {});
   }
 
@@ -914,13 +1037,13 @@ export class SessionManager {
         const hasText = typeof textChunk === 'string' && textChunk.length > 0;
         const thinkingTokens = su.usage?.thinking_tokens || 0;
 
-        if (!hasText && (thinkingTokens > 0 || (su.duration_seconds && su.duration_seconds > 0))) {
+        if (su.state === 'DONE') {
           // Thinking phase completed
           this.emit({
             event: 'thinking',
             sessionId,
             profile: sessionState.profileName,
-            durationSeconds: su.duration_seconds,
+            durationSeconds: su.duration_seconds || 1.0,
             thinkingTokens: thinkingTokens,
             state: 'done',
             timestamp: new Date().toISOString()
@@ -929,6 +1052,7 @@ export class SessionManager {
 
         if (hasText) {
           sessionState.status = 'running';
+          sessionState.streamedText = (sessionState.streamedText || '') + textChunk;
           this.emit({
             event: 'chat_token',
             sessionId,
@@ -1005,6 +1129,46 @@ export class SessionManager {
     // 3. Final Turn Result
     else if (evt.event === 'result' && evt.result) {
       const res = evt.result;
+
+      // Ensure any final response text in res.response is emitted to the chat if not already streamed
+      if (typeof res.response === 'string' && res.response.trim().length > 0) {
+        const fullResponse = res.response;
+        const currentStreamed = sessionState.streamedText || '';
+        
+        if (!currentStreamed || !fullResponse.startsWith(currentStreamed)) {
+          // If stream missed chunks or was empty, emit the full response
+          this.emit({
+            event: 'chat_token',
+            sessionId,
+            profile: sessionState.profileName,
+            text: fullResponse.slice(currentStreamed.length) || fullResponse,
+            timestamp: new Date().toISOString()
+          });
+          sessionState.streamedText = fullResponse;
+        } else if (fullResponse.length > currentStreamed.length) {
+          // Emit remaining diff
+          const remaining = fullResponse.slice(currentStreamed.length);
+          this.emit({
+            event: 'chat_token',
+            sessionId,
+            profile: sessionState.profileName,
+            text: remaining,
+            timestamp: new Date().toISOString()
+          });
+          sessionState.streamedText = fullResponse;
+        }
+      }
+
+      // Always guarantee thinking is marked done
+      this.emit({
+        event: 'thinking',
+        sessionId,
+        profile: sessionState.profileName,
+        durationSeconds: res.duration_seconds || 1.0,
+        state: 'done',
+        timestamp: new Date().toISOString()
+      });
+
       if (res.usage) {
         sessionState.tokens = {
           inputTokens: res.usage.input_tokens,
@@ -1046,7 +1210,7 @@ export class SessionManager {
 
   public async pollQuota(profileName?: string): Promise<{ percent: number; details: string }> {
     try {
-      const agyCmd = process.platform === 'win32' ? 'agy.exe' : 'agy';
+      const agyCmd = this.resolveAgyCommand();
       const targetProfile = profileName || this.activeProfileName;
       const virtualHome = this.prepareVirtualHome(targetProfile);
       const env = this.buildScopedEnvironment(targetProfile, 'quota_poll', virtualHome);

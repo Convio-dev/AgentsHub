@@ -2910,7 +2910,7 @@ public partial class CliWebviewForm : Form
                     AiConfigService.Instance.SetClaudeEngineMode(selected);
                     UpdateClaudeControlsUi();
                     UpdateSessionConfigButton();
-        LayoutToolbar();
+                    LayoutToolbar();
 
                     if (_cliManager != null)
                     {
@@ -3345,7 +3345,7 @@ public partial class CliWebviewForm : Form
     private static void ConfigureWebViewSettings(CoreWebView2 webView)
     {
         webView.Settings.AreDefaultContextMenusEnabled = true;
-        webView.Settings.AreDevToolsEnabled = false;
+        webView.Settings.AreDevToolsEnabled = true;
         webView.Settings.IsStatusBarEnabled = false;
         webView.Settings.IsZoomControlEnabled = true;
     }
@@ -3637,7 +3637,7 @@ public partial class CliWebviewForm : Form
             openBrowserButton.Visible = false;
 
             UpdateSessionConfigButton();
-        LayoutToolbar();
+            LayoutToolbar();
             return;
         }
 

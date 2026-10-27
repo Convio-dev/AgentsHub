@@ -1575,7 +1575,7 @@ public class AiConfigService
                     Id = "default_ws",
                     Name = "Default Workspace",
                     WorkingDirectory = Environment.CurrentDirectory,
-                    AntigravityProfile = "default",
+                    AntigravityProfile = "",
                     PrimaryCli = "Hermes",
                     SecondaryCli = "powershell",
                     SplitMode = "horizontal",
@@ -1585,6 +1585,20 @@ public class AiConfigService
                 _config.Workspaces.Add(def);
                 _config.ActiveWorkspaceId = def.Id;
                 SaveConfig(_config);
+            }
+            else
+            {
+                // Sanitize any existing workspaces pointing to "default"
+                bool dirty = false;
+                foreach (var ws in _config.Workspaces)
+                {
+                    if (string.Equals(ws.AntigravityProfile, "default", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ws.AntigravityProfile = "";
+                        dirty = true;
+                    }
+                }
+                if (dirty) SaveConfig(_config);
             }
             return [.. _config.Workspaces];
         }

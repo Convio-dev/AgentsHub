@@ -79,87 +79,116 @@ public sealed class McpSkillsService
             catch { }
         }
 
-        // 2. Discover Antigravity MCP servers (~/.gemini/antigravity/mcp_config.json & ~/.gemini/antigravity/mcp)
+        // 2. Discover Antigravity MCP servers (~/.gemini/antigravity-ide, ~/.gemini/antigravity, ~/.gemini/config)
         try
         {
             var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var agyDir = Path.Combine(userHome, ".gemini", "antigravity");
-            var agyMcpDir = Path.Combine(agyDir, "mcp");
-            var mcpConfigPath = Path.Combine(agyDir, "mcp_config.json");
-
-            // Read defined commands, args, and env from mcp_config.json
-            if (File.Exists(mcpConfigPath))
+            var candidateAgyDirs = new[]
             {
-                var cfgJson = await File.ReadAllTextAsync(mcpConfigPath).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(cfgJson);
-                if (doc.RootElement.TryGetProperty("mcpServers", out var serversProp) && serversProp.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var sProp in serversProp.EnumerateObject())
-                    {
-                        var sName = sProp.Name;
-                        if (seenNames.Add(sName))
-                        {
-                            var cmd = sProp.Value.TryGetProperty("command", out var cProp) ? cProp.GetString() ?? "npx" : "npx";
-                            var args = new List<string>();
-                            if (sProp.Value.TryGetProperty("args", out var aProp) && aProp.ValueKind == JsonValueKind.Array)
-                            {
-                                foreach (var a in aProp.EnumerateArray()) args.Add(a.GetString() ?? "");
-                            }
+                Path.Combine(userHome, ".gemini", "antigravity-ide"),
+                Path.Combine(userHome, ".gemini", "antigravity"),
+                Path.Combine(userHome, ".gemini", "config")
+            };
 
-                            var envDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                            if (sProp.Value.TryGetProperty("env", out var eProp) && eProp.ValueKind == JsonValueKind.Object)
+            foreach (var agyDir in candidateAgyDirs)
+            {
+                if (!Directory.Exists(agyDir)) continue;
+                var agyMcpDir = Path.Combine(agyDir, "mcp");
+                var mcpConfigPath = Path.Combine(agyDir, "mcp_config.json");
+
+                // Read defined commands, args, and env from mcp_config.json
+                if (File.Exists(mcpConfigPath))
+                {
+                    try
+                    {
+                        var cfgJson = await File.ReadAllTextAsync(mcpConfigPath).ConfigureAwait(false);
+                        using var doc = JsonDocument.Parse(cfgJson);
+                        if (doc.RootElement.TryGetProperty("mcpServers", out var serversProp) && serversProp.ValueKind == JsonValueKind.Object)
+                        {
+                            foreach (var sProp in serversProp.EnumerateObject())
                             {
-                                foreach (var envEntry in eProp.EnumerateObject())
+                                var sName = sProp.Name;
+                                if (seenNames.Add(sName))
                                 {
-                                    envDict[envEntry.Name] = envEntry.Value.GetString() ?? "";
+                                    var cmd = sProp.Value.TryGetProperty("command", out var cProp) ? cProp.GetString() ?? "npx" : "npx";
+                                    var args = new List<string>();
+                                    if (sProp.Value.TryGetProperty("args", out var aProp) && aProp.ValueKind == JsonValueKind.Array)
+                                    {
+                                        foreach (var a in aProp.EnumerateArray()) args.Add(a.GetString() ?? "");
+                                    }
+
+                                    var envDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                                    if (sProp.Value.TryGetProperty("env", out var eProp) && eProp.ValueKind == JsonValueKind.Object)
+                                    {
+                                        foreach (var envEntry in eProp.EnumerateObject())
+                                        {
+                                            envDict[envEntry.Name] = envEntry.Value.GetString() ?? "";
+                                        }
+                                    }
+
+                                    int toolCount = 0;
+                                    foreach (var cand in candidateAgyDirs)
+                                    {
+                                        var toolDir = Path.Combine(cand, "mcp", sName);
+                                        if (Directory.Exists(toolDir))
+                                        {
+                                            toolCount = Math.Max(toolCount, Directory.GetFiles(toolDir, "*.json").Length);
+                                        }
+                                    }
+
+                                    list.Add(new McpServerItem
+                                    {
+                                        Id = "agy_" + sName.ToLowerInvariant(),
+                                        Name = sName,
+                                        Command = cmd,
+                                        Args = args,
+                                        Env = envDict,
+                                        Scope = "Antigravity",
+                                        IsEnabled = true,
+                                        Description = toolCount > 0
+                                            ? $"Antigravity MCP server with {toolCount} tool definition(s)"
+                                            : $"Antigravity MCP server ({cmd})",
+                                        ToolCount = toolCount
+                                    });
                                 }
                             }
-
-                            int toolCount = 0;
-                            var toolDir = Path.Combine(agyMcpDir, sName);
-                            if (Directory.Exists(toolDir))
-                            {
-                                toolCount = Directory.GetFiles(toolDir, "*.json").Length;
-                            }
-
-                            list.Add(new McpServerItem
-                            {
-                                Id = "agy_" + sName.ToLowerInvariant(),
-                                Name = sName,
-                                Command = cmd,
-                                Args = args,
-                                Env = envDict,
-                                Scope = "Antigravity",
-                                IsEnabled = true,
-                                Description = toolCount > 0
-                                    ? $"Antigravity MCP server with {toolCount} tool definition(s)"
-                                    : $"Antigravity MCP server ({cmd})",
-                                ToolCount = toolCount
-                            });
                         }
                     }
+                    catch { }
                 }
-            }
 
-            // Fallback for any tool folder not yet in mcp_config.json
-            if (Directory.Exists(agyMcpDir))
-            {
-                foreach (var serverDir in Directory.GetDirectories(agyMcpDir))
+                // Fallback for any tool folder not yet in mcp_config.json
+                if (Directory.Exists(agyMcpDir))
                 {
-                    var dirName = Path.GetFileName(serverDir);
-                    if (seenNames.Add(dirName))
+                    foreach (var serverDir in Directory.GetDirectories(agyMcpDir))
                     {
-                        var toolFiles = Directory.GetFiles(serverDir, "*.json");
-                        list.Add(new McpServerItem
+                        var dirName = Path.GetFileName(serverDir);
+                        if (seenNames.Add(dirName))
                         {
-                            Id = "agy_" + dirName.ToLowerInvariant(),
-                            Name = dirName,
-                            Command = "builtin",
-                            Scope = "Antigravity",
-                            IsEnabled = true,
-                            Description = $"Antigravity MCP server with {toolFiles.Length} tool definition(s)",
-                            ToolCount = toolFiles.Length
-                        });
+                            var toolFiles = Directory.GetFiles(serverDir, "*.json");
+                            list.Add(new McpServerItem
+                            {
+                                Id = "agy_" + dirName.ToLowerInvariant(),
+                                Name = dirName,
+                                Command = "builtin",
+                                Scope = "Antigravity",
+                                IsEnabled = true,
+                                Description = $"Antigravity MCP server with {toolFiles.Length} tool definition(s)",
+                                ToolCount = toolFiles.Length
+                            });
+                        }
+                        else
+                        {
+                            var existing = list.FirstOrDefault(x => string.Equals(x.Name, dirName, StringComparison.OrdinalIgnoreCase));
+                            if (existing != null && existing.ToolCount == 0)
+                            {
+                                existing.ToolCount = Directory.GetFiles(serverDir, "*.json").Length;
+                                if (existing.ToolCount > 0)
+                                {
+                                    existing.Description = $"Antigravity MCP server with {existing.ToolCount} tool definition(s)";
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -214,6 +243,23 @@ public sealed class McpSkillsService
             }
         }
         catch { }
+
+        // Ensure standard integrations like Supabase are discoverable and configurable
+        if (seenNames.Add("supabase"))
+        {
+            list.Add(new McpServerItem
+            {
+                Id = "mcp_supabase",
+                Name = "supabase",
+                Command = "npx",
+                Args = ["-y", "@supabase/mcp-server"],
+                Scope = "Global",
+                IsEnabled = true,
+                Description = "Database migrations, schema inspections, and edge function generation.",
+                ToolCount = 21,
+                RequiresAuth = true
+            });
+        }
 
         // 4. Run automated auth detection across all servers
         foreach (var s in list)

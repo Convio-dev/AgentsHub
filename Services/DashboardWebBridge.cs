@@ -551,6 +551,12 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string? profile = data.TryGetProperty("profile", out var prElem) ? prElem.GetString() : null;
                     string? cwd = data.TryGetProperty("workingDirectory", out var wdElem) ? wdElem.GetString() : null;
 
+                    string activeFallback = _cliManager.ProfileService.ActiveProfile ?? "ZXR@1";
+                    if (string.IsNullOrWhiteSpace(profile) || string.Equals(profile, "default", StringComparison.OrdinalIgnoreCase))
+                    {
+                        profile = activeFallback;
+                    }
+
                     await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd).ConfigureAwait(false);
                     SendResponse(requestId, true, new { sent = true, sessionId });
                 }
@@ -558,7 +564,12 @@ public sealed partial class DashboardWebBridge : IDisposable
 
             case "switch_account":
                 {
-                    string profile = data.TryGetProperty("profile", out var pElem) ? pElem.GetString() ?? "Default" : "Default";
+                    string activeFallback = _cliManager.ProfileService.ActiveProfile ?? "ZXR@1";
+                    string profile = data.TryGetProperty("profile", out var pElem) ? pElem.GetString() ?? activeFallback : activeFallback;
+                    if (string.Equals(profile, "default", StringComparison.OrdinalIgnoreCase))
+                    {
+                        profile = activeFallback;
+                    }
                     string? provider = data.TryGetProperty("provider", out var prElem) ? prElem.GetString() : null;
 
                     await Sidecar.SidecarHostService.Instance.SwitchAccountAsync(profile, provider).ConfigureAwait(false);
@@ -2446,7 +2457,10 @@ public sealed partial class DashboardWebBridge : IDisposable
 
             case "activate_workspace":
                 {
-                    string? actId = data.TryGetProperty("id", out var aIdProp) ? aIdProp.GetString() : null;
+                    string? actId = data.TryGetProperty("id", out var aIdProp)
+                        ? aIdProp.GetString()
+                        : (data.TryGetProperty("workspaceId", out var wIdProp) ? wIdProp.GetString() : null);
+
                     if (!string.IsNullOrEmpty(actId))
                     {
                         var all = AiConfigService.Instance.GetWorkspaces();
@@ -2459,26 +2473,57 @@ public sealed partial class DashboardWebBridge : IDisposable
                                 FileWatchdogService.Instance.WatchDirectory(target.WorkingDirectory);
                             }
                             if (!string.IsNullOrWhiteSpace(target.AntigravityProfile) &&
+                                !string.Equals(target.AntigravityProfile, "default", StringComparison.OrdinalIgnoreCase) &&
                                 !string.Equals(_cliManager.ProfileService.ActiveProfile, target.AntigravityProfile, StringComparison.OrdinalIgnoreCase))
                             {
                                 await _cliManager.SwitchAntigravityProfileAsync(target.AntigravityProfile);
                             }
+                            var currentWorkspaces = AiConfigService.Instance.GetWorkspaces();
                             SendResponse(requestId, true, new
                             {
                                 success = true,
                                 activeWorkspace = target,
                                 activeWorkspaceId = target.Id,
-                                workspaces = AiConfigService.Instance.GetWorkspaces()
+                                workspaces = currentWorkspaces
                             });
                             PostEventToUi("workspace_activated", new
                             {
                                 activeWorkspace = target,
-                                activeWorkspaceId = target.Id
+                                activeWorkspaceId = target.Id,
+                                workspaces = currentWorkspaces
                             });
                             break;
                         }
                     }
                     SendResponse(requestId, false, "Workspace not found");
+                }
+                break;
+
+            case "get_git_status":
+                {
+                    string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
+                    if (string.IsNullOrEmpty(repoPath))
+                    {
+                        var ws = AiConfigService.Instance.GetActiveWorkspace();
+                        repoPath = ws?.WorkingDirectory;
+                    }
+                    if (string.IsNullOrEmpty(repoPath) || !Directory.Exists(repoPath))
+                    {
+                        repoPath = Environment.CurrentDirectory;
+                    }
+
+                    var changes = await GitRepositoryManagerService.Instance.GetWorkingTreeChangesAsync(repoPath).ConfigureAwait(false);
+                    var (rc, rawDiff) = await GitRepositoryManagerService.RunGitAsync(repoPath, ["diff", "--no-color"]).ConfigureAwait(false);
+                    var files = changes.Select(c => c.Path).ToList();
+
+                    SendResponse(requestId, true, new
+                    {
+                        repoPath,
+                        files,
+                        changes,
+                        rawDiff = !string.IsNullOrWhiteSpace(rawDiff) ? rawDiff : "No uncommitted diff detected in active workspace.",
+                        diff = !string.IsNullOrWhiteSpace(rawDiff) ? rawDiff : "No uncommitted diff detected in active workspace."
+                    });
                 }
                 break;
 

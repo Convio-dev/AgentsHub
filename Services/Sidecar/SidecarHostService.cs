@@ -208,18 +208,6 @@ public sealed class SidecarHostService : IDisposable
             case "session_status":
                 if (evt is SessionStatusEvent sse)
                 {
-                    if (!string.IsNullOrWhiteSpace(sse.Profile))
-                    {
-                        if (sse.State == "running" || sse.State == "tool_executing" || sse.State == "thinking")
-                        {
-                            _activeProfiles[sse.Profile] = true;
-                        }
-                        else if (sse.State == "idle" || sse.State == "completed" || sse.State == "error")
-                        {
-                            _activeProfiles.TryRemove(sse.Profile, out _);
-                        }
-                    }
-
                     EventDispatched?.Invoke("session_status", new
                     {
                         sessionId = sse.SessionId,

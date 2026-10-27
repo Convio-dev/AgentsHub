@@ -21,22 +21,30 @@ public sealed class CustomCliConfig
     {
         if (string.IsNullOrWhiteSpace(ExecutablePath))
         {
-            return "cmd.exe";
+            return AgentsHub.Services.Platform.PlatformHelper.GetDefaultShell();
         }
 
         var exe = ExecutablePath.Trim();
         var args = (Arguments ?? "").Trim();
 
-        // If executable is a batch/cmd file or script, run under cmd.exe
-        if (exe.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) ||
-            exe.EndsWith(".bat", StringComparison.OrdinalIgnoreCase))
+        // If executable is a batch/cmd file on Windows, run under cmd.exe
+        if (AgentsHub.Services.Platform.PlatformHelper.IsWindows &&
+            (exe.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) ||
+             exe.EndsWith(".bat", StringComparison.OrdinalIgnoreCase)))
         {
             return string.IsNullOrEmpty(args) ? $"cmd.exe /c \"{exe}\"" : $"cmd.exe /c \"{exe}\" {args}";
         }
 
-        if (exe.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
+        if (AgentsHub.Services.Platform.PlatformHelper.IsWindows &&
+            exe.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
         {
             return $"powershell.exe -ExecutionPolicy Bypass -File \"{exe}\" {args}".Trim();
+        }
+
+        if (!AgentsHub.Services.Platform.PlatformHelper.IsWindows &&
+            exe.EndsWith(".sh", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.IsNullOrEmpty(args) ? $"/bin/bash \"{exe}\"" : $"/bin/bash \"{exe}\" {args}";
         }
 
         return string.IsNullOrEmpty(args) ? exe : $"{exe} {args}";
