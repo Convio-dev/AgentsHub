@@ -344,6 +344,20 @@ public sealed class SidecarHostService : IDisposable
         }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Asks the sidecar to read one profile's quota. The percentage comes back as a
+    /// <c>quota_update</c> event, and <c>quota_check_completed</c> always follows so the UI can stop
+    /// its spinner even when the check fails.
+    /// </summary>
+    public async Task CheckProfileQuotaAsync(string? profileName)
+    {
+        await EnsureOnlineAsync().ConfigureAwait(false);
+        await _client.SendAsync(new CheckQuotaRequest
+        {
+            Profile = profileName
+        }).ConfigureAwait(false);
+    }
+
     public async Task AbortTaskAsync(string taskId, string? reason = null)
     {
         await EnsureOnlineAsync().ConfigureAwait(false);

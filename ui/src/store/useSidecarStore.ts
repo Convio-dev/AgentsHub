@@ -138,7 +138,10 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
                 email: typeof p === 'object' ? p.email : undefined,
                 active: typeof p === 'object' ? !!p.active : p === ag.activeProfile,
                 isRunning: typeof p === 'object' ? !!p.isRunning : false,
-                quotaPercent: typeof p === 'object' && p.quotaPercent !== undefined ? p.quotaPercent : 96,
+                // No fallback: a profile whose quota has never been read has no percentage, and
+                // inventing one would show a healthy account that was never actually checked.
+                quotaPercent: typeof p === 'object' ? p.quotaPercent : undefined,
+                lastQuotaChecked: typeof p === 'object' ? p.lastQuotaChecked : undefined,
                 provider: (typeof p === 'object' && p.provider) ? p.provider : 'Google Antigravity',
               }))
             : [];
@@ -329,19 +332,41 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
       })
     );
 
-    // 10. Dynamic Quota Sync
+    // 10. Dynamic Quota Sync — strictly per profile
     unsubs.push(
       webviewBridge.on('quota_update', (data: any) => {
         const pct = typeof data.quotaPercent === 'number' ? data.quotaPercent : parseInt(data.quotaPercent, 10);
         if (isNaN(pct)) return;
 
+        const profile = typeof data.profile === 'string' && data.profile ? data.profile : undefined;
+        if (profile) {
+          useProfileStore.getState().updateProfileQuota(profile, pct);
+        }
+
         const sessionStore = useSessionStore.getState();
         const targetSessionId = data.sessionId || sessionStore.activeSessionId;
-        sessionStore.updateSessionTelemetry(targetSessionId, { quotaPercent: pct });
+        const sessionProfile = sessionStore.sessions[targetSessionId]?.profile;
 
-        if (data.profile) {
-          useProfileStore.getState().updateProfileQuota(data.profile, pct);
+        // A poll for profile B must never write its number onto profile A's session.
+        if (profile && sessionProfile && sessionProfile.toLowerCase() !== profile.toLowerCase()) {
+          return;
         }
+
+        sessionStore.updateSessionTelemetry(targetSessionId, { quotaPercent: pct });
+      })
+    );
+
+    // 10b. Quota check finished (success or failure) — always clears the per-profile spinner.
+    unsubs.push(
+      webviewBridge.on('quota_check_completed', (data: any) => {
+        const profile = typeof data.profile === 'string' && data.profile ? data.profile : null;
+        const profileStore = useProfileStore.getState();
+
+        if (profile && typeof data.quotaPercent === 'number' && data.quotaPercent >= 0) {
+          profileStore.updateProfileQuota(profile, data.quotaPercent);
+        }
+
+        profileStore.settleQuotaCheck(profile);
       })
     );
 

@@ -141,6 +141,15 @@ public class SendChatRequest : BaseRequest
     public string? WorkingDirectory { get; set; }
 }
 
+public class CheckQuotaRequest : BaseRequest
+{
+    public CheckQuotaRequest() => Action = "check_quota";
+
+    /// <summary>Profile whose quota pool to read. Empty means the active profile.</summary>
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+}
+
 public class SwitchAccountRequest : BaseRequest
 {
     public SwitchAccountRequest() => Action = "switch_account";

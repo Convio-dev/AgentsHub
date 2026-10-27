@@ -293,6 +293,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
         {/* 4. Bottom Floating Input Dock */}
         <ChatInput
           sessionId={activeSession?.id || ''}
+          profileName={activeSession?.profile || activeProfileName}
           onSendMessage={handleSendMessage}
           onStop={handleStopGenerating}
           isExecuting={isExecuting}

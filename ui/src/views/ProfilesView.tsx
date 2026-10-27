@@ -26,6 +26,7 @@ import { useProfileStore } from '../store/useProfileStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { webviewBridge } from '../services/webviewBridge';
 import { ProjectWorkspace } from '../types/agent';
+import { quotaPillClass } from '../lib/quota';
 
 interface ProfilesViewProps {
   onOpenAddProfile?: () => void;
@@ -38,6 +39,8 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
     switchActiveProfile,
     startProfile,
     stopProfile,
+    quotaPending,
+    checkQuota,
   } = useProfileStore();
 
   const {
@@ -765,10 +768,18 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                         >
                           {isRunning ? `RUNNING${p.port ? ` :${p.port}` : ''}` : 'STOPPED'}
                         </span>
+                        {typeof p.quotaPercent === 'number' && p.quotaPercent >= 0 ? (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold border tabular-nums ${quotaPillClass(p.quotaPercent)}`}
+                            title={`${Math.round(p.quotaPercent)}% of this profile's quota remains`}
+                          >
+                            {Math.round(p.quotaPercent)}%
+                          </span>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => handleOpenProfileFolder(p.name)}
-                          className="p-1 rounded text-content-dim hover:text-content-main hover:bg-slate-800"
+                          className="p-1 rounded text-content-dim hover:text-content-main hover:bg-surface-hover"
                           title="Open profile folder in Explorer"
                         >
                           <FolderOpen className="w-4 h-4" />
@@ -828,8 +839,23 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
 
                     <button
                       type="button"
+                      onClick={() => void checkQuota(p.name)}
+                      disabled={Boolean(quotaPending[p.name.toLowerCase()])}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-surface-deep border border-surface-border hover:border-sky-500 text-content-main rounded-lg text-xs font-medium transition disabled:cursor-wait disabled:opacity-70"
+                      title={`Read quota for ${p.name} only`}
+                    >
+                      <RefreshCw
+                        className={`w-3.5 h-3.5 ${
+                          quotaPending[p.name.toLowerCase()] ? 'animate-spin text-accent' : 'text-content-muted'
+                        }`}
+                      />
+                      <span>{quotaPending[p.name.toLowerCase()] ? 'Checking…' : 'Check Quota'}</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => handleOpenRename(p.name)}
-                      className="px-2.5 py-1.5 bg-surface-deep border border-surface-border hover:border-slate-500 text-content-main rounded-lg text-xs font-medium transition"
+                      className="px-2.5 py-1.5 bg-surface-deep border border-surface-border hover:border-surface-borderLight text-content-main rounded-lg text-xs font-medium transition"
                     >
                       Rename
                     </button>

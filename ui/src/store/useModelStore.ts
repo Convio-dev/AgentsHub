@@ -12,15 +12,16 @@ import { webviewBridge } from '../services/webviewBridge';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+/** Levels this build offers. Anything else the engine reports is dropped rather than rendered. */
+const SUPPORTED_EFFORTS = new Set(['low', 'medium', 'high']);
+
 /** Fallback effort scale, used only until the engine reports its own list. */
-export const DEFAULT_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+export const DEFAULT_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high'];
 
 const EFFORT_LABELS: Record<string, string> = {
   low: 'Low',
   medium: 'Medium',
   high: 'High',
-  xhigh: 'Extra high',
-  max: 'Max',
 };
 
 export function effortLabel(effort?: string | null): string {
@@ -107,7 +108,9 @@ function normaliseCatalog(raw: unknown): ModelCatalog | null {
     : [];
 
   const efforts = Array.isArray(record.efforts)
-    ? record.efforts.filter((value): value is string => typeof value === 'string')
+    ? record.efforts
+        .filter((value): value is string => typeof value === 'string')
+        .filter(value => SUPPORTED_EFFORTS.has(value.toLowerCase()))
     : [];
 
   return {

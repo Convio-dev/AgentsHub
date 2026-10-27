@@ -167,7 +167,8 @@ export interface ModelInfo {
   tiers: Record<string, string>;
 }
 
-export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/** Effort levels offered by the picker. The engine rejects `xhigh`/`max` for these models. */
+export type ReasoningEffort = 'low' | 'medium' | 'high';
 
 /** Result of asking the engine which models it supports. */
 export interface ModelCatalog {
@@ -198,7 +199,13 @@ export interface RunnerProfile {
   provider?: string;
   active: boolean;
   isRunning: boolean;
+  /**
+   * Remaining quota for *this* profile only. Each account authenticates separately and draws from
+   * its own pool, so this value must never be shared between profiles.
+   */
   quotaPercent?: number;
+  /** When `quotaPercent` was last read, epoch ms. Used to decide whether a refresh is due. */
+  lastQuotaChecked?: number;
   port?: number;
   pid?: number;
 }

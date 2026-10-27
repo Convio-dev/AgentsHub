@@ -563,6 +563,27 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            // On-demand quota read for one profile. Never touches other profiles: the sidecar polls
+            // with that profile's own virtual home, so each account keeps its own pool.
+            case "check_profile_quota":
+                {
+                    string? profile = data.TryGetProperty("profile", out var pqElem) ? pqElem.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(profile))
+                    {
+                        profile = _cliManager.ProfileService.ActiveProfile;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(profile) || string.Equals(profile, "default", StringComparison.OrdinalIgnoreCase))
+                    {
+                        SendResponse(requestId, false, "No profile is configured to check.");
+                        break;
+                    }
+
+                    await Sidecar.SidecarHostService.Instance.CheckProfileQuotaAsync(profile).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { requested = true, profile });
+                }
+                break;
+
             // Model list for the composer's selector. The engine reports its own catalogue; nothing
             // here is a static table.
             case "get_model_catalog":

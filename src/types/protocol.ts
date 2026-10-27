@@ -111,6 +111,12 @@ export interface StopSessionRequest extends BaseInboundRequest {
   profile: string;
 }
 
+export interface CheckQuotaRequest extends BaseInboundRequest {
+  action: 'check_quota';
+  /** Profile whose quota pool to read. Omit for the active profile. */
+  profile?: string;
+}
+
 export interface SendChatRequest extends BaseInboundRequest {
   action: 'send_chat';
   sessionId: string;
@@ -135,6 +141,7 @@ export type InboundMessage =
   | SwitchAccountRequest
   | ListAccountsRequest
   | RefreshTokenRequest
+  | CheckQuotaRequest
   | SendChatRequest;
 
 // --- Outbound Messages (Sidecar -> Host) ---
@@ -229,6 +236,16 @@ export interface QuotaUpdateEvent {
   sessionId?: string;
   quotaPercent: number;
   details?: string;
+  timestamp: string;
+}
+
+export interface QuotaCheckCompletedEvent {
+  event: 'quota_check_completed';
+  /** Profile that was checked, or null when the active profile was used. */
+  profile: string | null;
+  success: boolean;
+  /** Only present on success; a failed check reports no number rather than a default. */
+  quotaPercent?: number;
   timestamp: string;
 }
 
@@ -347,6 +364,7 @@ export type OutboundEvent =
   | ThinkingEvent
   | TokenUsageEvent
   | QuotaUpdateEvent
+  | QuotaCheckCompletedEvent
   | ModelInfoEvent
   | SessionStatusEvent
   | AccountStateEvent

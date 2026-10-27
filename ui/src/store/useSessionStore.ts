@@ -251,7 +251,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       updatedAt: Date.now(),
       profile: resolvedProfile,
       model: initialModel,
-      quotaPercent: 100,
+      // Unknown until this profile's quota is actually read; the ring renders an empty track.
+      quotaPercent: undefined,
       tokens: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 },
       status: 'idle',
       messages: [],

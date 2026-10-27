@@ -47,8 +47,11 @@ public sealed class ModelCatalogService
 {
     public static ModelCatalogService Instance { get; } = new();
 
-    /// <summary>Effort levels accepted by `agy --effort`, verified from its own help output.</summary>
-    private static readonly string[] EffortLevels = ["low", "medium", "high", "xhigh", "max"];
+    /// <summary>
+    /// Effort levels offered to the user. `agy --effort` also accepts `xhigh` and `max` on paper, but
+    /// they are not usable with the models this app targets, so they are not offered.
+    /// </summary>
+    private static readonly string[] EffortLevels = ["low", "medium", "high"];
 
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(20);

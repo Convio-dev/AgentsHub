@@ -74,6 +74,21 @@ export class MessageRouter {
         this.sessionManager.emitAccountState();
         break;
 
+      // On-demand quota check for one profile. The percentage arrives as a `quota_update` event;
+      // `quota_check_completed` exists so the UI can always clear its spinner, including on failure.
+      case 'check_quota': {
+        const profile = typeof msg.profile === 'string' ? msg.profile : undefined;
+        const result = await this.sessionManager.pollQuota(profile);
+        this.emit({
+          event: 'quota_check_completed',
+          profile: profile || null,
+          success: result.percent >= 0,
+          quotaPercent: result.percent >= 0 ? result.percent : undefined,
+          timestamp: new Date().toISOString()
+        });
+        break;
+      }
+
       case 'refresh_token':
         this.sessionManager.refreshToken(msg.profile);
         break;

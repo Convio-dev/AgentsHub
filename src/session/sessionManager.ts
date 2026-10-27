@@ -1203,13 +1203,17 @@ export class SessionManager {
    * Background Quota Poller: Polls all authenticated profiles independently
    */
   public async pollAllQuotas(): Promise<void> {
+    // Only accounts that are actually in use: the active profile plus any profile with a live
+    // session. Polling every configured profile on a timer burns quota checks against accounts the
+    // user is not touching, and each check spawns a CLI process.
     const profilesToPoll = new Set<string>();
-    if (this.activeProfileName) profilesToPoll.add(this.activeProfileName);
-    for (const p of this.profiles.values()) {
-      if (p.name) profilesToPoll.add(p.name);
+    if (this.activeProfileName && this.activeProfileName.toLowerCase() !== 'default') {
+      profilesToPoll.add(this.activeProfileName);
     }
     for (const sess of this.activeSessions.values()) {
-      if (sess.profileName) profilesToPoll.add(sess.profileName);
+      if (sess.profileName && sess.profileName.toLowerCase() !== 'default') {
+        profilesToPoll.add(sess.profileName);
+      }
     }
     for (const profileName of profilesToPoll) {
       try {
@@ -1279,7 +1283,8 @@ export class SessionManager {
     } catch (err) {
       console.warn('[SessionManager] Quota poll failed:', err);
     }
-    return { percent: 96, details: '' };
+    // -1 means "no reading": callers must not present this as a percentage.
+    return { percent: -1, details: '' };
   }
 
   public getSessionState(sessionId: string): ChatSessionState | undefined {

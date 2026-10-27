@@ -230,7 +230,7 @@ class WebViewBridge {
             tiers: { medium: 'gpt-oss-120b-medium' },
           },
         ],
-        efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        efforts: ['low', 'medium', 'high'],
         source: 'cli',
       };
     } else if (action === 'get_sidecar_status') {

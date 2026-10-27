@@ -5,6 +5,7 @@ import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
 import { SlashCommandPalette } from './SlashCommandPalette';
 import { ModelSelector } from './ModelSelector';
+import { CircularQuotaWidget } from './CircularQuotaWidget';
 
 interface ChatInputProps {
   onSendMessage: (prompt: string, attachments?: ChatAttachment[]) => void;
@@ -26,6 +27,8 @@ interface ChatInputProps {
   workingDirectory?: string;
   /** Session that owns the model/effort selection. */
   sessionId: string;
+  /** Profile whose quota the footer ring reports. Quota is per account, never shared. */
+  profileName?: string;
 }
 
 /**
@@ -52,6 +55,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   activeCli,
   workingDirectory,
   sessionId,
+  profileName,
 }) => {
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -467,8 +471,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             />
           </div>
 
-          {/* Right: optional token readout + the single morphing action button */}
-          <div className="flex flex-shrink-0 items-center space-x-3">
+          {/* Right: quota ring, optional token readout, then the single morphing action button */}
+          <div className="flex flex-shrink-0 items-center space-x-2.5">
+            <CircularQuotaWidget profileName={profileName} />
+
             {turnTokens > 0 ? (
               <span
                 className="flex items-baseline gap-1.5 font-mono text-[10.5px] tabular-nums text-content-dim"

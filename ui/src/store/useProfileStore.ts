@@ -13,6 +13,8 @@ interface ProfileStoreState {
   activeProfileName: string;
   defaultModel: string;
   isLoading: boolean;
+  /** Profiles with an in-flight quota read, keyed by lower-cased name. */
+  quotaPending: Record<string, boolean>;
 
   // Actions
   loadProfiles: () => Promise<void>;
@@ -22,6 +24,10 @@ interface ProfileStoreState {
   stopProfile: (name: string) => Promise<void>;
   setProfileRunning: (name: string, isRunning: boolean) => void;
   updateProfileQuota: (name: string, quota: number) => void;
+  /** Asks the host to read one profile's quota. Resolves when the request is dispatched. */
+  checkQuota: (name: string) => Promise<void>;
+  /** Clears the pending flag, called when the check reports back (success or failure). */
+  settleQuotaCheck: (name?: string | null) => void;
   getActiveProfile: () => RunnerProfile | undefined;
 }
 
@@ -36,6 +42,7 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
   activeProfileName: '',
   defaultModel: '',
   isLoading: false,
+  quotaPending: {},
 
   getActiveProfile: () => {
     const { profiles, activeProfileName } = get();
@@ -136,8 +143,42 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
   updateProfileQuota: (name: string, quota: number) => {
     set(state => ({
       profiles: state.profiles.map(p =>
-        p.name.toLowerCase() === name.toLowerCase() ? { ...p, quotaPercent: quota } : p
+        p.name.toLowerCase() === name.toLowerCase()
+          ? { ...p, quotaPercent: quota, lastQuotaChecked: Date.now() }
+          : p
       ),
+      quotaPending: { ...state.quotaPending, [name.toLowerCase()]: false },
     }));
+  },
+
+  checkQuota: async (name: string) => {
+    const key = name.toLowerCase();
+    if (!name || get().quotaPending[key]) return;
+
+    set(state => ({ quotaPending: { ...state.quotaPending, [key]: true } }));
+
+    try {
+      await webviewBridge.invoke('check_profile_quota', { profile: name });
+    } catch (err) {
+      console.warn(`[ProfileStore] Quota check for ${name} failed:`, err);
+      set(state => ({ quotaPending: { ...state.quotaPending, [key]: false } }));
+      return;
+    }
+
+    // The result arrives as an event. If the sidecar never answers, drop the spinner rather than
+    // leaving it spinning forever.
+    window.setTimeout(() => get().settleQuotaCheck(name), 30_000);
+  },
+
+  settleQuotaCheck: (name?: string | null) => {
+    set(state => {
+      if (name) {
+        return { quotaPending: { ...state.quotaPending, [name.toLowerCase()]: false } };
+      }
+
+      const cleared: Record<string, boolean> = {};
+      for (const key of Object.keys(state.quotaPending)) cleared[key] = false;
+      return { quotaPending: cleared };
+    });
   },
 }));
