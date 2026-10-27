@@ -42,10 +42,14 @@ import {
 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useThemeStore, PRESET_SWATCHES } from '../store/useThemeStore';
+import { useProfileStore } from '../store/useProfileStore';
+import { profileLabel } from '../lib/profileName';
 import { webviewBridge } from '../services/webviewBridge';
 import { Button } from '../components/common/Button';
 
 export const SettingsView: React.FC = () => {
+  const { autoRunDefaultProfile, defaultProfileName, setAutoRunDefaultProfile } = useProfileStore();
+
   const {
     settings,
     updateSetting,
@@ -725,6 +729,26 @@ export const SettingsView: React.FC = () => {
                     />
                     <span>Hide Main Hub Window to Tray when Opening CLI Terminal Workspace (Prevents 2 windows in Taskbar)</span>
                   </label>
+
+                  {/* Runner behaviour on send */}
+                  <div className="p-3.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-2">
+                    <label className="flex items-center gap-3 cursor-pointer text-xs font-semibold text-[var(--text-main,#F1F5F9)]">
+                      <input
+                        type="checkbox"
+                        checked={autoRunDefaultProfile}
+                        onChange={e => setAutoRunDefaultProfile(e.target.checked)}
+                        className="w-4 h-4 rounded accent-sky-500"
+                      />
+                      <span>Auto-run default profile on request</span>
+                    </label>
+                    <p className="text-[11px] text-[var(--text-dim,#64748B)] pl-7 leading-relaxed">
+                      Off: sending with no running runner is refused and you are told to start one.
+                      On: the default runner is started automatically before the message is sent.
+                    </p>
+                    <p className="text-[11px] text-[var(--text-dim,#64748B)] pl-7 font-mono">
+                      Default runner: {defaultProfileName ? profileLabel(defaultProfileName) : 'not set — pick one with the star in Multi-Profile Agents'}
+                    </p>
+                  </div>
 
                   {/* OpenCode Quota & Dependent Settings */}
                   <div className="p-3.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-3">

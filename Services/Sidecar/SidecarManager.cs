@@ -168,7 +168,12 @@ public class SidecarManager : IDisposable
             RedirectStandardError = true,
             RedirectStandardInput = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            // Deliberately NOT CreateNoWindow: that gives the sidecar no console at all, so every
+            // console child it spawns (`agy`, `git`) allocates a brand-new console window and flashes
+            // on screen. A hidden console is inherited by those children instead, which is the only
+            // way to keep them silent — `windowsHide` on the Bun side is not sufficient on its own.
+            CreateNoWindow = false,
+            WindowStyle = ProcessWindowStyle.Hidden
         };
 
         startInfo.Environment["AGENTS_SIDECAR_PORT"] = targetPort.ToString();

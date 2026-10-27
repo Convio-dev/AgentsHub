@@ -333,6 +333,10 @@ public sealed partial class DashboardWebBridge : IDisposable
         };
 
         // Wire native Bun Sidecar events directly to WebView2 UI
+        // Interactive install console: stream output and exit straight to the webview.
+        NpxInstallHost.OutputReceived += text => PostEventToUi("npx_install_data", new { text });
+        NpxInstallHost.Exited += code => PostEventToUi("npx_install_exited", new { exitCode = code });
+
         Sidecar.SidecarHostService.Instance.EventDispatched += (evt, payload) =>
         {
             if (payload != null)
@@ -767,6 +771,27 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "toggle_skill":
+                {
+                    string? dir = data.TryGetProperty("directoryPath", out var dProp) ? dProp.GetString() : null;
+                    bool enabled = data.TryGetProperty("enabled", out var eProp) && eProp.ValueKind == JsonValueKind.True;
+
+                    if (string.IsNullOrWhiteSpace(dir))
+                    {
+                        SendResponse(requestId, false, "Skill directory is required");
+                        break;
+                    }
+
+                    bool ok = McpSkillsService.SetSkillEnabled(dir, enabled);
+                    var activeWs = AiConfigService.Instance.GetActiveWorkspace();
+                    var skills = ok
+                        ? await McpSkillsService.Instance.GetAgentSkillsAsync(activeWs?.WorkingDirectory).ConfigureAwait(false)
+                        : null;
+
+                    SendResponse(requestId, ok, new { success = ok, skills });
+                }
+                break;
+
             case "save_mcp_auth":
                 {
                     string? serverName = data.TryGetProperty("serverName", out var sProp) ? sProp.GetString() : null;
@@ -836,8 +861,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string? name = data.TryGetProperty("name", out var nProp) ? nProp.GetString() : "custom-skill";
                     string? description = data.TryGetProperty("description", out var dProp) ? dProp.GetString() : "Agent capability skill";
                     string? content = data.TryGetProperty("content", out var cProp) ? cProp.GetString() : "";
+                    string? skillScope = data.TryGetProperty("scope", out var skillScopeProp) ? skillScopeProp.GetString() : null;
 
-                    var skill = await McpSkillsService.Instance.CreateProjectSkillAsync(wsId, name ?? "custom-skill", description ?? "", content ?? "").ConfigureAwait(false);
+                    var skill = await McpSkillsService.Instance.CreateProjectSkillAsync(
+                        wsId, name ?? "custom-skill", description ?? "", content ?? "", skillScope).ConfigureAwait(false);
                     if (skill != null)
                     {
                         SendResponse(requestId, true, new { success = true, skill });
@@ -886,6 +913,58 @@ public sealed partial class DashboardWebBridge : IDisposable
                         SendResponse(requestId, false, "Path is required");
                     }
                 }
+                break;
+
+            case "run_npx_command":
+                {
+                    string? command = data.TryGetProperty("command", out var cProp) ? cProp.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(command))
+                    {
+                        SendResponse(requestId, false, "A command is required");
+                        break;
+                    }
+
+                    // Already running: report it instead of silently replacing the user's session.
+                    if (NpxInstallHost.IsRunning)
+                    {
+                        SendResponse(requestId, false, $"'{NpxInstallHost.CurrentCommand}' is still running");
+                        break;
+                    }
+
+                    // Scope decides where the installer runs, and therefore what it writes to:
+                    // "global" targets the user profile, "workspace" targets the active project.
+                    string? scope = data.TryGetProperty("scope", out var scopeProp) ? scopeProp.GetString() : null;
+                    bool isGlobal = string.Equals(scope, "global", StringComparison.OrdinalIgnoreCase);
+
+                    string? cwd = isGlobal
+                        ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                        : AiConfigService.Instance.GetActiveWorkspace()?.WorkingDirectory;
+
+                    bool started = NpxInstallHost.Start(command, string.IsNullOrWhiteSpace(cwd) ? null : cwd);
+
+                    // A failure must come back as text: an object payload reaches the UI as
+                    // "[object Object]", which is exactly the useless error that was showing.
+                    if (!started)
+                    {
+                        SendResponse(requestId, false, "Could not start the install console.");
+                        break;
+                    }
+
+                    SendResponse(requestId, true, new { started = true, command });
+                }
+                break;
+
+            case "send_npx_input":
+                {
+                    string? input = data.TryGetProperty("input", out var iProp) ? iProp.GetString() : null;
+                    NpxInstallHost.Write(input ?? string.Empty);
+                    SendResponse(requestId, true, new { sent = true });
+                }
+                break;
+
+            case "stop_npx_command":
+                NpxInstallHost.Stop();
+                SendResponse(requestId, true, new { stopped = true });
                 break;
 
             case "reveal_skill_in_explorer":

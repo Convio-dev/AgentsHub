@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { useProfileStore } from '../../store/useProfileStore';
 import { quotaColor } from '../../lib/quota';
+import { QuotaPopover } from '../common/QuotaPopover';
 
 interface CircularQuotaWidgetProps {
   /** Profile whose quota this ring shows. Empty renders an inactive ring. */
@@ -13,15 +14,6 @@ interface CircularQuotaWidgetProps {
 /** Background refresh cadence. The sidecar polls too; this only fires when the data is stale. */
 const REFRESH_INTERVAL_MS = 3 * 60 * 1000;
 const STALE_AFTER_MS = 3 * 60 * 1000;
-
-function formatAge(timestamp?: number): string {
-  if (!timestamp) return 'never checked';
-  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return `checked ${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `checked ${minutes}m ago`;
-  return `checked ${Math.round(minutes / 60)}h ago`;
-}
 
 /**
  * Circular remaining-quota indicator for the composer footer.
@@ -86,20 +78,21 @@ export const CircularQuotaWidget: React.FC<CircularQuotaWidgetProps> = ({
 
   const ringColor = hasReading ? quotaColor(clamped) : 'var(--border-light)';
 
+  // Every window (5-hour, weekly, and anything the CLI adds) is listed in the popover.
   const label = !profileName
     ? 'No profile selected'
     : hasReading
-      ? `${clamped}% quota remaining · ${formatAge(profile?.lastQuotaChecked)} · click to refresh`
-      : `Quota not read yet for ${profileName} · click to check`;
+      ? `Quota: ${clamped}% left. Hover for every window, click to refresh.`
+      : `Quota not read yet for ${profileName}. Click to check.`;
 
   return (
-    <button
-      type="button"
-      onClick={refresh}
-      disabled={!profileName || isChecking}
-      title={label}
-      aria-label={label}
-      className="group/quota relative flex flex-shrink-0 items-center justify-center rounded-full transition-opacity disabled:cursor-default"
+    <QuotaPopover profile={profile} placement="top" isChecking={isChecking} onRefresh={refresh}>
+      <button
+        type="button"
+        onClick={refresh}
+        disabled={!profileName || isChecking}
+        aria-label={label}
+        className="group/quota relative flex flex-shrink-0 items-center justify-center rounded-full transition-opacity disabled:cursor-default"
       style={{ width: size, height: size }}
     >
       <svg
@@ -135,14 +128,21 @@ export const CircularQuotaWidget: React.FC<CircularQuotaWidgetProps> = ({
         />
       </svg>
 
-      {hasReading && !isChecking ? (
+      {/*
+        The number stays visible while a refresh runs: hiding it during every check made the
+        reading look like it had been lost. The spinning ring is the only "busy" signal.
+      */}
+      {hasReading ? (
         <span
-          className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[8.5px] font-semibold tabular-nums"
+          className={`pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[8.5px] font-semibold tabular-nums transition-opacity ${
+            isChecking ? 'opacity-60' : 'opacity-100'
+          }`}
           style={{ color: ringColor }}
         >
           {Math.round(clamped)}
         </span>
       ) : null}
-    </button>
+      </button>
+    </QuotaPopover>
   );
 };

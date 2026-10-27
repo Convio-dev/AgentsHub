@@ -255,6 +255,29 @@ public class TokenUsageEvent : BaseSidecarEvent
     public TokenUsageInfo? Usage { get; set; }
 }
 
+/// <summary>
+/// One quota bucket as reported by `agy -p "/quota"`. The label is the CLI's own wording, so the UI
+/// can render new or renamed buckets without a code change.
+/// </summary>
+public class QuotaWindowDto
+{
+    [JsonPropertyName("group")]
+    public string Group { get; set; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>Derived classification: `five_hour` or `weekly`.</summary>
+    [JsonPropertyName("window")]
+    public string? Window { get; set; }
+
+    [JsonPropertyName("percent")]
+    public int Percent { get; set; }
+
+    [JsonPropertyName("resetAt")]
+    public string? ResetAt { get; set; }
+}
+
 public class QuotaUpdateEvent : BaseSidecarEvent
 {
     [JsonPropertyName("profile")]
@@ -263,11 +286,44 @@ public class QuotaUpdateEvent : BaseSidecarEvent
     [JsonPropertyName("sessionId")]
     public string? SessionId { get; set; }
 
+    /// <summary>5-hour window — the base reading the UI shows.</summary>
     [JsonPropertyName("quotaPercent")]
     public int QuotaPercent { get; set; }
 
+    [JsonPropertyName("quotaWeeklyPercent")]
+    public int? QuotaWeeklyPercent { get; set; }
+
+    [JsonPropertyName("quotaResetAt")]
+    public string? QuotaResetAt { get; set; }
+
+    [JsonPropertyName("quotaWeeklyResetAt")]
+    public string? QuotaWeeklyResetAt { get; set; }
+
+    [JsonPropertyName("quotaGroup")]
+    public string? QuotaGroup { get; set; }
+
+    /// <summary>
+    /// Every bucket the CLI reported. This must be declared here: the event is re-serialized from
+    /// this DTO, so any field missing from it is silently dropped before reaching the UI.
+    /// </summary>
+    [JsonPropertyName("quotaWindows")]
+    public List<QuotaWindowDto>? QuotaWindows { get; set; }
+
     [JsonPropertyName("details")]
     public string? Details { get; set; }
+}
+
+/// <summary>Sent once per on-demand check, after `quota_update`, so the UI can stop its spinner.</summary>
+public class QuotaCheckCompletedEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("quotaPercent")]
+    public int? QuotaPercent { get; set; }
 }
 
 public class ModelInfoEvent : BaseSidecarEvent

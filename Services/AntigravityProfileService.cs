@@ -72,14 +72,15 @@ public sealed class AntigravityProfileService : IDisposable
             {
                 if (string.IsNullOrWhiteSpace(_activeProfile) || string.Equals(_activeProfile, "default", StringComparison.OrdinalIgnoreCase))
                 {
-                    var profs = Directory.Exists(ProfilesBaseDir)
-                        ? Directory.GetDirectories(ProfilesBaseDir)
+                    // The type has to be explicit: a collection expression has no natural type, so
+                    // `var` cannot be used across this conditional.
+                    List<string> profs = Directory.Exists(ProfilesBaseDir)
+                        ? [.. Directory.GetDirectories(ProfilesBaseDir)
                             .Select(Path.GetFileName)
                             .Where(n => !string.IsNullOrWhiteSpace(n) && !string.Equals(n, "default", StringComparison.OrdinalIgnoreCase))
                             .Select(n => n!)
-                            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-                            .ToList()
-                        : new List<string>();
+                            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)]
+                        : [];
 
                     if (profs.Count > 0)
                     {

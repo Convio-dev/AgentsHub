@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import { RunnerProfile } from '../types/agent';
+import { QuotaWindowInfo, RunnerProfile } from '../types/agent';
 import { webviewBridge } from '../services/webviewBridge';
 import { isUnsetProfile } from '../lib/profileName';
 
@@ -15,6 +15,16 @@ interface ProfileStoreState {
   isLoading: boolean;
   /** Profiles with an in-flight quota read, keyed by lower-cased name. */
   quotaPending: Record<string, boolean>;
+  /**
+   * Profile a send should start when nothing is running. Empty means "use the active runner".
+   * Chosen from the multi-profile popover, not from Settings.
+   */
+  defaultProfileName: string;
+  /**
+   * When false (the default), sending with no running runner is refused with a hint. When true the
+   * default profile is started first and the message goes through.
+   */
+  autoRunDefaultProfile: boolean;
 
   // Actions
   loadProfiles: () => Promise<void>;
@@ -23,12 +33,42 @@ interface ProfileStoreState {
   startProfile: (name: string) => Promise<void>;
   stopProfile: (name: string) => Promise<void>;
   setProfileRunning: (name: string, isRunning: boolean) => void;
-  updateProfileQuota: (name: string, quota: number) => void;
+  updateProfileQuota: (name: string, quota: number, details?: ProfileQuotaDetails) => void;
   /** Asks the host to read one profile's quota. Resolves when the request is dispatched. */
   checkQuota: (name: string) => Promise<void>;
   /** Clears the pending flag, called when the check reports back (success or failure). */
   settleQuotaCheck: (name?: string | null) => void;
+  setDefaultProfile: (name: string) => void;
+  setAutoRunDefaultProfile: (enabled: boolean) => void;
   getActiveProfile: () => RunnerProfile | undefined;
+}
+
+/** Extra quota windows reported alongside the base percentage. */
+export interface ProfileQuotaDetails {
+  weeklyPercent?: number;
+  resetAt?: string;
+  weeklyResetAt?: string;
+  group?: string;
+  windows?: QuotaWindowInfo[];
+}
+
+const DEFAULT_PROFILE_KEY = 'agentshub_default_profile';
+const AUTORUN_DEFAULT_PROFILE_KEY = 'agentshub_autorun_default_profile';
+
+function readStoredDefaultProfile(): string {
+  try {
+    return localStorage.getItem(DEFAULT_PROFILE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function readStoredAutoRun(): boolean {
+  try {
+    return localStorage.getItem(AUTORUN_DEFAULT_PROFILE_KEY) === 'true';
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -43,6 +83,8 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
   defaultModel: '',
   isLoading: false,
   quotaPending: {},
+  defaultProfileName: readStoredDefaultProfile(),
+  autoRunDefaultProfile: readStoredAutoRun(),
 
   getActiveProfile: () => {
     const { profiles, activeProfileName } = get();
@@ -56,11 +98,40 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
       ? (activeProfile as string)
       : (!isUnsetProfile(get().activeProfileName) ? get().activeProfileName : fallbackName);
 
-    set(state => ({
-      profiles: sanitized,
-      activeProfileName: active,
-      defaultModel: model || state.defaultModel,
-    }));
+    set(state => {
+      /**
+       * The host's profile list carries identity and run state, never a quota reading — that comes
+       * from the sidecar's `quota_update`. Replacing the array wholesale therefore erased the last
+       * reading a few seconds after it arrived, which is why the ring emptied itself.
+       */
+      const previous = new Map(state.profiles.map(p => [p.name.toLowerCase(), p]));
+      const merged = sanitized.map(incoming => {
+        const existing = previous.get(incoming.name.toLowerCase());
+        if (!existing) return incoming;
+
+        return {
+          ...incoming,
+          quotaPercent: incoming.quotaPercent !== undefined ? incoming.quotaPercent : existing.quotaPercent,
+          quotaWeeklyPercent:
+            incoming.quotaWeeklyPercent !== undefined ? incoming.quotaWeeklyPercent : existing.quotaWeeklyPercent,
+          quotaResetAt: incoming.quotaResetAt ?? existing.quotaResetAt,
+          quotaWeeklyResetAt: incoming.quotaWeeklyResetAt ?? existing.quotaWeeklyResetAt,
+          quotaGroup: incoming.quotaGroup ?? existing.quotaGroup,
+          quotaWindows:
+            incoming.quotaWindows && incoming.quotaWindows.length > 0
+              ? incoming.quotaWindows
+              : existing.quotaWindows,
+          lastQuotaChecked:
+            incoming.lastQuotaChecked !== undefined ? incoming.lastQuotaChecked : existing.lastQuotaChecked,
+        };
+      });
+
+      return {
+        profiles: merged,
+        activeProfileName: active,
+        defaultModel: model || state.defaultModel,
+      };
+    });
   },
 
   loadProfiles: async () => {
@@ -140,11 +211,20 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
     }));
   },
 
-  updateProfileQuota: (name: string, quota: number) => {
+  updateProfileQuota: (name: string, quota: number, details?: ProfileQuotaDetails) => {
     set(state => ({
       profiles: state.profiles.map(p =>
         p.name.toLowerCase() === name.toLowerCase()
-          ? { ...p, quotaPercent: quota, lastQuotaChecked: Date.now() }
+          ? {
+              ...p,
+              quotaPercent: quota,
+              quotaWeeklyPercent: details?.weeklyPercent,
+              quotaResetAt: details?.resetAt,
+              quotaWeeklyResetAt: details?.weeklyResetAt,
+              quotaGroup: details?.group,
+              quotaWindows: details?.windows && details.windows.length > 0 ? details.windows : p.quotaWindows,
+              lastQuotaChecked: Date.now(),
+            }
           : p
       ),
       quotaPending: { ...state.quotaPending, [name.toLowerCase()]: false },
@@ -168,6 +248,26 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
     // The result arrives as an event. If the sidecar never answers, drop the spinner rather than
     // leaving it spinning forever.
     window.setTimeout(() => get().settleQuotaCheck(name), 30_000);
+  },
+
+  setDefaultProfile: (name: string) => {
+    const value = isUnsetProfile(name) ? '' : name;
+    try {
+      if (value) localStorage.setItem(DEFAULT_PROFILE_KEY, value);
+      else localStorage.removeItem(DEFAULT_PROFILE_KEY);
+    } catch {
+      // storage is optional; the in-memory value still applies for this session
+    }
+    set({ defaultProfileName: value });
+  },
+
+  setAutoRunDefaultProfile: (enabled: boolean) => {
+    try {
+      localStorage.setItem(AUTORUN_DEFAULT_PROFILE_KEY, String(enabled));
+    } catch {
+      // as above
+    }
+    set({ autoRunDefaultProfile: enabled });
   },
 
   settleQuotaCheck: (name?: string | null) => {

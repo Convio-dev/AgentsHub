@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ArrowUp, Paperclip, Square, Terminal, GitBranch, X, FileText } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Paperclip, Square, Terminal, GitBranch, X, FileText } from 'lucide-react';
 import { ChatAttachment, SlashCommand, TokenUsage } from '../../types/agent';
 import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
@@ -29,6 +29,13 @@ interface ChatInputProps {
   sessionId: string;
   /** Profile whose quota the footer ring reports. Quota is per account, never shared. */
   profileName?: string;
+  /**
+   * When set, sending is refused and this text explains why (e.g. the runner is stopped). The prompt
+   * is deliberately kept so the user can start the runner and retry without retyping.
+   */
+  blockedNotice?: string | null;
+  /** Starts the runner named in `blockedNotice`. */
+  onStartRunner?: () => void;
 }
 
 /**
@@ -56,11 +63,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   workingDirectory,
   sessionId,
   profileName,
+  blockedNotice,
+  onStartRunner,
 }) => {
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Set briefly when a blocked send is attempted, so the notice visibly reacts instead of doing nothing.
+  const [isNudging, setIsNudging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { commands, isLoading: isDiscovering, error: discoveryError, load: loadCommands } = useSlashCommandStore();
@@ -275,6 +286,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const text = raw.trim();
     if ((!text && attachments.length === 0) || isExecuting) return;
 
+    if (blockedNotice) {
+      setIsNudging(true);
+      window.setTimeout(() => setIsNudging(false), 1600);
+      return;
+    }
+
     let enrichedPrompt = text;
     if (attachments.length > 0) {
       const fileHeaders = attachments.map(a => `[Attached: ${a.name} (${formatFileSize(a.size)})]`).join('\n');
@@ -392,6 +409,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             ))}
           </div>
         )}
+
+        {blockedNotice ? (
+          <div
+            className={`flex items-center gap-2 border-b border-amber-500/25 bg-amber-500/10 px-3.5 py-1.5 text-[11px] text-state-warning ${
+              isNudging ? 'animate-pulse-subtle' : ''
+            }`}
+            role="status"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="flex-1">{blockedNotice}</span>
+            {onStartRunner ? (
+              <button
+                type="button"
+                onClick={onStartRunner}
+                className="flex-shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] text-state-warning transition-colors hover:bg-amber-500/20"
+              >
+                Start
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Input Textarea */}
         <textarea

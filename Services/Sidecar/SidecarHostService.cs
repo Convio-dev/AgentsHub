@@ -198,6 +198,19 @@ public sealed class SidecarHostService : IDisposable
                 }
                 break;
 
+            case "quota_check_completed":
+                if (evt is QuotaCheckCompletedEvent qce)
+                {
+                    EventDispatched?.Invoke("quota_check_completed", new
+                    {
+                        profile = qce.Profile,
+                        success = qce.Success,
+                        quotaPercent = qce.QuotaPercent,
+                        timestamp = qce.Timestamp
+                    });
+                }
+                break;
+
             case "model_info":
                 if (evt is ModelInfoEvent mie)
                 {

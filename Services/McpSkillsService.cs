@@ -13,12 +13,18 @@ public sealed class McpServerItem
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = string.Empty;
     public string Command { get; set; } = string.Empty;
+    /// <summary>`stdio` when the server is a local command, `sse` when it is reached over HTTP.</summary>
+    public string Transport { get; set; } = "stdio";
+    /// <summary>Endpoint for `sse` servers (the config's `serverUrl`).</summary>
+    public string? ServerUrl { get; set; }
     public List<string> Args { get; set; } = [];
     public Dictionary<string, string> Env { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string Scope { get; set; } = "Global"; // Global, Antigravity, ClaudeCode
     public bool IsEnabled { get; set; } = true;
     public string Description { get; set; } = string.Empty;
     public int ToolCount { get; set; }
+    /// <summary>Tool names cached by the CLI, when it has run this server.</summary>
+    public List<string> Tools { get; set; } = [];
     public bool RequiresAuth { get; set; }
     public string AuthStatus { get; set; } = "NotRequired"; // Authenticated, TokenExpired, NeedsAuth, NotRequired
     public string AuthDetails { get; set; } = string.Empty;
@@ -85,9 +91,10 @@ public sealed class McpSkillsService
             var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var candidateAgyDirs = new[]
             {
+                Path.Combine(userHome, ".gemini", "config"),
+                Path.Combine(userHome, ".gemini", "antigravity-cli"),
                 Path.Combine(userHome, ".gemini", "antigravity-ide"),
-                Path.Combine(userHome, ".gemini", "antigravity"),
-                Path.Combine(userHome, ".gemini", "config")
+                Path.Combine(userHome, ".gemini", "antigravity")
             };
 
             foreach (var agyDir in candidateAgyDirs)
@@ -110,7 +117,16 @@ public sealed class McpSkillsService
                                 var sName = sProp.Name;
                                 if (seenNames.Add(sName))
                                 {
-                                    var cmd = sProp.Value.TryGetProperty("command", out var cProp) ? cProp.GetString() ?? "npx" : "npx";
+                                    // HTTP servers declare `serverUrl` instead of a command; treating those as
+                                    // `npx` (the old behaviour) reported a transport that does not exist.
+                                    var serverUrl = sProp.Value.TryGetProperty("serverUrl", out var uProp)
+                                        ? uProp.GetString()
+                                        : null;
+                                    var isRemote = !string.IsNullOrWhiteSpace(serverUrl);
+
+                                    var cmd = sProp.Value.TryGetProperty("command", out var cProp)
+                                        ? cProp.GetString() ?? string.Empty
+                                        : (isRemote ? string.Empty : "npx");
                                     var args = new List<string>();
                                     if (sProp.Value.TryGetProperty("args", out var aProp) && aProp.ValueKind == JsonValueKind.Array)
                                     {
@@ -127,28 +143,40 @@ public sealed class McpSkillsService
                                     }
 
                                     int toolCount = 0;
+                                    var tools = new List<string>();
                                     foreach (var cand in candidateAgyDirs)
                                     {
                                         var toolDir = Path.Combine(cand, "mcp", sName);
-                                        if (Directory.Exists(toolDir))
+                                        if (!Directory.Exists(toolDir)) continue;
+
+                                        var names = Directory.GetFiles(toolDir, "*.json")
+                                            .Select(Path.GetFileNameWithoutExtension)
+                                            .Where(n => !string.IsNullOrWhiteSpace(n))
+                                            .Select(n => n!)
+                                            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                                            .ToList();
+
+                                        if (names.Count > toolCount)
                                         {
-                                            toolCount = Math.Max(toolCount, Directory.GetFiles(toolDir, "*.json").Length);
+                                            toolCount = names.Count;
+                                            tools = names;
                                         }
                                     }
 
                                     list.Add(new McpServerItem
                                     {
                                         Id = "agy_" + sName.ToLowerInvariant(),
+                                        Transport = isRemote ? "sse" : "stdio",
+                                        ServerUrl = serverUrl,
                                         Name = sName,
                                         Command = cmd,
                                         Args = args,
                                         Env = envDict,
                                         Scope = "Antigravity",
                                         IsEnabled = true,
-                                        Description = toolCount > 0
-                                            ? $"Antigravity MCP server with {toolCount} tool definition(s)"
-                                            : $"Antigravity MCP server ({cmd})",
-                                        ToolCount = toolCount
+                                        Description = BuildServerDescription(isRemote, serverUrl, cmd, toolCount),
+                                        ToolCount = toolCount,
+                                        Tools = tools
                                     });
                                 }
                             }
@@ -244,23 +272,6 @@ public sealed class McpSkillsService
         }
         catch { }
 
-        // Ensure standard integrations like Supabase are discoverable and configurable
-        if (seenNames.Add("supabase"))
-        {
-            list.Add(new McpServerItem
-            {
-                Id = "mcp_supabase",
-                Name = "supabase",
-                Command = "npx",
-                Args = ["-y", "@supabase/mcp-server"],
-                Scope = "Global",
-                IsEnabled = true,
-                Description = "Database migrations, schema inspections, and edge function generation.",
-                ToolCount = 21,
-                RequiresAuth = true
-            });
-        }
-
         // 4. Run automated auth detection across all servers
         foreach (var s in list)
         {
@@ -329,11 +340,13 @@ public sealed class McpSkillsService
         if (!string.IsNullOrWhiteSpace(workspaceDir) && Directory.Exists(workspaceDir))
         {
             var matchedWs = workspaces.FirstOrDefault(w => string.Equals(w.WorkingDirectory, workspaceDir, StringComparison.OrdinalIgnoreCase)) ?? activeWs;
-            searchRoots.Add((Path.Combine(workspaceDir, ".agents", "skills"), "Project", matchedWs?.Id, matchedWs?.Name));
+            searchRoots.Add((Path.Combine(workspaceDir, ".agents", "skills"), "Workspace", matchedWs?.Id, matchedWs?.Name));
+            searchRoots.Add((Path.Combine(workspaceDir, ".gemini", "skills"), "Workspace", matchedWs?.Id, matchedWs?.Name));
         }
         else if (activeWs != null && !string.IsNullOrWhiteSpace(activeWs.WorkingDirectory) && Directory.Exists(activeWs.WorkingDirectory))
         {
-            searchRoots.Add((Path.Combine(activeWs.WorkingDirectory, ".agents", "skills"), "Project", activeWs.Id, activeWs.Name));
+            searchRoots.Add((Path.Combine(activeWs.WorkingDirectory, ".agents", "skills"), "Workspace", activeWs.Id, activeWs.Name));
+            searchRoots.Add((Path.Combine(activeWs.WorkingDirectory, ".gemini", "skills"), "Workspace", activeWs.Id, activeWs.Name));
         }
 
         // Scan all configured workspaces so user can see and jump to skills across projects
@@ -344,16 +357,18 @@ public sealed class McpSkillsService
                 var skillsDir = Path.Combine(ws.WorkingDirectory, ".agents", "skills");
                 if (!searchRoots.Any(sr => string.Equals(sr.Root, skillsDir, StringComparison.OrdinalIgnoreCase)))
                 {
-                    searchRoots.Add((skillsDir, "Project", ws.Id, ws.Name));
+                    searchRoots.Add((skillsDir, "Workspace", ws.Id, ws.Name));
                 }
             }
         }
 
-        searchRoots.Add((Path.Combine(AppContext.BaseDirectory, ".agents", "skills"), "Project", activeWs?.Id, activeWs?.Name));
+        searchRoots.Add((Path.Combine(AppContext.BaseDirectory, ".agents", "skills"), "Workspace", activeWs?.Id, activeWs?.Name));
 
-        // 2. Scan global Antigravity builtin skills
+        // 2. Global roots: skills installed for the user, whichever agent put them there.
         var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        searchRoots.Add((Path.Combine(userHome, ".gemini", "antigravity", "builtin", "skills"), "Builtin", null, null));
+        searchRoots.Add((Path.Combine(userHome, ".gemini", "antigravity", "builtin", "skills"), "Global", null, null));
+        searchRoots.Add((Path.Combine(userHome, ".agents", "skills"), "Global", null, null));
+        searchRoots.Add((Path.Combine(userHome, ".gemini", "antigravity-cli", "skills"), "Global", null, null));
 
         foreach (var (root, scope, wsId, wsName) in searchRoots)
         {
@@ -361,12 +376,19 @@ public sealed class McpSkillsService
 
             foreach (var skillDir in Directory.GetDirectories(root))
             {
-                var skillFile = Path.Combine(skillDir, "SKILL.md");
-                if (!File.Exists(skillFile)) continue;
+                // Disabling renames SKILL.md to SKILL.md.disabled, which is what makes the CLI skip
+                // it. Such skills are still listed (flagged disabled) so they can be switched back on.
+                var activeFile = Path.Combine(skillDir, "SKILL.md");
+                var disabledFile = Path.Combine(skillDir, "SKILL.md.disabled");
+                var isEnabled = File.Exists(activeFile);
+                if (!isEnabled && !File.Exists(disabledFile)) continue;
+
+                var skillFile = isEnabled ? activeFile : disabledFile;
 
                 var dirName = Path.GetFileName(skillDir);
-                var dedupeKey = $"{scope}_{wsId}_{dirName}";
-                if (!seenKeys.Add(dedupeKey)) continue;
+                // Keyed by skill name only, and roots are scanned workspace-first, so a project copy
+                // shadows the global one instead of appearing twice.
+                if (!seenKeys.Add(dirName)) continue;
 
                 var name = dirName;
                 var desc = "Agent capability skill";
@@ -413,7 +435,7 @@ public sealed class McpSkillsService
                     WorkspaceId = wsId,
                     WorkspaceName = wsName,
                     TokenFootprintApprox = Math.Max(1, fullContent.Length / 4),
-                    IsEnabled = true
+                    IsEnabled = isEnabled
                 });
             }
         }
@@ -484,19 +506,48 @@ public sealed class McpSkillsService
         return true;
     }
 
-    public async Task<AgentSkillItem?> CreateProjectSkillAsync(string? workspaceId, string name, string description, string content)
+    /// <summary>
+    /// Writes a hand-written skill as `<root>/.agents/skills/<slug>/SKILL.md`.
+    ///
+    /// `scope` is `global` (the user's own skill directory) or anything else for the workspace, which
+    /// is the same pair the rest of discovery reports.
+    /// </summary>
+    public async Task<AgentSkillItem?> CreateProjectSkillAsync(
+        string? workspaceId,
+        string name,
+        string description,
+        string content,
+        string? scope = null)
     {
-        var workspaces = AiConfigService.Instance.GetWorkspaces();
-        var ws = !string.IsNullOrEmpty(workspaceId)
-            ? workspaces.FirstOrDefault(w => string.Equals(w.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
-            : AiConfigService.Instance.GetActiveWorkspace();
+        bool isGlobal = string.Equals(scope, "global", StringComparison.OrdinalIgnoreCase);
 
-        if (ws == null || string.IsNullOrWhiteSpace(ws.WorkingDirectory)) return null;
+        string skillsRoot;
+        string? wsId = null;
+        string? wsName = null;
+
+        if (isGlobal)
+        {
+            skillsRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agents", "skills");
+        }
+        else
+        {
+            var workspaces = AiConfigService.Instance.GetWorkspaces();
+            var ws = !string.IsNullOrEmpty(workspaceId)
+                ? workspaces.FirstOrDefault(w => string.Equals(w.Id, workspaceId, StringComparison.OrdinalIgnoreCase))
+                : AiConfigService.Instance.GetActiveWorkspace();
+
+            if (ws == null || string.IsNullOrWhiteSpace(ws.WorkingDirectory)) return null;
+
+            skillsRoot = Path.Combine(ws.WorkingDirectory, ".agents", "skills");
+            wsId = ws.Id;
+            wsName = ws.Name;
+        }
 
         var safeSlug = System.Text.RegularExpressions.Regex.Replace(name.Trim().ToLowerInvariant(), @"[^a-z0-9_\-]", "-").Trim('-');
         if (string.IsNullOrEmpty(safeSlug)) safeSlug = "custom-skill";
 
-        var skillDir = Path.Combine(ws.WorkingDirectory, ".agents", "skills", safeSlug);
+        var skillDir = Path.Combine(skillsRoot, safeSlug);
         Directory.CreateDirectory(skillDir);
 
         var skillFile = Path.Combine(skillDir, "SKILL.md");
@@ -519,9 +570,9 @@ public sealed class McpSkillsService
             Description = description,
             Path = skillFile,
             DirectoryPath = skillDir,
-            Scope = "Project",
-            WorkspaceId = ws.Id,
-            WorkspaceName = ws.Name,
+            Scope = isGlobal ? "Global" : "Workspace",
+            WorkspaceId = wsId,
+            WorkspaceName = wsName,
             TokenFootprintApprox = Math.Max(1, fileText.Length / 4),
             IsEnabled = true,
             Content = fileText
@@ -601,6 +652,35 @@ public sealed class McpSkillsService
         }
     }
 
+    /// <summary>
+    /// Enables or disables a skill by renaming its `SKILL.md`. The CLI discovers skills by that exact
+    /// filename, so this is the only lever that actually changes what it loads — a flag stored on the
+    /// side would look like it worked while the agent kept loading the skill.
+    /// </summary>
+    public static bool SetSkillEnabled(string skillDirectory, bool enabled)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(skillDirectory) || !Directory.Exists(skillDirectory)) return false;
+
+            var active = Path.Combine(skillDirectory, "SKILL.md");
+            var disabled = Path.Combine(skillDirectory, "SKILL.md.disabled");
+
+            if (enabled)
+            {
+                if (File.Exists(disabled)) File.Move(disabled, active, overwrite: true);
+                return File.Exists(active);
+            }
+
+            if (File.Exists(active)) File.Move(active, disabled, overwrite: true);
+            return File.Exists(disabled);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static bool RevealInExplorer(string path)
     {
         try
@@ -634,172 +714,144 @@ public sealed class McpSkillsService
         return false;
     }
 
+    private static string BuildServerDescription(bool isRemote, string? serverUrl, string command, int toolCount)
+    {
+        if (isRemote)
+        {
+            var host = Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri) ? uri.Host : serverUrl;
+            return toolCount > 0
+                ? $"Remote MCP server at {host} exposing {toolCount} tools"
+                : $"Remote MCP server at {host}";
+        }
+
+        return toolCount > 0
+            ? $"Local MCP server ({command}) exposing {toolCount} tools"
+            : $"Local MCP server ({command}) — no tools cached yet";
+    }
+
+    /// <summary>
+    /// Works out whether a server has usable credentials.
+    ///
+    /// Two real sources: an OAuth token the CLI cached for that server, or a key in the server's own
+    /// `env` block. Nothing is inferred from the server's name beyond knowing which env key it wants.
+    /// </summary>
     public static void DetectAuthStatus(McpServerItem item)
     {
         var name = item.Name.Trim().ToLowerInvariant();
 
-        if (name.Contains("supabase"))
+        string? keyName = name switch
         {
-            item.RequiresAuth = true;
-            item.AuthKeyName = "SUPABASE_ACCESS_TOKEN";
+            var n when n.Contains("supabase") => "SUPABASE_ACCESS_TOKEN",
+            var n when n.Contains("github") => "GITHUB_PERSONAL_ACCESS_TOKEN",
+            var n when n.Contains("cloudflare") => "CLOUDFLARE_API_TOKEN",
+            var n when n.Contains("sentry") => "SENTRY_AUTH_TOKEN",
+            var n when n.Contains("linear") => "LINEAR_API_KEY",
+            _ => null
+        };
 
-            if (item.Env.TryGetValue("SUPABASE_ACCESS_TOKEN", out var token) && !string.IsNullOrWhiteSpace(token))
-            {
-                item.AuthStatus = "Authenticated";
-                var masked = token.Length > 8 ? token[..4] + "..." + token[^4..] : "configured";
-                item.AuthDetails = $"Access Token: {masked}";
-                return;
-            }
+        var isRemote = string.Equals(item.Transport, "sse", StringComparison.OrdinalIgnoreCase);
+        item.RequiresAuth = isRemote || keyName != null;
+        item.AuthKeyName = keyName;
 
-            if (item.Env.TryGetValue("SUPABASE_SERVICE_ROLE_KEY", out var sKey) && !string.IsNullOrWhiteSpace(sKey))
-            {
-                item.AuthStatus = "Authenticated";
-                item.AuthDetails = "Service Role Key configured";
-                return;
-            }
-
-            try
-            {
-                var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                var tokensDir = Path.Combine(userProfile, ".mcp-auth", "mcp-remote-v1");
-                if (Directory.Exists(tokensDir))
-                {
-                    var tokenFiles = Directory.GetFiles(tokensDir, "*_tokens.json");
-                    long latestExpiry = 0;
-                    foreach (var tf in tokenFiles)
-                    {
-                        try
-                        {
-                            using var doc = JsonDocument.Parse(File.ReadAllText(tf));
-                            if (doc.RootElement.TryGetProperty("expires_at", out var expProp) && expProp.TryGetInt64(out var expMs))
-                            {
-                                if (expMs > latestExpiry) latestExpiry = expMs;
-                            }
-                        }
-                        catch { }
-                    }
-
-                    if (latestExpiry > 0)
-                    {
-                        var expDto = DateTimeOffset.FromUnixTimeMilliseconds(latestExpiry);
-                        if (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() < latestExpiry)
-                        {
-                            item.AuthStatus = "Authenticated";
-                            item.AuthDetails = $"OAuth Active (valid until {expDto.LocalDateTime:MMM dd, HH:mm})";
-                            return;
-                        }
-                        else
-                        {
-                            item.AuthStatus = "TokenExpired";
-                            item.AuthDetails = $"OAuth token expired on {expDto.LocalDateTime:MMM dd, yyyy}";
-                            return;
-                        }
-                    }
-                }
-            }
-            catch { }
-
-            item.AuthStatus = "NeedsAuth";
-            item.AuthDetails = "Supabase Access Token or OAuth Login required";
+        if (!item.RequiresAuth)
+        {
+            item.AuthStatus = "NotRequired";
+            item.AuthDetails = "No credentials required";
             return;
         }
 
-        if (name.Contains("firebase"))
+        if (TryGetCachedOAuthExpiry(item.Name, out var expiry))
         {
-            item.RequiresAuth = true;
-            item.AuthKeyName = "FIREBASE_TOKEN";
-
-            if (item.Env.TryGetValue("FIREBASE_TOKEN", out var fbTok) && !string.IsNullOrWhiteSpace(fbTok))
+            if (expiry == null || expiry > DateTimeOffset.UtcNow)
             {
                 item.AuthStatus = "Authenticated";
-                item.AuthDetails = "Firebase Token configured in environment";
+                item.AuthDetails = expiry == null
+                    ? "OAuth token cached by the CLI"
+                    : $"OAuth active until {expiry.Value.LocalDateTime:MMM dd, HH:mm}";
                 return;
             }
 
-            try
-            {
-                var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                var cfgPath = Path.Combine(userProfile, ".config", "configstore", "firebase-tools.json");
-                if (File.Exists(cfgPath))
-                {
-                    using var doc = JsonDocument.Parse(File.ReadAllText(cfgPath));
-                    if (doc.RootElement.TryGetProperty("user", out var uProp) &&
-                        uProp.TryGetProperty("email", out var emProp))
-                    {
-                        var email = emProp.GetString();
-                        if (!string.IsNullOrEmpty(email))
-                        {
-                            item.AuthStatus = "Authenticated";
-                            item.AuthDetails = $"CLI logged in as {email}";
-                            return;
-                        }
-                    }
-                    if (doc.RootElement.TryGetProperty("tokens", out var _))
-                    {
-                        item.AuthStatus = "Authenticated";
-                        item.AuthDetails = "OAuth session found in Firebase config";
-                        return;
-                    }
-                }
-            }
-            catch { }
-
-            item.AuthStatus = "NeedsAuth";
-            item.AuthDetails = "Run 'firebase login' or set FIREBASE_TOKEN";
+            item.AuthStatus = "TokenExpired";
+            item.AuthDetails = $"OAuth token expired {expiry.Value.LocalDateTime:MMM dd, yyyy}";
             return;
         }
 
-        if (name.Contains("github"))
+        if (keyName != null && item.Env.TryGetValue(keyName, out var token) && !string.IsNullOrWhiteSpace(token))
         {
-            item.RequiresAuth = true;
-            item.AuthKeyName = "GITHUB_PERSONAL_ACCESS_TOKEN";
-
-            if (item.Env.TryGetValue("GITHUB_PERSONAL_ACCESS_TOKEN", out var ghTok) && !string.IsNullOrWhiteSpace(ghTok))
-            {
-                item.AuthStatus = "Authenticated";
-                item.AuthDetails = "Personal Access Token configured";
-                return;
-            }
-
-            var envGh = Environment.GetEnvironmentVariable("GITHUB_PERSONAL_ACCESS_TOKEN") ?? Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-            if (!string.IsNullOrWhiteSpace(envGh))
-            {
-                item.AuthStatus = "Authenticated";
-                item.AuthDetails = "Token found in system environment";
-                return;
-            }
-
-            item.AuthStatus = "NeedsAuth";
-            item.AuthDetails = "Personal Access Token required";
+            item.AuthStatus = "Authenticated";
+            item.AuthDetails = $"{keyName}: {Mask(token)}";
             return;
         }
 
-        foreach (var kvp in item.Env)
-        {
-            var k = kvp.Key.ToUpperInvariant();
-            if (k.Contains("KEY") || k.Contains("TOKEN") || k.Contains("SECRET") || k.Contains("AUTH"))
-            {
-                item.RequiresAuth = true;
-                item.AuthKeyName = kvp.Key;
-                if (!string.IsNullOrWhiteSpace(kvp.Value))
-                {
-                    item.AuthStatus = "Authenticated";
-                    item.AuthDetails = $"{kvp.Key} configured";
-                    return;
-                }
-                else
-                {
-                    item.AuthStatus = "NeedsAuth";
-                    item.AuthDetails = $"{kvp.Key} is required";
-                    return;
-                }
-            }
-        }
-
-        item.RequiresAuth = false;
-        item.AuthStatus = "NotRequired";
-        item.AuthDetails = "Local tool (No auth required)";
+        item.AuthStatus = "NeedsAuth";
+        item.AuthDetails = keyName != null
+            ? $"{keyName} is not configured"
+            : "This server requires an OAuth sign-in";
     }
+
+    /// <summary>
+    /// Reads the CLI's cached OAuth tokens (`~/.gemini/config/mcp_oauth_tokens.json`). The file is
+    /// written by the CLI, so the shape is treated as unknown: an entry for the server counts as a
+    /// token, and an expiry is read only when one is recognisable.
+    /// </summary>
+    private static bool TryGetCachedOAuthExpiry(string serverName, out DateTimeOffset? expiry)
+    {
+        expiry = null;
+
+        try
+        {
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".gemini", "config", "mcp_oauth_tokens.json");
+
+            if (!File.Exists(path)) return false;
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+
+            foreach (var entry in doc.RootElement.EnumerateObject())
+            {
+                if (!entry.Name.Contains(serverName, StringComparison.OrdinalIgnoreCase) &&
+                    !serverName.Contains(entry.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (entry.Value.ValueKind != JsonValueKind.Object) return true;
+
+                foreach (var field in entry.Value.EnumerateObject())
+                {
+                    var key = field.Name.ToLowerInvariant();
+                    if (key is "expires_at" or "expiresat" or "expiry" or "expires")
+                    {
+                        if (field.Value.ValueKind == JsonValueKind.Number && field.Value.TryGetInt64(out var ms) && ms > 0)
+                        {
+                            expiry = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+                            return true;
+                        }
+
+                        if (field.Value.ValueKind == JsonValueKind.String &&
+                            DateTimeOffset.TryParse(field.Value.GetString(), out var parsed))
+                        {
+                            expiry = parsed;
+                            return true;
+                        }
+                    }
+                }
+
+                return true;
+            }
+        }
+        catch
+        {
+            // A malformed token cache must not break discovery.
+        }
+
+        return false;
+    }
+
+    private static string Mask(string token) =>
+        token.Length > 8 ? $"{token[..4]}...{token[^4..]}" : "configured";
 
     public async Task<bool> SaveMcpAuthKeyAsync(string serverName, string keyName, string keyValue)
     {

@@ -21,12 +21,14 @@ import {
   LogOut,
   Sliders,
   CheckCircle2,
+  Star,
 } from 'lucide-react';
 import { useProfileStore } from '../store/useProfileStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { webviewBridge } from '../services/webviewBridge';
 import { ProjectWorkspace } from '../types/agent';
 import { quotaPillClass } from '../lib/quota';
+import { QuotaPopover } from '../components/common/QuotaPopover';
 
 interface ProfilesViewProps {
   onOpenAddProfile?: () => void;
@@ -41,6 +43,8 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
     stopProfile,
     quotaPending,
     checkQuota,
+    defaultProfileName,
+    setDefaultProfile,
   } = useProfileStore();
 
   const {
@@ -768,13 +772,37 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                         >
                           {isRunning ? `RUNNING${p.port ? ` :${p.port}` : ''}` : 'STOPPED'}
                         </span>
+                        {(() => {
+                          const isDefault = defaultProfileName.toLowerCase() === p.name.toLowerCase();
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => setDefaultProfile(isDefault ? '' : p.name)}
+                              title={
+                                isDefault
+                                  ? `${p.name} is the default profile — click to clear`
+                                  : `Set ${p.name} as the default profile`
+                              }
+                              aria-pressed={isDefault}
+                              className={`p-1 rounded transition-colors ${
+                                isDefault
+                                  ? 'text-state-warning hover:bg-amber-500/10'
+                                  : 'text-content-dim hover:text-state-warning hover:bg-surface-hover'
+                              }`}
+                            >
+                              <Star className={`w-3.5 h-3.5 ${isDefault ? 'fill-current' : ''}`} />
+                            </button>
+                          );
+                        })()}
+
                         {typeof p.quotaPercent === 'number' && p.quotaPercent >= 0 ? (
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold border tabular-nums ${quotaPillClass(p.quotaPercent)}`}
-                            title={`${Math.round(p.quotaPercent)}% of this profile's quota remains`}
-                          >
-                            {Math.round(p.quotaPercent)}%
-                          </span>
+                          <QuotaPopover profile={p} placement="bottom">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold border tabular-nums ${quotaPillClass(p.quotaPercent)}`}
+                            >
+                              {Math.round(p.quotaPercent)}%
+                            </span>
+                          </QuotaPopover>
                         ) : null}
                         <button
                           type="button"

@@ -193,6 +193,15 @@ export interface SlashCommand {
   takesArgument?: boolean;
 }
 
+/** One quota bucket as reported by `agy -p "/quota"`. */
+export interface QuotaWindowInfo {
+  group: string;
+  /** The CLI's own label, e.g. "Five Hour Limit Remaining". */
+  label: string;
+  percent: number;
+  resetAt?: string;
+}
+
 export interface RunnerProfile {
   name: string;
   email?: string;
@@ -204,6 +213,18 @@ export interface RunnerProfile {
    * its own pool, so this value must never be shared between profiles.
    */
   quotaPercent?: number;
+  /** Weekly window of the same model group, shown in tooltips rather than on the ring. */
+  quotaWeeklyPercent?: number;
+  /** Reset time of the 5-hour window, ISO string as reported by the CLI. */
+  quotaResetAt?: string;
+  quotaWeeklyResetAt?: string;
+  /** Model group the reading belongs to (e.g. "Gemini Models"). */
+  quotaGroup?: string;
+  /**
+   * Every window the CLI reported, in its own wording. The UI renders these verbatim so new or
+   * renamed quota buckets appear without a code change.
+   */
+  quotaWindows?: QuotaWindowInfo[];
   /** When `quotaPercent` was last read, epoch ms. Used to decide whether a refresh is due. */
   lastQuotaChecked?: number;
   port?: number;

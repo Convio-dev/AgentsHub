@@ -340,7 +340,25 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
 
         const profile = typeof data.profile === 'string' && data.profile ? data.profile : undefined;
         if (profile) {
-          useProfileStore.getState().updateProfileQuota(profile, pct);
+          useProfileStore.getState().updateProfileQuota(profile, pct, {
+            weeklyPercent: typeof data.quotaWeeklyPercent === 'number' ? data.quotaWeeklyPercent : undefined,
+            resetAt: typeof data.quotaResetAt === 'string' ? data.quotaResetAt : undefined,
+            weeklyResetAt: typeof data.quotaWeeklyResetAt === 'string' ? data.quotaWeeklyResetAt : undefined,
+            group: typeof data.quotaGroup === 'string' ? data.quotaGroup : undefined,
+            windows: Array.isArray(data.quotaWindows)
+              ? data.quotaWindows
+                  .filter(
+                    (w: any) =>
+                      w && typeof w.group === 'string' && typeof w.label === 'string' && typeof w.percent === 'number'
+                  )
+                  .map((w: any) => ({
+                    group: w.group,
+                    label: w.label,
+                    percent: w.percent,
+                    resetAt: typeof w.resetAt === 'string' ? w.resetAt : undefined,
+                  }))
+              : undefined,
+          });
         }
 
         const sessionStore = useSessionStore.getState();

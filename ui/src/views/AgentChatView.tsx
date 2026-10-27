@@ -7,6 +7,7 @@ import {
   Plus,
   X,
   Loader2,
+  Star,
 } from 'lucide-react';
 import { useSessionStore } from '../store/useSessionStore';
 import { useProfileStore } from '../store/useProfileStore';
@@ -39,6 +40,9 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
     switchActiveProfile,
     startProfile,
     stopProfile,
+    defaultProfileName,
+    autoRunDefaultProfile,
+    setDefaultProfile,
   } = useProfileStore();
 
   const { setActiveView } = useSidecarStore();
@@ -56,8 +60,31 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
     activeSession?.status === 'thinking' ||
     activeSession?.status === 'tool_executing';
 
+  /**
+   * The runner a send will actually use: the session's own profile, else the configured default,
+   * else whatever is active. The guard and the auto-start both target this one — starting a
+   * different profile would satisfy the UI while the message still went to a stopped runner.
+   */
+  const runnerName = activeSession?.profile || defaultProfileName || activeProfileName;
+  const runner = profiles.find(p => p.name.toLowerCase() === runnerName.toLowerCase());
+  /**
+   * Block only when the runner is known and stopped. An empty profile list means the host has not
+   * answered yet (startup) or the name is stale — blocking then would refuse perfectly valid sends.
+   */
+  const isRunnerStopped = Boolean(runner) && !runner?.isRunning;
+
+  /**
+   * A send needs a running runner. Rather than starting one behind the user's back, the default is
+   * to say so and keep their text; `autoRunDefaultProfile` opts into starting the default runner.
+   */
   const handleSendMessage = async (prompt: string, attachments?: ChatAttachment[]) => {
     if (!activeSession || isExecuting) return;
+
+    if (isRunnerStopped) {
+      if (!autoRunDefaultProfile) return;
+      await startProfile(runnerName);
+    }
+
     await sendPrompt(activeSession.id, prompt, attachments);
   };
 
@@ -69,7 +96,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
   const handleNewTab = () => {
     // The profile's default model is a *label* ("Gemini 3.8 Flash (High)"), not an id. Seeding the
     // session with it made the first effort change persist that label and send it as `--model`.
-    const newId = createSession(activeProfileName);
+    const newId = createSession(defaultProfileName || activeProfileName);
     switchSession(newId);
   };
 
@@ -155,11 +182,35 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                         </div>
 
                         <div className="flex items-center space-x-2">
+                          {(() => {
+                            const isDefault =
+                              defaultProfileName.toLowerCase() === p.name.toLowerCase();
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => setDefaultProfile(isDefault ? '' : p.name)}
+                                title={
+                                  isDefault
+                                    ? `${p.name} is the default runner — click to clear`
+                                    : `Use ${p.name} as the default runner`
+                                }
+                                aria-pressed={isDefault}
+                                className={`p-1 rounded transition-colors ${
+                                  isDefault
+                                    ? 'text-state-warning hover:bg-amber-500/10'
+                                    : 'text-content-dim hover:text-state-warning hover:bg-surface-hover'
+                                }`}
+                              >
+                                <Star className={`w-3.5 h-3.5 ${isDefault ? 'fill-current' : ''}`} />
+                              </button>
+                            );
+                          })()}
+
                           <span
                             className={`px-1.5 py-0.5 text-[9px] font-mono rounded border ${
                               p.isRunning
                                 ? 'bg-emerald-500/15 text-state-success border-emerald-500/30'
-                                : 'bg-slate-800 text-content-muted border-surface-border'
+                                : 'bg-surface-strong text-content-muted border-surface-border'
                             }`}
                           >
                             {p.isRunning ? 'Running' : 'Offline'}
@@ -296,6 +347,12 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
         <ChatInput
           sessionId={activeSession?.id || ''}
           profileName={activeSession?.profile || activeProfileName}
+          blockedNotice={
+            !isRunnerStopped || autoRunDefaultProfile
+              ? null
+              : `Runner ${profileLabel(runnerName)} is stopped. Start it to send a message.`
+          }
+          onStartRunner={() => void startProfile(runnerName)}
           onSendMessage={handleSendMessage}
           onStop={handleStopGenerating}
           isExecuting={isExecuting}

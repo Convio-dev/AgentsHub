@@ -35,3 +35,14 @@ export function quotaPillClass(percent: number): string {
       return 'bg-sky-500/10 text-accent border-sky-500/30';
   }
 }
+
+/** Reset time for a quota window, as local time (date shown only when it is not today). */
+export function formatResetAt(iso?: string): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const isToday = date.toDateString() === new Date().toDateString();
+  return isToday ? time : `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+}

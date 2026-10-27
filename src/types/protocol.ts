@@ -234,7 +234,21 @@ export interface QuotaUpdateEvent {
   event: 'quota_update';
   profile: string;
   sessionId?: string;
+  /** 5-hour window of the reported group — the base reading the UI shows. */
   quotaPercent: number;
+  /** Weekly window of the same group, shown in tooltips. */
+  quotaWeeklyPercent?: number;
+  quotaResetAt?: string;
+  quotaWeeklyResetAt?: string;
+  quotaGroup?: string;
+  /** Every window the CLI reported, so the UI can show the full picture if it wants to. */
+  quotaWindows?: Array<{
+    group: string;
+    label: string;
+    window: 'five_hour' | 'weekly';
+    percent: number;
+    resetAt?: string;
+  }>;
   details?: string;
   timestamp: string;
 }

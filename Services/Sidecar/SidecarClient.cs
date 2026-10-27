@@ -343,6 +343,14 @@ public class SidecarClient : IDisposable
                     }
                     break;
 
+                case "quota_check_completed":
+                    var qcEv = JsonSerializer.Deserialize<QuotaCheckCompletedEvent>(json);
+                    if (qcEv != null)
+                    {
+                        OnEventReceived?.Invoke(qcEv);
+                    }
+                    break;
+
                 case "model_info":
                     var mEv = JsonSerializer.Deserialize<ModelInfoEvent>(json);
                     if (mEv != null)

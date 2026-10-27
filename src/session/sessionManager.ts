@@ -24,6 +24,26 @@ export interface ProfileRecord {
   virtualHomePath?: string;
 }
 
+/** One window of one model group, as reported by `agy -p "/quota"`. */
+export interface QuotaWindowEntry {
+  group: string;
+  /** The CLI's own wording, e.g. "Five Hour Limit Remaining". Displayed verbatim. */
+  label: string;
+  /** Derived classification, used only to pick which window is the base reading. */
+  window: QuotaWindow;
+  percent: number;
+  resetAt?: string;
+}
+
+export type QuotaWindow = 'five_hour' | 'weekly';
+
+/** The reading surfaced to the UI: a base window plus the weekly window of the same group. */
+export interface QuotaSnapshot {
+  base: QuotaWindowEntry;
+  weekly?: QuotaWindowEntry;
+  windows: QuotaWindowEntry[];
+}
+
 export interface ChatSessionState {
   sessionId: string;
   profileName: string;
@@ -52,7 +72,10 @@ export class SessionManager {
   private activeProfileName: string = 'default';
   private activeSessions = new Map<string, ChatSessionState>();
   private profileActiveSessionIds = new Map<string, string>(); // profileName -> sessionId
-  private profileQuotas = new Map<string, { quotaPercent: number; details?: string; lastPolled: number }>();
+  private profileQuotas = new Map<
+    string,
+    { quotaPercent: number; quotaWeeklyPercent?: number; details?: string; lastPolled: number }
+  >();
   private configPath: string;
   private emit: (event: OutboundEvent) => void;
   private taskQueue: TaskQueue;
@@ -795,7 +818,7 @@ export class SessionManager {
         timestamp: new Date().toISOString()
       });
 
-      this.pollQuota(sessionState.profileName).catch(() => {});
+      this.pollQuota(sessionState.profileName, sessionState.model).catch(() => {});
     } catch (err: any) {
       // If first attempt failed with --continue (no previous conversation), retry without --continue
       if (!hasReceivedAnyToken && !abortController.signal.aborted) {
@@ -908,7 +931,7 @@ export class SessionManager {
       timestamp: new Date().toISOString()
     });
 
-    this.pollQuota(sessionState.profileName).catch(() => {});
+    this.pollQuota(sessionState.profileName, sessionState.model).catch(() => {});
   }
 
   private processRawCliLine(sessionId: string, line: string, sessionState: ChatSessionState): void {
@@ -1226,7 +1249,7 @@ export class SessionManager {
     }
   }
 
-  public async pollQuota(profileName?: string): Promise<{ percent: number; details: string }> {
+  public async pollQuota(profileName?: string, modelHint?: string): Promise<{ percent: number; details: string }> {
     try {
       const agyCmd = this.resolveAgyCommand();
       const targetProfile = profileName || this.activeProfileName;
@@ -1245,28 +1268,36 @@ export class SessionManager {
       const output = await new Response(proc.stdout).text();
       await proc.exited;
 
-      const matches = Array.from(output.matchAll(/(\d{1,3})%/g));
-      if (matches.length > 0) {
-        const pcts = matches.map(m => parseInt(m[1], 10)).filter(n => !isNaN(n));
-        const minPct = Math.min(...pcts);
+      const snapshot = this.summariseQuota(this.parseQuotaWindows(output), modelHint);
+      if (snapshot) {
+        const details = output.trim();
+        const payload = {
+          // `quotaPercent` stays the 5-hour window so every existing consumer keeps a usable number.
+          quotaPercent: snapshot.base.percent,
+          quotaWeeklyPercent: snapshot.weekly?.percent,
+          quotaResetAt: snapshot.base.resetAt,
+          quotaWeeklyResetAt: snapshot.weekly?.resetAt,
+          quotaGroup: snapshot.base.group,
+          quotaWindows: snapshot.windows,
+          details
+        };
 
-        // Cache quota for profile
         this.profileQuotas.set(targetProfile.toLowerCase(), {
-          quotaPercent: minPct,
-          details: output.trim(),
+          quotaPercent: snapshot.base.percent,
+          quotaWeeklyPercent: snapshot.weekly?.percent,
+          details,
           lastPolled: Date.now()
         });
 
         // Update all active sessions belonging to this profile and emit session-scoped quota events
         for (const sess of this.activeSessions.values()) {
           if (sess.profileName.toLowerCase() === targetProfile.toLowerCase()) {
-            sess.quotaPercent = minPct;
+            sess.quotaPercent = snapshot.base.percent;
             this.emit({
               event: 'quota_update',
               profile: targetProfile,
               sessionId: sess.sessionId,
-              quotaPercent: minPct,
-              details: output.trim(),
+              ...payload,
               timestamp: new Date().toISOString()
             });
           }
@@ -1276,17 +1307,95 @@ export class SessionManager {
         this.emit({
           event: 'quota_update',
           profile: targetProfile,
-          quotaPercent: minPct,
-          details: output.trim(),
+          ...payload,
           timestamp: new Date().toISOString()
         });
-        return { percent: minPct, details: output.trim() };
+        return { percent: snapshot.base.percent, details };
       }
     } catch (err) {
       console.warn('[SessionManager] Quota poll failed:', err);
     }
     // -1 means "no reading": callers must not present this as a percentage.
     return { percent: -1, details: '' };
+  }
+
+  /**
+   * Parses `agy -p "/quota"` output. One row per model group and window, tab separated when piped:
+   *
+   * `Gemini Models\tFive Hour Limit Remaining\t98%\t2026-10-27T23:10:04Z`
+   *
+   * The old implementation took `Math.min` of every percentage in the text, which reported the
+   * weekly number and hid the 5-hour one entirely.
+   */
+  private parseQuotaWindows(output: string): QuotaWindowEntry[] {
+    const entries: QuotaWindowEntry[] = [];
+
+    for (const rawLine of output.split('\n')) {
+      const line = rawLine.trim();
+      if (!line || /^quota:?$/i.test(line)) continue;
+
+      let group = '';
+      let windowLabel = '';
+      let percentText = '';
+      let resetAt = '';
+
+      const cells = line.split('\t').map(cell => cell.trim());
+      if (cells.length >= 3) {
+        [group, windowLabel, percentText, resetAt] = cells;
+      } else {
+        // Fallback for output that lost its tabs (terminal rendering, wrapped lines).
+        const match = line.match(/^(.*?)\s{2,}((?:five hour|weekly)[^0-9]*?)\s*(\d{1,3})\s*%?\s*(.*)$/i);
+        if (!match) continue;
+        [, group, windowLabel, percentText, resetAt] = match;
+      }
+
+      const percent = parseInt(percentText.replace('%', '').trim(), 10);
+      if (isNaN(percent)) continue;
+
+      const label = windowLabel.toLowerCase();
+      const window: QuotaWindow = label.includes('five') || label.includes('5') ? 'five_hour' : 'weekly';
+
+      entries.push({
+        group: group || 'Models',
+        label: windowLabel || (window === 'five_hour' ? 'Five Hour Limit' : 'Weekly Limit'),
+        window,
+        percent,
+        resetAt: resetAt || undefined
+      });
+    }
+
+    return entries;
+  }
+
+  /**
+   * Picks the number to surface. The 5-hour window is the base reading because it throttles first;
+   * the weekly window rides along for the tooltip. When the caller knows the model, its group wins —
+   * otherwise the group closest to its limit does.
+   */
+  private summariseQuota(entries: QuotaWindowEntry[], modelHint?: string): QuotaSnapshot | null {
+    if (entries.length === 0) return null;
+
+    const isClaudeGroup = (group: string) => {
+      const name = group.toLowerCase();
+      return name.includes('claude') || name.includes('gpt');
+    };
+
+    const fiveHour = entries.filter(entry => entry.window === 'five_hour');
+    const weekly = entries.filter(entry => entry.window === 'weekly');
+    const pool = fiveHour.length > 0 ? fiveHour : weekly;
+
+    const hint = (modelHint || '').toLowerCase();
+    const wantsClaude = hint.includes('claude') || hint.includes('gpt');
+
+    const preferred = modelHint ? pool.find(entry => isClaudeGroup(entry.group) === wantsClaude) : undefined;
+    const base =
+      preferred ?? pool.reduce((lowest, entry) => (entry.percent < lowest.percent ? entry : lowest), pool[0]);
+
+    return {
+      base,
+      weekly: weekly.find(entry => entry.group === base.group),
+      windows: entries
+    };
   }
 
   public getSessionState(sessionId: string): ChatSessionState | undefined {
