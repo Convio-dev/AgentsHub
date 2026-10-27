@@ -276,6 +276,11 @@ export interface ToolStartEvent {
   taskId?: string;
   callId: string;
   tool: string;
+  /**
+   * Semantic kind of the call. The `tool` field is a display label ("Ran", "Explored"), so the UI
+   * groups and renders from this instead of pattern-matching on the label.
+   */
+  toolKind?: 'command' | 'read' | 'search' | 'write' | 'other';
   params: Record<string, any>;
   timestamp: string;
 }
@@ -287,6 +292,7 @@ export interface ToolOutputEvent {
   taskId?: string;
   callId: string;
   tool: string;
+  toolKind?: 'command' | 'read' | 'search' | 'write' | 'other';
   success: boolean;
   result?: any;
   error?: string;

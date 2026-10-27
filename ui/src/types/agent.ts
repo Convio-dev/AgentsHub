@@ -13,11 +13,24 @@ export type AgentExecutionState =
 
 export type TimelineNodeType = 'thought' | 'command' | 'file' | 'diff' | 'group' | 'custom';
 
+/**
+ * Semantic class of a tool invocation. The sidecar and the store both normalise to this so the
+ * stepper never has to pattern-match on human-readable tool labels ("Ran", "Explored"), which is
+ * what previously leaked raw JSON payloads into command rows.
+ */
+export type ToolKind = 'command' | 'read' | 'search' | 'write' | 'other';
+
+/** How a run of consecutive nodes is summarised in the collapsed stepper row. */
+export type GroupKind = 'commands' | 'explore' | 'edits' | 'thinking' | 'mixed';
+
 export interface BaseTimelineNode {
   id: string;
   type: TimelineNodeType;
   timestamp: number;
   status: 'running' | 'completed' | 'failed';
+  /** Raw tool name as reported by the engine, kept for the drawer header. */
+  toolName?: string;
+  toolKind?: ToolKind;
 }
 
 export interface ThoughtTimelineNode extends BaseTimelineNode {
@@ -30,16 +43,21 @@ export interface ThoughtTimelineNode extends BaseTimelineNode {
 
 export interface CommandTimelineNode extends BaseTimelineNode {
   type: 'command';
+  /** Clean, single-line human-readable command (never a stringified JSON payload). */
   command: string;
   exitCode?: number;
+  /** Merged stdout+stderr, kept for backwards compatibility with persisted sessions. */
   output?: string;
+  stdout?: string;
+  stderr?: string;
+  params?: Record<string, unknown>;
   durationMs?: number;
 }
 
 export interface FileTimelineNode extends BaseTimelineNode {
   type: 'file';
   path: string;
-  action: 'read' | 'explored' | 'list';
+  action: 'read' | 'explored' | 'list' | 'search';
   count?: number;
   contentPreview?: string;
 }
@@ -56,7 +74,10 @@ export interface ActionGroupTimelineNode extends BaseTimelineNode {
   type: 'group';
   title: string;
   summary: string;
+  groupKind?: GroupKind;
   durationSeconds?: number;
+  startedAt?: number;
+  endedAt?: number;
   children: TimelineNode[];
 }
 
@@ -95,12 +116,21 @@ export interface ChatMessage {
   error?: string;
   profile?: string;
   timestamp: number;
+  /** 1-based conversation turn this message belongs to. Used to gate title generation. */
+  turn?: number;
+  /** Set when this message was created by editing an earlier prompt (conversation fork). */
+  forkedFrom?: string;
 }
 
 export interface SessionRecord {
   id: string;
   title: string;
   isTitleCustom: boolean;
+  /**
+   * Latched once the first prompt has produced a title. While true no later turn may rewrite
+   * `title`; only an explicit user rename (isTitleCustom) can change it.
+   */
+  titleLocked?: boolean;
   isPinned: boolean;
   createdAt: number;
   updatedAt: number;
@@ -113,6 +143,21 @@ export interface SessionRecord {
   pid?: number;
   messages: ChatMessage[];
   activeExecutionCardId?: string;
+}
+
+export type SlashCommandSource = 'builtin' | 'skill' | 'mcp' | 'profile';
+
+export interface SlashCommand {
+  /** Command body without the leading slash, e.g. `add-dir`. */
+  name: string;
+  description: string;
+  source: SlashCommandSource;
+  /** Engine that reported the command, or `*` when it applies to every engine. */
+  engine?: string;
+  /** Argument hint shown after the name, e.g. `<path>`. */
+  hint?: string;
+  /** Inserts `name + ' '` instead of sending immediately when true. */
+  takesArgument?: boolean;
 }
 
 export interface RunnerProfile {

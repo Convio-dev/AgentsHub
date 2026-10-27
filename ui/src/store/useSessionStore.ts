@@ -17,9 +17,17 @@ import {
   ChatAttachment,
 } from '../types/agent';
 import { generateSessionTitle } from '../services/sessionTitleGenerator';
+import { classifyTool, extractCommand, extractPath, normaliseOutput } from '../lib/toolMeta';
+import { migrateTimelineNodes } from '../lib/timelineMigration';
 
 const STORAGE_KEY_SESSIONS = 'agentshub_sessions_v2';
 const STORAGE_KEY_ACTIVE = 'agentshub_active_session_v2';
+
+/** Result of a regenerate or edit: the prompt to re-send plus the id of the new reply placeholder. */
+interface PromptDispatch {
+  prompt: string;
+  assistantMsgId: string;
+}
 
 interface SessionStoreState {
   sessions: Record<string, SessionRecord>;
@@ -40,6 +48,19 @@ interface SessionStoreState {
     profile?: string,
     attachments?: ChatAttachment[]
   ) => { userMsgId: string; assistantMsgId: string };
+  /**
+   * Removes the assistant reply and its timeline, then opens a fresh empty reply for the same user
+   * prompt. Returns the prompt that has to be re-sent to the engine, or null when the pair cannot be
+   * resolved.
+   */
+  prepareRegenerate: (sessionId: string, assistantMessageId: string) => PromptDispatch | null;
+  /**
+   * Forks the conversation at a user message: that message and everything after it are dropped and
+   * replaced by the edited prompt. Returns the edited text plus the ids of the new pair.
+   */
+  editUserPrompt: (sessionId: string, userMessageId: string, newPrompt: string) => PromptDispatch | null;
+  /** Marks an in-flight turn as user-aborted and settles every running node. */
+  markStopped: (sessionId: string) => void;
   appendChatToken: (sessionId: string, text: string) => void;
   appendThinkingChunk: (
     sessionId: string,
@@ -96,7 +117,17 @@ function loadPersistedSessions(): { sessions: Record<string, SessionRecord>; act
               if (m.profile && m.profile.toLowerCase() === 'default') {
                 m.profile = 'ZXR@1';
               }
+              // Repair rows written by the old renderer, which stored stringified params bags as
+              // command text and never recorded a tool kind.
+              if (Array.isArray(m.timeline)) {
+                m.timeline = migrateTimelineNodes(m.timeline);
+              }
             }
+          }
+          // A session that already has messages has had its one title generation; latch it so the
+          // old retitle-on-every-turn behaviour cannot come back through a stale record.
+          if (typeof s.titleLocked !== 'boolean') {
+            s.titleLocked = Array.isArray(s.messages) && s.messages.length > 0;
           }
         }
         const activeId = rawActive && parsed[rawActive] ? rawActive : Object.keys(parsed)[0];
@@ -113,6 +144,7 @@ function loadPersistedSessions(): { sessions: Record<string, SessionRecord>; act
     id: defaultId,
     title: 'Workspace Session',
     isTitleCustom: false,
+    titleLocked: false,
     isPinned: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -139,6 +171,43 @@ function persistState(sessions: Record<string, SessionRecord>, activeId: string)
   }
 }
 
+/**
+ * Splits a tool result into stdout/stderr for the code drawer. Engines return either a plain string
+ * or a structured object, and a failure belongs in stderr rather than in the output stream.
+ */
+function shapeCommandResult(
+  result: unknown,
+  success: boolean,
+  error?: string
+): { stdout?: string; stderr?: string; exitCode?: number } {
+  if (result && typeof result === 'object') {
+    const record = result as Record<string, unknown>;
+    const stdout =
+      typeof record.stdout === 'string' ? record.stdout : typeof record.output === 'string' ? record.output : '';
+    const stderr =
+      typeof record.stderr === 'string' ? record.stderr : typeof record.error === 'string' ? record.error : '';
+    const exitCode = typeof record.exitCode === 'number' ? record.exitCode : undefined;
+
+    if (stdout || stderr || exitCode !== undefined) {
+      return {
+        stdout: normaliseOutput(stdout) || undefined,
+        stderr: normaliseOutput(stderr) || undefined,
+        exitCode,
+      };
+    }
+  }
+
+  const text =
+    result === undefined || result === null
+      ? ''
+      : typeof result === 'string'
+        ? result
+        : JSON.stringify(result, null, 2);
+
+  if (success) return { stdout: normaliseOutput(text) || undefined };
+  return { stderr: normaliseOutput(text || error || 'Command failed') || undefined };
+}
+
 const initialData = loadPersistedSessions();
 
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
@@ -157,6 +226,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       id,
       title: 'New Session',
       isTitleCustom: false,
+      titleLocked: false,
       isPinned: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -197,6 +267,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         ...target,
         title: title.trim() || 'Untitled Session',
         isTitleCustom: true,
+        titleLocked: true,
         updatedAt: Date.now(),
       };
 
@@ -233,6 +304,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
           ...state.sessions[singleId],
           title: 'Workspace Session',
           isTitleCustom: false,
+          titleLocked: false,
           messages: [],
           status: 'idle',
           tokens: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 },
@@ -289,6 +361,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         ? profile
         : (target.profile && target.profile.toLowerCase() !== 'default' ? target.profile : 'ZXR@1');
 
+      const turn = target.messages.filter(m => m.sender === 'user').length + 1;
+
       const userMsg: ChatMessage = {
         id: userMsgId,
         sessionId,
@@ -298,6 +372,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         timeline: [],
         status: 'completed',
         timestamp: Date.now(),
+        turn,
       };
 
       const assistantMsg: ChatMessage = {
@@ -309,20 +384,21 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         status: 'thinking',
         profile: resolvedProfile,
         timestamp: Date.now(),
+        turn,
       };
 
-      // Auto-generate title if this is the first message or untitled
-      let newTitle = target.title;
-      let isCustom = target.isTitleCustom;
-      if (!isCustom || target.title === 'New Session' || target.title === 'Workspace Session') {
-        newTitle = generateSessionTitle(prompt);
-        isCustom = false; // still auto-generated
-      }
+      // The title is derived from the first prompt only, then latched. The previous condition
+      // (`!isCustom || title === 'New Session'`) was true on every turn, which is why each prompt
+      // overwrote the session title.
+      const isFirstTurn = target.messages.length === 0;
+      const shouldGenerateTitle = isFirstTurn && !target.isTitleCustom && !target.titleLocked;
+      const newTitle = shouldGenerateTitle ? generateSessionTitle(prompt) : target.title;
 
       const updated: SessionRecord = {
         ...target,
         title: newTitle,
-        isTitleCustom: isCustom,
+        isTitleCustom: target.isTitleCustom,
+        titleLocked: target.titleLocked || isFirstTurn || target.isTitleCustom,
         profile: resolvedProfile,
         status: 'thinking',
         activeExecutionCardId: assistantMsgId,
@@ -338,6 +414,146 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     return { userMsgId, assistantMsgId };
   },
 
+  prepareRegenerate: (sessionId, assistantMessageId) => {
+    const target = get().sessions[sessionId];
+    if (!target) return null;
+
+    const index = target.messages.findIndex(m => m.id === assistantMessageId);
+    if (index < 0 || target.messages[index].sender !== 'assistant') return null;
+
+    let userIndex = -1;
+    for (let i = index - 1; i >= 0; i -= 1) {
+      if (target.messages[i].sender === 'user') {
+        userIndex = i;
+        break;
+      }
+    }
+    if (userIndex < 0) return null;
+
+    const sourcePrompt = target.messages[userIndex].prompt || '';
+    const assistantMsgId = `msg_asst_${Date.now()}`;
+    const placeholder: ChatMessage = {
+      id: assistantMsgId,
+      sessionId,
+      sender: 'assistant',
+      markdown: '',
+      timeline: [],
+      status: 'thinking',
+      profile: target.profile,
+      timestamp: Date.now(),
+      turn: target.messages[index].turn,
+    };
+
+    // Keep the user message, replace only the reply that is being regenerated.
+    const messages = [...target.messages.slice(0, index), placeholder];
+    const updated: SessionRecord = {
+      ...target,
+      messages,
+      status: 'thinking',
+      activeExecutionCardId: assistantMsgId,
+      updatedAt: Date.now(),
+    };
+
+    set(state => {
+      const nextSessions = { ...state.sessions, [sessionId]: updated };
+      persistState(nextSessions, state.activeSessionId);
+      return { sessions: nextSessions };
+    });
+
+    return { prompt: sourcePrompt, assistantMsgId };
+  },
+
+  editUserPrompt: (sessionId, userMessageId, newPrompt) => {
+    const target = get().sessions[sessionId];
+    if (!target) return null;
+
+    const index = target.messages.findIndex(m => m.id === userMessageId);
+    if (index < 0 || target.messages[index].sender !== 'user') return null;
+
+    const original = target.messages[index];
+    const text = newPrompt.trim();
+    if (!text) return null;
+
+    const turn = original.turn ?? target.messages.slice(0, index + 1).filter(m => m.sender === 'user').length;
+    const userMsgId = `msg_user_${Date.now()}`;
+    const assistantMsgId = `msg_asst_${Date.now() + 1}`;
+
+    const userMsg: ChatMessage = {
+      ...original,
+      id: userMsgId,
+      prompt: text,
+      timestamp: Date.now(),
+      status: 'completed',
+      turn,
+      forkedFrom: original.id,
+    };
+
+    const assistantMsg: ChatMessage = {
+      id: assistantMsgId,
+      sessionId,
+      sender: 'assistant',
+      markdown: '',
+      timeline: [],
+      status: 'thinking',
+      profile: target.profile,
+      timestamp: Date.now(),
+      turn,
+    };
+
+    // Fork: everything from the edited prompt onward is dropped, the rest of the thread survives.
+    const messages = [...target.messages.slice(0, index), userMsg, assistantMsg];
+    const updated: SessionRecord = {
+      ...target,
+      messages,
+      status: 'thinking',
+      activeExecutionCardId: assistantMsgId,
+      updatedAt: Date.now(),
+    };
+
+    set(state => {
+      const nextSessions = { ...state.sessions, [sessionId]: updated };
+      persistState(nextSessions, state.activeSessionId);
+      return { sessions: nextSessions };
+    });
+
+    return { prompt: text, assistantMsgId };
+  },
+
+  markStopped: sessionId => {
+    set(state => {
+      const target = state.sessions[sessionId];
+      if (!target) return state;
+
+      const messages = [...target.messages];
+      const lastIndex = messages.length - 1;
+      const lastMsg = messages[lastIndex];
+
+      if (lastMsg && lastMsg.sender === 'assistant') {
+        messages[lastIndex] = {
+          ...lastMsg,
+          status: 'aborted',
+          timeline: lastMsg.timeline.map(node => {
+            if (node.status !== 'running') return node;
+            // A command that was killed did not finish; reasoning that was cut short still ran.
+            return { ...node, status: node.type === 'command' ? 'failed' : 'completed' };
+          }),
+        };
+      }
+
+      const updated: SessionRecord = {
+        ...target,
+        status: 'aborted',
+        activeExecutionCardId: undefined,
+        messages,
+        updatedAt: Date.now(),
+      };
+
+      const nextSessions = { ...state.sessions, [sessionId]: updated };
+      persistState(nextSessions, state.activeSessionId);
+      return { sessions: nextSessions };
+    });
+  },
+
   appendChatToken: (sessionId: string, text: string) => {
     set(state => {
       const target = state.sessions[sessionId];
@@ -351,7 +567,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         messages[lastIndex] = {
           ...lastMsg,
           markdown: (lastMsg.markdown || '') + text,
-          status: 'running',
+          status: lastMsg.status === 'aborted' ? 'aborted' : 'running',
         };
 
         const updated: SessionRecord = {
@@ -438,47 +654,59 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       if (!lastMsg || lastMsg.sender !== 'assistant') return state;
 
       const timeline = [...lastMsg.timeline];
-      const lowerTool = tool.toLowerCase();
+      const toolKind = classifyTool(tool, params);
 
       let node: TimelineNode;
 
-      if (lowerTool.includes('cmd') || lowerTool.includes('shell') || lowerTool.includes('run_command')) {
+      if (toolKind === 'command') {
         const cmd: CommandTimelineNode = {
           id: callId,
           type: 'command',
-          command: params.command || params.CommandLine || tool,
+          // The engine's label ("Ran") is display text, not a command. Only the params carry the
+          // command, and a payload that has none must never be printed as JSON.
+          command: extractCommand(params) || tool,
+          params,
+          toolName: tool,
+          toolKind,
           status: 'running',
           timestamp: Date.now(),
         };
         node = cmd;
-      } else if (lowerTool.includes('read') || lowerTool.includes('view') || lowerTool.includes('grep') || lowerTool.includes('list')) {
+      } else if (toolKind === 'read' || toolKind === 'search') {
         const fileNode: FileTimelineNode = {
           id: callId,
           type: 'file',
-          path: params.TargetFile || params.AbsolutePath || params.DirectoryPath || params.SearchPath || params.path || tool,
-          action: lowerTool.includes('list') ? 'list' : 'read',
+          path: extractPath(params) || tool,
+          action: toolKind === 'search' ? 'search' : 'read',
           count: 1,
+          toolName: tool,
+          toolKind,
           status: 'running',
           timestamp: Date.now(),
         };
         node = fileNode;
-      } else if (lowerTool.includes('write') || lowerTool.includes('patch') || lowerTool.includes('edit') || lowerTool.includes('replace')) {
+      } else if (toolKind === 'write') {
         const diffNode: DiffTimelineNode = {
           id: callId,
           type: 'diff',
-          file: params.TargetFile || params.path || 'Code Edit',
+          file: extractPath(params) || 'Code edit',
           additions: 0,
           deletions: 0,
+          toolName: tool,
+          toolKind,
           status: 'running',
           timestamp: Date.now(),
         };
         node = diffNode;
       } else {
-        // General command or tool node
+        // Unrecognised tool: fall back to its name and target, never to a stringified params bag.
         const genNode: CommandTimelineNode = {
           id: callId,
           type: 'command',
-          command: `${tool} ${typeof params === 'object' ? JSON.stringify(params) : params}`,
+          command: extractPath(params) || tool,
+          params,
+          toolName: tool,
+          toolKind: 'other',
           status: 'running',
           timestamp: Date.now(),
         };
@@ -520,27 +748,29 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         if (node.id === callId) {
           const status: 'completed' | 'failed' = success ? 'completed' : 'failed';
           if (node.type === 'command') {
-            const outText = result !== undefined ? (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)) : error;
+            const shaped = shapeCommandResult(result, success, error);
             return {
               ...node,
               status,
-              output: outText,
+              ...shaped,
               durationMs,
             } as CommandTimelineNode;
           }
           if (node.type === 'file') {
+            const preview = typeof result === 'string' ? result : result?.output ?? result?.content ?? '';
             return {
               ...node,
               status,
-              contentPreview: typeof result === 'string' ? result.slice(0, 300) : undefined,
+              contentPreview: typeof preview === 'string' ? preview.slice(0, 4000) : undefined,
             } as FileTimelineNode;
           }
           if (node.type === 'diff') {
             return {
               ...node,
               status,
-              additions: typeof result === 'object' && result?.additions ? result.additions : 12,
-              deletions: typeof result === 'object' && result?.deletions ? result.deletions : 4,
+              additions: typeof result === 'object' && result?.additions ? result.additions : node.additions,
+              deletions: typeof result === 'object' && result?.deletions ? result.deletions : node.deletions,
+              patch: typeof result === 'string' ? result : result?.patch,
             } as DiffTimelineNode;
           }
           return { ...node, status } as TimelineNode;
@@ -571,9 +801,17 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       if (!target) return state;
 
       const messages = [...target.messages];
+      const lastMsg = messages[messages.length - 1];
+
+      // The sidecar answers an abort with `idle`, which can land after the local `aborted` state.
+      // Keeping `aborted` is what makes the Stopped badge survive that race.
+      const resolvedStatus: AgentExecutionState =
+        status === 'idle' && lastMsg?.sender === 'assistant' && lastMsg.status === 'aborted'
+          ? 'aborted'
+          : status;
+
       if (messages.length > 0) {
         const lastIndex = messages.length - 1;
-        const lastMsg = messages[lastIndex];
         if (lastMsg && lastMsg.sender === 'assistant') {
           // Finalize any streaming or running timeline nodes
           const finalizedTimeline = lastMsg.timeline.map(node => {
@@ -589,16 +827,20 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
           messages[lastIndex] = {
             ...lastMsg,
             timeline: finalizedTimeline,
-            status,
+            status: resolvedStatus,
             error: error || lastMsg.error,
           };
         }
       }
 
+      const isTerminal =
+        resolvedStatus === 'idle' || resolvedStatus === 'completed' || resolvedStatus === 'error' || resolvedStatus === 'aborted';
+
       const updated: SessionRecord = {
         ...target,
-        status,
+        status: resolvedStatus,
         pid: pid || target.pid,
+        activeExecutionCardId: isTerminal ? undefined : target.activeExecutionCardId,
         messages,
         updatedAt: Date.now(),
       };

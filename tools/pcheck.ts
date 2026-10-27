@@ -33,9 +33,11 @@ console.log('\x1b[36m========================================================\x1
 // 1. Script Pairings: Ensure .cmd scripts have .sh counterparts
 // -------------------------------------------------------------
 const scriptPairs = [
+  { cmd: 'run.cmd', sh: 'run.sh', desc: 'Build & Run Pipeline' },
   { cmd: 'build-sidecar.cmd', sh: 'build-sidecar.sh', desc: 'Sidecar Engine Compiler' },
   { cmd: 'build-installer.cmd', sh: 'build-installer.sh', desc: 'Release Packager' },
   { cmd: 'publish-release.cmd', sh: 'publish-release.sh', desc: 'GitHub Release Publisher' },
+  { cmd: 'pcheck.cmd', sh: 'pcheck.sh', desc: 'Cross-Platform Compatibility Checker' },
 ];
 
 for (const pair of scriptPairs) {

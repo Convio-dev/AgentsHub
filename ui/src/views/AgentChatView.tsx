@@ -13,9 +13,10 @@ import { useSessionStore } from '../store/useSessionStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { useSidecarStore } from '../store/useSidecarStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
-import { webviewBridge } from '../services/webviewBridge';
+import { sendPrompt, stopGeneration } from '../services/chatController';
 import { ChatMessageList } from '../components/chat/ChatMessageList';
 import { ChatInput } from '../components/chat/ChatInput';
+import { StopGeneratingButton } from '../components/chat/MessageActions';
 import { ChatAttachment } from '../types/agent';
 
 interface AgentChatViewProps {
@@ -27,8 +28,6 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
     sessions,
     activeSessionId,
     getActiveSession,
-    addUserPrompt,
-    updateSessionStatus,
     createSession,
     switchSession,
     deleteSession,
@@ -60,30 +59,12 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
 
   const handleSendMessage = async (prompt: string, attachments?: ChatAttachment[]) => {
     if (!activeSession || isExecuting) return;
+    await sendPrompt(activeSession.id, prompt, attachments);
+  };
 
-    const sessionId = activeSession.id;
-    const profile = (activeProfile?.name && activeProfile.name.toLowerCase() !== 'default')
-      ? activeProfile.name
-      : (activeProfileName.toLowerCase() !== 'default' ? activeProfileName : 'ZXR@1');
-    const model = activeSession.model || defaultModel || 'Gemini 3.8 Flash (High)';
-    const workingDirectory = activeWorkspace?.workingDirectory || undefined;
-
-    // 1. Immediately create user message & pending assistant message in store with active profile
-    addUserPrompt(sessionId, prompt, profile, attachments);
-
-    // 2. Invoke backend bridge
-    try {
-      await webviewBridge.invoke('send_chat', {
-        sessionId,
-        prompt,
-        model,
-        profile,
-        workingDirectory,
-      });
-    } catch (err: any) {
-      console.error('[AgentChatView] Failed to dispatch send_chat:', err);
-      updateSessionStatus(sessionId, 'error', err?.message || 'Failed to dispatch chat prompt');
-    }
+  const handleStopGenerating = () => {
+    if (!activeSession) return;
+    void stopGeneration(activeSession.id);
   };
 
   const handleNewTab = () => {
@@ -224,6 +205,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
 
         {/* Right Controls: Engine Quota Pill, Review Diff, Terminals */}
         <div className="flex items-center space-x-2">
+          {isExecuting ? <StopGeneratingButton onStop={handleStopGenerating} label="Stop generating" /> : null}
           {/* Quota Monitor Pill */}
           <div className="flex items-center space-x-2 text-xs bg-surface-card border border-surface-border px-2.5 py-1 rounded-lg text-content-muted shadow-sm font-sans">
             <span className="text-content-muted">Engine:</span>
@@ -323,6 +305,8 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
           <ChatMessageList
             messages={activeSession.messages}
             activeExecutionCardId={activeSession.activeExecutionCardId}
+            isGenerating={isExecuting}
+            onStop={handleStopGenerating}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-content-dim font-mono text-xs">
@@ -338,6 +322,8 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
           totalTokens={activeSession?.tokens?.totalTokens || 0}
           onOpenGitModal={onOpenGitModal}
           onOpenTerminal={() => setActiveView('terminals')}
+          activeCli={activeWorkspace?.primaryCli}
+          workingDirectory={activeWorkspace?.workingDirectory}
         />
       </div>
     </div>

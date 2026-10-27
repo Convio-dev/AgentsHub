@@ -42,12 +42,27 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
     createSession,
     switchSession,
     deleteSession,
+    renameSession,
   } = useSessionStore();
 
   const { activeProfileName, profiles, switchActiveProfile } = useProfileStore();
   const { setActiveView } = useSidecarStore();
 
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+
+  const beginRename = (sessionId: string, currentTitle: string) => {
+    setRenamingId(sessionId);
+    setRenameDraft(currentTitle);
+  };
+
+  const commitRename = (sessionId: string) => {
+    const title = renameDraft.trim();
+    if (title) renameSession(sessionId, title);
+    setRenamingId(null);
+    setRenameDraft('');
+  };
 
   const toggleGroup = (groupKey: string) => {
     setCollapsedGroups(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
@@ -132,6 +147,33 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
           <div className="space-y-1">
             {items.map(s => {
               const isActive = s.sessionId === activeSessionId;
+              const isRenaming = renamingId === s.sessionId;
+
+              if (isRenaming) {
+                return (
+                  <div key={s.sessionId} className="flex items-center gap-1.5 rounded-lg bg-surface-card px-2.5 py-1.5">
+                    <Zap className="h-3.5 w-3.5 flex-shrink-0 fill-sky-400 text-sky-400" />
+                    <input
+                      autoFocus
+                      value={renameDraft}
+                      onChange={event => setRenameDraft(event.target.value)}
+                      onBlur={() => commitRename(s.sessionId)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          commitRename(s.sessionId);
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          setRenamingId(null);
+                        }
+                      }}
+                      className="w-full min-w-0 bg-transparent text-xs text-content-main focus:outline-none"
+                    />
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={s.sessionId}
@@ -139,11 +181,16 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                     switchSession(s.sessionId);
                     setActiveView('chat');
                   }}
+                  onDoubleClick={() => {
+                    // Backend-only sessions live outside the store, so only local ones can be renamed.
+                    if (s.isLocal) beginRename(s.sessionId, s.goal || '');
+                  }}
                   className={`group w-full px-2.5 py-2 rounded-lg text-xs flex items-center space-x-2 transition cursor-pointer select-none ${
                     isActive
                       ? 'bg-surface-card border border-surface-border text-content-main shadow-sm'
                       : 'hover:bg-surface-card text-content-muted hover:text-content-main'
                   }`}
+                  title={s.isLocal ? `${s.goal || s.sessionId} — double-click to rename` : s.goal || s.sessionId}
                 >
                   <Zap className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-sky-400 fill-sky-400' : 'text-sky-500'}`} />
                   <span className="truncate flex-1 font-medium text-xs text-left" title={s.goal || s.sessionId}>

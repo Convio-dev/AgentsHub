@@ -1,51 +1,120 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertCircle, MessageSquare, User } from 'lucide-react';
 import { ChatMessage } from '../../types/agent';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { AgentTimeline } from './timeline/AgentTimeline';
-import { Bot, User, AlertCircle, Copy, Check } from 'lucide-react';
+import { AssistantMessageActions, StopGeneratingButton, UserMessageActions } from './MessageActions';
+import { editAndResend, regenerateResponse, stopGeneration } from '../../services/chatController';
 import appMascot from '../../assets/app.png';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
   activeExecutionCardId?: string;
+  /** True while the active session has a turn in flight. */
+  isGenerating?: boolean;
+  onStop?: () => void;
 }
 
-export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, activeExecutionCardId }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [copiedId, setCopiedId] = React.useState<string | null>(null);
+const ACTIVE_STATES = new Set(['running', 'thinking', 'tool_executing']);
 
+function statusLabel(message: ChatMessage): string {
+  if (message.status === 'thinking') return 'Thinking';
+  if (message.status === 'tool_executing') return 'Running tool';
+  return message.markdown ? 'Streaming' : 'Working';
+}
+
+export const ChatMessageList: React.FC<ChatMessageListProps> = ({
+  messages,
+  isGenerating = false,
+  onStop,
+}) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottom = useRef(true);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const editRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleScroll = () => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+    pinnedToBottom.current = distance < 80;
+  };
+
+  // Follow the stream only while the reader is at the bottom; scrolling up to read a step should not
+  // be yanked away by the next token.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const node = scrollRef.current;
+    if (!node || !pinnedToBottom.current) return;
+    node.scrollTop = node.scrollHeight;
   }, [messages]);
 
-  const copyContent = (id: string, text?: string) => {
-    if (text) {
-      navigator.clipboard.writeText(text);
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
+  useEffect(() => {
+    if (editingId && editRef.current) {
+      editRef.current.focus();
+      editRef.current.setSelectionRange(draft.length, draft.length);
+      editRef.current.style.height = 'auto';
+      editRef.current.style.height = `${Math.min(editRef.current.scrollHeight, 220)}px`;
+    }
+  }, [editingId, draft.length]);
+
+  const beginEdit = (message: ChatMessage) => {
+    setEditingId(message.id);
+    setDraft(message.prompt || '');
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setDraft('');
+  };
+
+  const submitEdit = async (message: ChatMessage) => {
+    const text = draft.trim();
+    if (!text || isSaving) return;
+
+    setIsSaving(true);
+    try {
+      await editAndResend(message.sessionId, message.id, text);
+      setEditingId(null);
+      setDraft('');
+      pinnedToBottom.current = true;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleEditKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>, message: ChatMessage) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void submitEdit(message);
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      cancelEdit();
     }
   };
 
   if (!messages || messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none">
-        <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center p-2 mb-4 shadow-xl">
-          <img src={appMascot} alt="Agents Hub Mascot" className="w-full h-full object-contain" />
+      <div className="flex flex-1 flex-col items-center justify-center p-8 text-center select-none">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-surface-border bg-surface-card p-2">
+          <img src={appMascot} alt="" className="h-full w-full object-contain" />
         </div>
-        <h3 className="text-base font-semibold text-slate-100 mb-1">Agents Hub Workspace</h3>
-        <p className="text-xs text-slate-400 max-w-sm mb-6 leading-relaxed">
-          Send a prompt below to launch tasks, execute CLI operations, edit code, and inspect files with real-time streaming timelines.
+        <h3 className="mb-1 text-base font-semibold text-content-main">Agents Hub Workspace</h3>
+        <p className="mb-6 max-w-sm text-xs leading-relaxed text-content-muted">
+          Send a prompt to run the agent in this workspace. Steps stream into a timeline above the
+          reply, and every command can be expanded to its full output.
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md w-full text-left font-mono text-[11.5px]">
-          <div className="p-2.5 rounded-lg border border-slate-800/80 bg-slate-900/40 text-slate-300 hover:border-slate-700 transition">
-            <span className="text-sky-400 font-semibold block mb-0.5">Explore codebase</span>
-            <span className="text-slate-500 text-[10.5px]">Analyze dependencies and project structure</span>
+        <div className="grid w-full max-w-md grid-cols-1 gap-2 text-left font-mono text-[11px] sm:grid-cols-2">
+          <div className="rounded-lg border border-surface-border/70 bg-surface-card/40 p-2.5 text-content-muted">
+            <span className="mb-0.5 block font-semibold text-sky-400">/help</span>
+            <span className="text-[10.5px] text-content-dim">List the active engine's commands</span>
           </div>
-          <div className="p-2.5 rounded-lg border border-slate-800/80 bg-slate-900/40 text-slate-300 hover:border-slate-700 transition">
-            <span className="text-sky-400 font-semibold block mb-0.5">Run CLI build</span>
-            <span className="text-slate-500 text-[10.5px]">Compile solution and test distribution</span>
+          <div className="rounded-lg border border-surface-border/70 bg-surface-card/40 p-2.5 text-content-muted">
+            <span className="mb-0.5 block font-semibold text-sky-400">/exec</span>
+            <span className="text-[10.5px] text-content-dim">Run a shell command as a tool step</span>
           </div>
         </div>
       </div>
@@ -53,155 +122,178 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, acti
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
-      {messages.map(msg => {
-        const isUser = msg.sender === 'user';
-        const isRunning = msg.status === 'running' || msg.status === 'thinking' || msg.status === 'tool_executing';
+    <div ref={scrollRef} onScroll={handleScroll} className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+      {messages.map(message => {
+        const isUser = message.sender === 'user';
+        const isActive = ACTIVE_STATES.has(message.status);
+        const isEditing = editingId === message.id;
 
         if (isUser) {
           return (
-            <div key={msg.id} className="flex justify-end">
-              <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-slate-800 border border-slate-700/60 p-3.5 text-slate-100 shadow-sm text-sm space-y-2.5">
-                <div className="flex items-center space-x-2 text-[11px] font-mono text-slate-400 select-none">
-                  <User className="w-3.5 h-3.5 text-sky-400" />
-                  <span className="font-semibold text-slate-300">You</span>
+            <div key={message.id} className="group flex justify-end">
+              <div className="max-w-[85%] space-y-2.5 rounded-2xl rounded-tr-sm border border-surface-border/60 bg-surface-card p-3.5 text-sm text-content-main">
+                <div className="flex items-center gap-2 font-mono text-[11px] text-content-dim">
+                  <User className="h-3.5 w-3.5 text-sky-400" />
+                  <span className="font-semibold text-content-muted">You</span>
+                  {message.forkedFrom ? (
+                    <span className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[9.5px] text-content-dim">
+                      edited
+                    </span>
+                  ) : null}
+                  <span className="ml-auto opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    {!isEditing && !isGenerating ? (
+                      <UserMessageActions onEdit={() => beginEdit(message)} />
+                    ) : null}
+                  </span>
                 </div>
 
-                {/* Attached files chips */}
-                {msg.attachments && msg.attachments.length > 0 && (
+                {message.attachments && message.attachments.length > 0 ? (
                   <div className="flex flex-wrap gap-2 pt-0.5">
-                    {msg.attachments.map(att => (
+                    {message.attachments.map(att => (
                       <div
                         key={att.id}
-                        className="flex items-center gap-2 p-1.5 pr-2.5 rounded-lg bg-slate-900/80 border border-slate-700/80 text-xs"
+                        className="flex items-center gap-2 rounded-lg border border-surface-border/70 bg-surface-deep/80 p-1.5 pr-2.5 text-xs"
                       >
                         {att.isImage && att.dataUrl ? (
-                          <a
-                            href={att.dataUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block flex-shrink-0"
-                            title="Click to view full image"
-                          >
+                          <a href={att.dataUrl} target="_blank" rel="noreferrer" className="block flex-shrink-0">
                             <img
                               src={att.dataUrl}
                               alt={att.name}
-                              className="w-8 h-8 rounded object-cover border border-slate-600/50 hover:opacity-90 transition"
+                              className="h-8 w-8 rounded border border-surface-border object-cover"
                             />
                           </a>
                         ) : (
-                          <div className="w-8 h-8 rounded bg-sky-500/15 border border-sky-500/30 flex items-center justify-center flex-shrink-0 text-sky-400">
-                            <span className="text-[10px] font-mono font-bold uppercase">
-                              {att.name.split('.').pop()?.slice(0, 3) || 'FILE'}
-                            </span>
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-sky-500/25 bg-sky-500/10 font-mono text-[10px] font-bold uppercase text-sky-400">
+                            {att.name.split('.').pop()?.slice(0, 3) || 'file'}
                           </div>
                         )}
-                        <div className="min-w-0 max-w-[160px]">
-                          <div className="text-[11.5px] font-medium text-slate-200 truncate" title={att.name}>
+                        <div className="max-w-[160px] min-w-0">
+                          <div className="truncate text-[11.5px] font-medium text-content-main" title={att.name}>
                             {att.name}
                           </div>
-                          <div className="text-[9.5px] font-mono text-slate-400">
+                          <div className="font-mono text-[9.5px] text-content-dim">
                             {att.size < 1024 ? `${att.size} B` : `${(att.size / 1024).toFixed(1)} KB`}
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
-                )}
+                ) : null}
 
-                <div className="whitespace-pre-wrap leading-relaxed select-text font-sans text-[13.5px]">
-                  {msg.prompt}
-                </div>
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <textarea
+                      ref={editRef}
+                      value={draft}
+                      onChange={event => setDraft(event.target.value)}
+                      onKeyDown={event => handleEditKeyDown(event, message)}
+                      rows={2}
+                      className="w-full resize-none rounded-lg border border-sky-500/40 bg-surface-deep px-2.5 py-2 font-sans text-[13px] leading-relaxed text-content-main focus:border-sky-500 focus:outline-none"
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[10px] text-content-dim">
+                        Sends as a new branch from here
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          className="rounded-md px-2 py-1 text-[11px] text-content-muted transition-colors hover:bg-white/[0.06] hover:text-content-main"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void submitEdit(message)}
+                          disabled={!draft.trim() || isSaving}
+                          className="rounded-md bg-sky-600 px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-sky-600/40"
+                        >
+                          {isSaving ? 'Sending…' : 'Send'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="select-text whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">
+                    {message.prompt}
+                  </div>
+                )}
               </div>
             </div>
           );
         }
 
-        // Assistant card
         return (
-          <div key={msg.id} className="flex justify-start">
-            <div className="w-full max-w-full rounded-2xl rounded-tl-sm bg-slate-900/70 border border-slate-800 p-4 text-slate-200 shadow-md">
-              {/* Header */}
-              <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-slate-800/80 select-none text-xs">
-                <div className="flex items-center space-x-2">
-                  <div className="w-5 h-5 rounded-md overflow-hidden bg-slate-800 border border-slate-700 flex items-center justify-center p-0.5">
-                    <img src={appMascot} alt="Mascot" className="w-full h-full object-contain" />
+          <div key={message.id} className="group flex justify-start">
+            <div className="w-full rounded-2xl rounded-tl-sm border border-surface-border bg-surface-card/70 p-4 text-content-main">
+              <div className="mb-2 flex items-center justify-between border-b border-surface-border/70 pb-2.5 text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-md border border-surface-border bg-surface-deep p-0.5">
+                    <img src={appMascot} alt="" className="h-full w-full object-contain" />
                   </div>
-                  <span className="font-semibold text-slate-100">Agent</span>
-                  {msg.profile && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-sky-400 border border-slate-700/60">
-                      {msg.profile}
+                  <span className="font-semibold text-content-main">Agent</span>
+                  {message.profile ? (
+                    <span className="rounded border border-surface-border/60 bg-surface-deep px-1.5 py-0.5 font-mono text-[10px] text-sky-400">
+                      {message.profile}
                     </span>
-                  )}
+                  ) : null}
+                  {message.turn && message.turn > 1 ? (
+                    <span className="font-mono text-[10px] text-content-dim">turn {message.turn}</span>
+                  ) : null}
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  {/* Status Badge */}
-                  {isRunning ? (
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/25">
-                      <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping" />
-                      <span>
-                        {msg.status === 'thinking'
-                          ? 'Thinking...'
-                          : msg.status === 'tool_executing'
-                          ? 'Executing Tool'
-                          : msg.markdown && msg.markdown.length > 0
-                          ? 'Streaming'
-                          : 'Processing...'}
-                      </span>
+                <div className="flex items-center gap-2">
+                  {isActive ? (
+                    <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-sky-400">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
+                      <span>{statusLabel(message)}</span>
                     </span>
-                  ) : msg.status === 'error' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/25">
-                      <AlertCircle className="w-3 h-3" />
+                  ) : message.status === 'error' ? (
+                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-rose-400">
+                      <AlertCircle className="h-3 w-3" />
                       <span>Failed</span>
                     </span>
-                  ) : (
-                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
-                      Completed
+                  ) : message.status === 'aborted' ? (
+                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-amber-400/90">
+                      <MessageSquare className="h-3 w-3" />
+                      <span>Stopped</span>
                     </span>
-                  )}
+                  ) : null}
 
-                  {msg.markdown && (
-                    <button
-                      onClick={() => copyContent(msg.id, msg.markdown)}
-                      className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
-                      title="Copy response"
-                    >
-                      {copiedId === msg.id ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  )}
+                  {isActive && isGenerating && onStop ? <StopGeneratingButton onStop={onStop} /> : null}
+
+                  {!isActive ? (
+                    <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <AssistantMessageActions
+                        markdown={message.markdown || ''}
+                        canRegenerate={!isGenerating}
+                        onRegenerate={() => void regenerateResponse(message.sessionId, message.id)}
+                      />
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
-              {/* Connected Execution Stepper Timeline */}
-              {msg.timeline && msg.timeline.length > 0 && (
-                <div className="mb-3">
-                  <AgentTimeline nodes={msg.timeline} isLive={isRunning} />
-                </div>
-              )}
+              {message.timeline && message.timeline.length > 0 ? (
+                <AgentTimeline nodes={message.timeline} isLive={isActive} />
+              ) : null}
 
-              {/* Streaming Markdown prose with clear visual styling */}
-              {msg.markdown ? (
-                <div className={`select-text ${msg.timeline && msg.timeline.length > 0 ? 'mt-3 pt-3 border-t border-slate-800/70' : 'mt-1'}`}>
-                  <MarkdownRenderer content={msg.markdown} />
+              {message.markdown ? (
+                <div className={message.timeline?.length ? 'mt-3 border-t border-surface-border/70 pt-3' : 'mt-1'}>
+                  <MarkdownRenderer content={message.markdown} />
                 </div>
-              ) : isRunning && (!msg.timeline || msg.timeline.length === 0) ? (
-                <div className="flex items-center space-x-2 text-xs text-slate-400 italic py-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-                  <span>Preparing agent execution pipeline...</span>
+              ) : isActive ? (
+                <div className="flex items-center gap-2 py-2 font-mono text-[11px] text-content-dim">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
+                  <span>Waiting for the first token…</span>
                 </div>
               ) : null}
 
-              {/* Error display if present */}
-              {msg.error && (
-                <div className="mt-3 p-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs font-mono">
-                  {msg.error}
+              {message.error ? (
+                <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2.5 font-mono text-[11px] text-rose-300">
+                  {message.error}
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
         );

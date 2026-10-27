@@ -1,6 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ArrowUp, Paperclip, Terminal, GitBranch, Loader2, X, FileText, Image as ImageIcon } from 'lucide-react';
-import { ChatAttachment } from '../../types/agent';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { ArrowUp, Paperclip, Terminal, GitBranch, Loader2, X, FileText } from 'lucide-react';
+import { ChatAttachment, SlashCommand } from '../../types/agent';
+import { useSlashCommandStore } from '../../store/useSlashCommandStore';
+import { rankByQuery } from '../../lib/fuzzy';
+import { SlashCommandPalette } from './SlashCommandPalette';
 
 interface ChatInputProps {
   onSendMessage: (prompt: string, attachments?: ChatAttachment[]) => void;
@@ -9,20 +12,72 @@ interface ChatInputProps {
   totalTokens?: number;
   onOpenGitModal?: () => void;
   onOpenTerminal?: () => void;
+  /** Active CLI id, so command discovery can return engine-specific commands. */
+  activeCli?: string;
+  /** Workspace root, used to discover project-level skills and command manifests. */
+  workingDirectory?: string;
+}
+
+/**
+ * Finds the slash token the caret currently sits in. Only a token at the start of the input or
+ * after whitespace opens the palette, so `src/foo` never triggers it.
+ */
+function findSlashToken(value: string, caret: number): { start: number; query: string } | null {
+  const upto = value.slice(0, caret);
+  const match = /(?:^|\s)\/([^\s/]*)$/.exec(upto);
+  if (!match) return null;
+  return { start: upto.lastIndexOf('/'), query: match[1] };
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isExecuting = false,
+  activeModel,
   totalTokens = 0,
   onOpenGitModal,
   onOpenTerminal,
+  activeCli,
+  workingDirectory,
 }) => {
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { commands, isLoading: isDiscovering, error: discoveryError, load: loadCommands } = useSlashCommandStore();
+
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
+
+  const visibleCommands = useMemo(
+    () =>
+      rankByQuery(commands, paletteQuery, command => command.name, command => command.description).map(
+        entry => entry.item
+      ),
+    [commands, paletteQuery]
+  );
+
+  // Discovery is lazy: it runs the first time the palette opens for a given engine and workspace.
+  useEffect(() => {
+    if (!isPaletteOpen) return;
+    void loadCommands({ cli: activeCli, cwd: workingDirectory });
+  }, [isPaletteOpen, activeCli, workingDirectory, loadCommands]);
+
+  useEffect(() => {
+    if (activeCommandIndex >= visibleCommands.length) setActiveCommandIndex(0);
+  }, [activeCommandIndex, visibleCommands.length]);
+
+  const syncPalette = (value: string, caret: number) => {
+    const token = findSlashToken(value, caret);
+    if (!token) {
+      setIsPaletteOpen(false);
+      return;
+    }
+    setPaletteQuery(token.query);
+    setIsPaletteOpen(true);
+  };
 
   // Listen for file reference inserts from file tree
   useEffect(() => {
@@ -138,32 +193,87 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isPaletteOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveCommandIndex(prev => (visibleCommands.length ? (prev + 1) % visibleCommands.length : 0));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveCommandIndex(prev =>
+          visibleCommands.length ? (prev - 1 + visibleCommands.length) % visibleCommands.length : 0
+        );
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setIsPaletteOpen(false);
+        return;
+      }
+      if ((e.key === 'Tab' || e.key === 'Enter') && !e.shiftKey) {
+        const command = visibleCommands[activeCommandIndex];
+        if (command) {
+          e.preventDefault();
+          applyCommand(command);
+          return;
+        }
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
-  const handleSend = () => {
-    const text = prompt.trim();
+  /**
+   * Replaces the `/token` under the caret with the chosen command. A command that takes no argument
+   * runs immediately, because selecting it from the palette is the same intent as pressing Enter.
+   */
+  const applyCommand = (command: SlashCommand) => {
+    const caret = textareaRef.current?.selectionStart ?? prompt.length;
+    const token = findSlashToken(prompt, caret);
+    const start = token ? token.start : prompt.length;
+    const inserted = `/${command.name}${command.takesArgument ? ' ' : ''}`;
+    const nextPrompt = `${prompt.slice(0, start)}${inserted}${prompt.slice(caret)}`;
+
+    setPrompt(nextPrompt);
+    setIsPaletteOpen(false);
+
+    if (!command.takesArgument) {
+      submitPrompt(nextPrompt);
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const position = start + inserted.length;
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(position, position);
+    });
+  };
+
+  const submitPrompt = (raw: string) => {
+    const text = raw.trim();
     if ((!text && attachments.length === 0) || isExecuting) return;
 
     let enrichedPrompt = text;
     if (attachments.length > 0) {
       const fileHeaders = attachments.map(a => `[Attached: ${a.name} (${formatFileSize(a.size)})]`).join('\n');
-      if (!enrichedPrompt) {
-        enrichedPrompt = `Please analyze the attached files:\n${fileHeaders}`;
-      } else {
-        enrichedPrompt = `${enrichedPrompt}\n\n${fileHeaders}`;
-      }
+      enrichedPrompt = enrichedPrompt ? `${enrichedPrompt}\n\n${fileHeaders}` : `Please analyze the attached files:\n${fileHeaders}`;
     }
 
     onSendMessage(enrichedPrompt, attachments);
     setPrompt('');
     setAttachments([]);
+    setIsPaletteOpen(false);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+  };
+
+  const handleSend = () => {
+    submitPrompt(prompt);
   };
 
   const formatFileSize = (bytes: number) => {
@@ -198,13 +308,29 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         accept="image/*,.txt,.md,.json,.js,.jsx,.ts,.tsx,.py,.cs,.html,.css,.yml,.yaml,.sh,.cmd,.bat,.log,*"
       />
 
-      <div
-        className={`w-full rounded-2xl border transition-all shadow-2xl overflow-hidden bg-surface-card/95 backdrop-blur-md ${
-          isDragging
-            ? 'border-sky-400 ring-2 ring-sky-500/30 bg-sky-500/5'
-            : 'border-surface-border focus-within:border-sky-500/70 focus-within:ring-1 focus-within:ring-sky-500/30'
-        }`}
-      >
+      <div className="relative w-full">
+        {isPaletteOpen ? (
+          <SlashCommandPalette
+            commands={visibleCommands}
+            query={paletteQuery}
+            activeIndex={activeCommandIndex}
+            isLoading={isDiscovering}
+            error={discoveryError}
+            engineLabel={activeCli || activeModel}
+            onSelect={applyCommand}
+            onHover={setActiveCommandIndex}
+            onRefresh={() => void loadCommands({ cli: activeCli, cwd: workingDirectory }, { force: true })}
+            onDismiss={() => setIsPaletteOpen(false)}
+          />
+        ) : null}
+
+        <div
+          className={`w-full rounded-2xl border transition-all shadow-2xl overflow-hidden bg-surface-card/95 backdrop-blur-md ${
+            isDragging
+              ? 'border-sky-400 ring-2 ring-sky-500/30 bg-sky-500/5'
+              : 'border-surface-border focus-within:border-sky-500/70 focus-within:ring-1 focus-within:ring-sky-500/30'
+          }`}
+        >
         {/* Attached Files Preview Bar */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 px-3.5 pt-3 pb-1 border-b border-surface-border/40 max-h-36 overflow-y-auto">
@@ -249,8 +375,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         <textarea
           ref={textareaRef}
           value={prompt}
-          onChange={e => setPrompt(e.target.value)}
+          onChange={e => {
+            setPrompt(e.target.value);
+            syncPalette(e.target.value, e.target.selectionStart ?? e.target.value.length);
+          }}
           onKeyDown={handleKeyDown}
+          onKeyUp={e => {
+            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+              syncPalette(e.currentTarget.value, e.currentTarget.selectionStart ?? 0);
+            }
+          }}
+          onClick={e => syncPalette(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
           onPaste={handlePaste}
           placeholder={
             attachments.length > 0
@@ -305,9 +440,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
           {/* Right: Tokens counter & Circular Send Button */}
           <div className="flex items-center space-x-3">
-            <span className="text-[11px] font-mono text-content-dim">
-              Tokens: {totalTokens > 0 ? formatTokens(totalTokens) : '~1.2k'}
-            </span>
+            {totalTokens > 0 ? (
+              <span className="text-[11px] font-mono text-content-dim tabular-nums">
+                Tokens: {formatTokens(totalTokens)}
+              </span>
+            ) : null}
 
             <button
               type="button"
@@ -326,6 +463,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               )}
             </button>
           </div>
+        </div>
         </div>
       </div>
 

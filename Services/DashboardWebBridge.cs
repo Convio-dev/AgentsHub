@@ -562,6 +562,47 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            // Stops the in-flight turn. The sidecar aborts the child process and the session's
+            // AbortController; the UI then settles its own state from the session_status event.
+            case "abort_task":
+                {
+                    string? taskId = data.TryGetProperty("taskId", out var tElem) ? tElem.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(taskId) && data.TryGetProperty("sessionId", out var sElem2))
+                    {
+                        taskId = sElem2.GetString();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(taskId))
+                    {
+                        SendResponse(requestId, false, "taskId or sessionId is required");
+                        break;
+                    }
+
+                    string? reason = data.TryGetProperty("reason", out var rElem) ? rElem.GetString() : null;
+                    await Sidecar.SidecarHostService.Instance.AbortTaskAsync(taskId, reason).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { aborted = true, taskId });
+                }
+                break;
+
+            // Slash command discovery for the composer's palette. The CLI and directory come from the
+            // request when the UI knows them, otherwise from the active workspace.
+            case "get_slash_commands":
+                {
+                    var activeWs = AiConfigService.Instance.GetActiveWorkspace();
+
+                    string? cli = data.TryGetProperty("cli", out var cElem) ? cElem.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(cli)) cli = activeWs?.PrimaryCli;
+
+                    string? cwd = data.TryGetProperty("cwd", out var dElem) ? dElem.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(cwd)) cwd = activeWs?.WorkingDirectory;
+
+                    var profiles = _cliManager.ProfileService.GetProfiles();
+                    var commands = await SlashCommandService.Instance.GetCommandsAsync(cli, cwd, profiles).ConfigureAwait(false);
+
+                    SendResponse(requestId, true, new { commands, engine = cli });
+                }
+                break;
+
             case "switch_account":
                 {
                     string activeFallback = _cliManager.ProfileService.ActiveProfile ?? "ZXR@1";

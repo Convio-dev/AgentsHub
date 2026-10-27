@@ -521,6 +521,7 @@ export class SessionManager {
           profile: targetProfile,
           callId,
           tool: 'bash',
+          toolKind: 'command',
           params: { command: cmd },
           timestamp: new Date().toISOString()
         });
@@ -559,6 +560,7 @@ export class SessionManager {
           profile: targetProfile,
           callId,
           tool: 'bash',
+          toolKind: 'command',
           success: result.exitCode === 0,
           exitCode: result.exitCode,
           durationMs,
@@ -1087,12 +1089,30 @@ export class SessionManager {
 
         let toolDisplay = rawToolName;
         let formattedParams = rawParams;
+        // The display label is not an identifier: the UI needs the semantic kind to decide whether a
+        // call is a command, a read, a search or an edit, and to group consecutive calls by kind.
+        let toolKind: 'command' | 'read' | 'search' | 'write' | 'other' = 'other';
 
         if (rawToolName === 'run_command' || rawToolName === 'shell_exec') {
           toolDisplay = 'Ran';
+          toolKind = 'command';
           formattedParams = { CommandLine: rawParams.CommandLine || rawParams.command || '' };
-        } else if (rawToolName === 'list_dir' || rawToolName === 'grep_search' || rawToolName === 'find_by_name') {
+        } else if (rawToolName === 'grep_search' || rawToolName === 'find_by_name') {
           toolDisplay = 'Explored';
+          toolKind = 'search';
+        } else if (rawToolName === 'list_dir') {
+          toolDisplay = 'Explored';
+          toolKind = 'read';
+        } else if (rawToolName === 'view_file' || rawToolName === 'read_file') {
+          toolDisplay = 'Explored';
+          toolKind = 'read';
+        } else if (
+          rawToolName === 'write_to_file' ||
+          rawToolName === 'replace_file_content' ||
+          rawToolName === 'multi_replace_file_content'
+        ) {
+          toolDisplay = 'Edited';
+          toolKind = 'write';
         }
 
         if (su.state === 'ACTIVE') {
@@ -1103,7 +1123,8 @@ export class SessionManager {
             profile: sessionState.profileName,
             callId,
             tool: toolDisplay,
-            params: formattedParams,
+            toolKind,
+            params: { ...formattedParams, toolKind },
             timestamp: new Date().toISOString()
           });
         } else if (su.state === 'DONE' || su.state === 'ERROR') {
@@ -1117,6 +1138,7 @@ export class SessionManager {
             profile: sessionState.profileName,
             callId,
             tool: toolDisplay,
+            toolKind,
             success: !isErr,
             result: output,
             error: isErr ? (su.tool_info?.error?.message || 'Tool execution failed') : undefined,
