@@ -16,11 +16,11 @@ export const Badge: React.FC<BadgeProps> = ({
   dot = false,
 }) => {
   const variantStyles = {
-    sky: 'bg-sky-500/10 text-sky-400 border-sky-500/25',
-    emerald: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
-    amber: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
-    rose: 'bg-rose-500/10 text-rose-400 border-rose-500/25',
-    slate: 'bg-slate-800 text-slate-300 border-slate-700/60',
+    sky: 'bg-sky-500/10 text-accent border-sky-500/25',
+    emerald: 'bg-emerald-500/10 text-state-success border-emerald-500/25',
+    amber: 'bg-amber-500/10 text-state-warning border-amber-500/25',
+    rose: 'bg-rose-500/10 text-state-danger border-rose-500/25',
+    slate: 'bg-surface-strong text-content-muted border-surface-border/60',
     purple: 'bg-purple-500/10 text-purple-400 border-purple-500/25',
   }[variant];
 
@@ -29,7 +29,7 @@ export const Badge: React.FC<BadgeProps> = ({
     emerald: 'bg-emerald-400',
     amber: 'bg-amber-400',
     rose: 'bg-rose-400',
-    slate: 'bg-slate-400',
+    slate: 'bg-content-dim',
     purple: 'bg-purple-400',
   }[variant];
 

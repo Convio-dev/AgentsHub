@@ -169,10 +169,10 @@ class WebViewBridge {
           { name: 'Antigravity CLI', type: 'AntigravityCli', state: 'Running', port: 9339, pid: 5120 },
         ],
         antigravity: {
-          activeProfile: 'ZXR@1',
+          activeProfile: 'Work',
           profiles: [
-            { name: 'ZXR@1', email: 'zxro@google.com', active: true, isRunning: false, quotaPercent: 96, provider: 'Google Antigravity' },
-            { name: 'ZXR@2', email: 'backup@google.com', active: false, isRunning: false, quotaPercent: 84, provider: 'Google Antigravity' },
+            { name: 'Work', active: true, isRunning: false, provider: 'Google Antigravity' },
+            { name: 'Personal', active: false, isRunning: false, provider: 'Google Antigravity' },
           ],
           model: 'Gemini 3.8 Flash (High)',
         },
@@ -182,7 +182,7 @@ class WebViewBridge {
             name: 'ChessSenseV2',
             workingDirectory: 'C:\\Projects\\ChessSenseV2',
             accentColor: '#38BDF8',
-            antigravityProfile: 'ZXR@1',
+            antigravityProfile: 'Work',
             primaryCli: 'AntigravityCli',
             secondaryCli: 'none',
             splitMode: 'single',
@@ -193,7 +193,7 @@ class WebViewBridge {
             name: 'AgentsHub.v2',
             workingDirectory: 'c:\\Users\\Gaming\\Desktop\\Folders-Z\\userscript\\WebAPPS\\APPS\\AgentsHub.v2',
             accentColor: '#10B981',
-            antigravityProfile: 'ZXR@1',
+            antigravityProfile: 'Work',
             primaryCli: 'Hermes',
             secondaryCli: 'ClaudeCode',
             splitMode: 'horizontal',
@@ -206,6 +206,20 @@ class WebViewBridge {
           accentColor: '#38BDF8',
           notifications: true,
         },
+      };
+    } else if (action === 'get_model_catalog') {
+      // Mirrors the real `agy models` output so the browser dev host can render the selector.
+      mockData = {
+        models: [
+          { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)', provider: 'Gemini', tier: 'high' },
+          { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)', provider: 'Gemini', tier: 'medium' },
+          { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)', provider: 'Gemini', tier: 'low' },
+          { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', provider: 'Claude', tier: null },
+          { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)', provider: 'Claude', tier: null },
+          { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', provider: 'GPT-OSS', tier: 'medium' },
+        ],
+        efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        source: 'cli',
       };
     } else if (action === 'get_sidecar_status') {
       mockData = {
@@ -233,21 +247,21 @@ class WebViewBridge {
           {
             sessionId: 'session_chess_1',
             goal: 'what is the .py files we have in this project?',
-            profile: 'ZXR@1',
+            profile: 'Work',
             stepCount: 4,
             lastActiveUtc: new Date().toISOString(),
           },
           {
             sessionId: 'session_chess_2',
             goal: 'Setup fast chess move evaluator benchmark',
-            profile: 'ZXR@1',
+            profile: 'Work',
             stepCount: 12,
             lastActiveUtc: new Date(Date.now() - 3600000 * 2).toISOString(),
           },
           {
             sessionId: 'session_chess_3',
             goal: 'Fix pawn promotion en passant logic regression',
-            profile: 'ZXR@2',
+            profile: 'Personal',
             stepCount: 8,
             lastActiveUtc: new Date(Date.now() - 86400000 * 2).toISOString(),
           },

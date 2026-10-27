@@ -43,7 +43,7 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({ 
       setName(activeWorkspace.name);
       setWorkingDirectory(activeWorkspace.workingDirectory);
       setAccentColor(activeWorkspace.accentColor || '#38BDF8');
-      setAntigravityProfile(activeWorkspace.antigravityProfile || (profiles[0]?.name || 'ZXR@1'));
+      setAntigravityProfile(activeWorkspace.antigravityProfile || profiles[0]?.name || '');
       setPrimaryCli(activeWorkspace.primaryCli || 'AntigravityCli');
       setSecondaryCli(activeWorkspace.secondaryCli || 'none');
       setSplitMode(activeWorkspace.splitMode || 'single');
@@ -53,7 +53,7 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({ 
       setName('New Workspace');
       setWorkingDirectory('C:\\Projects');
       setAccentColor('#38BDF8');
-      setAntigravityProfile(profiles[0]?.name || 'ZXR@1');
+      setAntigravityProfile(profiles[0]?.name || '');
       setPrimaryCli('AntigravityCli');
       setSecondaryCli('none');
       setSplitMode('single');

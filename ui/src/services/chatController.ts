@@ -9,6 +9,7 @@ import { webviewBridge } from './webviewBridge';
 import { useSessionStore } from '../store/useSessionStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { ChatAttachment } from '../types/agent';
+import { profileForDispatch } from '../lib/profileName';
 
 interface DispatchTarget {
   sessionId: string;
@@ -17,12 +18,13 @@ interface DispatchTarget {
 
 function resolveContext(sessionId: string) {
   const session = useSessionStore.getState().sessions[sessionId];
-  const profile =
-    session?.profile && session.profile.toLowerCase() !== 'default' ? session.profile : 'ZXR@1';
 
   return {
-    model: session?.model || 'Gemini 3.8 Flash (High)',
-    profile,
+    // An empty model or profile means "let the host decide", which is what the bridge already does
+    // for a missing value. Guessing a name here is what used to hardcode a developer's account.
+    model: session?.model || undefined,
+    profile: profileForDispatch(session?.profile),
+    reasoningEffort: session?.reasoningEffort || undefined,
     workingDirectory: useWorkspaceStore.getState().activeWorkspace?.workingDirectory || undefined,
   };
 }
@@ -36,6 +38,7 @@ async function dispatch({ sessionId, prompt }: DispatchTarget): Promise<void> {
       prompt,
       model: context.model,
       profile: context.profile,
+      reasoningEffort: context.reasoningEffort,
       workingDirectory: context.workingDirectory,
     });
   } catch (err) {

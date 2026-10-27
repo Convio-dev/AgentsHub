@@ -376,11 +376,11 @@ export const SettingsView: React.FC = () => {
                 onClick={() => setActiveCategory(cat.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
                   isActive
-                    ? 'bg-sky-500/15 text-sky-400 font-semibold border border-sky-500/30'
+                    ? 'bg-sky-500/15 text-accent font-semibold border border-sky-500/30'
                     : 'text-[var(--text-muted,#94A3B8)] hover:bg-[var(--bg-card-hover,#111827)] hover:text-[var(--text-main,#F1F5F9)]'
                 }`}
               >
-                <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-sky-400' : 'text-[var(--text-dim,#64748B)]'}`} />
+                <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-accent' : 'text-[var(--text-dim,#64748B)]'}`} />
                 <span className="truncate">{cat.label}</span>
               </button>
             );
@@ -410,7 +410,7 @@ export const SettingsView: React.FC = () => {
                       onClick={() => setTheme('dark')}
                       className={`flex items-center justify-center gap-2.5 p-3 rounded-lg border text-xs font-medium transition-all ${
                         theme === 'dark'
-                          ? 'bg-sky-500/15 border-sky-500 text-sky-400 font-bold'
+                          ? 'bg-sky-500/15 border-sky-500 text-accent font-bold'
                           : 'bg-[var(--bg-input,#0D1322)] border-[var(--border-subtle,#1E293B)] text-[var(--text-muted,#94A3B8)] hover:border-slate-600'
                       }`}
                     >
@@ -421,7 +421,7 @@ export const SettingsView: React.FC = () => {
                       onClick={() => setTheme('light')}
                       className={`flex items-center justify-center gap-2.5 p-3 rounded-lg border text-xs font-medium transition-all ${
                         theme === 'light'
-                          ? 'bg-sky-500/15 border-sky-500 text-sky-400 font-bold'
+                          ? 'bg-sky-500/15 border-sky-500 text-accent font-bold'
                           : 'bg-[var(--bg-input,#0D1322)] border-[var(--border-subtle,#1E293B)] text-[var(--text-muted,#94A3B8)] hover:border-slate-600'
                       }`}
                     >
@@ -491,7 +491,7 @@ export const SettingsView: React.FC = () => {
                   <div className="max-w-sm pt-2 space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-medium text-[var(--text-muted,#94A3B8)]">Color Intensity:</span>
-                      <span className="font-mono font-bold text-sky-400">{themeIntensity}%</span>
+                      <span className="font-mono font-bold text-accent">{themeIntensity}%</span>
                     </div>
                     <input
                       type="range"
@@ -626,7 +626,7 @@ export const SettingsView: React.FC = () => {
                       <Button variant="secondary" size="xs" onClick={() => testHotkey('window')}>
                         Test Hotkey Action Now
                       </Button>
-                      <span className="text-[11px] font-mono text-sky-400">
+                      <span className="text-[11px] font-mono text-accent">
                         Active Hotkey: {settings.globalHotkeyModifier} + {settings.globalHotkeyKey}
                       </span>
                     </div>
@@ -690,7 +690,7 @@ export const SettingsView: React.FC = () => {
                       <Button variant="secondary" size="xs" onClick={() => testHotkey('quake')}>
                         Test Hotkey Action Now
                       </Button>
-                      <span className="text-[11px] font-mono text-sky-400">
+                      <span className="text-[11px] font-mono text-accent">
                         {settings.globalHudHotkey ? `Active Hotkey: ${settings.hudHotkeyKey}` : 'Hotkey Disabled'}
                       </span>
                     </div>
@@ -771,7 +771,7 @@ export const SettingsView: React.FC = () => {
                 </div>
 
                 <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--border-subtle,#1E293B)]">
-                  {saveFeedback && <span className="text-xs font-mono text-emerald-400">{saveFeedback}</span>}
+                  {saveFeedback && <span className="text-xs font-mono text-state-success">{saveFeedback}</span>}
                   <Button variant="primary" size="xs" onClick={saveGeneralSettings}>
                     Save Preferences
                   </Button>
@@ -817,7 +817,7 @@ export const SettingsView: React.FC = () => {
 
                 {/* Group 1: Core System & Dev Runtimes */}
                 <div className="space-y-2 pt-2">
-                  <div className="text-xs font-semibold text-sky-400">1. Core Dev Runtimes (Required by CLI Agents)</div>
+                  <div className="text-xs font-semibold text-accent">1. Core Dev Runtimes (Required by CLI Agents)</div>
                   <div className="space-y-1.5">
                     {dependencies
                       .filter(d => d.category === 'runtime')
@@ -832,8 +832,8 @@ export const SettingsView: React.FC = () => {
                               <span
                                 className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
                                   dep.isInstalled
-                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                    ? 'bg-emerald-500/10 text-state-success border border-emerald-500/20'
+                                    : 'bg-rose-500/10 text-state-danger border border-rose-500/20'
                                 }`}
                               >
                                 {dep.isInstalled ? 'Installed' : 'Not Installed'}
@@ -858,7 +858,7 @@ export const SettingsView: React.FC = () => {
 
                 {/* Group 2: AI Agents & VPN Utilities */}
                 <div className="space-y-2 pt-3 border-t border-[var(--border-subtle,#1E293B)]">
-                  <div className="text-xs font-semibold text-emerald-400">2. AI Agents & Network Tools</div>
+                  <div className="text-xs font-semibold text-state-success">2. AI Agents & Network Tools</div>
                   <div className="space-y-1.5">
                     {dependencies
                       .filter(d => d.category !== 'runtime')
@@ -873,8 +873,8 @@ export const SettingsView: React.FC = () => {
                               <span
                                 className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
                                   dep.isInstalled
-                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                    ? 'bg-emerald-500/10 text-state-success border border-emerald-500/20'
+                                    : 'bg-rose-500/10 text-state-danger border border-rose-500/20'
                                 }`}
                               >
                                 {dep.isInstalled ? 'Ready' : 'Missing'}
@@ -902,7 +902,7 @@ export const SettingsView: React.FC = () => {
               <div className="p-5 rounded-xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] space-y-4">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                    <div className="w-8 h-8 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
                       <Terminal className="w-4 h-4" />
                     </div>
                     <div>
@@ -945,7 +945,7 @@ export const SettingsView: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => deleteCustomCli(c.id)}
-                            className="text-[11px] text-rose-400 hover:text-rose-300 font-medium cursor-pointer"
+                            className="text-[11px] text-state-danger hover:text-state-danger font-medium cursor-pointer"
                           >
                             Delete
                           </button>
@@ -1070,7 +1070,7 @@ export const SettingsView: React.FC = () => {
                       onClick={() => setMcpSubTab(tab)}
                       className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-all whitespace-nowrap ${
                         mcpSubTab === tab
-                          ? 'bg-sky-500/15 text-sky-400 font-bold border border-sky-500/30'
+                          ? 'bg-sky-500/15 text-accent font-bold border border-sky-500/30'
                           : 'text-[var(--text-muted,#94A3B8)] hover:text-white'
                       }`}
                     >
@@ -1098,15 +1098,15 @@ export const SettingsView: React.FC = () => {
                             <div className="flex items-center justify-between font-mono text-xs">
                               <strong className="text-[var(--text-main,#F1F5F9)]">{s.name}</strong>
                               <div className="flex items-center gap-1.5">
-                                <span className="text-emerald-400 text-[10px] font-bold font-mono">{count} Tools</span>
+                                <span className="text-state-success text-[10px] font-bold font-mono">{count} Tools</span>
                                 {needsAuth && (
                                   <span
                                     className={`px-1.5 py-0.2 rounded text-[9.5px] font-mono font-semibold border ${
                                       isAuthed
-                                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                        ? 'bg-emerald-500/10 text-state-success border-emerald-500/20'
                                         : isExpired
-                                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                                        : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                                        ? 'bg-amber-500/10 text-state-warning border-amber-500/20'
+                                        : 'bg-rose-500/10 text-state-danger border-rose-500/20'
                                     }`}
                                   >
                                     {isAuthed ? '✓ Authed' : isExpired ? '⚠ Expired' : '✗ Needs Auth'}
@@ -1121,7 +1121,7 @@ export const SettingsView: React.FC = () => {
                               {s.description || 'Model Context Protocol tool server'}
                             </p>
                             {needsAuth && s.authDetails && (
-                              <div className="text-[10.5px] font-mono text-sky-400/90 bg-sky-500/5 px-2 py-1 rounded border border-sky-500/15">
+                              <div className="text-[10.5px] font-mono text-accent/90 bg-sky-500/5 px-2 py-1 rounded border border-sky-500/15">
                                 {s.authDetails}
                               </div>
                             )}
@@ -1132,7 +1132,7 @@ export const SettingsView: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={() => openAuthModal(s)}
-                                  className="text-[11px] px-2.5 py-1 rounded bg-sky-500/15 text-sky-400 border border-sky-500/30 hover:bg-sky-500/25 transition cursor-pointer font-medium inline-flex items-center gap-1.5"
+                                  className="text-[11px] px-2.5 py-1 rounded bg-sky-500/15 text-accent border border-sky-500/30 hover:bg-sky-500/25 transition cursor-pointer font-medium inline-flex items-center gap-1.5"
                                 >
                                   <KeyRound className="w-3 h-3" />
                                   <span>{isAuthed ? 'Edit Key / Auth' : 'Configure Auth'}</span>
@@ -1142,7 +1142,7 @@ export const SettingsView: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => deleteMcpServer(s.id || s.name)}
-                              className="text-[10.5px] text-rose-400 hover:text-rose-300 font-medium cursor-pointer"
+                              className="text-[10.5px] text-state-danger hover:text-state-danger font-medium cursor-pointer"
                             >
                               Remove
                             </button>
@@ -1182,7 +1182,7 @@ export const SettingsView: React.FC = () => {
                             onClick={() => setSkillFilter(flt)}
                             className={`px-2.5 py-1 rounded text-[11px] font-medium capitalize transition-all ${
                               skillFilter === flt
-                                ? 'bg-sky-500/20 text-sky-400 font-bold border border-sky-500/30'
+                                ? 'bg-sky-500/20 text-accent font-bold border border-sky-500/30'
                                 : 'bg-[var(--bg-card,#0F172A)] text-[var(--text-dim,#64748B)] hover:text-white'
                             }`}
                           >
@@ -1203,8 +1203,8 @@ export const SettingsView: React.FC = () => {
                         .map(sk => (
                           <div key={sk.name} className="p-3.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-1.5">
                             <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold font-mono text-sky-400">{sk.name}</span>
-                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20 uppercase">
+                              <span className="text-xs font-bold font-mono text-accent">{sk.name}</span>
+                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-accent border border-sky-500/20 uppercase">
                                 {sk.scope}
                               </span>
                             </div>
@@ -1225,12 +1225,12 @@ export const SettingsView: React.FC = () => {
                   <div className="space-y-3 pt-2">
                     <div className="p-3.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2 text-xs">
-                        <ShieldCheck className="w-4 h-4 text-sky-400" />
+                        <ShieldCheck className="w-4 h-4 text-accent" />
                         <div>
                           <div className="font-bold text-[var(--text-main,#F1F5F9)]">
-                            Active Project: <span className="text-sky-400">{rulesActiveWorkspaceName || 'Workspace'}</span>
+                            Active Project: <span className="text-accent">{rulesActiveWorkspaceName || 'Workspace'}</span>
                           </div>
-                          <div className={`text-[11px] ${ruleIsolation ? 'text-amber-400 font-semibold' : 'text-[var(--text-dim,#64748B)]'}`}>
+                          <div className={`text-[11px] ${ruleIsolation ? 'text-state-warning font-semibold' : 'text-[var(--text-dim,#64748B)]'}`}>
                             {ruleIsolation ? 'Project Rule Isolation Active (Global Rules Ignored)' : 'Inheriting Global Rules + Project Rules'}
                           </div>
                         </div>
@@ -1263,7 +1263,7 @@ export const SettingsView: React.FC = () => {
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className={`px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold ${
-                                r.scope === 'Project' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                r.scope === 'Project' ? 'bg-emerald-500/10 text-state-success border border-emerald-500/20' : 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
                               }`}>
                                 {r.scope}
                               </span>
@@ -1272,7 +1272,7 @@ export const SettingsView: React.FC = () => {
                           </div>
 
                           <p className="text-[11px] text-[var(--text-dim,#64748B)] line-clamp-2">{r.description}</p>
-                          <div className="text-[10px] font-mono text-slate-500 truncate">{r.sourceFilePath}</div>
+                          <div className="text-[10px] font-mono text-content-dim truncate">{r.sourceFilePath}</div>
 
                           <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle,#1E293B)]/40">
                             <label className="flex items-center gap-2 cursor-pointer text-xs">
@@ -1291,7 +1291,7 @@ export const SettingsView: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => deleteAgentRule(r.id)}
-                              className="text-[11px] text-rose-400 hover:text-rose-300 font-medium cursor-pointer"
+                              className="text-[11px] text-state-danger hover:text-state-danger font-medium cursor-pointer"
                             >
                               Delete
                             </button>
@@ -1324,7 +1324,7 @@ export const SettingsView: React.FC = () => {
                         >
                           <div className="flex items-center justify-between font-mono text-xs font-bold">
                             <span className="truncate">{s.sessionId}</span>
-                            <span className="text-[10px] text-sky-400 shrink-0">{s.stepCount} Steps</span>
+                            <span className="text-[10px] text-accent shrink-0">{s.stepCount} Steps</span>
                           </div>
                           <div className="text-[10px] text-[var(--text-dim,#64748B)] truncate">
                             {s.workspaceDir}
@@ -1345,7 +1345,7 @@ export const SettingsView: React.FC = () => {
                         <>
                           <div className="flex items-center justify-between pb-2 border-b border-[var(--border-subtle,#1E293B)]">
                             <div>
-                              <div className="text-xs font-bold font-mono text-sky-400">Session: {selectedSession.sessionId}</div>
+                              <div className="text-xs font-bold font-mono text-accent">Session: {selectedSession.sessionId}</div>
                               <div className="text-[10px] text-[var(--text-dim,#64748B)] font-mono">{selectedSession.workspaceDir}</div>
                             </div>
                             <Button
@@ -1358,7 +1358,7 @@ export const SettingsView: React.FC = () => {
                           </div>
 
                           {loadingSessionSteps ? (
-                            <div className="py-8 text-center text-xs text-sky-400 font-mono animate-pulse">Loading trajectory steps...</div>
+                            <div className="py-8 text-center text-xs text-accent font-mono animate-pulse">Loading trajectory steps...</div>
                           ) : (
                             <div className="space-y-2">
                               {selectedSessionSteps.map((st, idx) => (
@@ -1366,7 +1366,7 @@ export const SettingsView: React.FC = () => {
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                       <span className="font-mono font-bold text-[var(--text-dim,#64748B)]">#{st.stepIndex ?? idx + 1}</span>
-                                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-sky-500/10 text-sky-400">
+                                      <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-sky-500/10 text-accent">
                                         {st.type || 'Step'}
                                       </span>
                                     </div>
@@ -1374,7 +1374,7 @@ export const SettingsView: React.FC = () => {
                                   </div>
 
                                   {st.content && (
-                                    <div className="text-slate-200 leading-relaxed font-sans">{st.content}</div>
+                                    <div className="text-content-main leading-relaxed font-sans">{st.content}</div>
                                   )}
 
                                   {st.thinking && (
@@ -1388,9 +1388,9 @@ export const SettingsView: React.FC = () => {
                                     <div className="space-y-1 pt-1">
                                       {st.toolCalls.map((tc, tidx) => (
                                         <div key={tidx} className="p-2 rounded bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-[11px]">
-                                          <div className="font-mono font-bold text-emerald-400">Tool: {tc.toolName}</div>
+                                          <div className="font-mono font-bold text-state-success">Tool: {tc.toolName}</div>
                                           {tc.argumentsJson && (
-                                            <div className="font-mono text-[10px] text-slate-400 mt-0.5 truncate">{tc.argumentsJson}</div>
+                                            <div className="font-mono text-[10px] text-content-muted mt-0.5 truncate">{tc.argumentsJson}</div>
                                           )}
                                         </div>
                                       ))}
@@ -1448,7 +1448,7 @@ export const SettingsView: React.FC = () => {
 
                           <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle,#1E293B)]/40 text-xs">
                             <span className="text-[10px] text-[var(--text-dim,#64748B)]">
-                              Status: <strong className={a.lastRunStatus === 'Success' ? 'text-emerald-400' : 'text-slate-400'}>{a.lastRunStatus || 'Pending'}</strong>
+                              Status: <strong className={a.lastRunStatus === 'Success' ? 'text-state-success' : 'text-content-muted'}>{a.lastRunStatus || 'Pending'}</strong>
                             </span>
 
                             <div className="flex items-center gap-2">
@@ -1456,7 +1456,7 @@ export const SettingsView: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => deleteAutomation(a.id)}
-                                className="text-[11px] text-rose-400 hover:text-rose-300 font-medium cursor-pointer"
+                                className="text-[11px] text-state-danger hover:text-state-danger font-medium cursor-pointer"
                               >
                                 Delete
                               </button>
@@ -1520,7 +1520,7 @@ export const SettingsView: React.FC = () => {
                   <div>
                     <div className="flex items-center justify-between text-xs mb-1">
                       <span className="font-semibold text-[var(--text-muted,#94A3B8)]">Master Volume:</span>
-                      <span className="font-mono text-sky-400 font-bold">{soundpackVolume}%</span>
+                      <span className="font-mono text-accent font-bold">{soundpackVolume}%</span>
                     </div>
                     <input
                       type="range"
@@ -1694,7 +1694,7 @@ export const SettingsView: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                    <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-state-success border border-emerald-500/20 font-semibold">
                       {discordRpcConnected ? 'Connected' : 'Connecting...'}
                     </span>
                     <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[var(--text-main,#F1F5F9)]">
@@ -1734,15 +1734,15 @@ export const SettingsView: React.FC = () => {
                         <div className="text-[11px] text-[var(--text-dim,#64748B)] mb-1 flex items-center gap-1">
                           <Lock className="w-3 h-3" /> Application ID:
                         </div>
-                        <span className="text-sky-400 text-[11px]">1562567704941174834</span>
+                        <span className="text-accent text-[11px]">1562567704941174834</span>
                       </div>
                       <div>
                         <div className="text-[11px] text-[var(--text-dim,#64748B)] mb-1 flex items-center gap-1">
                           <Lock className="w-3 h-3" /> Official Assets:
                         </div>
                         <div className="flex gap-1.5">
-                          <span className="px-1.5 py-0.2 rounded bg-white/5 border border-white/10 text-[10px] text-slate-300">app</span>
-                          <span className="px-1.5 py-0.2 rounded bg-white/5 border border-white/10 text-[10px] text-slate-300">cli</span>
+                          <span className="px-1.5 py-0.2 rounded bg-white/5 border border-white/10 text-[10px] text-content-muted">app</span>
+                          <span className="px-1.5 py-0.2 rounded bg-white/5 border border-white/10 text-[10px] text-content-muted">cli</span>
                         </div>
                       </div>
                     </div>
@@ -1786,7 +1786,7 @@ export const SettingsView: React.FC = () => {
 
                   {/* Authentic Discord Live Profile Card Simulator */}
                   <div className="space-y-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Live Profile Card Preview</span>
+                    <span className="text-[10px] font-bold text-content-muted uppercase tracking-wider block">Live Profile Card Preview</span>
                     
                     <div className="rounded-2xl bg-[#232428] border border-[#1e1f22] overflow-hidden shadow-2xl text-white">
                       {/* Top banner gradient */}
@@ -1813,28 +1813,28 @@ export const SettingsView: React.FC = () => {
                             <span>Developer</span>
                             <span className="px-1 py-0.2 bg-[#5865f2] text-white text-[9px] font-black rounded uppercase tracking-wider">APP</span>
                           </div>
-                          <div className="text-[11px] text-slate-400">@developer</div>
+                          <div className="text-[11px] text-content-muted">@developer</div>
                         </div>
 
                         {/* Playing Activity Box */}
                         <div className="p-3.5 rounded-xl bg-[#111214] space-y-2 border border-white/5">
-                          <div className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Playing a Game</div>
+                          <div className="text-[10px] font-black uppercase text-content-muted tracking-wider">Playing a Game</div>
                           <div className="flex items-start gap-3">
                             <div className="relative shrink-0">
                               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#06b6d4] to-[#3b82f6] flex items-center justify-center text-white font-mono font-black text-lg shadow-inner">
                                 A&gt;
                               </div>
-                              <div className="w-5 h-5 rounded-full bg-[#1e1f22] border-2 border-[#111214] flex items-center justify-center text-[10px] font-mono font-bold text-sky-400 absolute -bottom-1 -right-1 shadow">
+                              <div className="w-5 h-5 rounded-full bg-[#1e1f22] border-2 border-[#111214] flex items-center justify-center text-[10px] font-mono font-bold text-accent absolute -bottom-1 -right-1 shadow">
                                 &gt;_
                               </div>
                             </div>
 
                             <div className="space-y-0.5 min-w-0 flex-1">
                               <div className="font-bold text-xs text-white leading-tight">AgentsHub</div>
-                              <div className="text-[11px] text-slate-300 truncate">Coding with AgentsHub</div>
-                              <div className="text-[10px] text-slate-400 font-mono">⚡ AI Agent Station</div>
+                              <div className="text-[11px] text-content-muted truncate">Coding with AgentsHub</div>
+                              <div className="text-[10px] text-content-muted font-mono">⚡ AI Agent Station</div>
                               {discordTime && (
-                                <div className="text-[10px] text-slate-400 font-mono pt-0.5">{formatElapsed(elapsedSeconds)}</div>
+                                <div className="text-[10px] text-content-muted font-mono pt-0.5">{formatElapsed(elapsedSeconds)}</div>
                               )}
                             </div>
                           </div>
@@ -1876,7 +1876,7 @@ export const SettingsView: React.FC = () => {
                   <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">Master Switch:</span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded font-mono ${pocketEnabled ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border border-slate-500/20'}`}>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded font-mono ${pocketEnabled ? 'bg-emerald-500/10 text-state-success border border-emerald-500/20' : 'bg-slate-500/10 text-content-muted border border-slate-500/20'}`}>
                         {pocketEnabled ? 'ON' : 'OFF'}
                       </span>
                       <label className="cursor-pointer">
@@ -1914,7 +1914,7 @@ export const SettingsView: React.FC = () => {
                             ? 'bg-[#0088cc]/20 text-[#0088cc] border border-[#0088cc]/40'
                             : p === 'discord'
                             ? 'bg-[#5865f2]/20 text-[#5865f2] border border-[#5865f2]/40'
-                            : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                            : 'bg-emerald-500/20 text-state-success border border-emerald-500/40'
                           : 'bg-[var(--bg-input,#0D1322)] text-[var(--text-dim,#64748B)] hover:text-white border border-[var(--border-subtle,#1E293B)]'
                       }`}
                     >
@@ -1929,8 +1929,8 @@ export const SettingsView: React.FC = () => {
                   {(pocketTab === 'telegram' || pocketTab === 'both') && (
                     <div className="p-4 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-sky-400">Telegram Bot</span>
-                        <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-[11px] text-sky-400 hover:underline">
+                        <span className="text-xs font-bold text-accent">Telegram Bot</span>
+                        <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-[11px] text-accent hover:underline">
                           Get from @BotFather &rarr;
                         </a>
                       </div>
@@ -1945,7 +1945,7 @@ export const SettingsView: React.FC = () => {
                       <div className="flex items-center justify-between text-xs pt-1">
                         <span className="text-[var(--text-dim,#64748B)]">Pairing PIN:</span>
                         <div className="flex items-center gap-2">
-                          <span className="px-2.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono font-bold tracking-widest border border-emerald-500/20">
+                          <span className="px-2.5 py-0.5 rounded bg-emerald-500/10 text-state-success font-mono font-bold tracking-widest border border-emerald-500/20">
                             {telegramPin}
                           </span>
                           <Button variant="secondary" size="xs" onClick={() => generatePocketPin('telegram')}>
@@ -1962,7 +1962,7 @@ export const SettingsView: React.FC = () => {
                       <div className="p-2.5 rounded bg-[#0088cc]/10 border border-[#0088cc]/20 text-[11px] text-sky-200 flex items-center justify-between gap-2">
                         <span>Telegram Pairing: Start chat with your bot and reply with your 6-digit PIN.</span>
                         {telegramPairedUser && (
-                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] shrink-0">
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-state-success font-mono text-[10px] shrink-0">
                             Paired: {telegramPairedUser}
                           </span>
                         )}
@@ -1990,7 +1990,7 @@ export const SettingsView: React.FC = () => {
                       <div className="flex items-center justify-between text-xs pt-1">
                         <span className="text-[var(--text-dim,#64748B)]">Pairing PIN:</span>
                         <div className="flex items-center gap-2">
-                          <span className="px-2.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono font-bold tracking-widest border border-emerald-500/20">
+                          <span className="px-2.5 py-0.5 rounded bg-emerald-500/10 text-state-success font-mono font-bold tracking-widest border border-emerald-500/20">
                             {discordPin}
                           </span>
                           <Button variant="secondary" size="xs" onClick={() => generatePocketPin('discord')}>
@@ -2007,7 +2007,7 @@ export const SettingsView: React.FC = () => {
                       <div className="p-2.5 rounded bg-[#5865f2]/10 border border-[#5865f2]/20 text-[11px] text-indigo-200 flex items-center justify-between gap-2">
                         <span>Discord Pairing: Direct message (DM) your bot with your 6-digit PIN.</span>
                         {discordPairedUser && (
-                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] shrink-0">
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-state-success font-mono text-[10px] shrink-0">
                             Paired: {discordPairedUser}
                           </span>
                         )}
@@ -2024,11 +2024,11 @@ export const SettingsView: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                     {[
                       { key: 'allowRun', title: 'Start Profiles (/run)', desc: 'Launch synced CLI profiles & agent sessions', icon: Play, color: 'text-blue-400' },
-                      { key: 'allowActive', title: 'Active Switcher (/active)', desc: 'Select active target among running agents', icon: RefreshCw, color: 'text-cyan-400' },
-                      { key: 'allowPrompts', title: 'Prompt Injection (/prompt)', desc: 'Send prompts into running agent stdin', icon: Send, color: 'text-emerald-400' },
-                      { key: 'allowScreen', title: 'Desktop Screenshot (/screen)', desc: 'Capture & send live desktop screen JPEG', icon: Activity, color: 'text-amber-400' },
+                      { key: 'allowActive', title: 'Active Switcher (/active)', desc: 'Select active target among running agents', icon: RefreshCw, color: 'text-accent' },
+                      { key: 'allowPrompts', title: 'Prompt Injection (/prompt)', desc: 'Send prompts into running agent stdin', icon: Send, color: 'text-state-success' },
+                      { key: 'allowScreen', title: 'Desktop Screenshot (/screen)', desc: 'Capture & send live desktop screen JPEG', icon: Activity, color: 'text-state-warning' },
                       { key: 'allowDiff', title: 'Git Diff (/diff)', desc: 'Inspect modified files and commit diff stats', icon: Share2, color: 'text-purple-400' },
-                      { key: 'allowCancel', title: 'Stop Agent (/stop)', desc: 'Send Ctrl+C SIGINT to halt active session', icon: Power, color: 'text-rose-400' },
+                      { key: 'allowCancel', title: 'Stop Agent (/stop)', desc: 'Send Ctrl+C SIGINT to halt active session', icon: Power, color: 'text-state-danger' },
                     ].map(feat => {
                       const FeatIcon = feat.icon;
                       const isChecked = (pocketFeatures as any)[feat.key] ?? true;
@@ -2046,7 +2046,7 @@ export const SettingsView: React.FC = () => {
                           </div>
 
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className={`text-[10px] font-bold font-mono px-1.5 py-0.2 rounded ${isChecked ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-400'}`}>
+                            <span className={`text-[10px] font-bold font-mono px-1.5 py-0.2 rounded ${isChecked ? 'bg-emerald-500/10 text-state-success border border-emerald-500/20' : 'bg-slate-500/10 text-content-muted'}`}>
                               {isChecked ? 'ON' : 'OFF'}
                             </span>
                             <input
@@ -2069,9 +2069,9 @@ export const SettingsView: React.FC = () => {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
                     {[
-                      { key: 'notifyDone', title: 'Task Finished Alert', desc: 'Push message when an agent finishes work', color: 'text-emerald-400' },
-                      { key: 'notifyError', title: 'Error & Failure Alert', desc: 'Immediate alert if an agent throws error', color: 'text-rose-400' },
-                      { key: 'notifyApproval', title: 'Approval Needed Alert', desc: 'Notify when agent pauses for permission', color: 'text-amber-400' },
+                      { key: 'notifyDone', title: 'Task Finished Alert', desc: 'Push message when an agent finishes work', color: 'text-state-success' },
+                      { key: 'notifyError', title: 'Error & Failure Alert', desc: 'Immediate alert if an agent throws error', color: 'text-state-danger' },
+                      { key: 'notifyApproval', title: 'Approval Needed Alert', desc: 'Notify when agent pauses for permission', color: 'text-state-warning' },
                     ].map(ntf => {
                       const isChecked = (pocketNotifications as any)[ntf.key] ?? true;
                       return (
@@ -2085,7 +2085,7 @@ export const SettingsView: React.FC = () => {
                           </div>
 
                           <div className="flex items-center gap-1.5 shrink-0">
-                            <span className={`text-[10px] font-bold font-mono px-1.5 py-0.2 rounded ${isChecked ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400'}`}>
+                            <span className={`text-[10px] font-bold font-mono px-1.5 py-0.2 rounded ${isChecked ? 'bg-emerald-500/10 text-state-success' : 'bg-slate-500/10 text-content-muted'}`}>
                               {isChecked ? 'ON' : 'OFF'}
                             </span>
                             <input
@@ -2120,7 +2120,7 @@ export const SettingsView: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                    <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-state-success border border-emerald-500/20 font-bold">
                       {diagnosticsScore}
                     </span>
                     <Button
@@ -2146,10 +2146,10 @@ export const SettingsView: React.FC = () => {
                           <span
                             className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                               item.status === 'Pass'
-                                ? 'bg-emerald-500/10 text-emerald-400'
+                                ? 'bg-emerald-500/10 text-state-success'
                                 : item.status === 'Warning'
-                                ? 'bg-amber-500/10 text-amber-400'
-                                : 'bg-rose-500/10 text-rose-400'
+                                ? 'bg-amber-500/10 text-state-warning'
+                                : 'bg-rose-500/10 text-state-danger'
                             }`}
                           >
                             {item.status}
@@ -2202,7 +2202,7 @@ export const SettingsView: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
                     <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">System & CLI Execution Logs</h3>
-                    <span className="text-[11px] font-mono text-sky-400">({filteredLogs.length} entries)</span>
+                    <span className="text-[11px] font-mono text-accent">({filteredLogs.length} entries)</span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -2236,7 +2236,7 @@ export const SettingsView: React.FC = () => {
                       onClick={() => setLogsFilter(f)}
                       className={`px-2.5 py-1 rounded text-[11px] font-medium capitalize transition-all ${
                         logsFilter === f
-                          ? 'bg-sky-500/20 text-sky-400 font-bold border border-sky-500/30'
+                          ? 'bg-sky-500/20 text-accent font-bold border border-sky-500/30'
                           : 'bg-[var(--bg-input,#0D1322)] text-[var(--text-dim,#64748B)] hover:text-white'
                       }`}
                     >
@@ -2246,19 +2246,19 @@ export const SettingsView: React.FC = () => {
                 </div>
 
                 {/* Console view */}
-                <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] font-mono text-xs text-slate-300 h-80 overflow-y-auto space-y-1">
+                <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] font-mono text-xs text-content-muted h-80 overflow-y-auto space-y-1">
                   {filteredLogs.map(l => (
                     <div key={l.id} className="flex items-start gap-2 leading-relaxed">
                       <span className="text-[var(--text-dim,#64748B)]">{l.timestamp}</span>
                       <span
                         className={`font-bold uppercase text-[10px] px-1 py-0.2 rounded ${
-                          l.level === 'error' ? 'text-rose-400 bg-rose-500/10' : l.level === 'warn' ? 'text-amber-400 bg-amber-500/10' : 'text-emerald-400 bg-emerald-500/10'
+                          l.level === 'error' ? 'text-state-danger bg-rose-500/10' : l.level === 'warn' ? 'text-state-warning bg-amber-500/10' : 'text-state-success bg-emerald-500/10'
                         }`}
                       >
                         {l.level}
                       </span>
-                      <span className="text-sky-400 font-medium">[{l.source}]</span>
-                      <span className="text-slate-200">{l.message}</span>
+                      <span className="text-accent font-medium">[{l.source}]</span>
+                      <span className="text-content-main">{l.message}</span>
                     </div>
                   ))}
 
@@ -2289,7 +2289,7 @@ export const SettingsView: React.FC = () => {
                       <h3 className="text-base font-black tracking-wide text-[var(--text-main,#F1F5F9)]">
                         ABOUT AGENTS HUB
                       </h3>
-                      <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/10 text-accent border border-sky-500/20">
                         v{updateInfo?.currentVersion || '1.0.5'}
                       </span>
                     </div>
@@ -2361,7 +2361,7 @@ export const SettingsView: React.FC = () => {
                     <div className="space-y-1.5 pt-2 border-t border-[var(--border-subtle,#1E293B)]">
                       <div className="flex items-center justify-between text-xs text-[var(--text-dim,#64748B)]">
                         <span>{downloadProgressLabel || 'Downloading installer package...'}</span>
-                        <span className="font-mono font-bold text-emerald-400">{downloadProgress}%</span>
+                        <span className="font-mono font-bold text-state-success">{downloadProgress}%</span>
                       </div>
                       <div className="w-full h-2 rounded-full bg-[var(--bg-app,#080D1A)] border border-[var(--border-subtle,#1E293B)] overflow-hidden">
                         <div
@@ -2376,11 +2376,11 @@ export const SettingsView: React.FC = () => {
                   {updateInfo?.isUpdateAvailable && (
                     <div className="p-3.5 rounded-xl bg-[var(--bg-app,#080D1A)] border border-emerald-500/30 space-y-2 mt-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold tracking-wider text-emerald-400 uppercase flex items-center gap-1.5">
+                        <span className="text-[11px] font-bold tracking-wider text-state-success uppercase flex items-center gap-1.5">
                           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
                           New Release Available
                         </span>
-                        <span className="text-xs font-mono text-cyan-400 font-bold px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">
+                        <span className="text-xs font-mono text-accent font-bold px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">
                           v{updateInfo.latestVersion}
                         </span>
                       </div>
@@ -2397,7 +2397,7 @@ export const SettingsView: React.FC = () => {
                 {/* Quick-Start User Guide & Tour Launcher Card */}
                 <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-state-success shrink-0">
                       <HelpCircle className="w-5 h-5" />
                     </div>
                     <div>
@@ -2456,7 +2456,7 @@ export const SettingsView: React.FC = () => {
                         className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] hover:border-sky-500/30 hover:bg-[var(--bg-card,#0F172A)] transition-all flex items-center justify-between text-left group cursor-pointer"
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-8 h-8 rounded-lg bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-center text-sky-400 group-hover:scale-105 transition-transform shrink-0">
+                          <div className="w-8 h-8 rounded-lg bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-center text-accent group-hover:scale-105 transition-transform shrink-0">
                             <Icon className="w-4 h-4" />
                           </div>
                           <div className="min-w-0">
@@ -2464,7 +2464,7 @@ export const SettingsView: React.FC = () => {
                             <div className="text-[11px] text-[var(--text-dim,#64748B)] truncate">{link.value}</div>
                           </div>
                         </div>
-                        <ExternalLink className="w-3.5 h-3.5 text-[var(--text-dim,#64748B)] group-hover:text-sky-400 shrink-0 ml-2" />
+                        <ExternalLink className="w-3.5 h-3.5 text-[var(--text-dim,#64748B)] group-hover:text-accent shrink-0 ml-2" />
                       </button>
                     );
                   })}
@@ -2473,7 +2473,7 @@ export const SettingsView: React.FC = () => {
                 {/* System Diagnostics & Specifications Grid */}
                 <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-3">
                   <div className="text-xs font-bold text-[var(--text-main,#F1F5F9)] uppercase tracking-wider flex items-center gap-2">
-                    <Cpu className="w-4 h-4 text-sky-400" />
+                    <Cpu className="w-4 h-4 text-accent" />
                     System Diagnostics & Specifications
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
@@ -2502,11 +2502,11 @@ export const SettingsView: React.FC = () => {
       {/* MODAL 1: ADD CUSTOM CLI ENGINE */}
       {/* ======================================================== */}
       {showAddCliModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-sunken backdrop-blur-sm animate-in fade-in">
           <div className="w-full max-w-md p-6 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle,#1E293B)]">
               <div className="flex items-center gap-2.5">
-                <Terminal className="w-5 h-5 text-sky-400" />
+                <Terminal className="w-5 h-5 text-accent" />
                 <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">Add Custom AI CLI Engine</h3>
               </div>
               <button onClick={() => setShowAddCliModal(false)} className="text-[var(--text-dim,#64748B)] hover:text-white">
@@ -2611,11 +2611,11 @@ export const SettingsView: React.FC = () => {
       {/* MODAL 2: ADD MCP SERVER */}
       {/* ======================================================== */}
       {showAddMcpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-sunken backdrop-blur-sm animate-in fade-in">
           <div className="w-full max-w-md p-6 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle,#1E293B)]">
               <div className="flex items-center gap-2.5">
-                <Boxes className="w-5 h-5 text-sky-400" />
+                <Boxes className="w-5 h-5 text-accent" />
                 <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">Register MCP Server</h3>
               </div>
               <button onClick={() => setShowAddMcpModal(false)} className="text-[var(--text-dim,#64748B)] hover:text-white">
@@ -2708,11 +2708,11 @@ export const SettingsView: React.FC = () => {
       {/* MODAL: CONFIGURE MCP AUTHENTICATION */}
       {/* ======================================================== */}
       {showMcpAuthModal && authModalServer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in select-none">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-sunken backdrop-blur-sm animate-in fade-in select-none">
           <div className="w-full max-w-lg p-6 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle,#1E293B)]">
               <div className="flex items-center gap-2.5">
-                <KeyRound className="w-5 h-5 text-sky-400" />
+                <KeyRound className="w-5 h-5 text-accent" />
                 <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">
                   Configure Authentication: {authModalServer.name}
                 </h3>
@@ -2734,10 +2734,10 @@ export const SettingsView: React.FC = () => {
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold border ${
                     authModalServer.authStatus === 'Authenticated'
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      ? 'bg-emerald-500/10 text-state-success border-emerald-500/20'
                       : authModalServer.authStatus === 'TokenExpired'
-                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                      : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                      ? 'bg-amber-500/10 text-state-warning border-amber-500/20'
+                      : 'bg-rose-500/10 text-state-danger border-rose-500/20'
                   }`}
                 >
                   {authModalServer.authStatus === 'Authenticated'
@@ -2796,7 +2796,7 @@ export const SettingsView: React.FC = () => {
                         url: 'https://supabase.com/dashboard/account/tokens',
                       })
                     }
-                    className="text-[11px] text-sky-400 hover:text-sky-300 transition inline-flex items-center gap-1.5 cursor-pointer"
+                    className="text-[11px] text-accent hover:text-accent transition inline-flex items-center gap-1.5 cursor-pointer"
                   >
                     <span>Generate Personal Access Token in Supabase Dashboard</span>
                     <ExternalLink className="w-3 h-3" />
@@ -2810,8 +2810,8 @@ export const SettingsView: React.FC = () => {
               <div
                 className={`p-2.5 rounded-lg text-xs font-mono border ${
                   authFeedback.valid
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                    : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                    ? 'bg-emerald-500/10 text-state-success border-emerald-500/20'
+                    : 'bg-rose-500/10 text-state-danger border-rose-500/20'
                 }`}
               >
                 {authFeedback.message}
@@ -2879,11 +2879,11 @@ export const SettingsView: React.FC = () => {
       {/* MODAL 3: ADD AGENT RULE */}
       {/* ======================================================== */}
       {showAddRuleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-sunken backdrop-blur-sm animate-in fade-in">
           <div className="w-full max-w-md p-6 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle,#1E293B)]">
               <div className="flex items-center gap-2.5">
-                <ShieldCheck className="w-5 h-5 text-sky-400" />
+                <ShieldCheck className="w-5 h-5 text-accent" />
                 <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">Add Agent System Rule</h3>
               </div>
               <button onClick={() => setShowAddRuleModal(false)} className="text-[var(--text-dim,#64748B)] hover:text-white">
@@ -2974,11 +2974,11 @@ export const SettingsView: React.FC = () => {
       {/* MODAL 4: SCHEDULE AUTOMATION */}
       {/* ======================================================== */}
       {showAddAutoModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-surface-sunken backdrop-blur-sm animate-in fade-in">
           <div className="w-full max-w-md p-6 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle,#1E293B)]">
               <div className="flex items-center gap-2.5">
-                <Clock className="w-5 h-5 text-sky-400" />
+                <Clock className="w-5 h-5 text-accent" />
                 <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">Schedule Agent Automation</h3>
               </div>
               <button onClick={() => setShowAddAutoModal(false)} className="text-[var(--text-dim,#64748B)] hover:text-white">
@@ -3086,7 +3086,7 @@ export const SettingsView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/10 text-accent border border-sky-500/20">
                   Slide {tourSlide + 1} of 5
                 </span>
                 <button
@@ -3112,7 +3112,7 @@ export const SettingsView: React.FC = () => {
                   onClick={() => setTourSlide(idx)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                     tourSlide === idx
-                      ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                      ? 'bg-sky-500/20 text-accent border border-sky-500/30'
                       : 'text-[var(--text-dim,#64748B)] hover:text-white'
                   }`}
                 >
@@ -3139,11 +3139,11 @@ export const SettingsView: React.FC = () => {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
                     <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-1">
-                      <div className="text-xs font-bold text-sky-400">Hermes Engine</div>
+                      <div className="text-xs font-bold text-accent">Hermes Engine</div>
                       <div className="text-[11px] text-[var(--text-dim,#64748B)]">Self-orchestrating task execution with real-time feedback loops.</div>
                     </div>
                     <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-1">
-                      <div className="text-xs font-bold text-emerald-400">Antigravity (agy)</div>
+                      <div className="text-xs font-bold text-state-success">Antigravity (agy)</div>
                       <div className="text-[11px] text-[var(--text-dim,#64748B)]">Google DeepMind-powered agentic pair programmer.</div>
                     </div>
                     <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-1">
@@ -3169,7 +3169,7 @@ export const SettingsView: React.FC = () => {
                   </p>
 
                   <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-emerald-500/20 space-y-2">
-                    <div className="text-xs font-bold text-emerald-400 flex items-center gap-2">
+                    <div className="text-xs font-bold text-state-success flex items-center gap-2">
                       <Check className="w-4 h-4" />
                       Persistent Process Keep-Alive
                     </div>
@@ -3222,14 +3222,14 @@ export const SettingsView: React.FC = () => {
                   </p>
 
                   <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-sky-500/20 space-y-2">
-                    <div className="text-xs font-bold text-sky-400">Supported Commands</div>
+                    <div className="text-xs font-bold text-accent">Supported Commands</div>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs font-mono">
-                      <span className="text-slate-300">/run [profile]</span>
-                      <span className="text-slate-300">/prompt [text]</span>
-                      <span className="text-slate-300">/screen (JPEG)</span>
-                      <span className="text-slate-300">/active [agent]</span>
-                      <span className="text-slate-300">/diff (Git stats)</span>
-                      <span className="text-rose-400">/stop (SIGINT)</span>
+                      <span className="text-content-muted">/run [profile]</span>
+                      <span className="text-content-muted">/prompt [text]</span>
+                      <span className="text-content-muted">/screen (JPEG)</span>
+                      <span className="text-content-muted">/active [agent]</span>
+                      <span className="text-content-muted">/diff (Git stats)</span>
+                      <span className="text-state-danger">/stop (SIGINT)</span>
                     </div>
                   </div>
                 </div>
@@ -3256,7 +3256,7 @@ export const SettingsView: React.FC = () => {
                     ].map((sc, i) => (
                       <div key={i} className="p-3 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-between">
                         <span className="text-xs text-[var(--text-dim,#64748B)]">{sc.desc}</span>
-                        <kbd className="px-2 py-0.5 rounded bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] text-xs font-mono text-sky-400 font-bold">
+                        <kbd className="px-2 py-0.5 rounded bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] text-xs font-mono text-accent font-bold">
                           {sc.key}
                         </kbd>
                       </div>

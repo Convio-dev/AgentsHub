@@ -68,7 +68,7 @@ export const TimelineRow: React.FC<TimelineRowProps> = ({
       aria-expanded={isExpanded}
       aria-label={ariaLabel || `${verb ? `${verb} ` : ''}${subject}`}
       className={`group/row flex w-full items-center gap-1.5 rounded-[5px] py-[3px] pr-1 text-left font-mono text-[11px] leading-5 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-sky-500/60 ${
-        isRunning ? 'bg-sky-500/[0.05] hover:bg-sky-500/[0.09]' : 'hover:bg-white/[0.035]'
+        isRunning ? 'bg-sky-500/[0.05] hover:bg-sky-500/[0.09]' : 'hover:bg-surface-hover'
       }`}
     >
       <span

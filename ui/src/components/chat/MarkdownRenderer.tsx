@@ -1,24 +1,33 @@
 import React, { useState } from 'react';
-import { Copy, Check, Terminal } from 'lucide-react';
+import { Check, Copy, SquareTerminal } from 'lucide-react';
+import { copyToClipboard } from '../../lib/clipboard';
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
 }
 
+/**
+ * Renders assistant prose.
+ *
+ * Every colour here resolves through a theme token. The previous version hardcoded `text-slate-100`
+ * for the container and `text-slate-200` for paragraphs, which is why the reply became invisible on
+ * the light surface: light grey text on a white card.
+ */
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
   if (!content) return null;
 
   const parts = splitMarkdownBlocks(content);
 
   return (
-    <div className={`space-y-3 text-slate-100 text-[13.5px] leading-relaxed font-sans ${className}`}>
-      {parts.map((part, index) => {
-        if (part.type === 'code') {
-          return <CodeBlock key={index} language={part.lang} code={part.code} />;
-        }
-        return <ProseBlock key={index} text={part.text} />;
-      })}
+    <div className={`space-y-3 font-sans text-[13.5px] leading-relaxed text-content-main ${className}`}>
+      {parts.map((part, index) =>
+        part.type === 'code' ? (
+          <CodeBlock key={index} language={part.lang} code={part.code} />
+        ) : (
+          <ProseBlock key={index} text={part.text} />
+        )
+      )}
     </div>
   );
 };
@@ -38,26 +47,15 @@ function splitMarkdownBlocks(content: string): BlockPart[] {
 
   while ((match = regex.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      parts.push({
-        type: 'prose',
-        text: content.substring(lastIndex, match.index),
-      });
+      parts.push({ type: 'prose', text: content.substring(lastIndex, match.index) });
     }
 
-    parts.push({
-      type: 'code',
-      lang: match[1]?.trim() || 'code',
-      code: match[2],
-    });
-
+    parts.push({ type: 'code', lang: match[1]?.trim() || 'code', code: match[2] });
     lastIndex = regex.lastIndex;
   }
 
   if (lastIndex < content.length) {
-    parts.push({
-      type: 'prose',
-      text: content.substring(lastIndex),
-    });
+    parts.push({ type: 'prose', text: content.substring(lastIndex) });
   }
 
   return parts;
@@ -67,29 +65,31 @@ const CodeBlock: React.FC<{ language?: string; code?: string }> = ({ language = 
   const [copied, setCopied] = useState(false);
   const cleanCode = code.replace(/^\n+|\n+$/g, '');
 
-  const copy = () => {
-    navigator.clipboard.writeText(cleanCode);
+  const copy = async () => {
+    const ok = await copyToClipboard(cleanCode);
+    if (!ok) return;
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    window.setTimeout(() => setCopied(false), 1600);
   };
 
   return (
-    <div className="my-3 rounded-xl overflow-hidden border border-slate-800 bg-[#0b0f17] shadow-lg">
-      <div className="flex items-center justify-between px-3.5 py-2 bg-slate-900/90 border-b border-slate-800 font-mono text-xs select-none">
-        <span className="flex items-center gap-2 text-sky-400 font-semibold lowercase">
-          <Terminal className="w-3.5 h-3.5 text-slate-400" />
+    <div className="my-3 overflow-hidden rounded-xl border border-edge-code bg-surface-code">
+      <div className="flex select-none items-center justify-between border-b border-edge-code bg-surface-codeHeader px-3.5 py-2 font-mono text-xs">
+        <span className="flex items-center gap-2 font-semibold lowercase text-accent">
+          <SquareTerminal className="h-3.5 w-3.5 text-content-dim" />
           <span>{language || 'code'}</span>
         </span>
         <button
+          type="button"
           onClick={copy}
-          className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+          className="flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] text-content-muted transition-colors hover:bg-surface-hover hover:text-content-main"
           title="Copy code"
         >
-          {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+          {copied ? <Check className="h-3 w-3 text-state-success" /> : <Copy className="h-3 w-3" />}
           <span>{copied ? 'Copied' : 'Copy'}</span>
         </button>
       </div>
-      <pre className="p-4 text-xs font-mono text-slate-200 overflow-x-auto whitespace-pre leading-relaxed select-text">
+      <pre className="overflow-x-auto whitespace-pre p-4 font-mono text-xs leading-relaxed text-content-main">
         <code>{cleanCode}</code>
       </pre>
     </div>
@@ -111,7 +111,6 @@ const ProseBlock: React.FC<{ text?: string }> = ({ text = '' }) => {
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Table row detection
     if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
       tableBuffer.push(trimmed);
       continue;
@@ -124,10 +123,9 @@ const ProseBlock: React.FC<{ text?: string }> = ({ text = '' }) => {
       continue;
     }
 
-    // Headers
     if (line.startsWith('### ')) {
       elements.push(
-        <h3 key={i} className="text-xs font-bold text-sky-400 mt-3 mb-1 font-mono uppercase tracking-wider">
+        <h3 key={i} className="mb-1 mt-3 font-mono text-xs font-bold uppercase tracking-wider text-accent">
           {line.slice(4)}
         </h3>
       );
@@ -135,7 +133,7 @@ const ProseBlock: React.FC<{ text?: string }> = ({ text = '' }) => {
     }
     if (line.startsWith('## ')) {
       elements.push(
-        <h2 key={i} className="text-sm font-bold text-slate-100 mt-3 mb-1 pb-1 border-b border-slate-800">
+        <h2 key={i} className="mb-1 mt-3 border-b border-surface-border pb-1 text-sm font-bold text-content-main">
           {line.slice(3)}
         </h2>
       );
@@ -143,42 +141,39 @@ const ProseBlock: React.FC<{ text?: string }> = ({ text = '' }) => {
     }
     if (line.startsWith('# ')) {
       elements.push(
-        <h1 key={i} className="text-base font-bold text-slate-100 mt-4 mb-2 pb-1 border-b border-slate-800">
+        <h1 key={i} className="mb-2 mt-4 border-b border-surface-border pb-1 text-base font-bold text-content-main">
           {line.slice(2)}
         </h1>
       );
       continue;
     }
 
-    // Bullet lists
-    if (/^[\-\*•]\s+/.test(trimmed)) {
+    if (/^[\-*•]\s+/.test(trimmed)) {
       elements.push(
-        <div key={i} className="flex items-start space-x-2 pl-2 my-1">
-          <span className="text-sky-400 font-bold select-none text-xs mt-1">•</span>
-          <span className="flex-1 text-slate-200">{renderInlineTokens(trimmed.replace(/^[\-\*•]\s+/, ''))}</span>
+        <div key={i} className="my-1 flex items-start space-x-2 pl-2">
+          <span className="mt-1 select-none text-xs font-bold text-accent">•</span>
+          <span className="flex-1 text-content-main">{renderInlineTokens(trimmed.replace(/^[\-*•]\s+/, ''))}</span>
         </div>
       );
       continue;
     }
 
-    // Numbered lists
     if (/^\d+\.\s+/.test(trimmed)) {
       const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
       elements.push(
-        <div key={i} className="flex items-start space-x-2 pl-2 my-1">
-          <span className="text-sky-400 font-mono text-xs select-none mt-1">{numMatch?.[1]}.</span>
-          <span className="flex-1 text-slate-200">{renderInlineTokens(numMatch?.[2] || '')}</span>
+        <div key={i} className="my-1 flex items-start space-x-2 pl-2">
+          <span className="mt-1 select-none font-mono text-xs text-accent">{numMatch?.[1]}.</span>
+          <span className="flex-1 text-content-main">{renderInlineTokens(numMatch?.[2] || '')}</span>
         </div>
       );
       continue;
     }
 
-    // Blockquotes
     if (trimmed.startsWith('> ')) {
       elements.push(
         <blockquote
           key={i}
-          className="border-l-2 border-sky-500/60 pl-3.5 py-1.5 my-2 text-slate-300 italic bg-slate-900/50 rounded-r text-xs leading-relaxed"
+          className="my-2 rounded-r border-l-2 border-accent/60 bg-surface-sunken py-1.5 pl-3.5 pr-2 text-xs italic leading-relaxed text-content-muted"
         >
           {renderInlineTokens(trimmed.slice(2))}
         </blockquote>
@@ -186,17 +181,14 @@ const ProseBlock: React.FC<{ text?: string }> = ({ text = '' }) => {
       continue;
     }
 
-    // Standard paragraph
     elements.push(
-      <p key={i} className="my-1 text-slate-200 leading-relaxed">
+      <p key={i} className="my-1 leading-relaxed text-content-main">
         {renderInlineTokens(line)}
       </p>
     );
   }
 
-  if (tableBuffer.length > 0) {
-    flushTable(lines.length);
-  }
+  if (tableBuffer.length > 0) flushTable(lines.length);
 
   return <div className="space-y-1">{elements}</div>;
 };
@@ -204,22 +196,21 @@ const ProseBlock: React.FC<{ text?: string }> = ({ text = '' }) => {
 const MarkdownTable: React.FC<{ rawLines: string[] }> = ({ rawLines }) => {
   if (rawLines.length === 0) return null;
 
-  const parseRow = (line: string) => {
-    return line
+  const parseRow = (line: string) =>
+    line
       .slice(1, -1)
       .split('|')
       .map(cell => cell.trim());
-  };
 
   const headerRow = parseRow(rawLines[0]);
   const hasDivider = rawLines.length > 1 && /^[\s|:\-]+$/.test(rawLines[1]);
   const dataRows = rawLines.slice(hasDivider ? 2 : 1).map(parseRow);
 
   return (
-    <div className="my-3 overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/70 shadow-sm">
-      <table className="w-full text-left text-xs border-collapse">
+    <div className="my-3 overflow-x-auto rounded-xl border border-surface-border bg-surface-code">
+      <table className="w-full border-collapse text-left text-xs">
         <thead>
-          <tr className="bg-slate-900 border-b border-slate-800 font-mono text-sky-400">
+          <tr className="border-b border-surface-border bg-surface-codeHeader font-mono text-accent">
             {headerRow.map((cell, idx) => (
               <th key={idx} className="px-3.5 py-2 font-semibold tracking-wide">
                 {renderInlineTokens(cell)}
@@ -227,9 +218,9 @@ const MarkdownTable: React.FC<{ rawLines: string[] }> = ({ rawLines }) => {
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-800/60 text-slate-200 font-sans">
+        <tbody className="divide-y divide-surface-border/60 font-sans text-content-main">
           {dataRows.map((row, rIdx) => (
-            <tr key={rIdx} className="hover:bg-slate-900/40 transition">
+            <tr key={rIdx} className="transition-colors hover:bg-surface-hover">
               {row.map((cell, cIdx) => (
                 <td key={cIdx} className="px-3.5 py-2">
                   {renderInlineTokens(cell)}
@@ -259,14 +250,14 @@ function renderInlineTokens(line: string): React.ReactNode[] {
       tokens.push(
         <code
           key={match.index}
-          className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-800/90 border border-slate-700/70 text-sky-300 font-mono text-[11.5px]"
+          className="mx-0.5 rounded border border-edge-code bg-surface-strong px-1.5 py-0.5 font-mono text-[11.5px] text-accent"
         >
           {token.slice(1, -1)}
         </code>
       );
     } else if (token.startsWith('**') && token.endsWith('**')) {
       tokens.push(
-        <strong key={match.index} className="font-semibold text-slate-100">
+        <strong key={match.index} className="font-semibold text-content-main">
           {token.slice(2, -2)}
         </strong>
       );
@@ -279,7 +270,7 @@ function renderInlineTokens(line: string): React.ReactNode[] {
             href={linkMatch[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sky-400 hover:text-sky-300 underline font-medium"
+            className="font-medium text-accent underline decoration-accent/40 hover:decoration-accent"
           >
             {linkMatch[1]}
           </a>

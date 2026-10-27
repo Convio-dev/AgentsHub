@@ -38,14 +38,15 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
     activeSessions: 0,
     version: 'v2.0.0',
   },
+  // Zeroed until the host reports real numbers: a plausible-looking placeholder reads as fact.
   telemetry: {
-    netKbps: 6,
-    netMbps: 0.05,
-    ramMb: 16276,
-    totalRamMb: 32768,
-    memoryUsedGb: 15.9,
-    memoryTotalGb: 32,
-    hermesMemMb: 140,
+    netKbps: 0,
+    netMbps: 0,
+    ramMb: 0,
+    totalRamMb: 0,
+    memoryUsedGb: 0,
+    memoryTotalGb: 0,
+    hermesMemMb: 0,
   },
   activeView: (function (): ActiveView {
     try {
@@ -141,7 +142,7 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
                 provider: (typeof p === 'object' && p.provider) ? p.provider : 'Google Antigravity',
               }))
             : [];
-          useProfileStore.getState().setProfilesData(mapped, ag.activeProfile, ag.model || 'Gemini 3.8 Flash (High)');
+          useProfileStore.getState().setProfilesData(mapped, ag.activeProfile, ag.model);
         }
       }
 

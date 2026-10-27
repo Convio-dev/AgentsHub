@@ -305,7 +305,7 @@ public sealed class SidecarHostService : IDisposable
         }).ConfigureAwait(false);
     }
 
-    public async Task SendChatAsync(string sessionId, string prompt, string? model = null, string? profile = null, string? workingDirectory = null)
+    public async Task SendChatAsync(string sessionId, string prompt, string? model = null, string? profile = null, string? workingDirectory = null, string? reasoningEffort = null)
     {
         await EnsureOnlineAsync().ConfigureAwait(false);
         await _client.SendAsync(new SendChatRequest
@@ -314,6 +314,7 @@ public sealed class SidecarHostService : IDisposable
             Prompt = prompt,
             Model = model,
             Profile = profile,
+            ReasoningEffort = reasoningEffort,
             WorkingDirectory = workingDirectory
         }).ConfigureAwait(false);
     }

@@ -19,6 +19,7 @@ import {
 import { generateSessionTitle } from '../services/sessionTitleGenerator';
 import { classifyTool, extractCommand, extractPath, normaliseOutput } from '../lib/toolMeta';
 import { migrateTimelineNodes } from '../lib/timelineMigration';
+import { isUnsetProfile } from '../lib/profileName';
 
 const STORAGE_KEY_SESSIONS = 'agentshub_sessions_v2';
 const STORAGE_KEY_ACTIVE = 'agentshub_active_session_v2';
@@ -109,13 +110,15 @@ function loadPersistedSessions(): { sessions: Record<string, SessionRecord>; act
       if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
         for (const k of Object.keys(parsed)) {
           const s = parsed[k];
-          if (!s.profile || s.profile.toLowerCase() === 'default') {
-            s.profile = 'ZXR@1';
+          // Legacy records may hold a bare "default" (or nothing at all); an empty id means
+          // "unconfigured" and the host resolves the active profile from there.
+          if (isUnsetProfile(s.profile)) {
+            s.profile = '';
           }
           if (Array.isArray(s.messages)) {
             for (const m of s.messages) {
-              if (m.profile && m.profile.toLowerCase() === 'default') {
-                m.profile = 'ZXR@1';
+              if (isUnsetProfile(m.profile)) {
+                m.profile = '';
               }
               // Repair rows written by the old renderer, which stored stringified params bags as
               // command text and never recorded a tool kind.
@@ -148,9 +151,10 @@ function loadPersistedSessions(): { sessions: Record<string, SessionRecord>; act
     isPinned: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    profile: 'ZXR@1',
-    model: 'Gemini 3.8 Flash (High)',
-    quotaPercent: 100,
+    profile: '',
+    // Unknown until the engine reports one; the composer shows the resolved default.
+    model: '',
+    quotaPercent: undefined,
     tokens: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 },
     status: 'idle',
     messages: [],
@@ -219,8 +223,8 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     return sessions[activeSessionId];
   },
 
-  createSession: (profile = 'ZXR@1', initialModel = 'Gemini 3.8 Flash (High)') => {
-    const resolvedProfile = profile.toLowerCase() === 'default' ? 'ZXR@1' : profile;
+  createSession: (profile = '', initialModel = '') => {
+    const resolvedProfile = isUnsetProfile(profile) ? '' : profile;
     const id = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const newSession: SessionRecord = {
       id,
@@ -357,9 +361,9 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       const target = state.sessions[sessionId];
       if (!target) return state;
 
-      const resolvedProfile = profile && profile.toLowerCase() !== 'default'
-        ? profile
-        : (target.profile && target.profile.toLowerCase() !== 'default' ? target.profile : 'ZXR@1');
+      const resolvedProfile = !isUnsetProfile(profile)
+        ? (profile as string)
+        : (isUnsetProfile(target.profile) ? '' : target.profile);
 
       const turn = target.messages.filter(m => m.sender === 'user').length + 1;
 

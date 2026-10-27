@@ -2,38 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  /* AgentsHub v2.0 Deep Slate & Charcoal Palette */
-  --bg-app: #0B0F17;
-  --bg-sidebar: #0F172A;
-  --bg-header: #0B0F17;
-  --bg-card: #141420;
-  --bg-card-hover: #1A1A2B;
-  --bg-input: #12121C;
-  --border-subtle: #1E293B;
-  --border-light: #2C2C44;
-  --border-focus: #0284C7;
-  --text-main: #F1F5F9;
-  --text-muted: #94A3B8;
-  --text-dim: #64748B;
+/*
+ * Theme tokens.
+ *
+ * Every component reads colour through these variables, never through a literal slate/white value.
+ * That is the only way one class list stays readable in both themes: a hardcoded `text-slate-100`
+ * is invisible on the light surface, which is exactly how the assistant body lost its contrast.
+ *
+ * Dark is the default (`:root`); `[data-theme="light"]` overrides the same names. `useThemeStore`
+ * additionally writes inline values for the accent tint, so the palette follows the chosen accent
+ * without duplicating any of this in JavaScript.
+ */
 
-  /* Accents - Professional Slate/Sky (Strictly No Purple Slop) */
-  --accent-blue: #0284C7;
-  --accent-blue-hover: #0369A1;
-  --accent-sky: #38BDF8;
-  --accent-cyan: #38BDF8;
+:root,
+[data-theme='dark'] {
+  --bg-app: #0b0f17;
+  --bg-sidebar: #0f172a;
+  --bg-header: #0b0f17;
+  --bg-card: #141420;
+  --bg-card-hover: #1a1a2b;
+  --bg-input: #12121c;
+  --bg-terminal: #07090e;
+  --bg-code: #07090e;
+  --bg-code-header: #0d1220;
+
+  --border-subtle: #1e293b;
+  --border-light: #2c2c44;
+  --border-code: #1e293b;
+  --border-focus: #0284c7;
+  --border-hover: #0284c7;
+
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  --text-inverse: #ffffff;
+
+  /* Translucent interaction layers, so hover states stay visible on both themes. */
+  --overlay-hover: rgba(255, 255, 255, 0.035);
+  --overlay-strong: rgba(255, 255, 255, 0.07);
+  --overlay-sunken: rgba(0, 0, 0, 0.25);
+
+  --accent-blue: #0284c7;
+  --accent-blue-hover: #0369a1;
+  --accent-sky: #38bdf8;
+  --accent-cyan: #38bdf8;
   --accent-sky-bg: rgba(2, 132, 199, 0.15);
-  --accent-green: #10B981;
+  --accent-green: #10b981;
   --accent-green-hover: #059669;
   --accent-green-bg: rgba(16, 185, 129, 0.15);
-  --accent-amber: #F59E0B;
+  --accent-amber: #f59e0b;
   --accent-amber-bg: rgba(245, 158, 11, 0.15);
-  --accent-red: #F43F5E;
+  --accent-red: #f43f5e;
   --accent-red-bg: rgba(244, 63, 94, 0.15);
-  --accent-text: #FFFFFF;
+  --accent-text: #ffffff;
 
-  --bg-terminal: #07090E;
-  --border-hover: #0284C7;
+  /* Readable-on-surface variants of the state colours (8.6:1, 9.2:1, 8.1:1, 9.4:1 on --bg-app). */
+  --accent-ink: #38bdf8;
+  --state-success: #34d399;
+  --state-danger: #fb7185;
+  --state-warning: #fbbf24;
+
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   --radius-sm: 6px;
@@ -43,6 +71,48 @@
   --sidebar-secondary-width: 260px;
 
   color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --bg-app: #f6f7f9;
+  --bg-sidebar: #ffffff;
+  --bg-header: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --bg-input: #ffffff;
+  --bg-terminal: #f8fafc;
+  --bg-code: #f8fafc;
+  --bg-code-header: #f1f5f9;
+
+  --border-subtle: #e2e8f0;
+  --border-light: #cbd5e1;
+  --border-code: #e2e8f0;
+  --border-focus: #0284c7;
+  --border-hover: #0284c7;
+
+  /* 15.9:1, 7.5:1 and 4.8:1 against #FFFFFF — at or above WCAG AA for body text. */
+  --text-main: #0f172a;
+  --text-muted: #475569;
+  --text-dim: #64748b;
+  --text-inverse: #ffffff;
+
+  --overlay-hover: rgba(15, 23, 42, 0.04);
+  --overlay-strong: rgba(15, 23, 42, 0.07);
+  --overlay-sunken: rgba(15, 23, 42, 0.03);
+
+  --accent-sky-bg: rgba(2, 132, 199, 0.1);
+  --accent-green-bg: rgba(16, 185, 129, 0.12);
+  --accent-amber-bg: rgba(245, 158, 11, 0.14);
+  --accent-red-bg: rgba(244, 63, 94, 0.1);
+  --accent-text: #ffffff;
+
+  /* Darkened for the light surface: 5.4:1, 4.9:1, 5.9:1, 4.7:1 on #FFFFFF. */
+  --accent-ink: #0369a1;
+  --state-success: #047857;
+  --state-danger: #be123c;
+  --state-warning: #b45309;
+
+  color-scheme: light;
 }
 
 body {
@@ -67,32 +137,49 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1E293B;
+  background: var(--border-light);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: var(--text-dim);
 }
 
 /* Text Selection */
 ::selection {
-  background-color: rgba(56, 189, 248, 0.25);
-  color: #38BDF8;
+  background-color: color-mix(in srgb, var(--accent-sky) 28%, transparent);
+  color: var(--text-main);
 }
 
 /* Input / textarea caret */
-input, textarea {
-  caret-color: #38BDF8;
+input,
+textarea {
+  caret-color: var(--accent-sky);
   user-select: text;
 }
 
 /* Utility Animations */
 @keyframes pulseSubtle {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 
 .animate-pulse-subtle {
   animation: pulseSubtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Spinner ring for the morphing send/stop button. */
+@keyframes actionRing {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.action-ring {
+  animation: actionRing 900ms linear infinite;
 }

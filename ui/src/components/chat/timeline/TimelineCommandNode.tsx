@@ -47,7 +47,7 @@ export const TimelineCommandNode: React.FC<TimelineCommandNodeProps> = ({ node }
       meta={
         <>
           {isFailed && node.exitCode !== undefined ? (
-            <span className="font-mono text-[10px] text-rose-400/90">exit {node.exitCode}</span>
+            <span className="font-mono text-[10px] text-state-danger/90">exit {node.exitCode}</span>
           ) : null}
           {durationLabel ? (
             <span className="font-mono text-[10px] tabular-nums text-content-dim">{durationLabel}</span>

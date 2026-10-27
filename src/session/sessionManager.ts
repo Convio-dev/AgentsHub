@@ -49,7 +49,7 @@ export interface ChatSessionState {
 
 export class SessionManager {
   private profiles = new Map<string, ProfileRecord>();
-  private activeProfileName: string = 'ZXR@1';
+  private activeProfileName: string = 'default';
   private activeSessions = new Map<string, ChatSessionState>();
   private profileActiveSessionIds = new Map<string, string>(); // profileName -> sessionId
   private profileQuotas = new Map<string, { quotaPercent: number; details?: string; lastPolled: number }>();
@@ -107,7 +107,7 @@ export class SessionManager {
       const first = Array.from(this.profiles.values())[0];
       this.activeProfileName = first.name;
     } else {
-      this.activeProfileName = 'ZXR@1';
+      this.activeProfileName = 'default';
     }
   }
 
@@ -128,7 +128,7 @@ export class SessionManager {
     if (!resolved || resolved.toLowerCase() === 'default') {
       resolved = this.activeProfileName.toLowerCase() !== 'default'
         ? this.activeProfileName
-        : (Array.from(this.profiles.values()).find(p => p.name.toLowerCase() !== 'default')?.name || 'ZXR@1');
+        : (Array.from(this.profiles.values()).find(p => p.name.toLowerCase() !== 'default')?.name || 'default');
     }
 
     const sanitized = resolved.replace(/[^a-zA-Z0-9_\-\.@]/g, '_');
@@ -243,7 +243,7 @@ export class SessionManager {
     let active = this.profiles.get(this.activeProfileName.toLowerCase());
     if (!active || active.name.toLowerCase() === 'default') {
       active = Array.from(this.profiles.values()).find(p => p.name.toLowerCase() !== 'default') || {
-        name: 'ZXR@1',
+        name: 'default',
         provider: 'Antigravity'
       };
       this.activeProfileName = active.name;
@@ -457,14 +457,15 @@ export class SessionManager {
     prompt: string;
     model?: string;
     profile?: string;
+    reasoningEffort?: string;
     workingDirectory?: string;
   }): Promise<void> {
-    const { sessionId, prompt, model, profile, workingDirectory } = params;
+    const { sessionId, prompt, model, profile, reasoningEffort, workingDirectory } = params;
     let targetProfile = profile || this.activeProfileName;
     if (!targetProfile || targetProfile.toLowerCase() === 'default') {
       targetProfile = this.activeProfileName.toLowerCase() !== 'default'
         ? this.activeProfileName
-        : (Array.from(this.profiles.values()).find(p => p.name.toLowerCase() !== 'default')?.name || 'ZXR@1');
+        : (Array.from(this.profiles.values()).find(p => p.name.toLowerCase() !== 'default')?.name || 'default');
     }
 
     const virtualHomeDir = this.prepareVirtualHome(targetProfile);
@@ -488,6 +489,7 @@ export class SessionManager {
       abortController,
       scopedEnv,
       model: model || 'Gemini 3.8 Flash (High)',
+      reasoningEffort,
       quotaPercent: cachedQuota?.quotaPercent,
       tokens: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 }
     };
@@ -687,6 +689,10 @@ export class SessionManager {
     if (model) {
       agyArgs.push('--model', model);
     }
+    // `agy --effort` accepts low|medium|high|xhigh|max; only pass it when the session has one.
+    if (sessionState.reasoningEffort) {
+      agyArgs.push('--effort', sessionState.reasoningEffort);
+    }
     agyArgs.push('-p', prompt);
 
     let hasReceivedAnyToken = false;
@@ -816,6 +822,7 @@ export class SessionManager {
       '--dangerously-skip-permissions'
     ];
     if (model) agyArgs.push('--model', model);
+    if (sessionState.reasoningEffort) agyArgs.push('--effort', sessionState.reasoningEffort);
     agyArgs.push('-p', prompt);
 
     const proc = Bun.spawn([agyCmd, ...agyArgs], {

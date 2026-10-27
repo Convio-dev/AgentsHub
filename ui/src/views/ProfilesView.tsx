@@ -311,7 +311,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
             <button
               onClick={handleRotateIp}
               disabled={isRotatingIp}
-              className="px-3 py-1.5 bg-surface-card hover:bg-slate-800 text-amber-400 border border-amber-800/50 rounded-lg text-xs font-mono font-medium flex items-center space-x-1.5 transition"
+              className="px-3 py-1.5 bg-surface-card hover:bg-slate-800 text-state-warning border border-amber-800/50 rounded-lg text-xs font-mono font-medium flex items-center space-x-1.5 transition"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRotatingIp ? 'animate-spin' : ''}`} />
               <span>Rotate WARP IP</span>
@@ -334,7 +334,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
             onClick={() => setIsGatewayExpanded(!isGatewayExpanded)}
           >
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-state-success">
                 <Shield className="w-4 h-4" />
               </div>
               <div className="flex items-center gap-2.5 flex-wrap">
@@ -342,8 +342,8 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                 <span
                   className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold border ${
                     isInjectionEnabled
-                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                      ? 'bg-emerald-500/15 text-state-success border-emerald-500/30'
+                      : 'bg-slate-800 text-content-muted border-surface-border'
                   }`}
                 >
                   {isInjectionEnabled ? 'Configured' : 'Injection Disabled'}
@@ -407,7 +407,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-content-main">OpenRouter API Keys (Failover Pool)</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-400 font-mono font-semibold">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-accent font-mono font-semibold">
                       {apiKeys.length} {apiKeys.length === 1 ? 'key' : 'keys'}
                     </span>
                   </div>
@@ -416,7 +416,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                     <button
                       type="button"
                       onClick={handleAddApiKeyRow}
-                      className="px-2.5 py-1 rounded bg-surface-deep border border-surface-border text-xs text-sky-400 font-semibold hover:border-sky-500 transition"
+                      className="px-2.5 py-1 rounded bg-surface-deep border border-surface-border text-xs text-accent font-semibold hover:border-sky-500 transition"
                     >
                       + Add Key
                     </button>
@@ -449,7 +449,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                         <button
                           type="button"
                           onClick={() => handleRemoveApiKeyRow(idx)}
-                          className="p-1.5 rounded border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
+                          className="p-1.5 rounded border border-rose-500/30 bg-rose-500/10 text-state-danger hover:bg-rose-500/20"
                           title="Remove key"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -478,7 +478,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
               <div className="flex items-center justify-between flex-wrap gap-2 pt-3 border-t border-surface-border text-xs">
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-content-dim">{keyHealthStatus}</span>
-                  {freeModelsCount && <span className="text-emerald-400 font-semibold">{freeModelsCount}</span>}
+                  {freeModelsCount && <span className="text-state-success font-semibold">{freeModelsCount}</span>}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -495,7 +495,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                   <button
                     type="button"
                     onClick={handleClaudeLogout}
-                    className="px-3 py-1.5 bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500/25 text-rose-400 rounded-lg flex items-center gap-1.5 text-xs font-medium"
+                    className="px-3 py-1.5 bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500/25 text-state-danger rounded-lg flex items-center gap-1.5 text-xs font-medium"
                     title="Clears stored Anthropic login tokens to ensure OpenRouter token works cleanly"
                   >
                     <LogOut className="w-3.5 h-3.5" />
@@ -514,12 +514,12 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
             onClick={() => setIsWorkspacesExpanded(!isWorkspacesExpanded)}
           >
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+              <div className="w-8 h-8 rounded-lg bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-accent">
                 <Folder className="w-4 h-4" />
               </div>
               <div className="flex items-center gap-2.5 flex-wrap">
                 <span className="text-xs font-bold text-content-main">Project Workspaces & Context Profiles</span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 font-mono font-semibold">
+                <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/15 text-accent border border-cyan-500/30 font-mono font-semibold">
                   {activeWorkspace?.name || 'Default Workspace'}
                 </span>
                 <span className="text-[10px] px-2 py-0.5 rounded bg-surface-deep text-content-dim font-medium border border-surface-border">
@@ -532,7 +532,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
               <button
                 type="button"
                 onClick={handleOpenNewWorkspace}
-                className="px-3 py-1 bg-surface-deep border border-surface-border hover:border-cyan-500 text-cyan-400 rounded-lg text-xs font-medium flex items-center gap-1"
+                className="px-3 py-1 bg-surface-deep border border-surface-border hover:border-cyan-500 text-accent rounded-lg text-xs font-medium flex items-center gap-1"
               >
                 <Plus className="w-3 h-3" />
                 <span>New Workspace</span>
@@ -571,7 +571,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                         className={`p-3.5 rounded-xl border bg-surface-deep/60 transition cursor-pointer flex flex-col justify-between space-y-3 ${
                           isActive
                             ? 'border-cyan-500/70 ring-1 ring-cyan-500/40 bg-surface-deep/90'
-                            : 'border-surface-border hover:border-slate-700'
+                            : 'border-surface-border hover:border-surface-border'
                         }`}
                       >
                         <div>
@@ -584,7 +584,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                               </span>
                             </div>
                             {isActive && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 flex items-center gap-1">
+                              <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold bg-cyan-500/15 text-accent border border-cyan-500/30 flex items-center gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                                 ACTIVE
                               </span>
@@ -623,11 +623,11 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                           {/* Meta chips */}
                           <div className="flex items-center gap-2 mt-2.5 text-[10px] font-mono text-content-dim flex-wrap">
                             <span className="px-1.5 py-0.5 rounded bg-surface-card border border-surface-border flex items-center gap-1">
-                              <Users className="w-2.5 h-2.5 text-sky-400" />
+                              <Users className="w-2.5 h-2.5 text-accent" />
                               <span>{ws.antigravityProfile || 'Current Profile'}</span>
                             </span>
                             <span className="px-1.5 py-0.5 rounded bg-surface-card border border-surface-border flex items-center gap-1">
-                              <Layers className="w-2.5 h-2.5 text-slate-400" />
+                              <Layers className="w-2.5 h-2.5 text-content-muted" />
                               <span>{ws.primaryCli || 'Hermes'}</span>
                             </span>
                           </div>
@@ -655,7 +655,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                             <button
                               type="button"
                               onClick={() => deleteWorkspace(ws.id)}
-                              className="px-2 py-0.5 rounded text-[10.5px] font-medium bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20"
+                              className="px-2 py-0.5 rounded text-[10.5px] font-medium bg-rose-500/10 border border-rose-500/30 text-state-danger hover:bg-rose-500/20"
                             >
                               Delete
                             </button>
@@ -677,7 +677,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
               <span className="text-content-dim block text-[10px] uppercase font-semibold">Credential Store</span>
               <span className="text-content-main font-medium">Windows Credential Mgr</span>
             </div>
-            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-state-success border border-emerald-500/30">
               Encrypted
             </span>
           </div>
@@ -687,7 +687,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
               <span className="text-content-dim block text-[10px] uppercase font-semibold">VirtualHome Paths</span>
               <span className="text-content-main font-medium">~/.gemini/antigravity-ide</span>
             </div>
-            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30">
+            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-accent border border-sky-500/30">
               Isolated
             </span>
           </div>
@@ -697,7 +697,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
               <span className="text-content-dim block text-[10px] uppercase font-semibold">Port Range</span>
               <span className="text-content-main font-medium">127.0.0.1:9339 - 9350</span>
             </div>
-            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-state-success border border-emerald-500/30">
               Auto-Alloc
             </span>
           </div>
@@ -723,7 +723,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                   className={`p-4 rounded-xl border bg-surface-card transition shadow-sm flex flex-col justify-between space-y-3.5 ${
                     isRunning || isActive
                       ? 'border-emerald-500/60 ring-1 ring-emerald-500/20'
-                      : 'border-surface-border hover:border-slate-700'
+                      : 'border-surface-border hover:border-surface-border'
                   }`}
                 >
                   <div className="space-y-2">
@@ -732,8 +732,8 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                         <div
                           className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border ${
                             isRunning || isActive
-                              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                              ? 'bg-emerald-500/15 text-state-success border-emerald-500/30'
+                              : 'bg-slate-800 text-content-muted border-surface-border'
                           }`}
                         >
                           <Users className="w-5 h-5" />
@@ -752,15 +752,15 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
 
                       <div className="flex items-center space-x-1.5 flex-shrink-0">
                         {isActive && (
-                          <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                          <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-sky-500/15 text-accent border border-sky-500/30">
                             ACTIVE
                           </span>
                         )}
                         <span
                           className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold border ${
                             isRunning
-                              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                              ? 'bg-emerald-500/15 text-state-success border-emerald-500/30'
+                              : 'bg-slate-800 text-content-muted border-surface-border'
                           }`}
                         >
                           {isRunning ? `RUNNING${p.port ? ` :${p.port}` : ''}` : 'STOPPED'}
@@ -800,7 +800,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                       <button
                         type="button"
                         onClick={() => stopProfile(p.name)}
-                        className="flex-1 px-3 py-1.5 bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500/25 text-rose-400 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5"
+                        className="flex-1 px-3 py-1.5 bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500/25 text-state-danger rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5"
                       >
                         <Square className="w-3.5 h-3.5 fill-current" />
                         <span>Stop Instance</span>
@@ -838,7 +838,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                       <button
                         type="button"
                         onClick={() => handleDeleteProfile(p.name)}
-                        className="p-1.5 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs transition"
+                        className="p-1.5 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-state-danger rounded-lg text-xs transition"
                         title="Delete Profile"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -854,7 +854,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
 
       {/* Modal: New Profile */}
       {isNewProfileModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-surface-sunken backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-surface-card border border-surface-border rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
             <h3 className="text-sm font-bold text-content-main">Create Antigravity Profile</h3>
             <div>
@@ -889,7 +889,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
 
       {/* Modal: Rename Profile */}
       {isRenameModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-surface-sunken backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-surface-card border border-surface-border rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
             <h3 className="text-sm font-bold text-content-main">Rename Profile: {renameOldName}</h3>
             <div>
@@ -924,7 +924,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
 
       {/* Modal: Edit / New Workspace */}
       {isWorkspaceModalOpen && editingWorkspace && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-surface-sunken backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-surface-card border border-surface-border rounded-2xl p-5 max-w-md w-full space-y-4 shadow-2xl">
             <h3 className="text-sm font-bold text-content-main">
               {editingWorkspace.isDefault ? 'Edit Default Workspace' : 'Configure Project Workspace'}

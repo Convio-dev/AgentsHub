@@ -30,9 +30,9 @@ export const TimelineDiffNode: React.FC<TimelineDiffNodeProps> = ({ node }) => {
       meta={
         hasCounts ? (
           <span className="font-mono text-[10px] tabular-nums">
-            <span className="text-emerald-400/90">+{node.additions}</span>
+            <span className="text-state-success/90">+{node.additions}</span>
             <span className="mx-1 text-content-dim">/</span>
-            <span className="text-rose-400/90">−{node.deletions}</span>
+            <span className="text-state-danger/90">−{node.deletions}</span>
           </span>
         ) : null
       }

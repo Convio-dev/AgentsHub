@@ -42,7 +42,7 @@ export const TerminalsView: React.FC = () => {
                 onClick={() => setActivePreset(preset)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-medium transition ${
                   activePreset === preset
-                    ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+                    ? 'bg-sky-500/15 text-accent border border-sky-500/30'
                     : 'bg-surface-deep hover:bg-slate-800 text-content-muted border border-surface-border'
                 }`}
               >
@@ -60,7 +60,7 @@ export const TerminalsView: React.FC = () => {
       {/* 2. Checkpoints & Time-Machine Toolbar */}
       <div className="px-4 py-1.5 border-b border-surface-border bg-surface-deep/80 flex items-center justify-between flex-wrap gap-2 text-xs">
         <div className="flex items-center space-x-2">
-          <History className="w-3.5 h-3.5 text-sky-400" />
+          <History className="w-3.5 h-3.5 text-accent" />
           <span className="font-semibold text-content-muted">Checkpoints:</span>
           <select
             value={selectedSnapshot}
@@ -80,7 +80,7 @@ export const TerminalsView: React.FC = () => {
             <span>+ Snapshot</span>
           </button>
           <button
-            className="px-2 py-0.5 rounded bg-surface-card border border-surface-border hover:border-amber-500 text-amber-400 transition flex items-center gap-1"
+            className="px-2 py-0.5 rounded bg-surface-card border border-surface-border hover:border-amber-500 text-state-warning transition flex items-center gap-1"
             title="Rollback workspace to snapshot"
           >
             <RotateCcw className="w-3 h-3" />
@@ -90,7 +90,7 @@ export const TerminalsView: React.FC = () => {
 
         <div className="flex items-center space-x-1.5">
           <button
-            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono text-[11px]"
+            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-state-success font-mono text-[11px]"
             title="Pre-Commit Security Audit (Secrets & Guardrails)"
           >
             <ShieldAlert className="w-3.5 h-3.5" />
@@ -115,7 +115,7 @@ export const TerminalsView: React.FC = () => {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`flex items-center space-x-1.5 px-3 py-1 rounded-t-lg transition font-mono ${
                   isActive
-                    ? 'bg-surface-deep text-sky-400 border-t border-x border-surface-border font-semibold shadow-sm'
+                    ? 'bg-surface-deep text-accent border-t border-x border-surface-border font-semibold shadow-sm'
                     : 'text-content-muted hover:text-content-main hover:bg-surface-deep/40'
                 }`}
               >
@@ -138,7 +138,7 @@ export const TerminalsView: React.FC = () => {
             className="px-2 py-1 rounded bg-surface-deep border border-surface-border hover:border-sky-500 text-content-muted hover:text-content-main flex items-center gap-1 transition"
             title="Timelapse Record"
           >
-            <Video className="w-3 h-3 text-rose-400" />
+            <Video className="w-3 h-3 text-state-danger" />
             <span>Record</span>
           </button>
         </div>

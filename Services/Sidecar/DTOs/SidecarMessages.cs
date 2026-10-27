@@ -133,6 +133,10 @@ public class SendChatRequest : BaseRequest
     [JsonPropertyName("profile")]
     public string? Profile { get; set; }
 
+    /// <summary>Reasoning effort for this turn, passed to the CLI as <c>--effort</c>.</summary>
+    [JsonPropertyName("reasoningEffort")]
+    public string? ReasoningEffort { get; set; }
+
     [JsonPropertyName("workingDirectory")]
     public string? WorkingDirectory { get; set; }
 }

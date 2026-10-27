@@ -550,15 +550,30 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string? model = data.TryGetProperty("model", out var mElem) ? mElem.GetString() : null;
                     string? profile = data.TryGetProperty("profile", out var prElem) ? prElem.GetString() : null;
                     string? cwd = data.TryGetProperty("workingDirectory", out var wdElem) ? wdElem.GetString() : null;
+                    string? effort = data.TryGetProperty("reasoningEffort", out var efElem) ? efElem.GetString() : null;
 
-                    string activeFallback = _cliManager.ProfileService.ActiveProfile ?? "ZXR@1";
+                    string activeFallback = _cliManager.ProfileService.ActiveProfile ?? "default";
                     if (string.IsNullOrWhiteSpace(profile) || string.Equals(profile, "default", StringComparison.OrdinalIgnoreCase))
                     {
                         profile = activeFallback;
                     }
 
-                    await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd).ConfigureAwait(false);
+                    await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd, effort).ConfigureAwait(false);
                     SendResponse(requestId, true, new { sent = true, sessionId });
+                }
+                break;
+
+            // Model list for the composer's selector. The engine reports its own catalogue; nothing
+            // here is a static table.
+            case "get_model_catalog":
+                {
+                    var activeWs = AiConfigService.Instance.GetActiveWorkspace();
+
+                    string? cli = data.TryGetProperty("cli", out var mcElem) ? mcElem.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(cli)) cli = activeWs?.PrimaryCli;
+
+                    var catalog = await ModelCatalogService.Instance.GetCatalogAsync(cli).ConfigureAwait(false);
+                    SendResponse(requestId, true, catalog);
                 }
                 break;
 
@@ -605,7 +620,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
             case "switch_account":
                 {
-                    string activeFallback = _cliManager.ProfileService.ActiveProfile ?? "ZXR@1";
+                    string activeFallback = _cliManager.ProfileService.ActiveProfile ?? "default";
                     string profile = data.TryGetProperty("profile", out var pElem) ? pElem.GetString() ?? activeFallback : activeFallback;
                     if (string.Equals(profile, "default", StringComparison.OrdinalIgnoreCase))
                     {

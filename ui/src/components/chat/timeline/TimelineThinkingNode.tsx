@@ -35,7 +35,7 @@ export const TimelineThinkingNode: React.FC<TimelineThinkingNodeProps> = ({ node
 
   return (
     <TimelineRow
-      icon={isStreaming ? <Loader2 className="h-3 w-3 animate-spin text-sky-400" /> : undefined}
+      icon={isStreaming ? <Loader2 className="h-3 w-3 animate-spin text-accent" /> : undefined}
       subject={label}
       subjectTitle={node.text || label}
       tone={isStreaming ? 'accent' : 'neutral'}

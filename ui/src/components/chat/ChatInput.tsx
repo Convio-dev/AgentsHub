@@ -1,21 +1,28 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ArrowUp, Paperclip, Terminal, GitBranch, Loader2, X, FileText } from 'lucide-react';
+import { ArrowUp, Paperclip, Square, Terminal, GitBranch, X, FileText } from 'lucide-react';
 import { ChatAttachment, SlashCommand } from '../../types/agent';
 import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
 import { SlashCommandPalette } from './SlashCommandPalette';
+import { ModelSelector } from './ModelSelector';
 
 interface ChatInputProps {
   onSendMessage: (prompt: string, attachments?: ChatAttachment[]) => void;
+  /** Cancels the running turn; the same button morphs from send to stop. */
+  onStop?: () => void;
   isExecuting?: boolean;
   activeModel?: string;
+  /** Reasoning effort selected for the session, shown next to the model. */
+  reasoningEffort?: string;
   totalTokens?: number;
   onOpenGitModal?: () => void;
   onOpenTerminal?: () => void;
-  /** Active CLI id, so command discovery can return engine-specific commands. */
+  /** Active CLI id, so command and model discovery target the right engine. */
   activeCli?: string;
   /** Workspace root, used to discover project-level skills and command manifests. */
   workingDirectory?: string;
+  /** Session that owns the model/effort selection. */
+  sessionId: string;
 }
 
 /**
@@ -31,13 +38,16 @@ function findSlashToken(value: string, caret: number): { start: number; query: s
 
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
+  onStop,
   isExecuting = false,
   activeModel,
+  reasoningEffort,
   totalTokens = 0,
   onOpenGitModal,
   onOpenTerminal,
   activeCli,
   workingDirectory,
+  sessionId,
 }) => {
   const [prompt, setPrompt] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -346,7 +356,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     className="w-7 h-7 rounded object-cover flex-shrink-0 border border-surface-border"
                   />
                 ) : (
-                  <div className="w-7 h-7 rounded bg-sky-500/10 border border-sky-500/20 flex items-center justify-center flex-shrink-0 text-sky-400">
+                  <div className="w-7 h-7 rounded bg-sky-500/10 border border-sky-500/20 flex items-center justify-center flex-shrink-0 text-accent">
                     <FileText className="w-4 h-4" />
                   </div>
                 )}
@@ -361,7 +371,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 <button
                   type="button"
                   onClick={() => handleRemoveAttachment(att.id)}
-                  className="p-1 rounded text-content-dim hover:text-rose-400 hover:bg-rose-500/10 transition ml-0.5"
+                  className="p-1 rounded text-content-dim hover:text-state-danger hover:bg-rose-500/10 transition ml-0.5"
                   title="Remove attachment"
                 >
                   <X className="w-3 h-3" />
@@ -398,18 +408,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         />
 
         {/* Action bar inside input */}
-        <div className="flex items-center justify-between px-3.5 py-2 border-t border-surface-border/50 text-xs">
-          {/* Left tools: Attach, Exec, Git */}
-          <div className="flex items-center space-x-2">
+        <div className="flex items-center justify-between gap-2 px-3.5 py-2 border-t border-surface-border/50 text-xs">
+          {/* Left tools: Attach, Exec, Git, then the model + effort picker */}
+          <div className="flex min-w-0 items-center space-x-2">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-1 rounded text-content-dim hover:text-sky-400 hover:bg-surface-deep transition flex items-center gap-1"
+              className="p-1 rounded text-content-dim hover:text-accent hover:bg-surface-hover transition flex items-center gap-1"
               title="Attach Images or Files (or drag & drop)"
             >
               <Paperclip className="w-3.5 h-3.5" />
               {attachments.length > 0 && (
-                <span className="text-[10px] font-mono font-bold text-sky-400 px-1 py-0.2 rounded-full bg-sky-500/15">
+                <span className="text-[10px] font-mono font-bold text-accent px-1 py-0.2 rounded-full bg-accent-soft">
                   {attachments.length}
                 </span>
               )}
@@ -420,46 +430,68 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={onOpenTerminal}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono text-content-muted hover:text-content-main hover:bg-surface-deep transition"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono text-content-muted hover:text-content-main hover:bg-surface-hover transition"
               title="Quick Exec in ConPTY Terminal"
             >
-              <Terminal className="w-3 h-3 text-sky-400" />
+              <Terminal className="w-3 h-3 text-accent" />
               <span>Exec</span>
             </button>
 
             <button
               type="button"
               onClick={onOpenGitModal}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono text-content-muted hover:text-content-main hover:bg-surface-deep transition"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono text-content-muted hover:text-content-main hover:bg-surface-hover transition"
               title="Inspect Git Changes"
             >
-              <GitBranch className="w-3 h-3 text-emerald-400" />
+              <GitBranch className="w-3 h-3 text-state-success" />
               <span>Git</span>
             </button>
+
+            <span className="opacity-30">|</span>
+
+            <ModelSelector
+              sessionId={sessionId}
+              model={activeModel}
+              effort={reasoningEffort}
+              cli={activeCli}
+              disabled={isExecuting}
+            />
           </div>
 
-          {/* Right: Tokens counter & Circular Send Button */}
-          <div className="flex items-center space-x-3">
+          {/* Right: optional token readout + the single morphing action button */}
+          <div className="flex flex-shrink-0 items-center space-x-3">
             {totalTokens > 0 ? (
-              <span className="text-[11px] font-mono text-content-dim tabular-nums">
-                Tokens: {formatTokens(totalTokens)}
+              <span className="text-[10.5px] font-mono text-content-dim tabular-nums" title="Tokens used in this session">
+                {formatTokens(totalTokens)}
               </span>
             ) : null}
 
             <button
               type="button"
-              onClick={handleSend}
-              disabled={!canSend}
-              className={`w-7 h-7 rounded-full flex items-center justify-center transition shadow-md ${
-                !canSend
-                  ? 'bg-sky-600/40 text-white/50 cursor-not-allowed'
-                  : 'bg-sky-500 hover:bg-sky-400 text-white active:scale-95 shadow-sky-500/20'
+              onClick={isExecuting ? onStop : handleSend}
+              disabled={!isExecuting && !canSend}
+              aria-label={isExecuting ? 'Stop generating' : 'Send prompt'}
+              title={isExecuting ? 'Stop generating (aborts the running task)' : 'Send prompt'}
+              className={`relative flex h-7 w-7 items-center justify-center rounded-full transition-all duration-200 ${
+                isExecuting
+                  ? 'bg-rose-600 text-white hover:bg-rose-500 active:scale-95'
+                  : canSend
+                    ? 'bg-sky-500 text-white hover:bg-sky-400 active:scale-95'
+                    : 'cursor-not-allowed bg-sky-600/40 text-white/50'
               }`}
             >
+              {/* Progress ring, only while a turn is in flight. */}
               {isExecuting ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span
+                  aria-hidden="true"
+                  className="action-ring absolute inset-0 rounded-full border-2 border-transparent border-t-white/80 border-r-white/30"
+                />
+              ) : null}
+
+              {isExecuting ? (
+                <Square className="h-2.5 w-2.5 fill-current" />
               ) : (
-                <ArrowUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
               )}
             </button>
           </div>

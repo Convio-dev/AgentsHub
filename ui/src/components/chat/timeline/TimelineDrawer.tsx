@@ -50,9 +50,9 @@ export const TimelineDrawer: React.FC<TimelineDrawerProps> = ({
           <button
             type="button"
             onClick={handleCopy}
-            className="flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[10px] text-content-dim transition-colors hover:bg-white/[0.05] hover:text-content-main"
+            className="flex items-center gap-1 rounded px-1 py-0.5 font-mono text-[10px] text-content-dim transition-colors hover:bg-surface-strong hover:text-content-main"
           >
-            {copied ? <Check className="h-2.5 w-2.5 text-emerald-400" /> : <Copy className="h-2.5 w-2.5" />}
+            {copied ? <Check className="h-2.5 w-2.5 text-state-success" /> : <Copy className="h-2.5 w-2.5" />}
             <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
         ) : null}
@@ -67,7 +67,7 @@ export const TimelineDrawer: React.FC<TimelineDrawerProps> = ({
               {visible.length > 1 ? (
                 <div
                   className={`mb-0.5 font-mono text-[9.5px] uppercase tracking-[0.06em] ${
-                    section.tone === 'danger' ? 'text-rose-400/80' : 'text-content-dim'
+                    section.tone === 'danger' ? 'text-state-danger/80' : 'text-content-dim'
                   }`}
                 >
                   {section.label}
@@ -75,7 +75,7 @@ export const TimelineDrawer: React.FC<TimelineDrawerProps> = ({
               ) : null}
               <pre
                 className={`whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.55] ${
-                  section.tone === 'danger' ? 'text-rose-300' : 'text-content-muted'
+                  section.tone === 'danger' ? 'text-state-danger' : 'text-content-muted'
                 }`}
               >
                 {section.text}

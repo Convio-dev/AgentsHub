@@ -48,14 +48,14 @@ export const SessionTabs: React.FC = () => {
             onDoubleClick={e => startRename(session.id, session.title, e)}
             className={`group relative flex items-center space-x-2 px-3 py-1.5 rounded-lg border cursor-pointer font-sans transition-all max-w-[200px] flex-shrink-0 ${
               isActive
-                ? 'bg-slate-800/90 border-slate-700 text-slate-100 shadow-sm'
-                : 'bg-slate-900/40 border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                ? 'bg-surface-card border-surface-border text-content-main shadow-sm'
+                : 'bg-surface-card border-transparent text-content-muted hover:text-content-main hover:bg-surface-hover'
             }`}
             title={session.title}
           >
             {/* Status dot or pin icon */}
             {session.isPinned ? (
-              <Pin className="w-3 h-3 text-sky-400 flex-shrink-0 fill-current rotate-45" />
+              <Pin className="w-3 h-3 text-accent flex-shrink-0 fill-current rotate-45" />
             ) : (
               <span
                 className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
@@ -63,7 +63,7 @@ export const SessionTabs: React.FC = () => {
                     ? 'bg-emerald-400 animate-pulse'
                     : isActive
                     ? 'bg-sky-400'
-                    : 'bg-slate-600'
+                    : 'bg-surface-border'
                 }`}
               />
             )}
@@ -81,9 +81,9 @@ export const SessionTabs: React.FC = () => {
                     if (e.key === 'Escape') setEditingId(null);
                   }}
                   onBlur={() => saveRename(session.id)}
-                  className="w-24 px-1 py-0.5 bg-slate-950 border border-sky-500 rounded text-xs text-slate-100 focus:outline-none font-sans"
+                  className="w-24 px-1 py-0.5 bg-surface-code border border-sky-500 rounded text-xs text-content-main focus:outline-none font-sans"
                 />
-                <button onClick={() => saveRename(session.id)} className="text-emerald-400">
+                <button onClick={() => saveRename(session.id)} className="text-state-success">
                   <Check className="w-3 h-3" />
                 </button>
               </div>
@@ -99,8 +99,8 @@ export const SessionTabs: React.FC = () => {
                   e.stopPropagation();
                   pinSession(session.id);
                 }}
-                className={`p-0.5 rounded hover:text-slate-200 ${
-                  session.isPinned ? 'text-sky-400' : 'text-slate-500'
+                className={`p-0.5 rounded hover:text-content-main ${
+                  session.isPinned ? 'text-accent' : 'text-content-dim'
                 }`}
                 title={session.isPinned ? 'Unpin session' : 'Pin session'}
               >
@@ -112,7 +112,7 @@ export const SessionTabs: React.FC = () => {
                   e.stopPropagation();
                   deleteSession(session.id);
                 }}
-                className="p-0.5 rounded text-slate-500 hover:text-rose-400"
+                className="p-0.5 rounded text-content-dim hover:text-state-danger"
                 title="Close session"
               >
                 <X className="w-2.5 h-2.5" />
@@ -126,7 +126,7 @@ export const SessionTabs: React.FC = () => {
       <button
         type="button"
         onClick={() => createSession()}
-        className="flex items-center justify-center w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 text-slate-400 hover:text-sky-400 transition flex-shrink-0"
+        className="flex items-center justify-center w-7 h-7 rounded-lg bg-surface-card border border-surface-border hover:border-surface-border hover:bg-surface-strong text-content-muted hover:text-accent transition flex-shrink-0"
         title="Create New Session"
       >
         <Plus className="w-3.5 h-3.5" />

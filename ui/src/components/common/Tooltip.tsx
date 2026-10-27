@@ -43,7 +43,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
         <div
           className={`absolute z-50 pointer-events-none transition-all duration-150 animate-in fade-in zoom-in-95 ${positionStyles} ${className}`}
         >
-          <div className="bg-slate-900 text-slate-200 border border-slate-700/80 shadow-xl rounded-lg px-3 py-2 text-xs font-sans whitespace-nowrap min-w-max">
+          <div className="bg-surface-card text-content-main border border-surface-border/80 shadow-xl rounded-lg px-3 py-2 text-xs font-sans whitespace-nowrap min-w-max">
             {content}
           </div>
         </div>

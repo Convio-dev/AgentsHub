@@ -23,10 +23,10 @@ const SOURCE_LABEL: Record<SlashCommandSource, string> = {
 };
 
 const SOURCE_CLASS: Record<SlashCommandSource, string> = {
-  builtin: 'border-slate-600/70 text-slate-400',
-  skill: 'border-sky-500/40 text-sky-400',
-  mcp: 'border-emerald-500/40 text-emerald-400',
-  profile: 'border-amber-500/40 text-amber-400',
+  builtin: 'border-surface-border text-content-muted',
+  skill: 'border-sky-500/40 text-accent',
+  mcp: 'border-emerald-500/40 text-state-success',
+  profile: 'border-amber-500/40 text-state-warning',
 };
 
 /**
@@ -71,7 +71,7 @@ export const SlashCommandPalette: React.FC<SlashCommandPaletteProps> = ({
             <span className="font-mono text-[10px] text-content-dim">· {engineLabel}</span>
           ) : null}
           {query ? (
-            <span className="font-mono text-[10px] text-sky-400">/{query}</span>
+            <span className="font-mono text-[10px] text-accent">/{query}</span>
           ) : null}
         </div>
 
@@ -82,7 +82,7 @@ export const SlashCommandPalette: React.FC<SlashCommandPaletteProps> = ({
             type="button"
             onClick={onRefresh}
             title="Re-scan commands"
-            className="rounded p-0.5 text-content-dim transition-colors hover:bg-white/[0.06] hover:text-content-main"
+            className="rounded p-0.5 text-content-dim transition-colors hover:bg-surface-strong hover:text-content-main"
           >
             <RefreshCw className="h-3 w-3" />
           </button>
@@ -115,7 +115,7 @@ export const SlashCommandPalette: React.FC<SlashCommandPaletteProps> = ({
                   onSelect(command);
                 }}
                 className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
-                  isActive ? 'bg-sky-500/10' : 'hover:bg-white/[0.04]'
+                  isActive ? 'bg-sky-500/10' : 'hover:bg-surface-hover'
                 }`}
               >
                 <span className="flex-shrink-0 font-mono text-[11.5px] text-content-main">

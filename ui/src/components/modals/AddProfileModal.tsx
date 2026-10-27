@@ -47,13 +47,13 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({ isOpen, onClos
       <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 font-sans">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 bg-slate-950/40">
-          <div className="flex items-center space-x-2 text-slate-100 font-semibold text-sm">
+          <div className="flex items-center space-x-2 text-content-main font-semibold text-sm">
             <UserPlus className="w-4 h-4 text-sky-400" />
             <span>Add Runner Profile</span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+            className="p-1 rounded text-content-muted hover:text-content-main hover:bg-slate-800 transition"
           >
             <X className="w-4 h-4" />
           </button>
@@ -68,34 +68,34 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({ isOpen, onClos
           )}
 
           <div className="space-y-1">
-            <label className="text-slate-300 font-medium">Profile Name</label>
+            <label className="text-content-muted font-medium">Profile Name</label>
             <input
               type="text"
               required
-              placeholder="e.g. Work, Personal, ZXR@2"
+              placeholder="e.g. Work, Personal, Dev-Account"
               value={profileName}
               onChange={e => setProfileName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-content-main placeholder-slate-500 focus:outline-none focus:border-sky-500"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-slate-300 font-medium">Account Email (Optional)</label>
+            <label className="text-content-muted font-medium">Account Email (Optional)</label>
             <input
               type="email"
               placeholder="developer@example.com"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-content-main placeholder-slate-500 focus:outline-none focus:border-sky-500"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-slate-300 font-medium">Provider</label>
+            <label className="text-content-muted font-medium">Provider</label>
             <select
               value={provider}
               onChange={e => setProvider(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 focus:outline-none focus:border-sky-500"
+              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-content-main focus:outline-none focus:border-sky-500"
             >
               <option value="Google Antigravity">Google Antigravity</option>
               <option value="Claude Code">Claude Code</option>

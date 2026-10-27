@@ -40,12 +40,12 @@ export const McpSkillsView: React.FC = () => {
             <div key={i} className="p-4 rounded-xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] space-y-2.5 shadow-sm hover:border-sky-500/40 transition-all">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-xs font-bold text-[var(--text-main,#F1F5F9)] flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                  <div className="w-7 h-7 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
                     <Cpu className="w-3.5 h-3.5" />
                   </div>
                   <span>{m.name}</span>
                 </span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-state-success border border-emerald-500/20 font-semibold">
                   {m.status}
                 </span>
               </div>
@@ -66,8 +66,8 @@ export const McpSkillsView: React.FC = () => {
           {skillList.map((s, i) => (
             <div key={i} className="p-4 rounded-xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] space-y-2 shadow-sm hover:border-sky-500/40 transition-all">
               <div className="flex items-center justify-between">
-                <span className="font-mono text-xs font-bold text-sky-400 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+                <span className="font-mono text-xs font-bold text-accent flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-accent" />
                   <span>{s.name}</span>
                 </span>
                 <span className="text-[10px] font-mono text-[var(--text-dim,#64748B)]">Active</span>

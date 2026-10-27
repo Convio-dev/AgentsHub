@@ -47,7 +47,7 @@ export const AgentTimeline: React.FC<AgentTimelineProps> = ({ nodes, isLive = fa
           type="button"
           onClick={() => setIsBodyCollapsed(prev => !prev)}
           aria-expanded={!isBodyCollapsed}
-          className="group/run mb-1 flex items-center gap-1.5 rounded-[5px] py-[3px] pr-1 text-left font-mono text-[11px] text-content-dim transition-colors hover:bg-white/[0.035] hover:text-content-main"
+          className="group/run mb-1 flex items-center gap-1.5 rounded-[5px] py-[3px] pr-1 text-left font-mono text-[11px] text-content-dim transition-colors hover:bg-surface-hover hover:text-content-main"
         >
           <span className="tabular-nums">{headerLabel}</span>
           {isBodyCollapsed ? (

@@ -90,7 +90,7 @@ export const DevToolsView: React.FC = () => {
       <div className="max-w-6xl mx-auto space-y-5 w-full">
         {/* Feedback message banner */}
         {feedbackMessage && (
-          <div className="px-4 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs font-mono flex items-center justify-between">
+          <div className="px-4 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-accent text-xs font-mono flex items-center justify-between">
             <span>{feedbackMessage}</span>
           </div>
         )}
@@ -100,7 +100,7 @@ export const DevToolsView: React.FC = () => {
           {/* Header */}
           <div className="flex items-center justify-between pb-4 border-b border-[var(--border-subtle,#1E293B)] flex-wrap gap-3">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+              <div className="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
                 <Wrench className="w-5 h-5" />
               </div>
               <div>
@@ -114,7 +114,7 @@ export const DevToolsView: React.FC = () => {
             </div>
 
             <div className="flex items-center space-x-2">
-              <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/30">
+              <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-sky-500/10 text-accent border border-sky-500/30">
                 {readyCount} of {tools.length} ready
               </span>
 
@@ -162,7 +162,7 @@ export const DevToolsView: React.FC = () => {
                       onClick={() => handleToggleExpand(tool)}
                     >
                       {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-sky-400 flex-shrink-0" />
+                        <ChevronDown className="w-4 h-4 text-accent flex-shrink-0" />
                       ) : (
                         <ChevronRight className="w-4 h-4 text-[var(--text-dim,#64748B)] flex-shrink-0" />
                       )}
@@ -178,7 +178,7 @@ export const DevToolsView: React.FC = () => {
                             {tool.name}
                           </span>
                           {tool.isIde && (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-sky-500/15 text-accent border border-sky-500/30">
                               IDE
                             </span>
                           )}
@@ -193,7 +193,7 @@ export const DevToolsView: React.FC = () => {
                     <div className="flex items-center space-x-3 flex-shrink-0">
                       <span
                         className={`text-xs font-medium font-mono ${
-                          tool.state === 'ready' ? 'text-sky-400' : 'text-amber-400'
+                          tool.state === 'ready' ? 'text-accent' : 'text-state-warning'
                         }`}
                       >
                         {tool.state === 'ready' ? 'Ready' : 'Needs fixing'}
@@ -275,7 +275,7 @@ export const DevToolsView: React.FC = () => {
 
         {/* Add Tool Modal */}
         {showAddModal && (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 bg-surface-sunken backdrop-blur-xs flex items-center justify-center p-4">
             <div className="w-full max-w-md bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] rounded-2xl p-6 shadow-2xl space-y-4 text-[var(--text-main,#F1F5F9)]">
               <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle,#1E293B)]">
                 <h3 className="text-sm font-bold">Add AI Dev Tool</h3>

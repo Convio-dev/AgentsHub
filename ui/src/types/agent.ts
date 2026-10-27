@@ -147,6 +147,29 @@ export interface SessionRecord {
 
 export type SlashCommandSource = 'builtin' | 'skill' | 'mcp' | 'profile';
 
+/** One model reported by the active CLI. */
+export interface ModelInfo {
+  /** Exact id passed back to the engine via `--model`. */
+  id: string;
+  label: string;
+  /** Model family, derived by the host from the id prefix. */
+  provider: string;
+  /** Reasoning tier encoded in the id (`low` | `medium` | `high` | `xhigh`), when present. */
+  tier?: string | null;
+}
+
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/** Result of asking the engine which models it supports. */
+export interface ModelCatalog {
+  models: ModelInfo[];
+  /** Effort values the engine accepts, in the engine's own order. */
+  efforts: string[];
+  /** `cli` when the engine answered, `fallback` when it could not be queried. */
+  source: string;
+  error?: string | null;
+}
+
 export interface SlashCommand {
   /** Command body without the leading slash, e.g. `add-dir`. */
   name: string;

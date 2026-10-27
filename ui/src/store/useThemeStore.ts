@@ -131,6 +131,12 @@ export const useThemeStore = create<ThemeStoreState>((set, get) => ({
     root.style.setProperty('--accent-cyan', hex);
     root.style.setProperty('--accent-blue', hex);
 
+    // The accent is also used as text. The same hue that reads well on a dark surface is too light
+    // on a light one, so the ink variant is derived per theme instead of being reused verbatim.
+    const inkLightness = theme === 'dark' ? 68 : 34;
+    const inkSaturation = Math.max(s, theme === 'dark' ? 60 : 55);
+    root.style.setProperty('--accent-ink', `hsl(${h}, ${inkSaturation}%, ${inkLightness}%)`);
+
     try {
       localStorage.setItem('agents_hub_theme', theme);
       localStorage.setItem('agents_hub_accent_color', hex);

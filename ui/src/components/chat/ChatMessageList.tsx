@@ -3,7 +3,8 @@ import { AlertCircle, MessageSquare, User } from 'lucide-react';
 import { ChatMessage } from '../../types/agent';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { AgentTimeline } from './timeline/AgentTimeline';
-import { AssistantMessageActions, StopGeneratingButton, UserMessageActions } from './MessageActions';
+import { AssistantMessageActions, UserMessageActions } from './MessageActions';
+import { profileLabel } from '../../lib/profileName';
 import { editAndResend, regenerateResponse, stopGeneration } from '../../services/chatController';
 import appMascot from '../../assets/app.png';
 
@@ -12,7 +13,6 @@ interface ChatMessageListProps {
   activeExecutionCardId?: string;
   /** True while the active session has a turn in flight. */
   isGenerating?: boolean;
-  onStop?: () => void;
 }
 
 const ACTIVE_STATES = new Set(['running', 'thinking', 'tool_executing']);
@@ -23,11 +23,7 @@ function statusLabel(message: ChatMessage): string {
   return message.markdown ? 'Streaming' : 'Working';
 }
 
-export const ChatMessageList: React.FC<ChatMessageListProps> = ({
-  messages,
-  isGenerating = false,
-  onStop,
-}) => {
+export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGenerating = false }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 
@@ -109,11 +105,11 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
         </p>
         <div className="grid w-full max-w-md grid-cols-1 gap-2 text-left font-mono text-[11px] sm:grid-cols-2">
           <div className="rounded-lg border border-surface-border/70 bg-surface-card/40 p-2.5 text-content-muted">
-            <span className="mb-0.5 block font-semibold text-sky-400">/help</span>
+            <span className="mb-0.5 block font-semibold text-accent">/help</span>
             <span className="text-[10.5px] text-content-dim">List the active engine's commands</span>
           </div>
           <div className="rounded-lg border border-surface-border/70 bg-surface-card/40 p-2.5 text-content-muted">
-            <span className="mb-0.5 block font-semibold text-sky-400">/exec</span>
+            <span className="mb-0.5 block font-semibold text-accent">/exec</span>
             <span className="text-[10.5px] text-content-dim">Run a shell command as a tool step</span>
           </div>
         </div>
@@ -133,10 +129,10 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
             <div key={message.id} className="group flex justify-end">
               <div className="max-w-[85%] space-y-2.5 rounded-2xl rounded-tr-sm border border-surface-border/60 bg-surface-card p-3.5 text-sm text-content-main">
                 <div className="flex items-center gap-2 font-mono text-[11px] text-content-dim">
-                  <User className="h-3.5 w-3.5 text-sky-400" />
+                  <User className="h-3.5 w-3.5 text-accent" />
                   <span className="font-semibold text-content-muted">You</span>
                   {message.forkedFrom ? (
-                    <span className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[9.5px] text-content-dim">
+                    <span className="rounded bg-surface-strong px-1.5 py-0.5 text-[9.5px] text-content-dim">
                       edited
                     </span>
                   ) : null}
@@ -163,7 +159,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
                             />
                           </a>
                         ) : (
-                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-sky-500/25 bg-sky-500/10 font-mono text-[10px] font-bold uppercase text-sky-400">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-sky-500/25 bg-sky-500/10 font-mono text-[10px] font-bold uppercase text-accent">
                             {att.name.split('.').pop()?.slice(0, 3) || 'file'}
                           </div>
                         )}
@@ -198,7 +194,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
                         <button
                           type="button"
                           onClick={cancelEdit}
-                          className="rounded-md px-2 py-1 text-[11px] text-content-muted transition-colors hover:bg-white/[0.06] hover:text-content-main"
+                          className="rounded-md px-2 py-1 text-[11px] text-content-muted transition-colors hover:bg-surface-strong hover:text-content-main"
                         >
                           Cancel
                         </button>
@@ -232,11 +228,12 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
                     <img src={appMascot} alt="" className="h-full w-full object-contain" />
                   </div>
                   <span className="font-semibold text-content-main">Agent</span>
-                  {message.profile ? (
-                    <span className="rounded border border-surface-border/60 bg-surface-deep px-1.5 py-0.5 font-mono text-[10px] text-sky-400">
-                      {message.profile}
-                    </span>
-                  ) : null}
+                  <span
+                    className="rounded border border-surface-border/60 bg-surface-deep px-1.5 py-0.5 font-mono text-[10px] text-accent"
+                    title={message.profile ? `Runner profile: ${message.profile}` : 'No runner profile configured'}
+                  >
+                    {profileLabel(message.profile)}
+                  </span>
                   {message.turn && message.turn > 1 ? (
                     <span className="font-mono text-[10px] text-content-dim">turn {message.turn}</span>
                   ) : null}
@@ -244,23 +241,21 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
 
                 <div className="flex items-center gap-2">
                   {isActive ? (
-                    <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-sky-400">
+                    <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-accent">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
                       <span>{statusLabel(message)}</span>
                     </span>
                   ) : message.status === 'error' ? (
-                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-rose-400">
+                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-state-danger">
                       <AlertCircle className="h-3 w-3" />
                       <span>Failed</span>
                     </span>
                   ) : message.status === 'aborted' ? (
-                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-amber-400/90">
+                    <span className="inline-flex items-center gap-1 font-mono text-[10px] text-state-warning/90">
                       <MessageSquare className="h-3 w-3" />
                       <span>Stopped</span>
                     </span>
                   ) : null}
-
-                  {isActive && isGenerating && onStop ? <StopGeneratingButton onStop={onStop} /> : null}
 
                   {!isActive ? (
                     <span className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -290,7 +285,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
               ) : null}
 
               {message.error ? (
-                <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2.5 font-mono text-[11px] text-rose-300">
+                <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2.5 font-mono text-[11px] text-state-danger">
                   {message.error}
                 </div>
               ) : null}

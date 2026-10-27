@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { RunnerProfile } from '../types/agent';
 import { webviewBridge } from '../services/webviewBridge';
+import { isUnsetProfile } from '../lib/profileName';
 
 interface ProfileStoreState {
   profiles: RunnerProfile[];
@@ -24,14 +25,16 @@ interface ProfileStoreState {
   getActiveProfile: () => RunnerProfile | undefined;
 }
 
-const defaultProfiles: RunnerProfile[] = [
-  { name: 'ZXR@1', active: true, isRunning: false, quotaPercent: 100, provider: 'Google Antigravity' },
-];
+/**
+ * No seeded profile on purpose. The runner list is whatever the host reports; before that arrives
+ * the UI shows "Default Profile" rather than a placeholder account that looks real.
+ */
+const defaultProfiles: RunnerProfile[] = [];
 
 export const useProfileStore = create<ProfileStoreState>((set, get) => ({
   profiles: defaultProfiles,
-  activeProfileName: 'ZXR@1',
-  defaultModel: 'Gemini 3.8 Flash (High)',
+  activeProfileName: '',
+  defaultModel: '',
   isLoading: false,
 
   getActiveProfile: () => {
@@ -40,14 +43,14 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
   },
 
   setProfilesData: (profiles: RunnerProfile[], activeProfile?: string, model?: string) => {
-    const sanitized = profiles.filter(p => p.name.toLowerCase() !== 'default');
-    const fallbackName = sanitized[0]?.name || 'ZXR@1';
-    const active = (activeProfile && activeProfile.toLowerCase() !== 'default')
-      ? activeProfile
-      : (get().activeProfileName.toLowerCase() !== 'default' ? get().activeProfileName : fallbackName);
+    const sanitized = profiles.filter(p => !isUnsetProfile(p.name));
+    const fallbackName = sanitized[0]?.name || '';
+    const active = !isUnsetProfile(activeProfile)
+      ? (activeProfile as string)
+      : (!isUnsetProfile(get().activeProfileName) ? get().activeProfileName : fallbackName);
 
     set(state => ({
-      profiles: sanitized.length > 0 ? sanitized : state.profiles,
+      profiles: sanitized,
       activeProfileName: active,
       defaultModel: model || state.defaultModel,
     }));
@@ -63,20 +66,20 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
           ? ag.profiles
               .filter((p: any) => {
                 const n = typeof p === 'string' ? p : p.name || '';
-                return n.toLowerCase() !== 'default';
+                return !isUnsetProfile(n);
               })
               .map((p: any) => ({
                 name: typeof p === 'string' ? p : p.name || 'Profile',
                 email: typeof p === 'object' ? p.email : undefined,
                 active: typeof p === 'object' ? !!p.active : p === ag.activeProfile,
                 isRunning: typeof p === 'object' ? !!p.isRunning : false,
-                quotaPercent: typeof p === 'object' && p.quotaPercent !== undefined ? p.quotaPercent : 96,
+                quotaPercent: typeof p === 'object' ? p.quotaPercent : undefined,
                 provider: (typeof p === 'object' && p.provider) ? p.provider : 'Google Antigravity',
               }))
           : [];
 
         if (mapped.length > 0) {
-          get().setProfilesData(mapped, ag.activeProfile, ag.model || 'Gemini 3.8 Flash (High)');
+          get().setProfilesData(mapped, ag.activeProfile, ag.model);
           set({ isLoading: false });
           return;
         }

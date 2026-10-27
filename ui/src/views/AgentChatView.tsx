@@ -16,8 +16,8 @@ import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { sendPrompt, stopGeneration } from '../services/chatController';
 import { ChatMessageList } from '../components/chat/ChatMessageList';
 import { ChatInput } from '../components/chat/ChatInput';
-import { StopGeneratingButton } from '../components/chat/MessageActions';
 import { ChatAttachment } from '../types/agent';
+import { profileLabel } from '../lib/profileName';
 
 interface AgentChatViewProps {
   onOpenGitModal: () => void;
@@ -81,7 +81,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
         <div className="flex items-center space-x-3">
           {/* Active Session Label */}
           <div className="flex items-center space-x-2">
-            <MessageSquare className="w-4 h-4 text-sky-400" />
+            <MessageSquare className="w-4 h-4 text-accent" />
             <span className="text-xs font-semibold text-content-main">
               {activeSession?.title || 'Active Agent Session'}
             </span>
@@ -101,7 +101,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                   activeProfile?.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
                 }`}
               />
-              <span>Runner: {activeProfileName}</span>
+              <span>Runner: {profileLabel(activeProfileName)}</span>
               <ChevronDown className="w-3 h-3 text-content-dim ml-1" />
             </button>
 
@@ -110,7 +110,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
               <div className="absolute left-0 top-10 w-80 bg-surface-card border border-surface-border rounded-xl shadow-2xl p-3.5 z-50 space-y-3 font-sans">
                 <div className="flex items-center justify-between pb-2 border-b border-surface-border">
                   <span className="text-xs font-semibold text-content-main flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5 text-sky-400" />
+                    <Users className="w-3.5 h-3.5 text-accent" />
                     <span>Multi-Profile Agents</span>
                   </span>
                   <span className="text-[10px] font-mono text-content-dim">
@@ -157,8 +157,8 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                           <span
                             className={`px-1.5 py-0.5 text-[9px] font-mono rounded border ${
                               p.isRunning
-                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                                ? 'bg-emerald-500/15 text-state-success border-emerald-500/30'
+                                : 'bg-slate-800 text-content-muted border-surface-border'
                             }`}
                           >
                             {p.isRunning ? 'Running' : 'Offline'}
@@ -169,8 +169,8 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                             onClick={() => (p.isRunning ? stopProfile(p.name) : startProfile(p.name))}
                             className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium transition ${
                               p.isRunning
-                                ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25'
-                                : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25'
+                                ? 'bg-rose-500/15 text-state-danger border border-rose-500/30 hover:bg-rose-500/25'
+                                : 'bg-emerald-500/15 text-state-success border border-emerald-500/30 hover:bg-emerald-500/25'
                             }`}
                           >
                             {p.isRunning ? 'Stop' : 'Start'}
@@ -187,7 +187,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                       setIsProfilePopoverOpen(false);
                       setActiveView('profiles');
                     }}
-                    className="text-[11px] text-sky-400 hover:underline"
+                    className="text-[11px] text-accent hover:underline"
                   >
                     Full Profiles Manager &rarr;
                   </button>
@@ -203,28 +203,16 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
           </div>
         </div>
 
-        {/* Right Controls: Engine Quota Pill, Review Diff, Terminals */}
+        {/* Right Controls: Review Diff, Terminals. Model, effort, quota and tokens live in the
+            composer footer, where they belong to the prompt rather than to the window chrome. */}
         <div className="flex items-center space-x-2">
-          {isExecuting ? <StopGeneratingButton onStop={handleStopGenerating} label="Stop generating" /> : null}
-          {/* Quota Monitor Pill */}
-          <div className="flex items-center space-x-2 text-xs bg-surface-card border border-surface-border px-2.5 py-1 rounded-lg text-content-muted shadow-sm font-sans">
-            <span className="text-content-muted">Engine:</span>
-            <span className="text-sky-400 font-medium">
-              {activeSession?.model || defaultModel || 'Gemini 3.8 Flash (High)'}
-            </span>
-            <span className="opacity-30">|</span>
-            <span className="text-emerald-400 font-mono font-medium">
-              {activeSession?.quotaPercent !== undefined ? `${activeSession.quotaPercent}% Quota` : '96% Quota'}
-            </span>
-          </div>
-
           {/* Quick Diff Trigger */}
           <button
             onClick={onOpenGitModal}
             title="Inspect Current Workspace Diff"
             className="px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-xs text-content-muted hover:text-content-main flex items-center space-x-1.5 transition shadow-sm"
           >
-            <GitCompare className="w-3.5 h-3.5 text-sky-400" />
+            <GitCompare className="w-3.5 h-3.5 text-accent" />
             <span>Review Diff</span>
           </button>
 
@@ -234,7 +222,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
             title="Open Interactive Terminals"
             className="px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-xs text-content-muted hover:text-content-main flex items-center space-x-1.5 transition shadow-sm"
           >
-            <Terminal className="w-3 h-3 text-sky-400" />
+            <Terminal className="w-3 h-3 text-accent" />
             <span>Terminals</span>
           </button>
         </div>
@@ -256,12 +244,12 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                 onClick={() => switchSession(tab.id)}
                 className={`group flex items-center space-x-1.5 px-3 py-1 rounded-t-lg text-xs transition cursor-pointer select-none max-w-[200px] border-t border-x ${
                   isActive
-                    ? 'bg-surface-card border-surface-border text-sky-400 font-semibold shadow-sm'
+                    ? 'bg-surface-card border-surface-border text-accent font-semibold shadow-sm'
                     : 'bg-surface-deep/60 border-transparent text-content-muted hover:text-content-main hover:bg-surface-card/40'
                 }`}
               >
                 {isTabRunning ? (
-                  <Loader2 className="w-3 h-3 animate-spin text-sky-400 flex-shrink-0" />
+                  <Loader2 className="w-3 h-3 animate-spin text-accent flex-shrink-0" />
                 ) : (
                   <span
                     className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
@@ -277,7 +265,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                       e.stopPropagation();
                       deleteSession(tab.id);
                     }}
-                    className="opacity-0 group-hover:opacity-100 hover:text-rose-400 transition ml-1 p-0.5 text-[10px]"
+                    className="opacity-0 group-hover:opacity-100 hover:text-state-danger transition ml-1 p-0.5 text-[10px]"
                     title="Close tab"
                   >
                     <X className="w-3 h-3" />
@@ -292,7 +280,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
           type="button"
           onClick={handleNewTab}
           title="Open New Agent Tab"
-          className="ml-2 px-2.5 py-1 rounded-md bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-sky-400 transition text-[11px] flex items-center gap-1 flex-shrink-0 shadow-sm"
+          className="ml-2 px-2.5 py-1 rounded-md bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-accent transition text-[11px] flex items-center gap-1 flex-shrink-0 shadow-sm"
         >
           <Plus className="w-3 h-3" />
           <span>New Tab</span>
@@ -306,7 +294,6 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
             messages={activeSession.messages}
             activeExecutionCardId={activeSession.activeExecutionCardId}
             isGenerating={isExecuting}
-            onStop={handleStopGenerating}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-content-dim font-mono text-xs">
@@ -316,9 +303,12 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
 
         {/* 4. Bottom Floating Input Dock */}
         <ChatInput
+          sessionId={activeSession?.id || ''}
           onSendMessage={handleSendMessage}
+          onStop={handleStopGenerating}
           isExecuting={isExecuting}
-          activeModel={activeSession?.model || defaultModel}
+          activeModel={activeSession?.model || defaultModel || undefined}
+          reasoningEffort={activeSession?.reasoningEffort}
           totalTokens={activeSession?.tokens?.totalTokens || 0}
           onOpenGitModal={onOpenGitModal}
           onOpenTerminal={() => setActiveView('terminals')}

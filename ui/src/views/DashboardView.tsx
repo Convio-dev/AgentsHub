@@ -111,14 +111,14 @@ export const DashboardView: React.FC = () => {
         <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="px-2.5 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-sky-500/15 text-sky-400 border border-sky-500/30">
+              <span className="px-2.5 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-sky-500/15 text-accent border border-sky-500/30">
                 QUICK-START GUIDE
               </span>
               <h3 className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">New to AgentsHub? Complete these 4 steps</h3>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="secondary" size="xs" onClick={() => setActiveView('profiles')}>
-                <Compass className="w-3.5 h-3.5 mr-1 text-sky-400" />
+                <Compass className="w-3.5 h-3.5 mr-1 text-accent" />
                 Launch Tour (F1)
               </Button>
               <button
@@ -137,7 +137,7 @@ export const DashboardView: React.FC = () => {
             <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] flex flex-col justify-between space-y-3">
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="w-5 h-5 rounded-full bg-sky-500/20 text-sky-400 font-mono text-xs flex items-center justify-center font-bold">1</span>
+                  <span className="w-5 h-5 rounded-full bg-sky-500/20 text-accent font-mono text-xs flex items-center justify-center font-bold">1</span>
                   <span className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">Set Workspace</span>
                 </div>
                 <p className="text-[11px] text-[var(--text-dim,#64748B)] leading-relaxed">Select target project folder for safe agent edits.</p>
@@ -150,7 +150,7 @@ export const DashboardView: React.FC = () => {
             <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] flex flex-col justify-between space-y-3">
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="w-5 h-5 rounded-full bg-sky-500/20 text-sky-400 font-mono text-xs flex items-center justify-center font-bold">2</span>
+                  <span className="w-5 h-5 rounded-full bg-sky-500/20 text-accent font-mono text-xs flex items-center justify-center font-bold">2</span>
                   <span className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">Antigravity Profile</span>
                 </div>
                 <p className="text-[11px] text-[var(--text-dim,#64748B)] leading-relaxed">Add profile, link your Google account, sync creds.</p>
@@ -163,7 +163,7 @@ export const DashboardView: React.FC = () => {
             <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] flex flex-col justify-between space-y-3">
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="w-5 h-5 rounded-full bg-sky-500/20 text-sky-400 font-mono text-xs flex items-center justify-center font-bold">3</span>
+                  <span className="w-5 h-5 rounded-full bg-sky-500/20 text-accent font-mono text-xs flex items-center justify-center font-bold">3</span>
                   <span className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">AI Dev Tools</span>
                 </div>
                 <p className="text-[11px] text-[var(--text-dim,#64748B)] leading-relaxed">Check Git, Node, Python & runtime health.</p>
@@ -177,7 +177,7 @@ export const DashboardView: React.FC = () => {
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="w-5 h-5 rounded-full bg-sky-500 text-slate-950 font-mono text-xs flex items-center justify-center font-bold">4</span>
-                  <span className="text-xs font-bold text-sky-400">Standalone Terminals</span>
+                  <span className="text-xs font-bold text-accent">Standalone Terminals</span>
                 </div>
                 <p className="text-[11px] text-[var(--text-muted,#94A3B8)] leading-relaxed">Dedicated multi-tab ConPTY terminal window.</p>
               </div>
@@ -195,7 +195,7 @@ export const DashboardView: React.FC = () => {
         <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+              <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
                 <Globe className="w-4 h-4" />
               </div>
               <div>
@@ -220,21 +220,21 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
                 onClick={() => setIsLanMode(!isLanMode)}
-                className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-sky-400 transition-colors"
+                className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-accent transition-colors"
                 title="Switch between Local (127.0.0.1) and LAN URL"
               >
                 <RotateCw className="w-3.5 h-3.5" />
               </button>
               <button
                 onClick={copyUrl}
-                className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-sky-400 transition-colors"
+                className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-accent transition-colors"
                 title="Copy URL"
               >
-                {copiedUrl ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedUrl ? <Check className="w-3.5 h-3.5 text-state-success" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
               <button
                 onClick={openInBrowser}
-                className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-sky-400 transition-colors"
+                className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-accent transition-colors"
                 title="Open in Browser"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
@@ -254,7 +254,7 @@ export const DashboardView: React.FC = () => {
                 key={chip.port}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-mono border ${
                   chip.active
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 font-semibold'
+                    ? 'bg-emerald-500/10 text-state-success border-emerald-500/30 font-semibold'
                     : 'bg-[var(--bg-input,#0D1322)] text-[var(--text-dim,#64748B)] border-[var(--border-subtle,#1E293B)]'
                 }`}
               >
@@ -269,7 +269,7 @@ export const DashboardView: React.FC = () => {
         <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+              <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
                 <Terminal className="w-4 h-4" />
               </div>
               <div>
@@ -322,7 +322,7 @@ export const DashboardView: React.FC = () => {
             </div>
             <button
               onClick={() => setShowEmail(!showEmail)}
-              className="p-1 text-[var(--text-dim,#64748B)] hover:text-sky-400 transition-colors"
+              className="p-1 text-[var(--text-dim,#64748B)] hover:text-accent transition-colors"
               title="Toggle email visibility"
             >
               {showEmail ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -333,7 +333,7 @@ export const DashboardView: React.FC = () => {
         {/* CARD 3: SYSTEM TERMINALS & SHELLS */}
         <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+            <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
               <Cpu className="w-4 h-4" />
             </div>
             <div>
@@ -346,7 +346,7 @@ export const DashboardView: React.FC = () => {
             {/* Command Prompt */}
             <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
               <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded-lg bg-[var(--bg-card,#0F172A)] text-[11px] font-mono font-bold text-sky-400 border border-[var(--border-subtle,#1E293B)]">
+                <span className="px-2.5 py-1 rounded-lg bg-[var(--bg-card,#0F172A)] text-[11px] font-mono font-bold text-accent border border-[var(--border-subtle,#1E293B)]">
                   CMD
                 </span>
                 <div>
@@ -367,7 +367,7 @@ export const DashboardView: React.FC = () => {
             {/* PowerShell */}
             <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
               <div className="flex items-center gap-3">
-                <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 text-[11px] font-mono font-bold text-sky-400 border border-sky-500/30">
+                <span className="px-2.5 py-1 rounded-lg bg-sky-500/10 text-[11px] font-mono font-bold text-accent border border-sky-500/30">
                   PS
                 </span>
                 <div>
@@ -391,7 +391,7 @@ export const DashboardView: React.FC = () => {
         <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-state-success">
                 <Activity className="w-4 h-4" />
               </div>
               <div>
@@ -399,7 +399,7 @@ export const DashboardView: React.FC = () => {
                 <p className="text-[11px] text-[var(--text-dim,#64748B)]">Real-time resource utilization & AI model workload</p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-semibold">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-mono bg-emerald-500/10 text-state-success border border-emerald-500/30 font-semibold">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span>Live: 2s</span>
             </div>
@@ -409,7 +409,7 @@ export const DashboardView: React.FC = () => {
           <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-2">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2 text-[var(--text-main,#F1F5F9)] font-semibold">
-                <HardDrive className="w-4 h-4 text-cyan-400" />
+                <HardDrive className="w-4 h-4 text-accent" />
                 <span>Memory (RAM)</span>
               </div>
               <span className="font-mono font-bold text-[var(--text-main,#F1F5F9)]">
@@ -445,11 +445,11 @@ export const DashboardView: React.FC = () => {
             </div>
             <div className="p-2.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
               <div className="text-[10px] text-[var(--text-dim,#64748B)]">Network</div>
-              <div className="font-bold text-emerald-400 mt-0.5">{telemetry.netKbps || 6} KB/s</div>
+              <div className="font-bold text-state-success mt-0.5">{telemetry.netKbps || 6} KB/s</div>
             </div>
             <div className="p-2.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
               <div className="text-[10px] text-[var(--text-dim,#64748B)]">Status</div>
-              <div className="font-bold text-emerald-400 mt-0.5">Active</div>
+              <div className="font-bold text-state-success mt-0.5">Active</div>
             </div>
           </div>
         </div>
@@ -459,7 +459,7 @@ export const DashboardView: React.FC = () => {
       <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+            <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
               <Zap className="w-4 h-4" />
             </div>
             <div>
@@ -473,7 +473,7 @@ export const DashboardView: React.FC = () => {
               className="p-1.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-[var(--text-dim,#64748B)] hover:text-[var(--text-main,#F1F5F9)] transition-colors"
               title={shortcutsLocked ? 'Unlock shortcuts' : 'Lock shortcuts'}
             >
-              {shortcutsLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5 text-amber-400" />}
+              {shortcutsLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5 text-state-warning" />}
             </button>
             <button
               onClick={() => setMaskPaths(!maskPaths)}
@@ -496,21 +496,21 @@ export const DashboardView: React.FC = () => {
               name: 'Antigravity IDE',
               path: 'C:\\Users\\Gaming\\AppData\\Local\\Programs\\Antigravity\\Antigravity.exe',
               icon: Zap,
-              color: 'text-sky-400',
+              color: 'text-accent',
               id: 'antigravity_ide',
             },
             {
               name: 'Claude Desktop',
               path: 'C:\\Users\\Gaming\\AppData\\Local\\Anthropic\\Claude\\Claude.exe',
               icon: Globe,
-              color: 'text-amber-400',
+              color: 'text-state-warning',
               id: 'claude_desktop',
             },
             {
               name: 'Antigravity App',
               path: 'C:\\Users\\Gaming\\AppData\\Local\\Programs\\AntigravityApp\\app.exe',
               icon: Terminal,
-              color: 'text-emerald-400',
+              color: 'text-state-success',
               id: 'antigravity_app',
             },
           ].map(sc => {
@@ -543,7 +543,7 @@ export const DashboardView: React.FC = () => {
       {/* CARD 6: CORE ENGINE & CLI CONTROLLERS */}
       <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+          <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
             <Server className="w-4 h-4" />
           </div>
           <div>
@@ -560,7 +560,7 @@ export const DashboardView: React.FC = () => {
                 <span className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">Hermes CLI</span>
                 <span className="text-[11px] text-[var(--text-dim,#64748B)] font-mono">Port 9119</span>
               </div>
-              <div className="text-[11px] text-emerald-400 mt-0.5 font-mono">State: Active</div>
+              <div className="text-[11px] text-state-success mt-0.5 font-mono">State: Active</div>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="primary" size="xs">
