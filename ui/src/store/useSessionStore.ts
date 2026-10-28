@@ -155,6 +155,8 @@ interface SessionStoreState {
     data: {
       model?: string;
       reasoningEffort?: string;
+      /** The CLI conversation this session owns; set once, then reused by every later turn. */
+      conversationId?: string;
       quotaPercent?: number;
       tokens?: Partial<TokenUsage>;
     }
@@ -306,10 +308,45 @@ function shapeCommandResult(
   return { stderr: normaliseOutput(text || error || 'Command failed') || undefined };
 }
 
+/**
+ * One-time reset of the stored token totals.
+ *
+ * Every count recorded before sessions owned their own conversation came from one shared
+ * conversation, so a four-message chat could carry hundreds of thousands of tokens of *other*
+ * chats' history. Those numbers cannot be corrected after the fact, only cleared — the counters
+ * restart at zero and mean what they say from here on.
+ */
+const TOKEN_RESET_KEY = 'agentshub_token_totals_reset_v1';
+
+function resetContaminatedTotals(sessions: Record<string, SessionRecord>): Record<string, SessionRecord> {
+  try {
+    if (localStorage.getItem(TOKEN_RESET_KEY) === 'done') return sessions;
+  } catch {
+    return sessions;
+  }
+
+  const empty = { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 };
+  const next: Record<string, SessionRecord> = {};
+  for (const [id, session] of Object.entries(sessions)) {
+    next[id] = { ...session, tokens: { ...empty }, lastTurnTokens: undefined };
+  }
+
+  try {
+    localStorage.setItem(TOKEN_RESET_KEY, 'done');
+  } catch {
+    // The cleared view is still returned; the flag is best-effort.
+  }
+  return next;
+}
+
 const initialData = loadPersistedSessions();
+const migratedSessions = resetContaminatedTotals(initialData.sessions);
+if (migratedSessions !== initialData.sessions) {
+  persistState(migratedSessions, initialData.activeId);
+}
 
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
-  sessions: initialData.sessions,
+  sessions: migratedSessions,
   activeSessionId: initialData.activeId,
   pendingDenials: {},
   onceRules: {},
@@ -1125,6 +1162,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         ...target,
         model: data.model !== undefined ? data.model : target.model,
         reasoningEffort: data.reasoningEffort !== undefined ? data.reasoningEffort : target.reasoningEffort,
+        conversationId: data.conversationId !== undefined ? data.conversationId : target.conversationId,
         quotaPercent: data.quotaPercent !== undefined ? data.quotaPercent : target.quotaPercent,
         tokens: data.tokens ? { ...target.tokens, ...data.tokens } : target.tokens,
         updatedAt: Date.now(),

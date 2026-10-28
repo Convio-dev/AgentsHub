@@ -289,6 +289,14 @@ public class SidecarClient : IDisposable
                     }
                     break;
 
+                case "conversation_started":
+                    var convEv = JsonSerializer.Deserialize<ConversationStartedEvent>(json);
+                    if (convEv != null)
+                    {
+                        OnEventReceived?.Invoke(convEv);
+                    }
+                    break;
+
                 case "terminal_data":
                     var termEv = JsonSerializer.Deserialize<TerminalDataEvent>(json);
                     if (termEv != null)

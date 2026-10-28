@@ -6,6 +6,7 @@ import { rankByQuery } from '../../lib/fuzzy';
 import { SlashCommandPalette } from './SlashCommandPalette';
 import { ModelSelector } from './ModelSelector';
 import { PermissionModeButton } from './PermissionModeButton';
+import { TokenUsageTooltip } from './TokenUsageTooltip';
 import { CircularQuotaWidget } from './CircularQuotaWidget';
 
 interface ChatInputProps {
@@ -20,6 +21,8 @@ interface ChatInputProps {
   lastTurnTokens?: TokenUsage;
   /** Accumulated usage for the whole session, shown as the secondary number. */
   sessionTokens?: TokenUsage;
+  /** Completed replies in this session, so the token panel can say what the total adds up. */
+  turnCount?: number;
   onOpenGitModal?: () => void;
   onOpenTerminal?: () => void;
   /** Active CLI id, so command and model discovery target the right engine. */
@@ -58,6 +61,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   reasoningEffort,
   lastTurnTokens,
   sessionTokens,
+  turnCount,
   onOpenGitModal,
   onOpenTerminal,
   activeCli,
@@ -318,18 +322,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  /** Exact below a thousand, compact above it — never a rounded guess with a `~` prefix. */
-  const formatTokens = (tok: number) => {
-    if (tok <= 0) return '';
-    if (tok < 1000) return String(tok);
-    if (tok < 1_000_000) return `${(tok / 1000).toFixed(1)}k`;
-    return `${(tok / 1_000_000).toFixed(2)}M`;
-  };
-
   const canSend = (prompt.trim().length > 0 || attachments.length > 0) && !isExecuting;
 
   const turnTokens = lastTurnTokens?.totalTokens || 0;
-  const sessionTotal = sessionTokens?.totalTokens || 0;
 
   return (
     <div
@@ -519,15 +514,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <CircularQuotaWidget profileName={profileName} />
 
             {turnTokens > 0 ? (
-              <span
-                className="flex items-baseline gap-1.5 font-mono text-[10.5px] tabular-nums text-content-dim"
-                title="Tokens used by the last turn, and the running total for this session"
-              >
-                <span className="text-content-muted">{formatTokens(turnTokens)} tok</span>
-                {sessionTotal > turnTokens ? (
-                  <span className="text-content-dim">· {formatTokens(sessionTotal)} session</span>
-                ) : null}
-              </span>
+              <TokenUsageTooltip turn={lastTurnTokens} session={sessionTokens} turns={turnCount} />
             ) : null}
 
             <button

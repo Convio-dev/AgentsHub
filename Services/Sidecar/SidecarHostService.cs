@@ -284,6 +284,13 @@ public sealed class SidecarHostService : IDisposable
                 }
                 break;
 
+            case "conversation_started":
+                if (evt is ConversationStartedEvent cse)
+                {
+                    EventDispatched?.Invoke("conversation_started", cse);
+                }
+                break;
+
             case "terminal_data":
                 if (evt is TerminalDataEvent tde)
                 {
@@ -325,7 +332,7 @@ public sealed class SidecarHostService : IDisposable
         }).ConfigureAwait(false);
     }
 
-    public async Task SendChatAsync(string sessionId, string prompt, string? model = null, string? profile = null, string? workingDirectory = null, string? reasoningEffort = null, bool skipPermissions = true)
+    public async Task SendChatAsync(string sessionId, string prompt, string? model = null, string? profile = null, string? workingDirectory = null, string? reasoningEffort = null, bool skipPermissions = true, string? conversationId = null)
     {
         await EnsureOnlineAsync().ConfigureAwait(false);
         await _client.SendAsync(new SendChatRequest
@@ -336,7 +343,8 @@ public sealed class SidecarHostService : IDisposable
             Profile = profile,
             ReasoningEffort = reasoningEffort,
             WorkingDirectory = workingDirectory,
-            SkipPermissions = skipPermissions
+            SkipPermissions = skipPermissions,
+            ConversationId = conversationId
         }).ConfigureAwait(false);
     }
 

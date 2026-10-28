@@ -146,6 +146,10 @@ public class SendChatRequest : BaseRequest
     /// </summary>
     [JsonPropertyName("skipPermissions")]
     public bool SkipPermissions { get; set; } = true;
+
+    /// <summary>The session's own CLI conversation. Empty starts a new one.</summary>
+    [JsonPropertyName("conversationId")]
+    public string? ConversationId { get; set; }
 }
 
 public class CheckQuotaRequest : BaseRequest
@@ -248,6 +252,25 @@ public class TokenUsageInfo
 
     [JsonPropertyName("totalTokens")]
     public int? TotalTokens { get; set; }
+}
+
+/// <summary>
+/// The CLI conversation a session owns, reported when a new one starts.
+///
+/// Sessions used to share one conversation because every turn ran `--continue`, which resumes
+/// whichever conversation ran last — so a chat answered with another chat's history and its token
+/// count carried context that was never part of it.
+/// </summary>
+public class ConversationStartedEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
+    [JsonPropertyName("conversationId")]
+    public string ConversationId { get; set; } = string.Empty;
 }
 
 public class TokenUsageEvent : BaseSidecarEvent
@@ -555,8 +578,7 @@ public class ToolOutputEvent : BaseSidecarEvent
 /// The sidecar promotes this out of the tool error so the UI can offer to allow it; <see cref="Rule"/>
 /// is the settings.json entry that would let the same call through next turn.
 /// </summary>
-public class PermissionDeniedEvent : BaseSidecarEvent
-{
+public class PermissionDeniedEvent : BaseSidecarEvent{
     [JsonPropertyName("sessionId")]
     public string? SessionId { get; set; }
 

@@ -65,6 +65,14 @@ export interface ChatSessionState {
    * full access, which is the behaviour every build before this had.
    */
   skipPermissions?: boolean;
+  /**
+   * The CLI conversation this session owns.
+   *
+   * Every session needs its own, or `--continue` resumes whichever conversation ran last and the
+   * agent answers with another session's history — which also inflates every turn's token count
+   * with context that was never part of this chat.
+   */
+  conversationId?: string;
   quotaPercent?: number;
   streamedText?: string;
   tokens?: {
@@ -603,8 +611,10 @@ export class SessionManager {
     workingDirectory?: string;
     /** Omitted means full access, matching every build before the toggle existed. */
     skipPermissions?: boolean;
+    /** The session's own CLI conversation. Omitted starts a new one. */
+    conversationId?: string;
   }): Promise<void> {
-    const { sessionId, prompt, model, profile, reasoningEffort, workingDirectory, skipPermissions } = params;
+    const { sessionId, prompt, model, profile, reasoningEffort, workingDirectory, skipPermissions, conversationId } = params;
     let targetProfile = profile || this.activeProfileName;
     if (!targetProfile || targetProfile.toLowerCase() === 'default') {
       targetProfile = this.activeProfileName.toLowerCase() !== 'default'
@@ -635,6 +645,7 @@ export class SessionManager {
       model: model || 'Gemini 3.8 Flash (High)',
       reasoningEffort,
       skipPermissions: skipPermissions !== false,
+      conversationId,
       quotaPercent: cachedQuota?.quotaPercent,
       tokens: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 }
     };
@@ -825,10 +836,13 @@ export class SessionManager {
     // Detect agy CLI binary cross-platform
     const agyCmd = this.resolveAgyCommand();
 
-    const agyArgs = [
-      '--output-format', 'stream-json',
-      '--continue'
-    ];
+    const agyArgs = ['--output-format', 'stream-json'];
+    // Never `--continue`: that resumes whichever conversation ran last, so a session would inherit
+    // another one's history and its token count. A session without an id starts a new conversation
+    // and adopts the id the CLI reports on `init`.
+    if (sessionState.conversationId) {
+      agyArgs.push('--conversation', sessionState.conversationId);
+    }
     // Off means the turn runs under the CLI's own review policy. Headless cannot answer a prompt,
     // so anything gated is auto-denied — the UI turns that denial into an approval card.
     if (sessionState.skipPermissions !== false) {
@@ -1164,6 +1178,20 @@ export class SessionManager {
 
   private processAgyEvent(sessionId: string, evt: any, sessionState: ChatSessionState): void {
     if (evt.event === 'init' && evt.init) {
+      // The CLI reports which conversation this turn belongs to. The UI stores it on the session so
+      // later turns resume exactly this one instead of whatever ran last.
+      const conversationId = evt.conversation_id || evt.init.conversation_id;
+      if (typeof conversationId === 'string' && conversationId && conversationId !== sessionState.conversationId) {
+        sessionState.conversationId = conversationId;
+        this.emit({
+          event: 'conversation_started',
+          sessionId,
+          profile: sessionState.profileName,
+          conversationId,
+          timestamp: new Date().toISOString()
+        });
+      }
+
       const modelName = evt.init.model || evt.model;
       if (modelName) {
         sessionState.model = modelName;

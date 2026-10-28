@@ -375,6 +375,18 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
       })
     );
 
+    // 9c. The session adopted a CLI conversation. Stored on the record so every later turn resumes
+    // exactly this one instead of whatever ran last.
+    unsubs.push(
+      webviewBridge.on('conversation_started', (data: any) => {
+        if (!data || typeof data.conversationId !== 'string' || !data.conversationId) return;
+        const sessionStore = useSessionStore.getState();
+        const targetSessionId = data.sessionId || sessionStore.activeSessionId;
+        if (!targetSessionId) return;
+        sessionStore.updateSessionTelemetry(targetSessionId, { conversationId: data.conversationId });
+      })
+    );
+
     // 10. Dynamic Quota Sync — strictly per profile
     unsubs.push(
       webviewBridge.on('quota_update', (data: any) => {

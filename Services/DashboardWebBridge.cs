@@ -568,7 +568,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                         ? spElem.GetBoolean()
                         : _cliManager.ProfileService.GetProfileSkipPermissions(profile);
 
-                    await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd, effort, skipPermissions).ConfigureAwait(false);
+                    // The session's own conversation, so a chat never answers with another chat's history.
+                    string? conversationId = data.TryGetProperty("conversationId", out var cvElem) ? cvElem.GetString() : null;
+
+                    await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd, effort, skipPermissions, conversationId).ConfigureAwait(false);
                     SendResponse(requestId, true, new { sent = true, sessionId });
                 }
                 break;

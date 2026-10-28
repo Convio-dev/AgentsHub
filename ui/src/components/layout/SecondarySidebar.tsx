@@ -96,6 +96,18 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
     setActiveView('chat');
   };
 
+  /**
+   * Starts a chat inside a specific project.
+   *
+   * Passing the workspace id explicitly is what makes the `+` mean "new conversation in *this*
+   * project" rather than "somewhere in whatever is active".
+   */
+  const handleNewSessionInWorkspace = (workspaceId: string) => {
+    const newId = createSession(activeProfileName, undefined, workspaceId);
+    switchSession(newId);
+    setActiveView('chat');
+  };
+
   // Merge active local sessions with backend sessions
   const localSessionList = Object.values(sessions).map(s => ({
     sessionId: s.id,
@@ -171,27 +183,52 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
   };
 
   const renderSessionGroup = (title: string, items: typeof allSessions, groupKey: string) => {
-    if (items.length === 0) return null;
+    // Workspace rows always render: a project with no chats yet still needs its own `+`.
+    const isWorkspace = groupKey !== '__unfiled__';
+    if (items.length === 0 && !isWorkspace) return null;
     const isCollapsed = !!collapsedGroups[groupKey];
 
     return (
       <div key={groupKey} className="space-y-1">
-        <button
-          type="button"
-          onClick={() => toggleGroup(groupKey)}
-          className="w-full flex items-center justify-between px-2 py-1.5 text-[10px] uppercase tracking-wider text-content-dim font-semibold hover:text-content-main rounded hover:bg-surface-card transition select-none"
-        >
-          <span className="flex items-center space-x-1.5">
-            {isCollapsed ? <ChevronRight className="w-3 h-3 text-content-dim" /> : <ChevronDown className="w-3 h-3 text-content-dim" />}
-            <span>{title}</span>
-          </span>
-          <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-surface-card border border-surface-border text-content-dim">
-            {items.length}
-          </span>
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => toggleGroup(groupKey)}
+            className="min-w-0 flex-1 flex items-center justify-between px-2 py-1.5 text-[10px] uppercase tracking-wider text-content-dim font-semibold hover:text-content-main rounded hover:bg-surface-card transition select-none"
+          >
+            <span className="flex min-w-0 items-center space-x-1.5">
+              {isCollapsed ? <ChevronRight className="w-3 h-3 flex-shrink-0 text-content-dim" /> : <ChevronDown className="w-3 h-3 flex-shrink-0 text-content-dim" />}
+              <span className="truncate">{title}</span>
+            </span>
+            <span className="ml-1 font-mono text-[9px] px-1.5 py-0.5 rounded bg-surface-card border border-surface-border text-content-dim">
+              {items.length}
+            </span>
+          </button>
+
+          {isWorkspace ? (
+            <button
+              type="button"
+              onClick={() => handleNewSessionInWorkspace(groupKey)}
+              className="flex-shrink-0 rounded p-1 text-content-dim transition hover:bg-surface-hover hover:text-accent"
+              title={`New conversation in ${title}`}
+              aria-label={`New conversation in ${title}`}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
 
         {!isCollapsed && (
           <div className="space-y-1">
+            {items.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => handleNewSessionInWorkspace(groupKey)}
+                className="w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] text-content-dim transition hover:bg-surface-card hover:text-content-main"
+              >
+                No conversations yet — start one
+              </button>
+            ) : null}
             {items.map(s => {
               const isActive = s.sessionId === activeSessionId;
               const isRenaming = renamingId === s.sessionId;

@@ -388,6 +388,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
           reasoningEffort={activeSession?.reasoningEffort}
           lastTurnTokens={activeSession?.lastTurnTokens}
           sessionTokens={activeSession?.tokens}
+          turnCount={activeSession?.messages.filter(message => message.sender === 'assistant').length}
           onOpenGitModal={onOpenGitModal}
           onOpenTerminal={() => setActiveView('terminals')}
           activeCli={activeWorkspace?.primaryCli}

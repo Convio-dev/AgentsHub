@@ -142,6 +142,11 @@ export interface SessionRecord {
   workspaceId?: string;
   model: string;
   reasoningEffort?: string;
+  /**
+   * The CLI conversation this session owns. Without it every turn resumed whichever conversation
+   * ran last, so chats shared memory and token counts.
+   */
+  conversationId?: string;
   quotaPercent?: number;
   /** Accumulated across every completed turn in this session. */
   tokens: TokenUsage;

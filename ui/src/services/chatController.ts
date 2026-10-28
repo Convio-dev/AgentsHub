@@ -44,6 +44,11 @@ function resolveContext(sessionId: string) {
      * which is also what the terminal tab's checkbox reads.
      */
     skipPermissions: resolveSkipPermissions(session?.profile),
+    /**
+     * The session's own conversation. Empty on the first turn, which starts a fresh one; the sidecar
+     * reports the id back and it is stored on the session from then on.
+     */
+    conversationId: session?.conversationId,
   };
 }
 
@@ -66,6 +71,7 @@ async function dispatch({ sessionId, prompt }: DispatchTarget): Promise<void> {
       profile: context.profile,
       workingDirectory: context.workingDirectory,
       skipPermissions: context.skipPermissions,
+      conversationId: context.conversationId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to dispatch chat prompt';

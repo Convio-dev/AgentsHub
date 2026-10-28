@@ -128,6 +128,8 @@ export interface SendChatRequest extends BaseInboundRequest {
   reasoningEffort?: string;
   /** Omitted means full access. `false` runs the turn under the CLI's review policy. */
   skipPermissions?: boolean;
+  /** The session's own CLI conversation. Omitted starts a new one. */
+  conversationId?: string;
 }
 
 export type InboundMessage =
@@ -362,8 +364,21 @@ export interface PermissionDeniedEvent {
   timestamp: string;
 }
 
-export interface TaskCompletedSummary {
-  success: boolean;
+/**
+ * The CLI conversation a session owns, reported once per new conversation.
+ *
+ * Without this the host had no way to keep sessions apart, so every turn resumed whichever
+ * conversation ran last and the agent answered with another chat's history.
+ */
+export interface ConversationStartedEvent {
+  event: 'conversation_started';
+  sessionId: string;
+  profile?: string;
+  conversationId: string;
+  timestamp: string;
+}
+
+export interface TaskCompletedSummary {  success: boolean;
   durationMs: number;
   tokensUsed?: number;
   stepsCount: number;
@@ -410,6 +425,7 @@ export type OutboundEvent =
   | ToolStartEvent
   | ToolOutputEvent
   | PermissionDeniedEvent
+  | ConversationStartedEvent
   | TaskCompletedEvent
   | TerminalDataEvent
   | ErrorEvent;
