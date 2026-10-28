@@ -57,6 +57,14 @@ export interface ChatSessionState {
   pid?: number;
   model?: string;
   reasoningEffort?: string;
+  /**
+   * Whether this turn runs with `--dangerously-skip-permissions`.
+   *
+   * Headless agy cannot prompt for permission, so turning this off does not make the agent ask —
+   * gated tools are auto-denied and the denial comes back as a tool error. Callers that omit it get
+   * full access, which is the behaviour every build before this had.
+   */
+  skipPermissions?: boolean;
   quotaPercent?: number;
   streamedText?: string;
   tokens?: {
@@ -65,6 +73,114 @@ export interface ChatSessionState {
     thinkingTokens?: number;
     totalTokens?: number;
   };
+}
+
+export interface PermissionDenial {
+  /** The CLI's permission kind, e.g. `command`. */
+  permission: string;
+  /** The full command line the CLI refused, when the denial names one. */
+  command?: string;
+  /** Program the allow-rule would pin, e.g. `npm`. */
+  target?: string;
+  /** Ready-to-write allow-rule, e.g. `command(npm)`. Absent when the shape is unknown. */
+  rule?: string;
+  message: string;
+}
+
+/** Shell builtins that move the shell around rather than do work, skipped when naming a program. */
+const SHELL_NAVIGATION = new Set(['cd', 'pushd', 'popd', 'export', 'set', 'source']);
+
+/**
+ * The program a refused command line starts with, used only to label the denial in the UI.
+ *
+ * It is not the allow-rule: `command(echo)` does not match `echo hi`, so the rule has to carry the
+ * whole command line. This exists so the card can say "echo" instead of pasting a long command.
+ */
+export function commandRuleTarget(command: string): string | undefined {
+  for (const segment of command.split(/&&|\|\||;|\|/)) {
+    const first = segment.trim().match(/^"([^"]+)"|^(\S+)/);
+    const raw = first ? (first[1] ?? first[2] ?? '') : '';
+    if (!raw) continue;
+
+    const base = (raw.split(/[\\/]/).pop() || raw).replace(/\.(exe|cmd|bat|com|ps1)$/i, '');
+    if (!base) continue;
+    if (SHELL_NAVIGATION.has(base.toLowerCase())) continue;
+    return base;
+  }
+  return undefined;
+}
+
+/**
+ * Recognises the CLI's permission-denial wording and extracts what an allow-rule needs.
+ *
+ * Two shapes exist, and only one of them names the rule:
+ *
+ * - file and tool denials spell it out — `user denied permission for write_file(<path>)`
+ * - command denials repeat the command line instead — `user denied permission to run command:\n<cmd>`
+ *
+ * Guessing from the quoted subject produced `command(<path>)` for a file write, a rule that grants
+ * nothing, which is why approving a blocked write changed nothing.
+ *
+ * Returns undefined for every other tool error, so ordinary failures are not mistaken for denials.
+ */
+export function parsePermissionDenial(
+  message: string,
+  call?: { name?: string; params?: Record<string, unknown> }
+): PermissionDenial | undefined {
+  if (!message || !/permission check failed/i.test(message)) return undefined;
+
+  // The CLI states the exact rule for every non-command permission. Use it verbatim.
+  const named = message.match(/user denied permission for\s+([a-z_]+)\(([^)]*)\)/i);
+  if (named) {
+    const permission = named[1].toLowerCase();
+    const subject = named[2];
+    return {
+      permission,
+      target: subject,
+      rule: `${permission}(${subject})`,
+      message: message.trim(),
+    };
+  }
+
+  const head = message.match(/permission check failed for\s+(?:unsandboxed\s+)?(\w+)?\s*"([^"]*)"/i);
+  // The `denied permission to run command:` line repeats the command verbatim, without the
+  // "unsandboxed" wrapper, so it is the better source when present.
+  const detail = message.match(/denied permission to (?:run )?([a-z_ ]+):\s*\n([^\n]+)/i);
+  const command = detail?.[2]?.trim() || head?.[2];
+
+  // "for unsandboxed \"echo hi\"" has no kind word, but a command line means it was a command.
+  const permission = (head?.[1] || call?.name || (command ? 'command' : 'tool')).toLowerCase();
+
+  // Measured: `command(echo)` does NOT allow `echo hi` — the rule has to be the exact command line
+  // the CLI refused. That is also the safest grant: it allows precisely what the user just saw.
+  const target = command ? commandRuleTarget(command) : undefined;
+  const rule = command ? `command(${command})` : ruleFromCall(permission, call?.params);
+
+  return { permission, command, target, rule, message: message.trim() };
+}
+
+/**
+ * Rebuilds the rule from the tool call when the CLI's message did not spell one out.
+ *
+ * Some denials read `permission check failed for write_file: user denied permission` — no target at
+ * all. The parameters the CLI passed are the same values it will check, so they are the only
+ * reliable source left.
+ */
+function ruleFromCall(permission: string, params?: Record<string, unknown>): string | undefined {
+  if (!params) return undefined;
+
+  const subject =
+    typeof params.Path === 'string'
+      ? params.Path
+      : typeof params.CommandLine === 'string'
+        ? params.CommandLine
+        : typeof params.path === 'string'
+          ? params.path
+          : undefined;
+  if (!subject) return undefined;
+
+  const kind = permission === 'tool' ? 'write_file' : permission;
+  return `${kind}(${subject})`;
 }
 
 export class SessionManager {
@@ -157,7 +273,16 @@ export class SessionManager {
     const sanitized = resolved.replace(/[^a-zA-Z0-9_\-\.@]/g, '_');
     const home = homedir();
 
-    const candidates = [
+    /**
+     * The host owns the profile store and tells us where it is.
+     *
+     * Guessing from cwd used to be the only option, and it failed exactly when the sidecar ran from
+     * its own folder: every candidate missed, so it invented `bin\win-x64\bin\Debug\...\Profiles`
+     * and ran `agy` against an empty home while the host wrote permissions to the real one.
+     */
+    const hostProfilesDir = process.env.AGENTS_PROFILES_DIR;
+
+    const legacyCandidates = [
       join(process.cwd(), 'Profiles', 'Antigravity', sanitized, 'VirtualHome'),
       join(process.cwd(), 'bin', 'Debug', 'net10.0-windows', 'Profiles', 'Antigravity', sanitized, 'VirtualHome'),
       join(process.cwd(), 'bin', 'Debug', 'net10.0', 'Profiles', 'Antigravity', sanitized, 'VirtualHome'),
@@ -165,17 +290,11 @@ export class SessionManager {
       join(home, '.gemini', 'antigravity', 'profiles', sanitized, 'VirtualHome')
     ];
 
-    let targetDir = candidates[0];
-    for (const c of candidates) {
-      if (existsSync(c)) {
-        targetDir = c;
-        break;
-      }
-    }
-
-    if (!existsSync(targetDir)) {
-      targetDir = candidates[2];
-    }
+    // One authority beats five guesses: when the host names the store, that is the answer, whether
+    // or not the directory exists yet.
+    const targetDir = hostProfilesDir
+      ? join(hostProfilesDir, sanitized, 'VirtualHome')
+      : legacyCandidates.find(c => existsSync(c)) ?? legacyCandidates[2];
 
     const virtGemini = join(targetDir, '.gemini');
     const virtRoaming = join(targetDir, 'AppData', 'Roaming');
@@ -482,8 +601,10 @@ export class SessionManager {
     profile?: string;
     reasoningEffort?: string;
     workingDirectory?: string;
+    /** Omitted means full access, matching every build before the toggle existed. */
+    skipPermissions?: boolean;
   }): Promise<void> {
-    const { sessionId, prompt, model, profile, reasoningEffort, workingDirectory } = params;
+    const { sessionId, prompt, model, profile, reasoningEffort, workingDirectory, skipPermissions } = params;
     let targetProfile = profile || this.activeProfileName;
     if (!targetProfile || targetProfile.toLowerCase() === 'default') {
       targetProfile = this.activeProfileName.toLowerCase() !== 'default'
@@ -513,6 +634,7 @@ export class SessionManager {
       scopedEnv,
       model: model || 'Gemini 3.8 Flash (High)',
       reasoningEffort,
+      skipPermissions: skipPermissions !== false,
       quotaPercent: cachedQuota?.quotaPercent,
       tokens: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 }
     };
@@ -705,9 +827,13 @@ export class SessionManager {
 
     const agyArgs = [
       '--output-format', 'stream-json',
-      '--continue',
-      '--dangerously-skip-permissions'
+      '--continue'
     ];
+    // Off means the turn runs under the CLI's own review policy. Headless cannot answer a prompt,
+    // so anything gated is auto-denied — the UI turns that denial into an approval card.
+    if (sessionState.skipPermissions !== false) {
+      agyArgs.push('--dangerously-skip-permissions');
+    }
 
     if (model) {
       agyArgs.push('--model', model);
@@ -843,10 +969,8 @@ export class SessionManager {
   }): Promise<void> {
     const { sessionId, prompt, model, cwd, scopedEnv, abortController, sessionState } = opts;
     const agyCmd = this.resolveAgyCommand();
-    const agyArgs = [
-      '--output-format', 'stream-json',
-      '--dangerously-skip-permissions'
-    ];
+    const agyArgs = ['--output-format', 'stream-json'];
+    if (sessionState.skipPermissions !== false) agyArgs.push('--dangerously-skip-permissions');
     if (model) agyArgs.push('--model', model);
     if (sessionState.reasoningEffort && !model) agyArgs.push('--effort', sessionState.reasoningEffort);
     agyArgs.push('-p', prompt);
@@ -1154,6 +1278,32 @@ export class SessionManager {
             durationMs,
             timestamp: new Date().toISOString()
           });
+
+          // A permission denial is a tool error carrying the CLI's own wording. It is the only
+          // signal headless mode can produce when a gated tool is refused, so it is promoted to a
+          // first-class event the UI can answer with an allow-rule.
+          if (isErr) {
+            const denial = parsePermissionDenial(su.tool_info?.error?.message || output || '', {
+              name: rawToolName,
+              params: su.tool_info?.parameters,
+            });
+            if (denial) {
+              this.emit({
+                event: 'permission_denied',
+                sessionId,
+                profile: sessionState.profileName,
+                callId,
+                tool: toolDisplay,
+                toolKind,
+                permission: denial.permission,
+                command: denial.command,
+                target: denial.target,
+                rule: denial.rule,
+                message: denial.message,
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
         }
       }
     }

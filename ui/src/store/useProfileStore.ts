@@ -40,6 +40,11 @@ interface ProfileStoreState {
   settleQuotaCheck: (name?: string | null) => void;
   setDefaultProfile: (name: string) => void;
   setAutoRunDefaultProfile: (enabled: boolean) => void;
+  /**
+   * Turns full access on or off for one profile. Persisted by the host, so the terminal tab's
+   * checkbox shows the same value; resolves false when the write was refused.
+   */
+  setSkipPermissions: (name: string, skipPermissions: boolean) => Promise<boolean>;
   getActiveProfile: () => RunnerProfile | undefined;
 }
 
@@ -268,6 +273,25 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
       // as above
     }
     set({ autoRunDefaultProfile: enabled });
+  },
+
+  setSkipPermissions: async (name: string, skipPermissions: boolean) => {
+    try {
+      // The bridge rejects on a refused write, so reaching the next line means the host accepted it.
+      await webviewBridge.invoke('set_profile_skip_permissions', { profile: name, skipPermissions });
+    } catch (err) {
+      console.warn('[useProfileStore] set_profile_skip_permissions failed:', err);
+      return false;
+    }
+
+    // Optimistic only after the host accepted it: the profile list is the single source of truth,
+    // and a local flip the host refused would put the toggle out of step with the terminal tab.
+    set(state => ({
+      profiles: state.profiles.map(p =>
+        p.name.toLowerCase() === name.toLowerCase() ? { ...p, skipPermissions } : p
+      ),
+    }));
+    return true;
   },
 
   settleQuotaCheck: (name?: string | null) => {

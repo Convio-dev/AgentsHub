@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using AgentsHub.Helpers;
 
 namespace AgentsHub.Services;
@@ -1190,6 +1192,285 @@ public sealed class AntigravityProfileService : IDisposable
         ProfileSaved?.Invoke(profileName);
     }
 
+    /// <summary>
+    /// Only `tool(target)` entries may be written, so a malformed rule never reaches the CLI. The
+    /// tool is not always `command`: a refused file write is granted with `write_file(<path>)`, and
+    /// the target may contain parentheses, quotes and slashes.
+    /// </summary>
+    private static readonly Regex AllowRuleShape = new(@"^[a-z_]+\([^\r\n]{1,400}\)$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Adds an allow-rule to the profile's CLI settings, leaving every other key untouched.
+    ///
+    /// Headless runs cannot answer a permission prompt, so an allow-rule is the only way to let a
+    /// previously denied tool through. It is written to both copies of the settings file: the
+    /// VirtualHome one `agy` reads at runtime, and `cli_settings.json`, which PrepareVirtualHome
+    /// copies back over it — writing only the first would lose the rule on the next launch.
+    /// </summary>
+    /// <returns>True when the rule is in effect afterwards, whether it was added now or already there.</returns>
+    public bool AddPermissionAllowRule(string profileName, string rule)
+    {
+        if (string.IsNullOrWhiteSpace(profileName) || string.IsNullOrWhiteSpace(rule)) return false;
+        if (!AllowRuleShape.IsMatch(rule)) return false;
+
+        lock (_lock)
+        {
+            string profileDir = Path.Combine(ProfilesBaseDir, profileName);
+            bool present = false;
+
+            // The VirtualHome copy is what `agy` reads right now.
+            string liveSettings = Path.Combine(profileDir, "VirtualHome", ".gemini", "antigravity-cli", "settings.json");
+            present |= TryMergeAllowRule(liveSettings, rule, createIfMissing: true);
+
+            // `cli_settings.json` is the source PrepareVirtualHome folds in. It is only written when
+            // it already exists: creating a file holding nothing but the rule would replace the
+            // profile's whole settings (verbosity, trustedWorkspaces) on next launch.
+            present |= TryMergeAllowRule(
+                Path.Combine(profileDir, "cli_settings.json"),
+                rule,
+                createIfMissing: false);
+
+            // Read back rather than trust the write: a grant that never reached the file the CLI
+            // reads is indistinguishable from a dead button, so it has to fail loudly.
+            bool inEffect = present && SettingsContainRule(liveSettings, rule);
+            if (inEffect)
+            {
+                Log($"Allow-rule '{rule}' is in effect for profile '{profileName}'.");
+                ProfileSaved?.Invoke(profileName);
+            }
+            LogGrant(profileName, rule, inEffect);
+            return inEffect;
+        }
+    }
+
+    /// <summary>
+    /// Takes an allow-rule back out of the profile's settings.
+    ///
+    /// The chat prompt offers "run once" and "allow for this conversation", both of which have to be
+    /// undone later; the settings file is the only lever `agy` reads, so scope is emulated by
+    /// writing and then removing the rule.
+    /// </summary>
+    /// <returns>True when the rule is gone from the file the CLI reads.</returns>
+    public bool RemovePermissionAllowRule(string profileName, string rule)
+    {
+        if (string.IsNullOrWhiteSpace(profileName) || string.IsNullOrWhiteSpace(rule)) return false;
+
+        lock (_lock)
+        {
+            string profileDir = Path.Combine(ProfilesBaseDir, profileName);
+            string liveSettings = Path.Combine(profileDir, "VirtualHome", ".gemini", "antigravity-cli", "settings.json");
+            RemoveRuleFrom(liveSettings, rule);
+            RemoveRuleFrom(Path.Combine(profileDir, "cli_settings.json"), rule);
+
+            bool removed = !SettingsContainRule(liveSettings, rule);
+            LogGrant(profileName, rule, !removed);
+            return removed;
+        }
+    }
+
+    private void RemoveRuleFrom(string path, string rule)
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+            if (JsonNode.Parse(File.ReadAllText(path)) is not JsonObject root) return;
+            if (root["permissions"] is not JsonObject permissions) return;
+            if (permissions["allow"] is not JsonArray allow) return;
+
+            for (int i = allow.Count - 1; i >= 0; i -= 1)
+            {
+                if (allow[i] is JsonValue value && value.TryGetValue<string>(out string? existing) &&
+                    string.Equals(existing, rule, StringComparison.OrdinalIgnoreCase))
+                {
+                    allow.RemoveAt(i);
+                }
+            }
+
+            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex)
+        {
+            Log($"Failed to remove allow-rule from '{path}': {ex.Message}");
+        }
+    }
+
+    /// <summary>True when the rule is actually present in the settings file the CLI reads.</summary>
+    private static bool SettingsContainRule(string path, string rule)
+    {
+        try
+        {
+            if (!File.Exists(path)) return false;
+            if (JsonNode.Parse(File.ReadAllText(path)) is not JsonObject root) return false;
+            if (root["permissions"] is not JsonObject permissions) return false;
+            if (permissions["allow"] is not JsonArray allow) return false;
+
+            foreach (JsonNode? entry in allow)
+            {
+                if (entry is JsonValue value && value.TryGetValue<string>(out string? existing) &&
+                    string.Equals(existing, rule, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Appends every grant to a temp log. A rule that silently failed to reach the right file looked
+    /// exactly like a broken Allow button, and nothing in the UI could tell the two apart.
+    /// </summary>
+    private static void LogGrant(string profileName, string rule, bool present)
+    {
+        try
+        {
+            string line = $"{DateTime.Now:O}\t{profileName}\t{present}\t{rule}\t{ProfilesBaseDir}{Environment.NewLine}";
+            File.AppendAllText(Path.Combine(Path.GetTempPath(), "agentshub-permissions.log"), line);
+        }
+        catch
+        {
+            // Diagnostics must never break the grant.
+        }
+    }
+
+    /// <returns>True when the rule is present in that file afterwards, false on a read/write failure.</returns>
+    /// <summary>
+    /// Folds the profile's saved settings into the live VirtualHome file instead of overwriting it.
+    ///
+    /// The live file grows while the app runs: `agy` writes an "always allow" choice into it, and the
+    /// chat approval path writes allow-rules. A plain copy erased those on the next prepare, which is
+    /// why an approved command was denied again on the retry. Keys the live file already has win;
+    /// the lists that only ever grow are unioned.
+    /// </summary>
+    private void MergeSettingsInto(string sourcePath, string destPath)
+    {
+        try
+        {
+            if (!File.Exists(destPath))
+            {
+                string? parent = Path.GetDirectoryName(destPath);
+                if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+                File.Copy(sourcePath, destPath, overwrite: true);
+                return;
+            }
+
+            JsonObject source = JsonNode.Parse(File.ReadAllText(sourcePath)) as JsonObject ?? [];
+            JsonObject dest = JsonNode.Parse(File.ReadAllText(destPath)) as JsonObject ?? [];
+
+            if (source["permissions"] is JsonObject sourcePermissions)
+            {
+                if (dest["permissions"] is not JsonObject destPermissions)
+                {
+                    destPermissions = [];
+                    dest["permissions"] = destPermissions;
+                }
+
+                foreach (string listName in new[] { "allow", "deny", "ask" })
+                {
+                    if (sourcePermissions[listName] is not JsonArray sourceList) continue;
+                    if (destPermissions[listName] is not JsonArray destList)
+                    {
+                        destList = [];
+                        destPermissions[listName] = destList;
+                    }
+                    foreach (JsonNode? entry in sourceList) AddIfMissing(destList, entry);
+                }
+            }
+
+            if (source["trustedWorkspaces"] is JsonArray sourceWorkspaces)
+            {
+                if (dest["trustedWorkspaces"] is not JsonArray destWorkspaces)
+                {
+                    destWorkspaces = [];
+                    dest["trustedWorkspaces"] = destWorkspaces;
+                }
+                foreach (JsonNode? entry in sourceWorkspaces) AddIfMissing(destWorkspaces, entry);
+            }
+
+            // Everything else is only filled in when the live file does not have it, so a runtime
+            // change (verbosity, a new toggle) is never reverted by the profile copy.
+            foreach ((string key, JsonNode? value) in source)
+            {
+                if (key is "permissions" or "trustedWorkspaces") continue;
+                if (!dest.ContainsKey(key) && value is not null) dest[key] = value.DeepClone();
+            }
+
+            File.WriteAllText(destPath, dest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex)
+        {
+            Log($"Settings merge failed for '{destPath}', copying instead: {ex.Message}");
+            try { RobustCopyFile(sourcePath, destPath); } catch { }
+        }
+    }
+
+    private static void AddIfMissing(JsonArray list, JsonNode? entry)
+    {
+        string? value = entry is JsonValue jsonValue && jsonValue.TryGetValue<string>(out string? text) ? text : null;
+        foreach (JsonNode? existing in list)
+        {
+            if (existing is JsonValue existingValue && existingValue.TryGetValue<string>(out string? current) &&
+                string.Equals(current, value, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+        list.Add(entry?.DeepClone());
+    }
+
+    private bool TryMergeAllowRule(string path, string rule, bool createIfMissing)
+    {
+        try
+        {
+            JsonObject root;
+            if (File.Exists(path))
+            {
+                string text = File.ReadAllText(path);
+                root = string.IsNullOrWhiteSpace(text) ? [] : JsonNode.Parse(text) as JsonObject ?? [];
+            }
+            else
+            {
+                if (!createIfMissing) return false;
+                string? dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                root = [];
+            }
+
+            if (root["permissions"] is not JsonObject permissions)
+            {
+                permissions = [];
+                root["permissions"] = permissions;
+            }
+            if (permissions["allow"] is not JsonArray allow)
+            {
+                allow = [];
+                permissions["allow"] = allow;
+            }
+
+            foreach (JsonNode? entry in allow)
+            {
+                if (entry is JsonValue value && value.TryGetValue<string>(out string? existing) &&
+                    string.Equals(existing, rule, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            allow.Add(rule);
+            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log($"Failed to add allow-rule to '{path}': {ex.Message}");
+            return false;
+        }
+    }
+
     public static string? GetAccountEmail(string profileName)
     {
         try
@@ -1679,7 +1960,7 @@ public sealed class AntigravityProfileService : IDisposable
             string settingsSrc = Path.Combine(profileDir, "cli_settings.json");
             if (File.Exists(settingsSrc))
             {
-                RobustCopyFile(settingsSrc, Path.Combine(virtualCli, "settings.json"));
+                MergeSettingsInto(settingsSrc, Path.Combine(virtualCli, "settings.json"));
             }
 
             Log($"VirtualHome prepared for profile '{profileName}'.");

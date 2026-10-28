@@ -234,6 +234,29 @@ export interface RunnerProfile {
   lastQuotaChecked?: number;
   port?: number;
   pid?: number;
+  /**
+   * Whether this profile's turns run with `--dangerously-skip-permissions`.
+   *
+   * Shared with the terminal tab's own checkbox: one profile, one answer, so chat and terminal
+   * cannot disagree. Off does not make the agent ask — headless runs auto-deny gated tools.
+   */
+  skipPermissions?: boolean;
+}
+
+/** A tool call the CLI refused because headless runs cannot answer a permission prompt. */
+export interface PermissionDenialInfo {
+  sessionId: string;
+  profile?: string;
+  callId: string;
+  tool: string;
+  /** The CLI's permission kind, e.g. `command`. */
+  permission: string;
+  command?: string;
+  target?: string;
+  /** Allow-rule that would let the same call through, e.g. `command(npm)`. */
+  rule?: string;
+  message: string;
+  receivedAt: number;
 }
 
 export interface SidecarHealth {

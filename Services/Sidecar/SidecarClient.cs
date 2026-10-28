@@ -281,6 +281,14 @@ public class SidecarClient : IDisposable
                     }
                     break;
 
+                case "permission_denied":
+                    var permEv = JsonSerializer.Deserialize<PermissionDeniedEvent>(json);
+                    if (permEv != null)
+                    {
+                        OnEventReceived?.Invoke(permEv);
+                    }
+                    break;
+
                 case "terminal_data":
                     var termEv = JsonSerializer.Deserialize<TerminalDataEvent>(json);
                     if (termEv != null)

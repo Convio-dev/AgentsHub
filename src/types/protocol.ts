@@ -124,6 +124,10 @@ export interface SendChatRequest extends BaseInboundRequest {
   model?: string;
   profile?: string;
   workingDirectory?: string;
+  /** Tier is already encoded in the model id; only forwarded when no model was chosen. */
+  reasoningEffort?: string;
+  /** Omitted means full access. `false` runs the turn under the CLI's review policy. */
+  skipPermissions?: boolean;
 }
 
 export type InboundMessage =
@@ -337,6 +341,27 @@ export interface ToolOutputEvent {
   timestamp: string;
 }
 
+/**
+ * A tool call the CLI refused because headless runs cannot prompt for permission.
+ *
+ * `rule` is the allow-rule that would let this exact call through, so the UI can offer "allow" and
+ * write it to the profile's settings.json. Absent when the denial's shape is not recognised.
+ */
+export interface PermissionDeniedEvent {
+  event: 'permission_denied';
+  sessionId?: string;
+  profile?: string;
+  callId: string;
+  tool: string;
+  toolKind?: 'command' | 'read' | 'search' | 'write' | 'other';
+  permission: string;
+  command?: string;
+  target?: string;
+  rule?: string;
+  message: string;
+  timestamp: string;
+}
+
 export interface TaskCompletedSummary {
   success: boolean;
   durationMs: number;
@@ -384,6 +409,7 @@ export type OutboundEvent =
   | AccountStateEvent
   | ToolStartEvent
   | ToolOutputEvent
+  | PermissionDeniedEvent
   | TaskCompletedEvent
   | TerminalDataEvent
   | ErrorEvent;

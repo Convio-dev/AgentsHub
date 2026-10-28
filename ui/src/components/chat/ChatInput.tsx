@@ -5,6 +5,7 @@ import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
 import { SlashCommandPalette } from './SlashCommandPalette';
 import { ModelSelector } from './ModelSelector';
+import { PermissionModeButton } from './PermissionModeButton';
 import { CircularQuotaWidget } from './CircularQuotaWidget';
 
 interface ChatInputProps {
@@ -507,6 +508,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               effort={reasoningEffort}
               cli={activeCli}
             />
+
+            <span className="opacity-30">|</span>
+
+            <PermissionModeButton profileName={profileName} />
           </div>
 
           {/* Right: quota ring, optional token readout, then the single morphing action button */}

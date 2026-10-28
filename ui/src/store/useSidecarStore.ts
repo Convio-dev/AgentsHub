@@ -9,6 +9,10 @@ import { useSessionStore } from './useSessionStore';
 import { useProfileStore } from './useProfileStore';
 import { useWorkspaceStore } from './useWorkspaceStore';
 import { useRepositoriesStore } from './useRepositoriesStore';
+import { revokeRule } from '../lib/permissionRules';
+
+/** One flush per page load: conversation grants from the previous run are revoked exactly once. */
+let conversationRulesFlushed = false;
 
 interface SidecarStoreState {
   health: SidecarHealth;
@@ -170,6 +174,13 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
   initBridgeListeners: () => {
     const unsubs: Array<() => void> = [];
 
+    // A "for this conversation" grant from a previous run has no conversation left to belong to.
+    // Guarded: a re-mount must not revoke rules granted earlier in this same run.
+    if (!conversationRulesFlushed) {
+      conversationRulesFlushed = true;
+      useSessionStore.getState().flushStaleConversationRules();
+    }
+
     // 1. Sidecar Status
     unsubs.push(
       webviewBridge.on('sidecar_status_changed', (data: any) => {
@@ -329,6 +340,38 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
           data.error,
           data.pid
         );
+
+        // A "run once" grant was written only so this turn could retry, and the turn is over now.
+        const state = data.state || 'idle';
+        if (state === 'idle' || state === 'completed' || state === 'error') {
+          for (const entry of sessionStore.consumeOnceRules(targetSessionId)) {
+            void revokeRule(entry);
+          }
+        }
+      })
+    );
+
+    // 9b. A tool the CLI refused for lack of permission. Headless runs cannot prompt, so the
+    // composer offers to write the allow-rule the CLI named instead.
+    unsubs.push(
+      webviewBridge.on('permission_denied', (data: any) => {
+        if (!data || typeof data.message !== 'string') return;
+        const sessionStore = useSessionStore.getState();
+        const targetSessionId = data.sessionId || sessionStore.activeSessionId;
+        if (!targetSessionId) return;
+
+        sessionStore.addPermissionDenial({
+          sessionId: targetSessionId,
+          profile: typeof data.profile === 'string' ? data.profile : undefined,
+          callId: typeof data.callId === 'string' ? data.callId : `denial_${Date.now()}`,
+          tool: typeof data.tool === 'string' ? data.tool : 'tool',
+          permission: typeof data.permission === 'string' ? data.permission : 'tool',
+          command: typeof data.command === 'string' ? data.command : undefined,
+          target: typeof data.target === 'string' ? data.target : undefined,
+          rule: typeof data.rule === 'string' ? data.rule : undefined,
+          message: data.message,
+          receivedAt: Date.now(),
+        });
       })
     );
 

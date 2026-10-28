@@ -562,8 +562,100 @@ public sealed partial class DashboardWebBridge : IDisposable
                         profile = activeFallback;
                     }
 
-                    await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd, effort).ConfigureAwait(false);
+                    // The toggle is persisted per profile, so an omitted flag falls back to the
+                    // stored preference instead of silently granting full access.
+                    bool skipPermissions = data.TryGetProperty("skipPermissions", out var spElem) && spElem.ValueKind is JsonValueKind.True or JsonValueKind.False
+                        ? spElem.GetBoolean()
+                        : _cliManager.ProfileService.GetProfileSkipPermissions(profile);
+
+                    await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd, effort, skipPermissions).ConfigureAwait(false);
                     SendResponse(requestId, true, new { sent = true, sessionId });
+                }
+                break;
+
+            // Persisted per profile and shared with the terminal tab's own checkbox, so chat and
+            // terminal can never disagree about whether full access is on.
+            case "set_profile_skip_permissions":
+                {
+                    string? profile = data.TryGetProperty("profile", out var psElem) ? psElem.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(profile))
+                    {
+                        profile = _cliManager.ProfileService.ActiveProfile;
+                    }
+                    if (string.IsNullOrWhiteSpace(profile))
+                    {
+                        SendResponse(requestId, false, "No profile is configured.");
+                        break;
+                    }
+                    if (!data.TryGetProperty("skipPermissions", out var pvElem) ||
+                        pvElem.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    {
+                        SendResponse(requestId, false, "skipPermissions must be true or false.");
+                        break;
+                    }
+
+                    bool value = pvElem.GetBoolean();
+                    _cliManager.ProfileService.SetProfileSkipPermissions(profile, value);
+                    SendResponse(requestId, true, new { profile, skipPermissions = value });
+                }
+                break;
+
+            // "Allow" for a denied tool means writing the rule the CLI asked for: headless mode has
+            // no prompt to answer. Only the rule shape is validated, nothing else in the file moves.
+            case "grant_permission":
+                {
+                    string? profile = data.TryGetProperty("profile", out var gpElem) ? gpElem.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(profile))
+                    {
+                        profile = _cliManager.ProfileService.ActiveProfile;
+                    }
+                    string? rule = data.TryGetProperty("rule", out var grElem) ? grElem.GetString() : null;
+
+                    if (string.IsNullOrWhiteSpace(profile) || string.IsNullOrWhiteSpace(rule))
+                    {
+                        SendResponse(requestId, false, "A profile and a rule are required.");
+                        break;
+                    }
+
+                    bool inEffect = _cliManager.ProfileService.AddPermissionAllowRule(profile, rule);
+                    if (inEffect)
+                    {
+                        SendResponse(requestId, true, new { profile, rule });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, $"'{rule}' could not be written to the profile's settings.");
+                    }
+                }
+                break;
+
+            // Undoes a grant. "Run once" and "allow for this conversation" are emulated by writing
+            // the rule and removing it again, because the settings file is the only lever headless
+            // `agy` reads.
+            case "revoke_permission":
+                {
+                    string? profile = data.TryGetProperty("profile", out var rpElem) ? rpElem.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(profile))
+                    {
+                        profile = _cliManager.ProfileService.ActiveProfile;
+                    }
+                    string? rule = data.TryGetProperty("rule", out var rrElem) ? rrElem.GetString() : null;
+
+                    if (string.IsNullOrWhiteSpace(profile) || string.IsNullOrWhiteSpace(rule))
+                    {
+                        SendResponse(requestId, false, "A profile and a rule are required.");
+                        break;
+                    }
+
+                    bool removed = _cliManager.ProfileService.RemovePermissionAllowRule(profile, rule);
+                    if (removed)
+                    {
+                        SendResponse(requestId, true, new { profile, rule });
+                    }
+                    else
+                    {
+                        SendResponse(requestId, false, $"'{rule}' is still present in the profile's settings.");
+                    }
                 }
                 break;
 
@@ -5946,7 +6038,9 @@ public sealed partial class DashboardWebBridge : IDisposable
                 email = AntigravityProfileService.GetAccountEmail(name) ?? string.Empty,
                 model = "Gemini 3.8 Flash (High)",
                 isRunning = _cliManager.IsProfileRunning(name) || Sidecar.SidecarHostService.Instance.IsProfileActive(name),
-                port = _cliManager.GetPortForProfile(name)
+                port = _cliManager.GetPortForProfile(name),
+                // Shared with the terminal tab's checkbox, so chat and terminal cannot disagree.
+                skipPermissions = _cliManager.ProfileService.GetProfileSkipPermissions(name)
             })];
     }
 

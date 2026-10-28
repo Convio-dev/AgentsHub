@@ -277,6 +277,13 @@ public sealed class SidecarHostService : IDisposable
                 }
                 break;
 
+            case "permission_denied":
+                if (evt is PermissionDeniedEvent pde)
+                {
+                    EventDispatched?.Invoke("permission_denied", pde);
+                }
+                break;
+
             case "terminal_data":
                 if (evt is TerminalDataEvent tde)
                 {
@@ -318,7 +325,7 @@ public sealed class SidecarHostService : IDisposable
         }).ConfigureAwait(false);
     }
 
-    public async Task SendChatAsync(string sessionId, string prompt, string? model = null, string? profile = null, string? workingDirectory = null, string? reasoningEffort = null)
+    public async Task SendChatAsync(string sessionId, string prompt, string? model = null, string? profile = null, string? workingDirectory = null, string? reasoningEffort = null, bool skipPermissions = true)
     {
         await EnsureOnlineAsync().ConfigureAwait(false);
         await _client.SendAsync(new SendChatRequest
@@ -328,7 +335,8 @@ public sealed class SidecarHostService : IDisposable
             Model = model,
             Profile = profile,
             ReasoningEffort = reasoningEffort,
-            WorkingDirectory = workingDirectory
+            WorkingDirectory = workingDirectory,
+            SkipPermissions = skipPermissions
         }).ConfigureAwait(false);
     }
 

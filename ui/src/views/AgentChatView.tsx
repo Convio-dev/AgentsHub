@@ -16,6 +16,7 @@ import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { sendPrompt, stopGeneration } from '../services/chatController';
 import { ChatMessageList } from '../components/chat/ChatMessageList';
 import { ChatInput } from '../components/chat/ChatInput';
+import { PermissionRequestBar } from '../components/chat/PermissionRequestBar';
 import { ChatAttachment } from '../types/agent';
 import { profileLabel } from '../lib/profileName';
 import { TerminalPanel } from '../components/terminal/TerminalPanel';
@@ -366,6 +367,10 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
             onClose={() => setIsTerminalOpen(false)}
           />
         ) : null}
+
+        {/* Blocked tool calls sit directly above the composer: that is where the switch that
+            caused them lives, and where the retry is offered. */}
+        {activeSession ? <PermissionRequestBar sessionId={activeSession.id} /> : null}
 
         <ChatInput
           sessionId={activeSession?.id || ''}

@@ -8,6 +8,7 @@
 import { webviewBridge } from './webviewBridge';
 import { useSessionStore } from '../store/useSessionStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
+import { useProfileStore } from '../store/useProfileStore';
 import { ChatAttachment } from '../types/agent';
 import { profileForDispatch } from '../lib/profileName';
 import { resolveModelId, useModelStore } from '../store/useModelStore';
@@ -38,7 +39,20 @@ function resolveContext(sessionId: string) {
      * because the tier is already encoded in the model id. Choosing an effort selects that id.
      */
     workingDirectory: useWorkspaceStore.getState().activeWorkspace?.workingDirectory || undefined,
+    /**
+     * Sent explicitly so the turn cannot inherit a stale default. The toggle is stored per profile,
+     * which is also what the terminal tab's checkbox reads.
+     */
+    skipPermissions: resolveSkipPermissions(session?.profile),
   };
+}
+
+/** Full access is the long-standing behaviour, so an unknown profile keeps it on. */
+function resolveSkipPermissions(profile?: string): boolean {
+  const { profiles, activeProfileName } = useProfileStore.getState();
+  const target = profileForDispatch(profile) || activeProfileName;
+  const match = profiles.find(p => p.name.toLowerCase() === (target || '').toLowerCase());
+  return match?.skipPermissions !== false;
 }
 
 async function dispatch({ sessionId, prompt }: DispatchTarget): Promise<void> {
@@ -51,6 +65,7 @@ async function dispatch({ sessionId, prompt }: DispatchTarget): Promise<void> {
       model: context.model,
       profile: context.profile,
       workingDirectory: context.workingDirectory,
+      skipPermissions: context.skipPermissions,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to dispatch chat prompt';
@@ -88,6 +103,30 @@ export async function regenerateResponse(sessionId: string, assistantMessageId: 
   const prepared = useSessionStore.getState().prepareRegenerate(sessionId, assistantMessageId);
   if (!prepared) return;
   await dispatch({ sessionId, prompt: prepared.prompt });
+}
+
+/**
+ * Re-runs the blocked turn with a prompt that names the target that was just allowed.
+ *
+ * A plain retry re-samples the request, and the model picks a different filename or rephrases the
+ * command — neither of which the freshly granted rule covers, so the turn is denied again and the
+ * user loops. Naming the approved target is the only way to make the grant land on the same call.
+ */
+export async function retryWithPermissionGrant(
+  sessionId: string,
+  assistantMessageId: string,
+  denial: { permission: string; command?: string; target?: string; rule?: string }
+): Promise<void> {
+  const prepared = useSessionStore.getState().prepareRegenerate(sessionId, assistantMessageId);
+  if (!prepared) return;
+
+  const subject = denial.command || denial.target || denial.rule;
+  const noun = denial.command ? 'command' : 'path';
+  const prompt = subject
+    ? `Permission granted for: ${subject}\nContinue the previous task and use exactly that ${noun}. Do not change, rename or rephrase it.`
+    : prepared.prompt;
+
+  await dispatch({ sessionId, prompt });
 }
 
 /** Forks the thread at a user message and runs the edited prompt. */

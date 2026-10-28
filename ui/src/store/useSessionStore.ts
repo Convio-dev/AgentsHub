@@ -15,7 +15,9 @@ import {
   FileTimelineNode,
   DiffTimelineNode,
   ChatAttachment,
+  PermissionDenialInfo,
 } from '../types/agent';
+import { GrantedRule, PermissionScope, revokeRule } from '../lib/permissionRules';
 import { generateSessionTitle } from '../services/sessionTitleGenerator';
 import { classifyTool, extractCommand, extractPath, normaliseOutput } from '../lib/toolMeta';
 import { migrateTimelineNodes } from '../lib/timelineMigration';
@@ -34,6 +36,40 @@ function isPlaceholderTitle(title: string | undefined): boolean {
   return raw.replace(/<[^>]*>/g, '').trim().length === 0;
 }
 const STORAGE_KEY_ACTIVE = 'agentshub_active_session_v2';
+/** Conversation-scoped allow-rules, kept only so a crash cannot leave them in the profile forever. */
+const STORAGE_KEY_CONV_RULES = 'agentshub_conv_rules_v1';
+
+function readConversationRules(): Record<string, GrantedRule[]> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_CONV_RULES);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+
+    const result: Record<string, GrantedRule[]> = {};
+    for (const [sessionId, entries] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(entries)) continue;
+      const rules = entries.filter(
+        (entry): entry is GrantedRule =>
+          Boolean(entry) &&
+          typeof (entry as GrantedRule).profile === 'string' &&
+          typeof (entry as GrantedRule).rule === 'string'
+      );
+      if (rules.length > 0) result[sessionId] = rules;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function persistConversationRules(rules: Record<string, GrantedRule[]>): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CONV_RULES, JSON.stringify(rules));
+  } catch (err) {
+    console.warn('[SessionStore] Could not persist conversation rules:', err);
+  }
+}
 
 /** Result of a regenerate or edit: the prompt to re-send plus the id of the new reply placeholder. */
 interface PromptDispatch {
@@ -44,6 +80,16 @@ interface PromptDispatch {
 interface SessionStoreState {
   sessions: Record<string, SessionRecord>;
   activeSessionId: string;
+  /**
+   * Tool calls the CLI refused for lack of permission, per session. Not persisted: a denial belongs
+   * to one turn, and a stale one would offer to grant a rule the user never saw refused.
+   */
+  pendingDenials: Record<string, PermissionDenialInfo[]>;
+  /** Rules granted for exactly one turn, revoked when that turn settles. */
+  onceRules: Record<string, GrantedRule[]>;
+  /** Rules granted "for this conversation", revoked when the chat goes away. Persisted so a crash
+   *  cannot leave them behind: they are revoked on the next start. */
+  conversationRules: Record<string, GrantedRule[]>;
 
   // Actions
   /** `workspaceId: null` creates a session deliberately not bound to any workspace. */
@@ -113,6 +159,21 @@ interface SessionStoreState {
       tokens?: Partial<TokenUsage>;
     }
   ) => void;
+
+  /**
+   * Records a refusal so the composer can offer to allow it. Repeated refusals of the same rule
+   * collapse into one entry — the agent often retries a command it was told not to.
+   */
+  addPermissionDenial: (denial: PermissionDenialInfo) => void;
+  dismissPermissionDenial: (sessionId: string, rule?: string) => void;
+  /** Records a granted rule under the scope the user picked, so it can be undone later. */
+  registerGrantedRule: (sessionId: string, profile: string, rule: string, scope: PermissionScope) => void;
+  /** Hands back and forgets the run-once rules for a session, once its turn has settled. */
+  consumeOnceRules: (sessionId: string) => GrantedRule[];
+  /** Hands back and forgets the conversation rules for a session. */
+  consumeConversationRules: (sessionId: string) => GrantedRule[];
+  /** Revokes conversation rules left behind by a previous run. */
+  flushStaleConversationRules: () => void;
 
   // Getters
   getActiveSession: () => SessionRecord | undefined;
@@ -250,6 +311,101 @@ const initialData = loadPersistedSessions();
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
   sessions: initialData.sessions,
   activeSessionId: initialData.activeId,
+  pendingDenials: {},
+  onceRules: {},
+  conversationRules: readConversationRules(),
+
+  registerGrantedRule: (sessionId, profile, rule, scope) => {
+    if (scope === 'persist') return;
+
+    set(state => {
+      if (scope === 'once') {
+        const existing = state.onceRules[sessionId] ?? [];
+        return { onceRules: { ...state.onceRules, [sessionId]: [...existing, { profile, rule }] } };
+      }
+
+      const existing = state.conversationRules[sessionId] ?? [];
+      const next = { ...state.conversationRules, [sessionId]: [...existing, { profile, rule }] };
+      persistConversationRules(next);
+      return { conversationRules: next };
+    });
+  },
+
+  consumeOnceRules: sessionId => {
+    const existing = get().onceRules[sessionId] ?? [];
+    if (existing.length > 0) {
+      set(state => ({ onceRules: { ...state.onceRules, [sessionId]: [] } }));
+    }
+    return existing;
+  },
+
+  consumeConversationRules: sessionId => {
+    const existing = get().conversationRules[sessionId] ?? [];
+    if (existing.length > 0) {
+      const next = { ...get().conversationRules };
+      delete next[sessionId];
+      persistConversationRules(next);
+      set({ conversationRules: next });
+    }
+    return existing;
+  },
+
+  flushStaleConversationRules: () => {
+    const all = get().conversationRules;
+    const sessionIds = Object.keys(all);
+    if (sessionIds.length === 0) return;
+
+    for (const sessionId of sessionIds) {
+      for (const entry of all[sessionId]) void revokeRule(entry);
+    }
+    persistConversationRules({});
+    set({ conversationRules: {} });
+  },
+
+  addPermissionDenial: denial => {
+    set(state => {
+      const existing = state.pendingDenials[denial.sessionId] ?? [];
+      const key = denial.rule || denial.callId;
+      const deduped = existing.filter(d => (d.rule || d.callId) !== key);
+
+      /**
+       * A refusal means the turn is stuck on a decision, so the "Waiting for the first token…" line
+       * is a lie while it is shown. Settling only an empty reply — no text, no timeline — leaves a
+       * turn that is still producing steps untouched.
+       */
+      const target = state.sessions[denial.sessionId];
+      let sessions = state.sessions;
+      const lastIndex = (target?.messages.length ?? 0) - 1;
+      const last = lastIndex >= 0 ? target!.messages[lastIndex] : undefined;
+      if (target && last && last.sender === 'assistant' && last.status === 'thinking' &&
+          !last.markdown && (!last.timeline || last.timeline.length === 0)) {
+        const messages = [...target.messages];
+        messages[lastIndex] = { ...last, status: 'completed' };
+        sessions = { ...state.sessions, [denial.sessionId]: { ...target, messages } };
+      }
+
+      return {
+        sessions,
+        pendingDenials: {
+          ...state.pendingDenials,
+          [denial.sessionId]: [denial, ...deduped].slice(0, 5),
+        },
+      };
+    });
+  },
+
+  dismissPermissionDenial: (sessionId, rule) => {
+    set(state => {
+      const existing = state.pendingDenials[sessionId] ?? [];
+      const remaining = rule ? existing.filter(d => d.rule !== rule) : [];
+      return {
+        pendingDenials: {
+          ...state.pendingDenials,
+          [sessionId]: remaining,
+        },
+      };
+    });
+  },
 
   getActiveSession: () => {
     const { sessions, activeSessionId } = get();
@@ -338,6 +494,16 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
 
   deleteSession: (sessionId: string) => {
+    // A conversation-scoped grant dies with its conversation.
+    const scopedRules = get().conversationRules[sessionId] ?? [];
+    if (scopedRules.length > 0) {
+      for (const entry of scopedRules) void revokeRule(entry);
+      const nextRules = { ...get().conversationRules };
+      delete nextRules[sessionId];
+      persistConversationRules(nextRules);
+      set({ conversationRules: nextRules });
+    }
+
     set(state => {
       const keys = Object.keys(state.sessions);
       if (keys.length <= 1) {
@@ -887,11 +1053,21 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
               return node;
             });
 
+          const isSettled =
+            resolvedStatus === 'idle' || resolvedStatus === 'completed' || resolvedStatus === 'error' || resolvedStatus === 'aborted';
+          /**
+           * An empty reply that has finished is a dead end, not progress: leaving it on `idle` kept
+           * "Waiting for the first token…" on screen forever after a blocked turn.
+           */
+          const isEmptyReply = !lastMsg.markdown && finalizedTimeline.length === 0;
+          const settledStatus: AgentExecutionState =
+            isSettled && isEmptyReply && resolvedStatus !== 'aborted' ? 'error' : resolvedStatus;
+
           messages[lastIndex] = {
             ...lastMsg,
             timeline: finalizedTimeline,
-            status: resolvedStatus,
-            error: error || lastMsg.error,
+            status: settledStatus,
+            error: error || lastMsg.error || (settledStatus === 'error' && isEmptyReply ? 'The turn ended without a reply.' : undefined),
           };
         }
       }

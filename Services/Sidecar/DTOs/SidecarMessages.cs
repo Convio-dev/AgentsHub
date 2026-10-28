@@ -139,6 +139,13 @@ public class SendChatRequest : BaseRequest
 
     [JsonPropertyName("workingDirectory")]
     public string? WorkingDirectory { get; set; }
+
+    /// <summary>
+    /// Whether this turn runs with <c>--dangerously-skip-permissions</c>. False runs the turn under
+    /// the CLI's own review policy, where headless mode auto-denies gated tools instead of prompting.
+    /// </summary>
+    [JsonPropertyName("skipPermissions")]
+    public bool SkipPermissions { get; set; } = true;
 }
 
 public class CheckQuotaRequest : BaseRequest
@@ -540,6 +547,47 @@ public class ToolOutputEvent : BaseSidecarEvent
 
     [JsonPropertyName("durationMs")]
     public long DurationMs { get; set; }
+}
+
+/// <summary>
+/// A tool the CLI refused because headless runs cannot answer a permission prompt.
+///
+/// The sidecar promotes this out of the tool error so the UI can offer to allow it; <see cref="Rule"/>
+/// is the settings.json entry that would let the same call through next turn.
+/// </summary>
+public class PermissionDeniedEvent : BaseSidecarEvent
+{
+    [JsonPropertyName("sessionId")]
+    public string? SessionId { get; set; }
+
+    [JsonPropertyName("profile")]
+    public string? Profile { get; set; }
+
+    [JsonPropertyName("callId")]
+    public string CallId { get; set; } = string.Empty;
+
+    [JsonPropertyName("tool")]
+    public string Tool { get; set; } = string.Empty;
+
+    [JsonPropertyName("toolKind")]
+    public string? ToolKind { get; set; }
+
+    /// <summary>The CLI's permission kind, e.g. <c>command</c>.</summary>
+    [JsonPropertyName("permission")]
+    public string Permission { get; set; } = "tool";
+
+    [JsonPropertyName("command")]
+    public string? Command { get; set; }
+
+    [JsonPropertyName("target")]
+    public string? Target { get; set; }
+
+    /// <summary>Ready-to-write allow-rule, e.g. <c>command(npm)</c>. Absent when unrecognised.</summary>
+    [JsonPropertyName("rule")]
+    public string? Rule { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
 }
 
 public class TaskCompletedSummary

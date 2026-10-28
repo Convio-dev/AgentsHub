@@ -178,6 +178,10 @@ public class SidecarManager : IDisposable
 
         startInfo.Environment["AGENTS_SIDECAR_PORT"] = targetPort.ToString();
         startInfo.Environment["AGENTS_SIDECAR_TOKEN"] = _authToken;
+        // The sidecar's cwd is the binary's own folder, so it cannot find the profile store by
+        // guessing relative paths — it used to invent bin\win-x64\bin\Debug\...\Profiles and run
+        // `agy` against an empty home, while the host wrote settings to the real one.
+        startInfo.Environment["AGENTS_PROFILES_DIR"] = Path.Combine(AppContext.BaseDirectory, "Profiles", "Antigravity");
 
         ProcessSpawnLog.Record(startInfo.FileName, startInfo.Arguments, startInfo);
         var proc = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
