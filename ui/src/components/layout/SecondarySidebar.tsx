@@ -1,22 +1,11 @@
 import React, { useState } from 'react';
-import {
-  Plus,
-  ChevronDown,
-  ChevronRight,
-  GitBranch,
-  Trash2,
-  Folder,
-  FileCode,
-  FileText,
-  File,
-  Settings,
-  Zap,
-  Loader2,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight, File, FileCode, FileText, Filter, Folder, FolderOpen, FolderPlus, GitBranch, Loader2, Plus, Settings, Trash2, Zap } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useSessionStore } from '../../store/useSessionStore';
 import { useProfileStore } from '../../store/useProfileStore';
+import { createPortal } from 'react-dom';
 import { useSidecarStore } from '../../store/useSidecarStore';
+import { webviewBridge } from '../../services/webviewBridge';
 import { BackendSessionItem, WorkspaceFileItem } from '../../types/agent';
 
 interface SecondarySidebarProps {
@@ -51,6 +40,9 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
   // Creating a workspace belongs where you pick one, not only in the settings dialog.
   const [newWorkspace, setNewWorkspace] = useState<{ name: string; dir: string } | null>(null);
   const [newWorkspaceError, setNewWorkspaceError] = useState<string | null>(null);
+  const [isNewWorkspaceMenuOpen, setIsNewWorkspaceMenuOpen] = useState(false);
+  const [sessionFilter, setSessionFilter] = useState('');
+  const [isFilterVisible, setIsFilterVisible] = useState(false);
 
   // Files: collapsible, and noise hidden by default so `__pycache__` does not push real sources out.
   const [isFilesOpen, setIsFilesOpen] = useState(
@@ -111,6 +103,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
     profile: s.profile,
     stepCount: s.messages.length,
     lastActiveUtc: new Date(s.updatedAt).toISOString(),
+    workspaceId: s.workspaceId,
     isLocal: true,
   }));
 
@@ -120,6 +113,30 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
       allSessions.push(bs);
     }
   });
+
+  // Workspace tree: each project with the sessions that ran in it. Sessions created before
+  // workspaces were tracked have no id and land in "Unfiled" rather than being guessed into a project.
+  const workspaceGroups = [
+    ...workspaces.map(ws => ({
+      id: ws.id,
+      name: ws.name,
+      items: allSessions.filter(s => (s as any).workspaceId === ws.id),
+    })),
+    {
+      id: '__unfiled__',
+      name: 'Unfiled',
+      items: allSessions.filter(s => !(s as any).workspaceId),
+    },
+  ]
+    .map(group => ({
+      ...group,
+      items: sessionFilter.trim()
+        ? group.items.filter(s =>
+            String((s as any).goal ?? '').toLowerCase().includes(sessionFilter.trim().toLowerCase())
+          )
+        : group.items,
+    }))
+    .filter(group => group.id !== '__unfiled__' || group.items.length > 0);
 
   // Group sessions into Today, Yesterday, Earlier
   const now = Date.now();
@@ -273,6 +290,76 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
           </button>
         </div>
 
+        <div className="flex items-center justify-between px-1 pb-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-content-dim">
+            Workspaces ({workspaces.length})
+          </span>
+
+          <span className="relative flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsFilterVisible(visible => !visible)}
+              title="Filter sessions"
+              className={`rounded p-0.5 transition-colors hover:text-content-main ${
+                isFilterVisible || sessionFilter ? 'text-accent' : 'text-content-dim'
+              }`}
+            >
+              <Filter className="h-3 w-3" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsNewWorkspaceMenuOpen(open => !open)}
+              title="Create a new workspace"
+              className="rounded p-0.5 text-content-dim transition-colors hover:text-content-main"
+            >
+              <FolderPlus className="h-3.5 w-3.5" />
+            </button>
+
+            {isNewWorkspaceMenuOpen ? (
+              <div className="absolute right-0 top-5 z-40 w-40 overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsNewWorkspaceMenuOpen(false);
+                    setNewWorkspace({ name: '', dir: '' });
+                    setNewWorkspaceError(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-content-main hover:bg-surface-hover"
+                >
+                  <FolderPlus className="h-3 w-3" />
+                  New Project
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsNewWorkspaceMenuOpen(false);
+                    // Quick Start is a conversation, not a project: create a session with no workspace
+                    // and go straight to it.
+                    const id = createSession(activeProfileName, '', null);
+                    switchSession(id);
+                    setActiveView('chat');
+                  }}
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-content-muted hover:bg-surface-hover hover:text-content-main"
+                >
+                  <Zap className="h-3 w-3" />
+                  Quick Start
+                </button>
+              </div>
+            ) : null}
+          </span>
+        </div>
+
+        {isFilterVisible ? (
+          <input
+            value={sessionFilter}
+            onChange={e => setSessionFilter(e.target.value)}
+            placeholder="Filter sessions…"
+            autoFocus
+            className="mb-1 w-full rounded-lg border border-surface-border bg-surface-deep px-2 py-1 font-mono text-[11px] text-content-main outline-none focus:border-sky-500"
+          />
+        ) : null}
+
         <div className="relative">
           <select
             value={activeWorkspaceId}
@@ -297,73 +384,102 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
           <ChevronDown className="w-3.5 h-3.5 text-content-dim absolute right-2.5 top-2.5 pointer-events-none" />
         </div>
 
-        {newWorkspace ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-sm space-y-3 rounded-2xl border border-surface-border bg-surface-card p-4 shadow-2xl">
-              <h3 className="text-sm font-bold text-content-main">New workspace</h3>
+        {newWorkspace
+          ? createPortal(
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+                <div className="w-full max-w-md space-y-3 rounded-2xl border border-surface-border bg-surface-card p-5 shadow-2xl">
+                  <h3 className="text-sm font-bold text-content-main">New workspace</h3>
 
-              <label className="block space-y-1">
-                <span className="font-mono text-[10px] uppercase tracking-wide text-content-dim">Name</span>
-                <input
-                  value={newWorkspace.name}
-                  onChange={e => setNewWorkspace({ ...newWorkspace, name: e.target.value })}
-                  placeholder="ChessSenseV2"
-                  autoFocus
-                  className="w-full rounded-lg border border-surface-border bg-surface-deep px-2.5 py-1.5 font-mono text-xs text-content-main outline-none focus:border-sky-500"
-                />
-              </label>
+                  <label className="block space-y-1">
+                    <span className="font-mono text-[10px] uppercase tracking-wide text-content-dim">Name</span>
+                    <input
+                      value={newWorkspace.name}
+                      onChange={e => setNewWorkspace({ ...newWorkspace, name: e.target.value })}
+                      placeholder="ChessSenseV2"
+                      autoFocus
+                      className="w-full rounded-lg border border-surface-border bg-surface-deep px-2.5 py-1.5 font-mono text-xs text-content-main outline-none focus:border-sky-500"
+                    />
+                  </label>
 
-              <label className="block space-y-1">
-                <span className="font-mono text-[10px] uppercase tracking-wide text-content-dim">Folder path</span>
-                <input
-                  value={newWorkspace.dir}
-                  onChange={e => setNewWorkspace({ ...newWorkspace, dir: e.target.value })}
-                  placeholder="C://path//to//project"
-                  className="w-full rounded-lg border border-surface-border bg-surface-deep px-2.5 py-1.5 font-mono text-xs text-content-main outline-none focus:border-sky-500"
-                />
-                <span className="block text-[10px] text-content-dim">
-                  The agent runs in this folder; skills live in its <span className="font-mono">.agents/skills</span>.
-                </span>
-              </label>
+                  <div className="space-y-1">
+                    <span className="font-mono text-[10px] uppercase tracking-wide text-content-dim">Folder</span>
+                    <div className="flex gap-1.5">
+                      <input
+                        value={newWorkspace.dir}
+                        onChange={e => setNewWorkspace({ ...newWorkspace, dir: e.target.value })}
+                        placeholder="C:/path/to/project"
+                        className="min-w-0 flex-1 rounded-lg border border-surface-border bg-surface-deep px-2.5 py-1.5 font-mono text-xs text-content-main outline-none focus:border-sky-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res: any = await webviewBridge.invoke('browse_directory', {
+                              title: 'Open workspace',
+                            });
+                            const picked = res?.path as string | undefined;
+                            if (!picked) return;
 
-              {newWorkspaceError ? (
-                <p className="text-[11px] text-state-danger">{newWorkspaceError}</p>
-              ) : null}
+                            // Name follows the folder unless the user already typed one.
+                            const folderName = picked.split(/[\\/]/).filter(Boolean).pop() || '';
+                            setNewWorkspace(current => ({
+                              dir: picked,
+                              name: current && current.name.trim() ? current.name : folderName,
+                            }));
+                          } catch {
+                            // Cancelling the dialog is not an error.
+                          }
+                        }}
+                        title="Select a folder"
+                        className="flex flex-shrink-0 items-center gap-1 rounded-lg border border-surface-border bg-surface-deep px-2 py-1.5 font-mono text-[10.5px] text-content-muted transition-colors hover:border-sky-500/50 hover:text-content-main"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                        Browse
+                      </button>
+                    </div>
+                    <span className="block text-[10px] text-content-dim">
+                      The agent runs in this folder; skills live in its <span className="font-mono">.agents/skills</span>.
+                    </span>
+                  </div>
 
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setNewWorkspace(null)}
-                  className="rounded-md border border-surface-border bg-surface-deep px-2.5 py-1 text-[11px] text-content-main"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const name = newWorkspace.name.trim();
-                    const dir = newWorkspace.dir.trim();
-                    if (!name) return setNewWorkspaceError('A name is required.');
-                    if (!dir) return setNewWorkspaceError('A folder path is required.');
+                  {newWorkspaceError ? (
+                    <p className="text-[11px] text-state-danger">{newWorkspaceError}</p>
+                  ) : null}
 
-                    const ok = await saveWorkspace({
-                      id: `ws_${Date.now().toString(36)}`,
-                      name,
-                      workingDirectory: dir,
-                    } as any);
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setNewWorkspace(null)}
+                      className="rounded-md border border-surface-border bg-surface-deep px-2.5 py-1 text-[11px] text-content-main"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const name = newWorkspace.name.trim();
+                        const dir = newWorkspace.dir.trim();
+                        if (!name) return setNewWorkspaceError('A name is required.');
+                        if (!dir) return setNewWorkspaceError('Pick a folder for this workspace.');
 
-                    if (!ok) return setNewWorkspaceError('The host could not create this workspace.');
-                    await loadWorkspaces();
-                    setNewWorkspace(null);
-                  }}
-                  className="rounded-md border border-sky-500/50 bg-sky-500 px-2.5 py-1 text-[11px] font-semibold text-slate-950"
-                >
-                  Create
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
+                        const newId = `ws_${Date.now().toString(36)}`;
+                        const ok = await saveWorkspace({ id: newId, name, workingDirectory: dir } as any);
+                        if (!ok) return setNewWorkspaceError('The host could not create this workspace.');
+
+                        await loadWorkspaces();
+                        switchWorkspace(newId);
+                        setNewWorkspace(null);
+                      }}
+                      className="rounded-md border border-sky-500/50 bg-sky-500 px-2.5 py-1 text-[11px] font-semibold text-slate-950"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+              </div>,
+              document.body
+            )
+          : null}
 
         {/* '+ New Agent Session' Button */}
         <button
@@ -396,9 +512,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
 
       {/* 3. Conversations & Work History List */}
       <div className="flex-1 overflow-y-auto px-2 py-3 space-y-3" id="sessions-scroll-container">
-        {renderSessionGroup('Today', groups.today, 'today')}
-        {renderSessionGroup('Yesterday', groups.yesterday, 'yesterday')}
-        {renderSessionGroup('Earlier', groups.earlier, 'earlier')}
+        {workspaceGroups.map(group => renderSessionGroup(group.name, group.items, group.id))}
 
         {allSessions.length === 0 && (
           <div className="py-6 text-center text-xs text-content-dim italic flex flex-col items-center gap-1.5">

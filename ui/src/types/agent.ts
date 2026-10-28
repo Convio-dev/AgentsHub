@@ -135,6 +135,11 @@ export interface SessionRecord {
   createdAt: number;
   updatedAt: number;
   profile: string;
+  /**
+   * Workspace this session belongs to. Undefined means "unfiled" — sessions created before
+   * workspaces were tracked, which the sidebar shows in their own bucket rather than guessing.
+   */
+  workspaceId?: string;
   model: string;
   reasoningEffort?: string;
   quotaPercent?: number;

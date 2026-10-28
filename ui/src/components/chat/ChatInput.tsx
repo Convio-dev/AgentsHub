@@ -558,10 +558,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       </div>
 
-      {/* Subtle Platform Status Footer */}
-      <p className="mt-2 text-[10px] text-content-dim text-center font-mono">
-        Agents Hub v2.0 • Autonomous desktop engine running via Bun Sidecar with multi-account isolation.
-      </p>
     </div>
   );
 };

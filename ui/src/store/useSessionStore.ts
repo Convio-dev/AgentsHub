@@ -19,6 +19,7 @@ import {
 import { generateSessionTitle } from '../services/sessionTitleGenerator';
 import { classifyTool, extractCommand, extractPath, normaliseOutput } from '../lib/toolMeta';
 import { migrateTimelineNodes } from '../lib/timelineMigration';
+import { useWorkspaceStore } from './useWorkspaceStore';
 import { isUnsetProfile } from '../lib/profileName';
 
 const STORAGE_KEY_SESSIONS = 'agentshub_sessions_v2';
@@ -45,7 +46,8 @@ interface SessionStoreState {
   activeSessionId: string;
 
   // Actions
-  createSession: (profile?: string, initialModel?: string) => string;
+  /** `workspaceId: null` creates a session deliberately not bound to any workspace. */
+  createSession: (profile?: string, initialModel?: string, workspaceId?: string | null) => string;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => void;
   pinSession: (sessionId: string, isPinned?: boolean) => void;
@@ -254,7 +256,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     return sessions[activeSessionId];
   },
 
-  createSession: (profile = '', initialModel = '') => {
+  createSession: (profile = '', initialModel = '', workspaceId?: string | null) => {
     const resolvedProfile = isUnsetProfile(profile) ? '' : profile;
     const id = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const newSession: SessionRecord = {
@@ -266,6 +268,11 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       createdAt: Date.now(),
       updatedAt: Date.now(),
       profile: resolvedProfile,
+      // Bind to the active workspace unless the caller asked for an unbound session (Quick Start).
+      workspaceId:
+        workspaceId === null
+          ? undefined
+          : workspaceId ?? (useWorkspaceStore.getState().activeWorkspaceId || undefined),
       model: initialModel,
       // Unknown until this profile's quota is actually read; the ring renders an empty track.
       quotaPercent: undefined,

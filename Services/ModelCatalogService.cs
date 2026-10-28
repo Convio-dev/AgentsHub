@@ -127,6 +127,7 @@ public sealed class ModelCatalogService
                 StandardErrorEncoding = Encoding.UTF8
             };
 
+            ProcessSpawnLog.Record(startInfo.FileName, startInfo.Arguments, startInfo);
             using var process = new Process { StartInfo = startInfo };
             process.Start();
 

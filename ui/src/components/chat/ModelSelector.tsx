@@ -132,6 +132,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const activeLabel = activeModel?.label || model || 'Default model';
   const activeEffortLabel = effortLabel(effort);
   const dispatchModelId = resolveModelId(models, activeModel?.id || model, effort);
+  // A model with no tier map has no effort levels; the picker must not offer them.
+  const supportsEffort = Object.keys(activeModel?.tiers ?? {}).length > 0;
 
   /**
    * Stores the *concrete* engine id for the current effort, so dispatch never has to guess from a
@@ -219,11 +221,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           )}
         </div>
 
-        <div className="relative rounded-b-xl border-t border-surface-border/70">
+        {/* Effort only exists for models the engine publishes tiers for. Offering Low/Medium/High on
+            a flat model produced "Effort changing isn't supported for this model". */}
+        <div className={`relative rounded-b-xl border-t border-surface-border/70 ${supportsEffort ? '' : 'hidden'}`}>
           <button
             type="button"
             onClick={() => setIsEffortOpen(prev => !prev)}
-            onMouseEnter={() => setIsEffortOpen(true)}
+            onMouseEnter={() => supportsEffort && setIsEffortOpen(true)}
             className={`flex w-full items-center justify-between rounded-b-xl px-3 py-2 text-left transition-colors ${
               isEffortOpen ? 'bg-surface-hover' : 'hover:bg-surface-hover'
             }`}

@@ -179,6 +179,7 @@ public class SidecarManager : IDisposable
         startInfo.Environment["AGENTS_SIDECAR_PORT"] = targetPort.ToString();
         startInfo.Environment["AGENTS_SIDECAR_TOKEN"] = _authToken;
 
+        ProcessSpawnLog.Record(startInfo.FileName, startInfo.Arguments, startInfo);
         var proc = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
 
         proc.OutputDataReceived += (_, e) =>
