@@ -15,6 +15,7 @@ import {
   FolderTree,
   ChevronDown,
   FolderOpen,
+  FileJson,
   X,
   Terminal,
   ScrollText,
@@ -685,16 +686,28 @@ export const McpSkillsView: React.FC = () => {
 
       {activeTab === 'mcp' ? (
       <section className="mt-5 space-y-3">
-        <button
-          type="button"
-          onClick={() => toggleSection('mcp')}
-          className="flex w-full items-center gap-2 font-mono text-xs font-bold uppercase tracking-wider text-content-main transition-colors hover:text-accent"
-        >
-          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openSections.mcp ? '' : '-rotate-90'}`} />
-          <Server className="h-3.5 w-3.5 text-accent" />
-          MCP Servers
-          <span className="font-normal text-content-dim">({servers.length})</span>
-        </button>
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => toggleSection('mcp')}
+            className="flex items-center gap-2 font-mono text-xs font-bold uppercase tracking-wider text-content-main transition-colors hover:text-accent"
+          >
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openSections.mcp ? '' : '-rotate-90'}`} />
+            <Server className="h-3.5 w-3.5 text-accent" />
+            MCP Servers
+            <span className="font-normal text-content-dim">({servers.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void webviewBridge.invoke('open_mcp_config').catch(() => {})}
+            title="Open the CLI's mcp_config.json in your editor"
+            className="flex items-center gap-1.5 rounded-md border border-surface-border bg-surface-deep px-2 py-0.5 font-mono text-[10px] text-content-muted transition-colors hover:border-sky-500/50 hover:text-accent"
+          >
+            <FileJson className="h-3 w-3" />
+            View Raw Config
+          </button>
+        </div>
 
         {!openSections.mcp ? null : !hasLoaded && isLoading ? (
           <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">

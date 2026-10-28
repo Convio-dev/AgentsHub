@@ -967,6 +967,39 @@ public sealed partial class DashboardWebBridge : IDisposable
                 SendResponse(requestId, true, new { stopped = true });
                 break;
 
+            case "open_mcp_config":
+                {
+                    // The servers the UI lists come from the CLI's own config, so that is the file to
+                    // open — the AgentsHub copy is only a fallback.
+                    var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                    var candidates = new[]
+                    {
+                        Path.Combine(userHome, ".gemini", "config", "mcp_config.json"),
+                        Path.Combine(userHome, ".gemini", "antigravity", "mcp_config.json")
+                    };
+
+                    string? configPath = candidates.FirstOrDefault(File.Exists);
+                    if (configPath == null)
+                    {
+                        SendResponse(requestId, false, "No MCP config file found to open.");
+                        break;
+                    }
+
+                    try
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(configPath)
+                        {
+                            UseShellExecute = true
+                        });
+                        SendResponse(requestId, true, new { opened = true, path = configPath });
+                    }
+                    catch (Exception ex)
+                    {
+                        SendResponse(requestId, false, $"Could not open the config: {ex.Message}");
+                    }
+                }
+                break;
+
             case "reveal_skill_in_explorer":
                 {
                     string? path = data.TryGetProperty("path", out var pProp) ? pProp.GetString() : null;
