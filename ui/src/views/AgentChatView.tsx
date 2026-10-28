@@ -18,6 +18,7 @@ import { ChatMessageList } from '../components/chat/ChatMessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { ChatAttachment } from '../types/agent';
 import { profileLabel } from '../lib/profileName';
+import { TerminalPanel } from '../components/terminal/TerminalPanel';
 
 interface AgentChatViewProps {
   onOpenGitModal: () => void;
@@ -49,6 +50,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
   const { activeWorkspace } = useWorkspaceStore();
 
   const [isProfilePopoverOpen, setIsProfilePopoverOpen] = useState(false);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
 
   const activeSession = getActiveSession();
   const activeProfile = profiles.find(
@@ -131,6 +133,20 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
               />
               <span>Runner: {profileLabel(activeProfileName)}</span>
               <ChevronDown className="w-3 h-3 text-content-dim ml-1" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsTerminalOpen(open => !open)}
+              title={isTerminalOpen ? 'Close the terminal' : 'Open a terminal in the workspace folder'}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[10.5px] transition-colors ${
+                isTerminalOpen
+                  ? 'border-sky-500/50 bg-sky-500/10 text-accent'
+                  : 'border-surface-border bg-surface-deep text-content-muted hover:text-content-main'
+              }`}
+            >
+              <Terminal className="w-3 h-3" />
+              Terminal
             </button>
 
             {/* Multi-Profile Popover Panel */}
@@ -344,6 +360,13 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
         )}
 
         {/* 4. Bottom Floating Input Dock */}
+        {isTerminalOpen ? (
+          <TerminalPanel
+            cwd={activeWorkspace?.workingDirectory}
+            onClose={() => setIsTerminalOpen(false)}
+          />
+        ) : null}
+
         <ChatInput
           sessionId={activeSession?.id || ''}
           profileName={activeSession?.profile || activeProfileName}

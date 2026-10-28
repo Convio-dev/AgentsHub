@@ -962,6 +962,46 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "start_shell":
+                {
+                    if (NpxInstallHost.IsRunning)
+                    {
+                        SendResponse(requestId, false, "A console session is already running.");
+                        break;
+                    }
+
+                    string? cwd = data.TryGetProperty("cwd", out var cwdProp) ? cwdProp.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(cwd))
+                    {
+                        cwd = AiConfigService.Instance.GetActiveWorkspace()?.WorkingDirectory;
+                    }
+
+                    string shell = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/bash";
+                    bool started = NpxInstallHost.StartRaw(shell, string.IsNullOrWhiteSpace(cwd) ? null : cwd);
+
+                    if (!started)
+                    {
+                        SendResponse(requestId, false, "Could not start the terminal.");
+                        break;
+                    }
+
+                    SendResponse(requestId, true, new { started = true, cwd, shell });
+                }
+                break;
+
+            case "send_shell_input":
+                {
+                    string? input = data.TryGetProperty("input", out var inputProp) ? inputProp.GetString() : null;
+                    NpxInstallHost.Write(input ?? string.Empty);
+                    SendResponse(requestId, true, new { sent = true });
+                }
+                break;
+
+            case "stop_shell":
+                NpxInstallHost.Stop();
+                SendResponse(requestId, true, new { stopped = true });
+                break;
+
             case "stop_npx_command":
                 NpxInstallHost.Stop();
                 SendResponse(requestId, true, new { stopped = true });

@@ -46,6 +46,36 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
   } = useSessionStore();
 
   const { activeProfileName, profiles, switchActiveProfile } = useProfileStore();
+  const { saveWorkspace, loadWorkspaces } = useWorkspaceStore();
+
+  // Creating a workspace belongs where you pick one, not only in the settings dialog.
+  const [newWorkspace, setNewWorkspace] = useState<{ name: string; dir: string } | null>(null);
+  const [newWorkspaceError, setNewWorkspaceError] = useState<string | null>(null);
+
+  // Files: collapsible, and noise hidden by default so `__pycache__` does not push real sources out.
+  const [isFilesOpen, setIsFilesOpen] = useState(
+    () => localStorage.getItem('agentshub_sidebar_files_open') !== 'false'
+  );
+  const [showNoisyFiles, setShowNoisyFiles] = useState(
+    () => localStorage.getItem('agentshub_sidebar_files_all') === 'true'
+  );
+
+  const toggleFiles = () => {
+    setIsFilesOpen(open => {
+      localStorage.setItem('agentshub_sidebar_files_open', String(!open));
+      return !open;
+    });
+  };
+
+  const toggleNoisyFiles = () => {
+    setShowNoisyFiles(show => {
+      localStorage.setItem('agentshub_sidebar_files_all', String(!show));
+      return !show;
+    });
+  };
+
+  const NOISY = /(^|[\\/])(__pycache__|node_modules|\.git|\.venv|venv|dist|build|bin|obj|target)([\\/]|$)|(\.pyc|\.pyo|\.class|\.o|\.obj|\.log)$/i;
+  const visibleFiles = showNoisyFiles ? files : files.filter(file => !NOISY.test(file.path));
   const { setActiveView } = useSidecarStore();
 
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
@@ -246,7 +276,14 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
         <div className="relative">
           <select
             value={activeWorkspaceId}
-            onChange={e => switchWorkspace(e.target.value)}
+            onChange={e => {
+              if (e.target.value === '__new__') {
+                setNewWorkspace({ name: '', dir: '' });
+                setNewWorkspaceError(null);
+                return;
+              }
+              switchWorkspace(e.target.value);
+            }}
             className="w-full bg-surface-card border border-surface-border text-xs text-content-main rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-sky-500 cursor-pointer appearance-none pr-8 font-mono shadow-sm"
           >
             {workspaces.map(ws => (
@@ -255,9 +292,78 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
               </option>
             ))}
             {workspaces.length === 0 && <option value="">Loading workspaces...</option>}
+            <option value="__new__">+ New workspace…</option>
           </select>
           <ChevronDown className="w-3.5 h-3.5 text-content-dim absolute right-2.5 top-2.5 pointer-events-none" />
         </div>
+
+        {newWorkspace ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-sm space-y-3 rounded-2xl border border-surface-border bg-surface-card p-4 shadow-2xl">
+              <h3 className="text-sm font-bold text-content-main">New workspace</h3>
+
+              <label className="block space-y-1">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-content-dim">Name</span>
+                <input
+                  value={newWorkspace.name}
+                  onChange={e => setNewWorkspace({ ...newWorkspace, name: e.target.value })}
+                  placeholder="ChessSenseV2"
+                  autoFocus
+                  className="w-full rounded-lg border border-surface-border bg-surface-deep px-2.5 py-1.5 font-mono text-xs text-content-main outline-none focus:border-sky-500"
+                />
+              </label>
+
+              <label className="block space-y-1">
+                <span className="font-mono text-[10px] uppercase tracking-wide text-content-dim">Folder path</span>
+                <input
+                  value={newWorkspace.dir}
+                  onChange={e => setNewWorkspace({ ...newWorkspace, dir: e.target.value })}
+                  placeholder="C://path//to//project"
+                  className="w-full rounded-lg border border-surface-border bg-surface-deep px-2.5 py-1.5 font-mono text-xs text-content-main outline-none focus:border-sky-500"
+                />
+                <span className="block text-[10px] text-content-dim">
+                  The agent runs in this folder; skills live in its <span className="font-mono">.agents/skills</span>.
+                </span>
+              </label>
+
+              {newWorkspaceError ? (
+                <p className="text-[11px] text-state-danger">{newWorkspaceError}</p>
+              ) : null}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setNewWorkspace(null)}
+                  className="rounded-md border border-surface-border bg-surface-deep px-2.5 py-1 text-[11px] text-content-main"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const name = newWorkspace.name.trim();
+                    const dir = newWorkspace.dir.trim();
+                    if (!name) return setNewWorkspaceError('A name is required.');
+                    if (!dir) return setNewWorkspaceError('A folder path is required.');
+
+                    const ok = await saveWorkspace({
+                      id: `ws_${Date.now().toString(36)}`,
+                      name,
+                      workingDirectory: dir,
+                    } as any);
+
+                    if (!ok) return setNewWorkspaceError('The host could not create this workspace.');
+                    await loadWorkspaces();
+                    setNewWorkspace(null);
+                  }}
+                  className="rounded-md border border-sky-500/50 bg-sky-500 px-2.5 py-1 text-[11px] font-semibold text-slate-950"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* '+ New Agent Session' Button */}
         <button
@@ -307,25 +413,48 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
       {/* 4. Active Repo Files Tree (Live Real Filesystem) */}
       <div className="p-3 border-t border-surface-border bg-surface-deep/40 max-h-48 flex flex-col">
         <div className="flex items-center justify-between pb-1.5">
-          <span className="text-[10px] uppercase tracking-wider text-content-dim font-semibold">
+          <button
+            type="button"
+            onClick={toggleFiles}
+            className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-content-dim font-semibold transition-colors hover:text-content-main"
+            title={isFilesOpen ? 'Hide the file list' : 'Show the file list'}
+          >
+            <ChevronDown className={`w-3 h-3 transition-transform ${isFilesOpen ? '' : '-rotate-90'}`} />
             Files
-          </span>
-          <span className="text-[10px] text-sky-400 font-mono flex items-center gap-1">
-            <GitBranch className="w-2.5 h-2.5" />
-            <span>{branch}</span>
+          </button>
+
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleNoisyFiles}
+              className={`rounded border px-1 py-0.5 text-[9px] font-mono transition-colors ${
+                showNoisyFiles
+                  ? 'border-sky-500/40 bg-sky-500/10 text-accent'
+                  : 'border-surface-border text-content-dim hover:text-content-main'
+              }`}
+              title={showNoisyFiles ? 'Hide build/cache files' : 'Show build and cache files'}
+            >
+              {showNoisyFiles ? 'all' : 'src'}
+            </button>
+            <span className="text-[10px] text-sky-400 font-mono flex items-center gap-1">
+              <GitBranch className="w-2.5 h-2.5" />
+              <span>{branch}</span>
+            </span>
           </span>
         </div>
 
-        <div className="space-y-0.5 text-xs text-content-muted font-mono overflow-y-auto flex-1">
+        <div className={`space-y-0.5 text-xs text-content-muted font-mono overflow-y-auto flex-1 ${isFilesOpen ? '' : 'hidden'}`}>
           {isLoadingFiles ? (
             <div className="py-2 px-1 text-[11px] text-content-dim italic flex items-center gap-1.5">
               <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
               <span>Scanning files...</span>
             </div>
-          ) : files.length === 0 ? (
-            <div className="py-2 text-[11px] text-content-dim italic">Workspace empty</div>
+          ) : visibleFiles.length === 0 ? (
+            <div className="py-2 text-[11px] text-content-dim italic">
+              {files.length === 0 ? 'Workspace empty' : 'Only build/cache files here — press "all"'}
+            </div>
           ) : (
-            files.slice(0, 30).map(file => (
+            visibleFiles.slice(0, 30).map(file => (
               <div
                 key={file.path}
                 className="py-0.5 hover:text-content-main cursor-pointer flex items-center space-x-1.5 transition text-[11px] truncate group"

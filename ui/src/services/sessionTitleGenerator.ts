@@ -49,7 +49,9 @@ const MAX_TITLE_WORDS = 5;
 const MAX_TITLE_CHARS = 48;
 
 function stripLeadingNoise(prompt: string): string {
-  let text = prompt.trim();
+  // Prompts are often wrapped in markup ("<USER_REQUEST>…</USER_REQUEST>"). The tag is not a name,
+  // and before this the generator happily titled a session "<USER_REQUEST>".
+  let text = prompt.replace(/<[^>]{1,60}>/g, ' ').replace(/\s+/g, ' ').trim();
 
   // Leading slash command: keep what follows it, since that is the actual instruction.
   text = text.replace(/^\/[a-zA-Z0-9_-]+\s+/, '');

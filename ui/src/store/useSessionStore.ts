@@ -27,7 +27,10 @@ const STORAGE_KEY_SESSIONS = 'agentshub_sessions_v2';
 const PLACEHOLDER_TITLES = new Set(['new session', 'workspace session', 'untitled session', 'untitled', '']);
 
 function isPlaceholderTitle(title: string | undefined): boolean {
-  return PLACEHOLDER_TITLES.has((title || '').trim().toLowerCase());
+  const raw = (title || '').trim();
+  if (PLACEHOLDER_TITLES.has(raw.toLowerCase())) return true;
+  // A title made only of markup ("<USER_REQUEST>") names nothing, so the session stays nameable.
+  return raw.replace(/<[^>]*>/g, '').trim().length === 0;
 }
 const STORAGE_KEY_ACTIVE = 'agentshub_active_session_v2';
 
@@ -142,6 +145,19 @@ function loadPersistedSessions(): { sessions: Record<string, SessionRecord>; act
           }
           // A session that already has messages has had its one title generation; latch it so the
           // old retitle-on-every-turn behaviour cannot come back through a stale record.
+          // Sessions named from a prompt that opened with markup are stuck on "<USER_REQUEST>".
+          // Re-derive the title from the first real prompt so the sidebar reads like a list again.
+          if (isPlaceholderTitle(s.title) && Array.isArray(s.messages)) {
+            const firstUser = s.messages.find((m: any) => m?.sender === 'user' && typeof m?.prompt === 'string');
+            if (firstUser?.prompt) {
+              const regenerated = generateSessionTitle(firstUser.prompt);
+              if (!isPlaceholderTitle(regenerated)) {
+                s.title = regenerated;
+                s.titleLocked = true;
+              }
+            }
+          }
+
           if (typeof s.titleLocked !== 'boolean') {
             // Only latch a real title. Locking a placeholder is what made sessions stay "New Session"
             // forever: the record had messages, so it was marked as already named.

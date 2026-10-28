@@ -35,8 +35,15 @@ public static class NpxInstallHost
     public static event Action<string>? OutputReceived;
     public static event Action<int>? Exited;
 
+    /// <summary>
+    /// Starts an already-complete command line without wrapping it in a shell. Used by the embedded
+    /// terminal, where the process *is* the shell and has to stay alive.
+    /// </summary>
+    public static bool StartRaw(string commandLine, string? workingDirectory) =>
+        Start(commandLine, workingDirectory, wrapInShell: false);
+
     /// <summary>Starts a command, replacing any session that is already running.</summary>
-    public static bool Start(string commandLine, string? workingDirectory)
+    public static bool Start(string commandLine, string? workingDirectory, bool wrapInShell = true)
     {
         if (string.IsNullOrWhiteSpace(commandLine)) return false;
 
@@ -61,9 +68,11 @@ public static class NpxInstallHost
 
                 // ConPTY needs an actual executable to launch: a bare "npx ..." is not a valid command
                 // line, which is why the first attempt failed instantly.
-                string shellCommand = OperatingSystem.IsWindows()
-                    ? "cmd.exe /c " + commandLine
-                    : "/bin/sh -lc \"" + commandLine + "\"";
+                string shellCommand = !wrapInShell
+                    ? commandLine
+                    : OperatingSystem.IsWindows()
+                        ? "cmd.exe /c " + commandLine
+                        : "/bin/sh -lc \"" + commandLine + "\"";
 
                 bool started = session.Start(shellCommand, workingDirectory);
                 if (!started)
