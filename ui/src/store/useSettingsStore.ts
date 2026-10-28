@@ -321,7 +321,7 @@ interface SettingsStoreState {
 
 const defaultSettings: AppSettings = {
   autostart: true,
-  startMinimized: true,
+  startMinimized: false,
   minimizeToTray: false,
   notifications: true,
   enableArchitectureGraph: false,
@@ -351,13 +351,8 @@ const defaultDependencies: DependencyItem[] = [
   { id: 'proton', name: 'Proton VPN Provider', category: 'tool', isInstalled: false, commandPreview: 'protonvpn', installKind: 'browser' },
 ];
 
-const defaultDiagnostics: DiagnosticItem[] = [
-  { id: 'd-git', title: 'Git Working Tree & Origin', status: 'Pass', details: 'Git 2.55.0 detected on PATH; upstream origin reachable.' },
-  { id: 'd-node', title: 'Node & Bun Execution Runtimes', status: 'Pass', details: 'Node.js v24.19.0 and Bun 1.2 are available for CLI agents.' },
-  { id: 'd-conpty', title: 'Windows ConPTY Subsystem', status: 'Pass', details: 'Virtual Terminal pseudo-console attached to net10.0-windows host.' },
-  { id: 'd-ports', title: 'Gateway Port Bindings', status: 'Pass', details: 'Hermes (9119), Claude Gateway (9229), and LAN Proxy (9191) unbound and ready.' },
-  { id: 'd-firewall', title: 'Local Subnet Firewall Rule', status: 'Warning', details: 'Port 9191 LAN inbound rule recommended for mobile QR access.', canAutoFix: true, fixLabel: 'Add Rule' },
-];
+// Deliberately empty: the panel shows nothing until a real scan returns.
+const defaultDiagnostics: DiagnosticItem[] = [];
 
 const defaultLogs: LogEntry[] = [
   { id: '1', timestamp: '[00:00:01]', level: 'info', source: 'System', message: 'Agents Hub Core Host started (net10.0-windows)' },
@@ -366,6 +361,9 @@ const defaultLogs: LogEntry[] = [
   { id: '4', timestamp: '[00:00:03]', level: 'info', source: 'System', message: 'Discord RPC service initialized (App ID: 1562567704941174834)' },
   { id: '5', timestamp: '[00:00:03]', level: 'info', source: 'System', message: 'UI SPA loaded with React 19 + TypeScript + Vite' },
 ];
+
+// Module-level so the debounce survives re-renders.
+let autoSaveTimer: number | null = null;
 
 export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
   settings: defaultSettings,
@@ -427,7 +425,7 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
 
   diagnostics: defaultDiagnostics,
   diagnosticsScanning: false,
-  diagnosticsScore: 'Score: 92% (Healthy)',
+  diagnosticsScore: '',
   securityGatekeeperEnabled: true,
   securityAuditResults: null,
 
@@ -478,17 +476,27 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
       const updated = { ...state.settings, [key]: value };
       return { settings: updated };
     });
+
+    // Auto-save: a toggle used to sit in memory until the Save button was pressed, so anything the
+    // user did not explicitly save was silently lost on the next launch. Debounced so dragging a
+    // slider or typing in a field does not fire a write per keystroke.
+    if (autoSaveTimer !== null) window.clearTimeout(autoSaveTimer);
+    autoSaveTimer = window.setTimeout(() => {
+      autoSaveTimer = null;
+      void get().saveGeneralSettings();
+    }, 600);
   },
 
   saveGeneralSettings: async () => {
     try {
-      await webviewBridge.invoke('save_settings', { settings: get().settings });
+      // The bridge action is `save_general_settings`; `save_settings` was never implemented, so every
+      // save failed and the catch reported success anyway — preferences reset on the next launch.
+      await webviewBridge.invoke('save_general_settings', { settings: get().settings });
       set({ saveFeedback: 'Preferences saved successfully!' });
-      setTimeout(() => set({ saveFeedback: null }), 3000);
-    } catch {
-      set({ saveFeedback: 'Preferences saved' });
-      setTimeout(() => set({ saveFeedback: null }), 3000);
+    } catch (err) {
+      set({ saveFeedback: `Could not save preferences: ${err instanceof Error ? err.message : 'unknown error'}` });
     }
+    setTimeout(() => set({ saveFeedback: null }), 4000);
   },
 
   loadDependencies: async () => {
@@ -734,8 +742,16 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
     set({ diagnosticsScanning: true });
     try {
       const res = await webviewBridge.invoke('run_system_diagnostics');
-      if (res && res.diagnostics) {
-        set({ diagnostics: res.diagnostics, diagnosticsScore: 'Score: 98% (Healthy)' });
+      if (res && Array.isArray(res.diagnostics)) {
+        const items: DiagnosticItem[] = res.diagnostics;
+        const passed = items.filter(item => item.status === 'Pass').length;
+        const percent = items.length > 0 ? Math.round((passed / items.length) * 100) : 0;
+        const verdict = percent >= 90 ? 'Healthy' : percent >= 70 ? 'Warning' : 'Critical';
+
+        set({
+          diagnostics: items,
+          diagnosticsScore: items.length > 0 ? `Score: ${percent}% (${verdict})` : '',
+        });
       }
     } catch {}
     set({ diagnosticsScanning: false });
@@ -743,11 +759,16 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
 
   autoFixDiagnostic: async (id: string) => {
     try {
-      await webviewBridge.invoke('auto_fix_diagnostic', { id });
-      get().runDiagnostics();
+      await webviewBridge.invoke('autofix_diagnostic_issue', { issueId: id });
     } catch (err) {
-      console.warn('Failed to auto fix diagnostic:', err);
+      // Surfaced rather than swallowed: a cancelled UAC prompt used to look like nothing happened.
+      set({
+        saveFeedback: `Fix failed: ${err instanceof Error ? err.message : 'the host refused the change'}`,
+      });
+      setTimeout(() => set({ saveFeedback: null }), 4000);
+      return;
     }
+    await get().runDiagnostics();
   },
 
   runSecurityAudit: async () => {

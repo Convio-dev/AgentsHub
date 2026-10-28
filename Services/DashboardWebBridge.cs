@@ -967,6 +967,31 @@ public sealed partial class DashboardWebBridge : IDisposable
                 SendResponse(requestId, true, new { stopped = true });
                 break;
 
+            case "get_preference_debug":
+                {
+                    // Reports what is actually in the preference store, so a UI that disagrees with
+                    // the registry can be diagnosed instead of guessed at.
+                    var keys = new[]
+                    {
+                        "StartMinimized", "MinimizeToTray", "WindowsNotifications",
+                        "GlobalHotkey", "GlobalHotkeyModifier", "GlobalHotkeyKey",
+                        "GlobalHudHotkey", "HudHotkeyModifier", "HudHotkeyKey",
+                        "EmbedShellsInTerminalWorkspace", "HideMainOnCliOpen"
+                    };
+
+                    var values = new Dictionary<string, string>();
+                    foreach (var key in keys)
+                    {
+                        values[key] = key is "GlobalHotkeyModifier" or "GlobalHotkeyKey"
+                            or "HudHotkeyModifier" or "HudHotkeyKey"
+                            ? StartupHelper.GetStringPreference(key, "(unset)")
+                            : StartupHelper.GetPreference(key, false).ToString();
+                    }
+
+                    SendResponse(requestId, true, new { values });
+                }
+                break;
+
             case "open_mcp_config":
                 {
                     // The servers the UI lists come from the CLI's own config, so that is the file to
@@ -4214,6 +4239,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         StartupHelper.SetPreference("EnableHardwareMonitor", hwEl.GetBoolean());
                     }
+                    if (stProp.TryGetProperty("enableArchitectureGraph", out var archEl))
+                    {
+                        StartupHelper.SetPreference("EnableArchitectureGraph", archEl.GetBoolean());
+                    }
                     // The payload is a partial patch: most callers save one checkbox and send no
                     // theme at all. Only touch the theme when a value was actually supplied. Running
                     // SetTheme unconditionally defaulted the theme to Dark, so toggling any unrelated
@@ -4856,6 +4885,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 enableOpenCodeQuota = StartupHelper.GetPreference("EnableOpenCodeQuota", false),
                 enableProtonVpnProvider = StartupHelper.GetPreference("EnableProtonVpnProvider", false),
                 enableHardwareMonitor = StartupHelper.GetPreference("EnableHardwareMonitor", false),
+                enableArchitectureGraph = StartupHelper.GetPreference("EnableArchitectureGraph", false),
                 theme = StartupHelper.GetStringPreference("Theme", "dark"),
                 accentColor = StartupHelper.GetStringPreference("AccentColor", "#10b981")
             },

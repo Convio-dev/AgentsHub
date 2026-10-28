@@ -24,9 +24,12 @@ internal static partial class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
+        // The Settings toggle was never read: only the command line could start minimised, so the
+        // preference looked saved and did nothing. Either source is enough to honour it.
         var startMinimized = args.Any(arg =>
             string.Equals(arg, "--tray", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(arg, "-minimized", StringComparison.OrdinalIgnoreCase));
+            string.Equals(arg, "-minimized", StringComparison.OrdinalIgnoreCase))
+            || Helpers.StartupHelper.GetPreference("StartMinimized", false);
 
         var form = new MainForm(startMinimized);
 

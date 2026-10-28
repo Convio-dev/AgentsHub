@@ -704,6 +704,11 @@ public partial class MainForm : Form
             return;
         }
 
+        // Starting minimised sets ShowInTaskbar = false, and nothing ever set it back — so once the
+        // window was restored from the tray it stayed invisible to the taskbar for the rest of the
+        // process, even with every tray preference off.
+        if (!ShowInTaskbar) ShowInTaskbar = true;
+
         Show();
         if (WindowState == FormWindowState.Minimized)
         {
@@ -982,18 +987,24 @@ public partial class MainForm : Form
         bool shiftDown = (GetKeyState(0x10) & 0x8000) != 0; // VK_SHIFT
         bool winDown = (GetKeyState(0x5B) & 0x8000) != 0 || (GetKeyState(0x5C) & 0x8000) != 0; // VK_LWIN / VK_RWIN
 
-        return mod.ToLowerInvariant() switch
+        // Matched the same way as GetFsModifiersFromName, and for the same reason: the settings UI
+        // stores "Ctrl + Alt" with spaces, which matched no case here — and the `_ => true` arm made
+        // an unrecognised modifier match unconditionally, so a plain H press toggled the window.
+        bool wantCtrl = false, wantAlt = false, wantShift = false, wantWin = false;
+
+        foreach (var part in (mod ?? string.Empty).Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            "none" => !ctrlDown && !altDown && !shiftDown && !winDown,
-            "alt" => altDown && !ctrlDown && !shiftDown && !winDown,
-            "ctrl" => ctrlDown && !altDown && !shiftDown && !winDown,
-            "shift" => shiftDown && !ctrlDown && !altDown && !winDown,
-            "win" => winDown && !ctrlDown && !altDown && !shiftDown,
-            "ctrl+alt" => ctrlDown && altDown && !shiftDown && !winDown,
-            "ctrl+shift" => ctrlDown && shiftDown && !altDown && !winDown,
-            "alt+shift" => altDown && shiftDown && !ctrlDown && !winDown,
-            _ => true
-        };
+            switch (part.ToLowerInvariant())
+            {
+                case "ctrl" or "control": wantCtrl = true; break;
+                case "alt": wantAlt = true; break;
+                case "shift": wantShift = true; break;
+                case "win" or "windows" or "super": wantWin = true; break;
+            }
+        }
+
+        // Exact match: a hotkey configured as Ctrl+Alt must not fire on Ctrl alone, or on nothing.
+        return ctrlDown == wantCtrl && altDown == wantAlt && shiftDown == wantShift && winDown == wantWin;
     }
 
     private static uint GetVkCodeFromName(string name)
@@ -1021,20 +1032,31 @@ public partial class MainForm : Form
         };
     }
 
-    private static uint GetFsModifiersFromName(string mod)
+    /// <summary>
+    /// Parses a modifier label into MOD_* flags.
+    ///
+    /// The old version matched whole strings ("ctrl+alt"), but the settings UI stores labels with
+    /// spaces ("Ctrl + Alt"), so every combination fell through to "no modifiers" and the hotkey was
+    /// registered as the bare key — pressing H anywhere toggled the window.
+    /// </summary>
+    private static uint GetFsModifiersFromName(string? mod)
     {
         uint flags = 0x4000; // MOD_NOREPEAT
-        return mod.ToLowerInvariant() switch
+        if (string.IsNullOrWhiteSpace(mod)) return flags;
+
+        foreach (var part in mod.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            "alt" => flags | 0x0001,
-            "ctrl" => flags | 0x0002,
-            "shift" => flags | 0x0004,
-            "win" => flags | 0x0008,
-            "ctrl+alt" => flags | 0x0002 | 0x0001,
-            "ctrl+shift" => flags | 0x0002 | 0x0004,
-            "alt+shift" => flags | 0x0001 | 0x0004,
-            _ => flags
-        };
+            flags |= part.ToLowerInvariant() switch
+            {
+                "alt" => 0x0001,
+                "ctrl" or "control" => 0x0002,
+                "shift" => 0x0004,
+                "win" or "windows" or "super" => 0x0008,
+                _ => 0
+            };
+        }
+
+        return flags;
     }
 
     private void UnregisterGlobalHotkey()

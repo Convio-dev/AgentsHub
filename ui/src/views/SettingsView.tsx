@@ -45,6 +45,9 @@ import { useThemeStore, PRESET_SWATCHES } from '../store/useThemeStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { profileLabel } from '../lib/profileName';
 import { webviewBridge } from '../services/webviewBridge';
+import { useSessionStore } from '../store/useSessionStore';
+import { useSidecarStore } from '../store/useSidecarStore';
+import { sendPrompt } from '../services/chatController';
 import { Button } from '../components/common/Button';
 
 export const SettingsView: React.FC = () => {
@@ -109,6 +112,7 @@ export const SettingsView: React.FC = () => {
     autoFixDiagnostic,
     securityGatekeeperEnabled,
     runSecurityAudit,
+    securityAuditResults,
     logs,
     logsFilter,
     logsSearch,
@@ -163,6 +167,53 @@ export const SettingsView: React.FC = () => {
   const { theme, accentColor, themeIntensity, setTheme, setAccentColor, setThemeIntensity } = useThemeStore();
 
   const [activeCategory, setActiveCategory] = useState<string>('appearance');
+  // Shows what the host actually stored, so a UI/host disagreement is visible instead of guessed.
+  const [prefDebug, setPrefDebug] = useState<string | null>(null);
+
+  // The store was never hydrated from the host: `settings` stayed at its hardcoded defaults, so every
+  // checkbox showed the default rather than the saved value — the app honoured the registry while the
+  // UI displayed the opposite. Load once when Settings opens.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res: any = await webviewBridge.invoke('get_initial_state');
+        if (res?.settings) {
+          useSettingsStore.setState(state => ({ settings: { ...state.settings, ...res.settings } }));
+        }
+      } catch {
+        // Keep the defaults rather than blanking the page if the host cannot answer.
+      }
+    })();
+  }, []);
+
+  /**
+   * Hands the findings to a real agent session instead of inventing a second AI path: the audit is
+   * deterministic, the agent is what decides whether a finding matters and what to change.
+   */
+  const reviewAuditWithAgent = async () => {
+    const audit = securityAuditResults;
+    if (!audit) return;
+
+    const lines = (audit.issues ?? []).slice(0, 40).map((issue: any) =>
+      `- [${issue.severity}] ${issue.type} — ${issue.filePath}:${issue.lineNumber}\n  ${issue.matchSnippet}`
+    );
+
+    const prompt = [
+      'Review this pre-commit security audit for the current workspace and tell me what actually needs fixing.',
+      '',
+      `Score: ${audit.score}/100 · ${audit.scannedFilesCount} files scanned · ${audit.issuesCount} issues`,
+      '',
+      lines.length > 0 ? lines.join('\n') : 'No issues were reported.',
+      '',
+      'For each real problem: say why it matters, then propose the minimal fix. Ignore anything that is a false positive and say so.',
+    ].join('\n');
+
+    const sessions = useSessionStore.getState();
+    const id = sessions.createSession();
+    sessions.switchSession(id);
+    useSidecarStore.getState().setActiveView('chat');
+    await sendPrompt(id, prompt);
+  };
   const [customHex, setCustomHex] = useState<string>(accentColor);
   const [testHotkeyFeedback, setTestHotkeyFeedback] = useState<string | null>(null);
   const [mcpSubTab, setMcpSubTab] = useState<'mcp' | 'skills' | 'rules' | 'sessions' | 'automations'>('mcp');
@@ -624,8 +675,29 @@ export const SettingsView: React.FC = () => {
                       </div>
                     </div>
 
+                    {prefDebug ? (
+                      <p className="ml-7 mt-1 break-all font-mono text-[10px] text-[var(--text-dim,#64748B)]">
+                        {prefDebug}
+                      </p>
+                    ) : null}
+
                     <div className="flex items-center gap-3 pl-7 pt-1">
-                      <Button variant="secondary" size="xs" onClick={() => testHotkey('window')}>
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        onClick={async () => {
+                          testHotkey('window');
+                          try {
+                            const res: any = await webviewBridge.invoke('get_preference_debug');
+                            const v = res?.values ?? {};
+                            setPrefDebug(
+                              `stored: GlobalHotkey=${v.GlobalHotkey} · Modifier="${v.GlobalHotkeyModifier}" · Key="${v.GlobalHotkeyKey}" · StartMinimized=${v.StartMinimized} · MinimizeToTray=${v.MinimizeToTray}`
+                            );
+                          } catch (err) {
+                            setPrefDebug(`could not read preferences: ${err instanceof Error ? err.message : 'error'}`);
+                          }
+                        }}
+                      >
                         Test Hotkey Action Now
                       </Button>
                       <span className="text-[11px] font-mono text-accent">
@@ -1652,9 +1724,11 @@ export const SettingsView: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-state-success border border-emerald-500/20 font-bold">
-                      {diagnosticsScore}
-                    </span>
+                    {diagnosticsScore ? (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-state-success border border-emerald-500/20 font-bold">
+                        {diagnosticsScore}
+                      </span>
+                    ) : null}
                     <Button
                       variant="primary"
                       size="xs"
@@ -1666,6 +1740,11 @@ export const SettingsView: React.FC = () => {
                   </div>
                 </div>
 
+                {diagnostics.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-[var(--border-subtle,#1E293B)] px-4 py-8 text-center text-[11px] text-[var(--text-dim,#64748B)]">
+                    No scan has run yet — press Run Scan to measure this machine.
+                  </p>
+                ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
                   {diagnostics.map(item => (
                     <div
@@ -1700,6 +1779,7 @@ export const SettingsView: React.FC = () => {
                     </div>
                   ))}
                 </div>
+                )}
               </div>
 
               {/* Pre-Commit Security Gatekeeper */}
@@ -1717,9 +1797,67 @@ export const SettingsView: React.FC = () => {
                   </Button>
                 </div>
 
-                <p className="text-xs text-[var(--text-dim,#64748B)] leading-relaxed">
-                  Scans uncommitted files for API tokens (OpenAI, Anthropic, AWS, GitHub PATs), private keys, and shell injection hazards before changes get checked in.
-                </p>
+                {!securityAuditResults ? (
+                  <p className="text-xs text-[var(--text-dim,#64748B)] leading-relaxed">
+                    Scans uncommitted files for API tokens (OpenAI, Anthropic, AWS, GitHub PATs), private keys, and shell injection hazards before changes get checked in.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+                      <span
+                        className={`rounded border px-1.5 py-0.5 font-bold ${
+                          securityAuditResults.score >= 90
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-state-success'
+                            : securityAuditResults.score >= 70
+                              ? 'border-amber-500/30 bg-amber-500/10 text-state-warning'
+                              : 'border-rose-500/30 bg-rose-500/10 text-state-danger'
+                        }`}
+                      >
+                        {securityAuditResults.score}/100
+                      </span>
+                      <span className="text-[var(--text-dim,#64748B)]">
+                        {securityAuditResults.scannedFilesCount} files scanned · {securityAuditResults.issuesCount} issues
+                      </span>
+                      <Button variant="secondary" size="xs" onClick={() => void reviewAuditWithAgent()}>
+                        Review with agent
+                      </Button>
+                    </div>
+
+                    {(securityAuditResults.issues ?? []).length === 0 ? (
+                      <p className="text-[11px] text-state-success">No secrets or hazards found in the working tree.</p>
+                    ) : (
+                      <div className="max-h-56 space-y-1.5 overflow-y-auto">
+                        {(securityAuditResults.issues ?? []).slice(0, 40).map((issue: any, index: number) => (
+                          <div
+                            key={`${issue.filePath}-${issue.lineNumber}-${index}`}
+                            className="rounded-lg border border-[var(--border-subtle,#1E293B)] px-3 py-1.5"
+                          >
+                            <div className="flex items-center gap-2 font-mono text-[10.5px]">
+                              <span
+                                className={`rounded border px-1.5 py-0.5 text-[9px] font-bold ${
+                                  issue.severity === 'Critical'
+                                    ? 'border-rose-500/30 bg-rose-500/10 text-state-danger'
+                                    : 'border-amber-500/30 bg-amber-500/10 text-state-warning'
+                                }`}
+                              >
+                                {issue.severity}
+                              </span>
+                              <span className="text-[var(--text-main,#F1F5F9)]">{issue.type}</span>
+                              <span className="truncate text-[var(--text-dim,#64748B)]">
+                                {issue.filePath}:{issue.lineNumber}
+                              </span>
+                            </div>
+                            {issue.matchSnippet ? (
+                              <div className="mt-1 truncate font-mono text-[10px] text-[var(--text-muted,#94A3B8)]">
+                                {issue.matchSnippet}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
