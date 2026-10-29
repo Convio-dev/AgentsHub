@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -79,7 +80,6 @@ public sealed class QwenEngine : IDisposable
         if (_host is not { } host) return;
 
         host.TopMost = false;
-        host.ShowInTaskbar = false;
         host.FormBorderStyle = FormBorderStyle.None;
         host.Location = new Point(-32000, -32000);
         Log("window parked");
@@ -138,10 +138,9 @@ public sealed class QwenEngine : IDisposable
         if (_host != null) return;
         Log("initialize");
 
-        _host = new Form
+        _host = new Platform.ToolWindowHost
         {
             Text = "Agents Hub Qwen",
-            ShowInTaskbar = false,
             FormBorderStyle = FormBorderStyle.None,
             StartPosition = FormStartPosition.Manual,
             // Off the desktop, not hidden and not zero-size: Chromium throttles an unshown surface
@@ -331,7 +330,6 @@ public sealed class QwenEngine : IDisposable
         var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 900);
 
         host.FormBorderStyle = FormBorderStyle.Sizable;
-        host.ShowInTaskbar = true;
         host.Opacity = 1;
         host.Location = new Point(
             area.X + Math.Max(0, (area.Width - host.Width) / 2),
@@ -1294,15 +1292,29 @@ public sealed class QwenEngine : IDisposable
     {
         var core = _web?.CoreWebView2 ?? throw new InvalidOperationException("Qwen page is not ready");
 
-        string json = await core.CallDevToolsProtocolMethodAsync(
-            "Runtime.evaluate",
-            JsonSerializer.Serialize(new
+        // Same transient COM failure the DeepSeek engine hits: a DevTools call made while the
+        // renderer is being replaced answers "Class not registered", then works a moment later.
+        string? json = null;
+        for (int attempt = 0; json is null; attempt++)
+        {
+            try
             {
-                expression,
-                returnByValue = true,
-                awaitPromise = true,
-                userGesture = true,
-            })).ConfigureAwait(true);
+                json = await core.CallDevToolsProtocolMethodAsync(
+            "Runtime.evaluate",
+                    JsonSerializer.Serialize(new
+                    {
+                        expression,
+                        returnByValue = true,
+                        awaitPromise = true,
+                        userGesture = true,
+                    })).ConfigureAwait(true);
+            }
+            catch (COMException ex) when (attempt < 3)
+            {
+                Log($"cdp retry {attempt + 1} after {ex.Message}");
+                await Task.Delay(200 * (attempt + 1)).ConfigureAwait(true);
+            }
+        }
 
         using var doc = JsonDocument.Parse(json);
         if (!doc.RootElement.TryGetProperty("result", out var result)) return JsonDocument.Parse("null").RootElement.Clone();

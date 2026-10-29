@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
@@ -112,10 +113,9 @@ public sealed class DeepSeekEngine
         if (_host != null) return;
         Log($"initialize profile={ProfileDir}");
 
-        _host = new Form
+        _host = new Platform.ToolWindowHost
         {
             Text = "Agents Hub DeepSeek",
-            ShowInTaskbar = false,
             FormBorderStyle = FormBorderStyle.None,
             StartPosition = FormStartPosition.Manual,
             Location = new Point(-32000, -32000),
@@ -158,7 +158,6 @@ public sealed class DeepSeekEngine
         // A window that was closed once must be able to come back, so show it explicitly.
         if (!host.Visible) host.Show();
         host.FormBorderStyle = FormBorderStyle.Sizable;
-        host.ShowInTaskbar = true;
         host.StartPosition = FormStartPosition.Manual;
 
         var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 900);
@@ -222,7 +221,6 @@ public sealed class DeepSeekEngine
     {
         if (_host is not { } host) return;
         host.TopMost = false;
-        host.ShowInTaskbar = false;
         host.FormBorderStyle = FormBorderStyle.None;
         host.StartPosition = FormStartPosition.Manual;
         host.Location = new Point(-32000, -32000);
@@ -958,7 +956,23 @@ public sealed class DeepSeekEngine
     {
         var core = _web?.CoreWebView2 ?? throw new InvalidOperationException("WebView2 is not ready.");
         var request = JsonSerializer.Serialize(new { expression, awaitPromise = true, returnByValue = true });
-        var raw = await core.CallDevToolsProtocolMethodAsync("Runtime.evaluate", request);
+
+        // A DevTools call made while the renderer is being replaced fails with the COM error whose
+        // text is "Class not registered". It is transient — the same call answers a moment later,
+        // which is why pressing Retry appeared to fix it. Retry here instead of failing the turn.
+        string? raw = null;
+        for (int attempt = 0; raw is null; attempt++)
+        {
+            try
+            {
+                raw = await core.CallDevToolsProtocolMethodAsync("Runtime.evaluate", request);
+            }
+            catch (COMException ex) when (attempt < 3)
+            {
+                Log($"cdp retry {attempt + 1} after {ex.Message}");
+                await Task.Delay(200 * (attempt + 1));
+            }
+        }
 
         using var doc = JsonDocument.Parse(raw);
         if (doc.RootElement.TryGetProperty("exceptionDetails", out var thrown))
