@@ -183,7 +183,20 @@ export const useProfileStore = create<ProfileStoreState>((set, get) => ({
     }));
 
     try {
-      await webviewBridge.invoke('switch_account', { profile: name });
+      // The action is `switch_antigravity_profile`. `switch_account` never existed, so every switch
+      // rejected into the warn below while the optimistic update above made the UI look switched.
+      const res: any = await webviewBridge.invoke('switch_antigravity_profile', { profile: name });
+
+      // Trust the host's answer over the optimistic guess: it knows whether the credentials applied.
+      if (res?.activeProfile && res.activeProfile.toLowerCase() !== name.toLowerCase()) {
+        set(state => ({
+          activeProfileName: res.activeProfile,
+          profiles: state.profiles.map(p => ({
+            ...p,
+            active: p.name.toLowerCase() === String(res.activeProfile).toLowerCase(),
+          })),
+        }));
+      }
     } catch (err) {
       console.warn(`[ProfileStore] Switch account to ${name} failed:`, err);
     }
