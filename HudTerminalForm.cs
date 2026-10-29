@@ -33,7 +33,7 @@ public sealed class HudTerminalForm : Form
     private readonly bool _autoHideOnDeactivate = true;
 
     private readonly Dictionary<string, Button> _tabButtons = new(StringComparer.OrdinalIgnoreCase);
-    private string _currentCliId = "hermes";
+    private string _currentCliId = "hub";
     private bool _isInitialized;
 
     public bool IsHudOpen => _isOpen;
@@ -273,7 +273,7 @@ public sealed class HudTerminalForm : Form
 
         if (enabledWorkspaces.Count == 0)
         {
-            tabIds.Add(("hermes", "Hermes CLI"));
+            tabIds.Add(("hub", "Hub CLI"));
             tabIds.Add(("claude_code", "Claude Code"));
         }
         else
@@ -346,7 +346,7 @@ public sealed class HudTerminalForm : Form
 
         if (string.IsNullOrEmpty(_currentCliId) || !_tabButtons.ContainsKey(_currentCliId))
         {
-            _currentCliId = tabIds.Count > 0 ? tabIds[0].Id : "hermes";
+            _currentCliId = tabIds.Count > 0 ? tabIds[0].Id : "hub";
         }
 
         UpdateTabButtonsUi();

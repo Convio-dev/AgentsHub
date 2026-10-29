@@ -122,12 +122,19 @@ interface SessionStoreState {
 
   // Actions
   /** `workspaceId: null` creates a session deliberately not bound to any workspace. */
-  createSession: (profile?: string, initialModel?: string, workspaceId?: string | null) => string;
+  createSession: (
+    profile?: string,
+    initialModel?: string,
+    workspaceId?: string | null,
+    engine?: 'agy' | 'deepseek'
+  ) => string;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => void;
   pinSession: (sessionId: string, isPinned?: boolean) => void;
   deleteSession: (sessionId: string) => void;
   clearSessionMessages: (sessionId: string) => void;
+  /** Turns the DeepSeek tool loop on or off for one session. */
+  setToolsEnabled: (sessionId: string, enabled: boolean) => void;
   /** Ids shown in the tab bar, in order. */
   openTabIds: string[];
   openTab: (sessionId: string) => void;
@@ -484,7 +491,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     return sessions[activeSessionId];
   },
 
-  createSession: (profile = '', initialModel = '', workspaceId?: string | null) => {
+  createSession: (profile = '', initialModel = '', workspaceId?: string | null, engine?: 'agy' | 'deepseek') => {
     const resolvedProfile = isUnsetProfile(profile) ? '' : profile;
     const id = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const newSession: SessionRecord = {
@@ -502,6 +509,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
           ? undefined
           : workspaceId ?? (useWorkspaceStore.getState().activeWorkspaceId || undefined),
       model: initialModel,
+      engine: engine ?? 'agy',
       // Unknown until this profile's quota is actually read; the ring renders an empty track.
       quotaPercent: undefined,
       tokens: { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, totalTokens: 0 },
@@ -646,6 +654,17 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         activeSessionId: nextActiveId,
         openTabIds: nextTabs,
       };
+    });
+  },
+
+  setToolsEnabled: (sessionId, enabled) => {
+    set(state => {
+      const target = state.sessions[sessionId];
+      if (!target) return state;
+
+      const nextSessions = { ...state.sessions, [sessionId]: { ...target, toolsEnabled: enabled } };
+      persistState(nextSessions, state.activeSessionId);
+      return { sessions: nextSessions };
     });
   },
 

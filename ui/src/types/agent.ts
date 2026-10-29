@@ -143,6 +143,13 @@ export interface SessionRecord {
   model: string;
   reasoningEffort?: string;
   /**
+   * Which engine answers this session. `agy` is the CLI; `deepseek` runs chat.deepseek.com inside
+   * the app's own WebView2 and reports through the same events, so nothing downstream branches.
+   */
+  engine?: 'agy' | 'deepseek';
+  /** DeepSeek only: false turns the chat answer-only, with no tools and no protocol line. */
+  toolsEnabled?: boolean;
+  /**
    * The CLI conversation this session owns. Without it every turn resumed whichever conversation
    * ran last, so chats shared memory and token counts.
    */
@@ -282,7 +289,7 @@ export interface HardwareTelemetry {
   totalRamMb: number;
   memoryUsedGb: number;
   memoryTotalGb: number;
-  hermesMemMb: number;
+  hubMemMb: number;
 }
 
 export type ActiveView =

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { AlertTriangle, ArrowUp, Paperclip, Square, GitBranch, X, FileText } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Brain, Paperclip, Square, GitBranch, X, FileText } from 'lucide-react';
 import { ChatAttachment, SlashCommand, TokenUsage } from '../../types/agent';
 import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
@@ -28,6 +28,15 @@ interface ChatInputProps {
   activeCli?: string;
   /** Workspace root, used to discover project-level skills and command manifests. */
   workingDirectory?: string;
+  /**
+   * Which engine answers this session. `deepseek` runs chat.deepseek.com in the app's own WebView2,
+   * so the model picker, the permission switch and the quota ring do not apply to it.
+   */
+  engine?: 'agy' | 'deepseek';
+  /** Null until the host has answered; drives the sign-in bar for a DeepSeek session. */
+  deepSeekSignedIn?: boolean | null;
+  /** Opens the one-time DeepSeek sign-in window. */
+  onDeepSeekLogin?: () => void;
   /** Session that owns the model/effort selection. */
   sessionId: string;
   /** Profile whose quota the footer ring reports. Quota is per account, never shared. */
@@ -58,6 +67,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   isExecuting = false,
   activeModel,
   reasoningEffort,
+  engine,
+  deepSeekSignedIn,
+  onDeepSeekLogin,
   lastTurnTokens,
   sessionTokens,
   turnCount,
@@ -323,6 +335,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const canSend = (prompt.trim().length > 0 || attachments.length > 0) && !isExecuting;
 
   const turnTokens = lastTurnTokens?.totalTokens || 0;
+  const isDeepSeek = engine === 'deepseek';
+  /**
+   * Shown until sign-in is *confirmed*, not only when it is known to be missing. A probe that is
+   * slow or never answers used to leave the composer with no sign-in affordance at all.
+   */
+  const needsDeepSeekLogin = isDeepSeek && deepSeekSignedIn !== true;
 
   return (
     <div
@@ -404,7 +422,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         )}
 
-        {blockedNotice ? (
+        {needsDeepSeekLogin ? (
+          <div
+            className="flex items-center gap-2 border-b border-sky-500/25 bg-sky-500/10 px-3.5 py-1.5 text-[11px] text-content-muted"
+            role="status"
+          >
+            <Brain className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
+            <span className="flex-1">
+              Answers come from chat.deepseek.com, driven in this app with your own account. Sign
+              in once and it stays signed in.
+            </span>
+            {onDeepSeekLogin ? (
+              <button
+                type="button"
+                onClick={onDeepSeekLogin}
+                className="flex-shrink-0 rounded border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] text-accent transition-colors hover:bg-sky-500/20"
+              >
+                Sign in
+              </button>
+            ) : null}
+          </div>
+        ) : blockedNotice ? (
           <div
             className={`flex items-center gap-2 border-b border-amber-500/25 bg-amber-500/10 px-3.5 py-1.5 text-[11px] text-state-warning ${
               isNudging ? 'animate-pulse-subtle' : ''
@@ -483,23 +521,44 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             <span className="opacity-30">|</span>
 
-            {/* Stays interactive while a turn runs: the change applies to the next turn, and
-                locking the picker made it look broken during long tool runs. */}
-            <ModelSelector
-              sessionId={sessionId}
-              model={activeModel}
-              effort={reasoningEffort}
-              cli={activeCli}
-            />
+            {isDeepSeek ? (
+              /* No model to pick and no permission policy to set: the engine is the DeepSeek web
+                 chat, which decides both. Showing Gemini here was simply wrong. */
+              <>
+                <span
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-accent"
+                  title="Answers come from chat.deepseek.com, signed in as you"
+                >
+                  <Brain className="h-3 w-3" />
+                  DeepSeek
+                </span>
 
-            <span className="opacity-30">|</span>
+                <span className="opacity-30">|</span>
 
-            <PermissionModeButton profileName={profileName} />
+                {/* Same profile flag as the CLI engine: full access skips the approval card. */}
+                <PermissionModeButton profileName={profileName} engine="deepseek" />
+              </>
+            ) : (
+              <>
+                {/* Stays interactive while a turn runs: the change applies to the next turn, and
+                    locking the picker made it look broken during long tool runs. */}
+                <ModelSelector
+                  sessionId={sessionId}
+                  model={activeModel}
+                  effort={reasoningEffort}
+                  cli={activeCli}
+                />
+
+                <span className="opacity-30">|</span>
+
+                <PermissionModeButton profileName={profileName} />
+              </>
+            )}
           </div>
 
           {/* Right: quota ring, optional token readout, then the single morphing action button */}
           <div className="flex flex-shrink-0 items-center space-x-2.5">
-            <CircularQuotaWidget profileName={profileName} />
+            {isDeepSeek ? null : <CircularQuotaWidget profileName={profileName} />}
 
             {turnTokens > 0 ? (
               <TokenUsageTooltip turn={lastTurnTokens} session={sessionTokens} turns={turnCount} />

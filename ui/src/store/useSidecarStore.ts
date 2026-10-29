@@ -54,7 +54,7 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
     totalRamMb: 0,
     memoryUsedGb: 0,
     memoryTotalGb: 0,
-    hermesMemMb: 0,
+    hubMemMb: 0,
   },
   activeView: (function (): ActiveView {
     try {
@@ -194,7 +194,7 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
           totalRamMb: tel.totalRamMb || 16384,
           memoryUsedGb: tel.memoryUsedGb || 0,
           memoryTotalGb: tel.memoryTotalGb || 16,
-          hermesMemMb: tel.hermesMemMb || 0,
+          hubMemMb: tel.hubMemMb || 0,
         });
       }
     } catch (err) {
@@ -237,7 +237,7 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
         totalRamMb: data.totalRamMb || 16384,
         memoryUsedGb: data.memoryUsedGb || 0,
         memoryTotalGb: data.memoryTotalGb || 16,
-        hermesMemMb: data.hermesMemMb || 0,
+        hubMemMb: data.hubMemMb || 0,
       });
     };
     unsubs.push(webviewBridge.on('hardware_metrics', onMetrics));

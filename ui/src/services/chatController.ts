@@ -49,6 +49,10 @@ function resolveContext(sessionId: string) {
      * reports the id back and it is stored on the session from then on.
      */
     conversationId: session?.conversationId,
+    /** Omitted means agy. DeepSeek sessions never reach the sidecar. */
+    engine: session?.engine,
+    /** DeepSeek only: an answer-only chat skips tools and the protocol line. */
+    toolsEnabled: session?.toolsEnabled,
   };
 }
 
@@ -72,6 +76,8 @@ async function dispatch({ sessionId, prompt }: DispatchTarget): Promise<void> {
       workingDirectory: context.workingDirectory,
       skipPermissions: context.skipPermissions,
       conversationId: context.conversationId,
+      engine: context.engine,
+      toolsEnabled: context.toolsEnabled,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to dispatch chat prompt';
@@ -96,9 +102,13 @@ export async function sendPrompt(
  */
 export async function stopGeneration(sessionId: string): Promise<void> {
   try {
-    await webviewBridge.invoke('abort_task', { taskId: sessionId, reason: 'user_stopped' });
+    // A DeepSeek turn runs in the host's own WebView2, so `abort_task` (which reaches the sidecar)
+    // would be a no-op for it. Route the stop to whichever engine owns the session.
+    const session = useSessionStore.getState().sessions[sessionId];
+    const action = session?.engine === 'deepseek' ? 'deepseek_cancel' : 'abort_task';
+    await webviewBridge.invoke(action, { taskId: sessionId, sessionId, reason: 'user_stopped' });
   } catch (err) {
-    console.warn('[chatController] abort_task failed:', err);
+    console.warn('[chatController] stop failed:', err);
   } finally {
     useSessionStore.getState().markStopped(sessionId);
   }

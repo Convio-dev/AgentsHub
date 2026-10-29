@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, File, FileCode, FileText, Filter, Folder, FolderOpen, GitBranch, Loader2, Plus, Settings, Trash2, Zap } from 'lucide-react';
+import { Brain, ChevronDown, ChevronRight, File, FileCode, FileText, Filter, Folder, FolderOpen, GitBranch, Loader2, Plus, Settings, Trash2, Zap } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useSessionStore } from '../../store/useSessionStore';
 import { useProfileStore } from '../../store/useProfileStore';
@@ -101,16 +101,46 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
    * Passing the workspace id explicitly is what makes the `+` mean "new conversation in *this*
    * project" rather than "somewhere in whatever is active".
    */
-  const handleNewSessionInWorkspace = (workspaceId: string | null) => {
-    const newId = createSession(activeProfileName, undefined, workspaceId);
+  /**
+   * `+` asks which engine answers the new conversation instead of assuming the CLI.
+   *
+   * Positioned with fixed coordinates from the button's rect: the list scrolls, and a popover
+   * inside an overflow container gets clipped.
+   */
+  const [newSessionMenu, setNewSessionMenu] = useState<{ workspaceId: string | null; top: number; left: number } | null>(null);
+
+  const openNewSessionMenu = (event: React.MouseEvent, workspaceId: string | null) => {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    setNewSessionMenu({
+      workspaceId,
+      top: rect.bottom + 4,
+      left: Math.min(rect.left, window.innerWidth - 208),
+    });
+  };
+
+  const startSession = (workspaceId: string | null, engine: 'agy' | 'deepseek') => {
+    setNewSessionMenu(null);
+
+    const newId = createSession(activeProfileName, undefined, workspaceId, engine);
     switchSession(newId);
     setActiveView('chat');
+
+    if (engine === 'deepseek') {
+      // First use needs a token; the chat carries a sign-in bar if this is declined.
+      void webviewBridge
+        .invoke('deepseek_status')
+        .then((res: any) => (res?.signedIn ? null : webviewBridge.invoke('deepseek_login')))
+        .catch(() => {});
+    }
   };
+
+  const handleNewSessionInWorkspace = (workspaceId: string | null) => startSession(workspaceId, 'agy');
 
   // Merge active local sessions with backend sessions
   const localSessionList = Object.values(sessions).map(s => ({
     sessionId: s.id,
     goal: s.title,
+    engine: s.engine,
     profile: s.profile,
     stepCount: s.messages.length,
     lastActiveUtc: new Date(s.updatedAt).toISOString(),
@@ -206,9 +236,9 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
 
           <button
             type="button"
-            onClick={() => handleNewSessionInWorkspace(isWorkspace ? groupKey : null)}
+            onClick={event => openNewSessionMenu(event, isWorkspace ? groupKey : null)}
             className="flex-shrink-0 rounded p-1 text-content-dim transition hover:bg-surface-hover hover:text-accent"
-            title={`New conversation in ${title}`}
+            title={`New conversation in ${title} (choose engine)`}
             aria-label={`New conversation in ${title}`}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -229,6 +259,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
             {items.map(s => {
               const isActive = s.sessionId === activeSessionId;
               const isRenaming = renamingId === s.sessionId;
+              const isDeepSeek = (s as { engine?: string }).engine === 'deepseek';
 
               if (isRenaming) {
                 return (
@@ -271,9 +302,18 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                       ? 'bg-surface-card border border-surface-border text-content-main shadow-sm'
                       : 'hover:bg-surface-card text-content-muted hover:text-content-main'
                   }`}
-                  title={s.isLocal ? `${s.goal || s.sessionId}. Double-click to rename` : s.goal || s.sessionId}
+                  title={`${s.goal || s.sessionId}${isDeepSeek ? ' (DeepSeek, runs in this app)' : ''}${
+                    s.isLocal ? '. Double-click to rename' : ''
+                  }`}
                 >
-                  <Zap className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-sky-400 fill-sky-400' : 'text-sky-500'}`} />
+                  {isDeepSeek ? (
+                    <Brain
+                      className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-accent' : 'text-accent/70'}`}
+                      aria-label="DeepSeek chat"
+                    />
+                  ) : (
+                    <Zap className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-sky-400 fill-sky-400' : 'text-sky-500'}`} />
+                  )}
                   <span className="truncate flex-1 font-medium text-xs text-left" title={s.goal || s.sessionId}>
                     {s.goal || s.sessionId}
                   </span>
@@ -352,8 +392,8 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
 
           <button
             type="button"
-            onClick={handleNewSession}
-            title={`New conversation in ${activeWorkspace?.name || 'the active workspace'}`}
+            onClick={event => openNewSessionMenu(event, activeWorkspaceId || null)}
+            title={`New conversation in ${activeWorkspace?.name || 'the active workspace'} (choose engine)`}
             aria-label="New conversation"
             className="rounded p-1 text-accent transition-colors hover:bg-surface-card"
           >
@@ -556,6 +596,46 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
           )}
         </div>
       </div>
+      {/* Engine picker for a new conversation. Fixed, not absolute: the list scrolls and would clip it. */}
+      {newSessionMenu
+        ? createPortal(
+            <>
+              <div className="fixed inset-0 z-[70]" onClick={() => setNewSessionMenu(null)} />
+              <div
+                style={{ top: newSessionMenu.top, left: newSessionMenu.left }}
+                className="fixed z-[71] w-52 overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-xl"
+                role="menu"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => startSession(newSessionMenu.workspaceId, 'agy')}
+                  className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-hover"
+                >
+                  <Zap className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-sky-400" />
+                  <span className="min-w-0">
+                    <span className="block text-[11px] font-medium text-content-main">Use Antigravity</span>
+                    <span className="block text-[10px] text-content-dim">The CLI, with tools and skills</span>
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => startSession(newSessionMenu.workspaceId, 'deepseek')}
+                  className="flex w-full items-start gap-2 border-t border-surface-border px-3 py-2 text-left transition-colors hover:bg-surface-hover"
+                >
+                  <Brain className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-accent" />
+                  <span className="min-w-0">
+                    <span className="block text-[11px] font-medium text-content-main">Use DeepSeek</span>
+                    <span className="block text-[10px] text-content-dim">Free, via chat.deepseek.com</span>
+                  </span>
+                </button>
+              </div>
+            </>,
+            document.body
+          )
+        : null}
     </aside>
   );
 };

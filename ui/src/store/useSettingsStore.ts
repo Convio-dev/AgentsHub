@@ -346,7 +346,7 @@ const defaultDependencies: DependencyItem[] = [
   { id: 'python', name: 'Python 3', category: 'runtime', isInstalled: true, version: '3.13.1', path: 'C:\\Python313\\python.exe', installKind: 'winget' },
   { id: 'claude', name: 'Claude Code CLI', category: 'agent', isInstalled: true, version: 'v1.0.18', commandPreview: 'claude', installKind: 'powershell' },
   { id: 'antigravity', name: 'Google Antigravity CLI (agy)', category: 'agent', isInstalled: true, version: 'v1.4.7', commandPreview: 'agy', installKind: 'powershell' },
-  { id: 'hermes', name: 'Hermes Process Engine', category: 'agent', isInstalled: true, version: 'v2.0.0-rc', commandPreview: 'hermes-engine', installKind: 'powershell' },
+  { id: 'hub', name: 'Hub Process Engine', category: 'agent', isInstalled: true, version: 'v2.0.0-rc', commandPreview: 'hub-engine', installKind: 'powershell' },
   { id: 'warp', name: 'Cloudflare WARP (Dual-Stack)', category: 'tool', isInstalled: true, version: '2024.12', commandPreview: 'warp-cli', installKind: 'winget' },
   { id: 'proton', name: 'Proton VPN Provider', category: 'tool', isInstalled: false, commandPreview: 'protonvpn', installKind: 'browser' },
 ];
@@ -465,7 +465,7 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
 
   automations: [
     { id: 'auto-1', name: 'Daily Repository Health Check', targetCli: 'AntigravityCli', scheduleExpression: '0 9 * * *', promptToExecute: 'Run git status, scan for security issues, and check dependencies.', isEnabled: true, lastRunStatus: 'Success', lastRunUtc: new Date(Date.now() - 3600000).toISOString() },
-    { id: 'auto-2', name: 'Hourly Test Suite Runner', targetCli: 'Hermes', scheduleExpression: '0 * * * *', promptToExecute: 'Run unit test suite and report failing tests.', isEnabled: false, lastRunStatus: 'Pending' },
+    { id: 'auto-2', name: 'Hourly Test Suite Runner', targetCli: 'Hub', scheduleExpression: '0 * * * *', promptToExecute: 'Run unit test suite and report failing tests.', isEnabled: false, lastRunStatus: 'Pending' },
   ],
 
   setActiveSettingsCategory: cat => set({ activeSettingsCategory: cat }),

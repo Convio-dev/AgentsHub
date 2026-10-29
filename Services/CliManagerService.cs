@@ -8,7 +8,7 @@ namespace AgentsHub.Services;
 
 public enum CliType
 {
-    Hermes = 0,
+    Hub = 0,
     ClaudeCode = 1,
     AntigravityCli = 2,
     GeminiCli = AntigravityCli
@@ -25,7 +25,7 @@ public enum CliState
 public class CliItemInfo
 {
     public string Id { get; set; } = "";
-    public CliType Type { get; set; } = CliType.Hermes;
+    public CliType Type { get; set; } = CliType.Hub;
     public string DisplayName { get; set; } = "";
     public string ShortName { get; set; } = "";
     public string CommandDescription { get; set; } = "";
@@ -36,7 +36,7 @@ public class CliItemInfo
     public bool IsCustom { get; set; } = false;
     public bool IsEnabled { get; set; } = true;
     public int? Port { get; set; }
-    public bool IsWebUi => !string.IsNullOrEmpty(WebUrl) || Type == CliType.Hermes;
+    public bool IsWebUi => !string.IsNullOrEmpty(WebUrl) || Type == CliType.Hub;
     public string? WebUrl { get; set; }
     public string? ProfileName { get; set; }
 }
@@ -54,7 +54,7 @@ public sealed class ExternalLaunchSpec
 
 public class CliManagerService : IDisposable
 {
-    private readonly HermesProcessService _hermesService;
+    private readonly HubProcessService _hubService;
     private readonly CliWebTerminalServer _webTerminalServer;
     private readonly AntigravityProfileService _profileService;
     private readonly ConcurrentDictionary<string, ConPtySession> _terminalSessions = new(StringComparer.OrdinalIgnoreCase);
@@ -63,7 +63,7 @@ public class CliManagerService : IDisposable
     private const int MaxBufferSize = 150_000;
     private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
 
-    public HermesProcessService HermesService => _hermesService;
+    public HubProcessService HubService => _hubService;
     public CliWebTerminalServer WebTerminalServer => _webTerminalServer;
     public AntigravityProfileService ProfileService => _profileService;
 
@@ -74,9 +74,9 @@ public class CliManagerService : IDisposable
     public event Action<string, string>? InputSentId;
     public event Action<string, string>? LogMessage;
 
-    public CliManagerService(HermesProcessService hermesService)
+    public CliManagerService(HubProcessService hubService)
     {
-        _hermesService = hermesService;
+        _hubService = hubService;
         _profileService = new AntigravityProfileService();
 
         _profileService.LogMessage += (msg) =>
@@ -89,13 +89,13 @@ public class CliManagerService : IDisposable
             LogMessage?.Invoke("Antigravity Profile", $"Saved credentials for profile '{name}'.");
         };
 
-        _cliStates["Hermes"] = new CliItemInfo
+        _cliStates["Hub"] = new CliItemInfo
         {
-            Id = "Hermes",
-            Type = CliType.Hermes,
-            DisplayName = "Hermes (Web Dashboard)",
-            ShortName = "Hermes",
-            CommandDescription = "hermes dashboard --port [PORT]",
+            Id = "Hub",
+            Type = CliType.Hub,
+            DisplayName = "Hub (Web Dashboard)",
+            ShortName = "Hub",
+            CommandDescription = "hub dashboard --port [PORT]",
             State = CliState.Offline,
             StatusText = "Engine: Offline",
             Port = 9119,
@@ -129,36 +129,36 @@ public class CliManagerService : IDisposable
         _terminalBuffers["ClaudeCode"] = new StringBuilder();
         _terminalBuffers["AntigravityCli"] = new StringBuilder();
 
-        // Bind Hermes service events
-        _hermesService.StatusChanged += (hStatus, msg) =>
+        // Bind Hub service events
+        _hubService.StatusChanged += (hStatus, msg) =>
         {
             var cliState = hStatus switch
             {
-                HermesStatus.Online => CliState.Running,
-                HermesStatus.Starting => CliState.Starting,
-                HermesStatus.Error => CliState.Error,
+                HubStatus.Online => CliState.Running,
+                HubStatus.Starting => CliState.Starting,
+                HubStatus.Error => CliState.Error,
                 _ => CliState.Offline
             };
 
-            var item = _cliStates.GetOrAdd("Hermes", _ => new CliItemInfo
+            var item = _cliStates.GetOrAdd("Hub", _ => new CliItemInfo
             {
-                Id = "Hermes",
-                Type = CliType.Hermes,
-                DisplayName = "Hermes (Web Dashboard)",
-                ShortName = "Hermes",
-                CommandDescription = "hermes dashboard --port [PORT]",
+                Id = "Hub",
+                Type = CliType.Hub,
+                DisplayName = "Hub (Web Dashboard)",
+                ShortName = "Hub",
+                CommandDescription = "hub dashboard --port [PORT]",
                 Port = 9119,
                 WebUrl = "http://127.0.0.1:9119"
             });
             item.State = cliState;
             item.StatusText = msg;
-            StatusChanged?.Invoke(CliType.Hermes, cliState, msg);
-            StatusChangedId?.Invoke("Hermes", cliState, msg);
+            StatusChanged?.Invoke(CliType.Hub, cliState, msg);
+            StatusChangedId?.Invoke("Hub", cliState, msg);
         };
 
-        _hermesService.LogMessage += (msg) =>
+        _hubService.LogMessage += (msg) =>
         {
-            LogMessage?.Invoke("Hermes", msg);
+            LogMessage?.Invoke("Hub", msg);
         };
 
         _webTerminalServer = new CliWebTerminalServer(this);
@@ -401,7 +401,7 @@ public class CliManagerService : IDisposable
     {
         CliType.ClaudeCode => "claude_code",
         CliType.AntigravityCli => "antigravity_cli",
-        _ => "hermes"
+        _ => "hub"
     };
 
     public CliItemInfo GetInfo(CliType type) => GetInfo(CliTypeToNormalizedId(type));
@@ -437,9 +437,9 @@ public class CliManagerService : IDisposable
         bool isAgyProf = IsAntigravityProfileId(id, out var profileName);
         if (!isAgyProf)
         {
-            if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(id, "hub", StringComparison.OrdinalIgnoreCase))
             {
-                _hermesService.Start();
+                _hubService.Start();
                 return;
             }
         }
@@ -789,11 +789,11 @@ public class CliManagerService : IDisposable
             };
         }
 
-        if (string.Equals(normalized, "hermes", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(normalized, "hub", StringComparison.OrdinalIgnoreCase))
         {
             return new ExternalLaunchSpec
             {
-                Command = $"hermes dashboard --port {_hermesService.Port}",
+                Command = $"hub dashboard --port {_hubService.Port}",
                 WorkingDirectory = userProfile,
                 EnvironmentVariables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             };
@@ -824,9 +824,9 @@ public class CliManagerService : IDisposable
         bool isAgyProf = IsAntigravityProfileId(id, out var profileName);
         if (!isAgyProf)
         {
-            if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(id, "hub", StringComparison.OrdinalIgnoreCase))
             {
-                await _hermesService.StopAsync();
+                await _hubService.StopAsync();
                 return;
             }
         }
@@ -949,7 +949,7 @@ public class CliManagerService : IDisposable
         {
             "claude_code" => CliType.ClaudeCode,
             "antigravity_cli" => CliType.AntigravityCli,
-            "hermes" => CliType.Hermes,
+            "hub" => CliType.Hub,
             _ => (CliType?)null
         };
         if (!ct.HasValue && IsAntigravityProfileId(id, out _))
@@ -969,7 +969,7 @@ public class CliManagerService : IDisposable
         {
             "claude_code" => CliType.ClaudeCode,
             "antigravity_cli" => CliType.AntigravityCli,
-            "hermes" => CliType.Hermes,
+            "hub" => CliType.Hub,
             _ => (CliType?)null
         };
         if (!ct.HasValue && IsAntigravityProfileId(id, out _))
@@ -1333,7 +1333,7 @@ public class CliManagerService : IDisposable
         }
         _terminalSessions.Clear();
         _webTerminalServer.Dispose();
-        _hermesService.Dispose();
+        _hubService.Dispose();
         _profileService.Dispose();
         GC.SuppressFinalize(this);
     }

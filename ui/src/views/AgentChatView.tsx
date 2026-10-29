@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   MessageSquare,
   ChevronDown,
@@ -10,6 +10,9 @@ import {
   Star,
   PanelLeftClose,
   PanelLeftOpen,
+  Brain,
+  AlertTriangle,
+  ExternalLink,
 } from 'lucide-react';
 import { useSessionStore } from '../store/useSessionStore';
 import { useProfileStore } from '../store/useProfileStore';
@@ -22,6 +25,7 @@ import { PermissionRequestBar } from '../components/chat/PermissionRequestBar';
 import { ChatAttachment } from '../types/agent';
 import { profileLabel } from '../lib/profileName';
 import { TerminalPanel } from '../components/terminal/TerminalPanel';
+import { webviewBridge } from '../services/webviewBridge';
 
 interface AgentChatViewProps {
   onOpenGitModal: () => void;
@@ -41,6 +45,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
     createSession,
     switchSession,
     closeTab,
+    setToolsEnabled,
   } = useSessionStore();
 
   const {
@@ -145,7 +150,9 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
   const handleSendMessage = async (prompt: string, attachments?: ChatAttachment[]) => {
     if (!activeSession || isExecuting) return;
 
-    if (isRunnerStopped) {
+    // A DeepSeek turn runs in our own WebView2 and never touches the CLI runner. This guard used
+    // to swallow the send silently, which read as "the composer does nothing".
+    if (!isDeepSeek && isRunnerStopped) {
       if (!autoRunDefaultProfile) return;
       await startProfile(runnerName);
     }
@@ -163,6 +170,106 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
     // session with it made the first effort change persist that label and send it as `--model`.
     const newId = createSession(defaultProfileName || activeProfileName);
     switchSession(newId);
+  };
+
+  const isDeepSeek = activeSession?.engine === 'deepseek';
+
+  /**
+   * Sign-in state for a DeepSeek session.
+   *
+   * Polled rather than pushed: the token appears inside a WebView2 the host owns, and the user can
+   * take any amount of time in it. Polling stops as soon as it reports signed in.
+   */
+  const [deepSeekSignedIn, setDeepSeekSignedIn] = useState<boolean | null>(null);
+  const [deepSeekMenuOpen, setDeepSeekMenuOpen] = useState(false);
+  const [deepSeekAccounts, setDeepSeekAccounts] = useState<{
+    active: string;
+    accounts: Array<{ id: string; label: string }>;
+  } | null>(null);
+
+  // Loaded when the menu opens: the list can change from another window.
+  useEffect(() => {
+    if (!deepSeekMenuOpen) return;
+    void webviewBridge
+      .invoke('deepseek_accounts')
+      .then((res: any) => setDeepSeekAccounts(res ?? null))
+      .catch(() => setDeepSeekAccounts(null));
+  }, [deepSeekMenuOpen]);
+
+  const switchDeepSeekAccount = async (id: string) => {
+    try {
+      await webviewBridge.invoke('deepseek_switch_account', { id });
+      setDeepSeekAccounts(current => (current ? { ...current, active: id } : current));
+      setDeepSeekSignedIn(null);
+    } catch {
+      // The picker keeps showing the old account, which is the truth.
+    }
+  };
+
+
+  /** A destructive DeepSeek tool call waiting for a yes or no. */
+  const [deepSeekApproval, setDeepSeekApproval] = useState<{ callId: string; action: string; preview: string } | null>(
+    null
+  );
+
+  useEffect(() => {
+    const off = webviewBridge.on('deepseek_approval_request', (data: any) => {
+      if (!data?.callId) return;
+      setDeepSeekApproval({ callId: data.callId, action: data.action || '', preview: data.preview || '' });
+    });
+    return () => {
+      off?.();
+    };
+  }, []);
+
+  const answerDeepSeekApproval = (approved: boolean) => {
+    const pending = deepSeekApproval;
+    setDeepSeekApproval(null);
+    if (!pending) return;
+    void webviewBridge.invoke('deepseek_approve', { callId: pending.callId, approved }).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (!isDeepSeek) {
+      setDeepSeekSignedIn(null);
+      return;
+    }
+
+    let alive = true;
+    let timer = 0;
+
+    const check = async () => {
+      try {
+        const res: any = await webviewBridge.invoke('deepseek_status');
+        if (!alive) return;
+        const signedIn = Boolean(res?.signedIn);
+        setDeepSeekSignedIn(signedIn);
+        if (signedIn && timer) {
+          window.clearInterval(timer);
+          timer = 0;
+        }
+      } catch {
+        if (alive) setDeepSeekSignedIn(false);
+      }
+    };
+
+    void check();
+    timer = window.setInterval(check, 4000);
+
+    return () => {
+      alive = false;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [isDeepSeek, activeSession?.id]);
+
+  /** Sign-in flow: the host parks the window by itself once a token appears. */
+  const openDeepSeekLogin = () => {
+    void webviewBridge.invoke('deepseek_login').catch(() => {});
+  };
+
+  /** Just looking: no watcher, so the window stays until the user closes it. */
+  const openDeepSeekWindow = () => {
+    void webviewBridge.invoke('deepseek_open').catch(() => {});
   };
 
   // The tab bar shows the open subset, not every session: closing a tab must not delete a chat.
@@ -195,8 +302,138 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
 
           <span className="opacity-30">|</span>
 
+          {/* A DeepSeek session has no runner, so the profile dropdown would be a lie. */}
+          {isDeepSeek ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setDeepSeekMenuOpen(open => !open)}
+                className="flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 font-mono text-[11px] text-accent transition hover:bg-sky-500/15"
+                title="DeepSeek account and window"
+                aria-expanded={deepSeekMenuOpen}
+              >
+                <Brain className="h-3 w-3" />
+                DeepSeek
+                <ChevronDown className="h-3 w-3" />
+              </button>
+
+              {deepSeekMenuOpen ? (
+                <div className="absolute left-0 top-9 z-50 w-60 overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-xl">
+                  <div className="border-b border-surface-border px-3 py-2">
+                    <p className="mb-1 font-mono text-[9.5px] uppercase tracking-wide text-content-dim">Account</p>
+
+                    {(deepSeekAccounts?.accounts ?? []).map(account => (
+                      <button
+                        key={account.id}
+                        type="button"
+                        onClick={() => void switchDeepSeekAccount(account.id)}
+                        className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-[11px] text-content-main transition-colors hover:bg-surface-hover"
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+                            account.id === deepSeekAccounts?.active ? 'bg-accent' : 'bg-surface-strong'
+                          }`}
+                        />
+                        <span className="truncate">{account.label}</span>
+                      </button>
+                    ))}
+
+                    <div className="mt-1.5 flex items-center justify-between gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeepSeekMenuOpen(false);
+                          setActiveView('profiles');
+                        }}
+                        className="rounded border border-surface-border px-1.5 py-0.5 font-mono text-[10px] text-content-muted transition-colors hover:text-content-main"
+                      >
+                        Manage in AccountsHub
+                      </button>
+
+                      {/* The warning lives on the control that causes it, not in a paragraph. */}
+                      <span
+                        className="flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-surface-border font-mono text-[9px] text-content-dim"
+                        title="Changing accounts rebuilds the DeepSeek window, so this chat forgets its page and starts a fresh conversation."
+                        aria-label="Changing accounts may make this chat forget its conversation"
+                      >
+                        ?
+                      </span>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center justify-between border-b border-surface-border px-3 py-2 text-[11px] text-content-main">
+                    <span>Tools in this chat</span>
+                    <input
+                      type="checkbox"
+                      checked={activeSession?.toolsEnabled !== false}
+                      onChange={event => setToolsEnabled(activeSession.id, event.target.checked)}
+                      className="h-3.5 w-3.5 accent-sky-500"
+                    />
+                  </label>
+
+                  {activeSession?.conversationId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeepSeekMenuOpen(false);
+                        void webviewBridge
+                          .invoke('deepseek_open_chat', { conversationId: activeSession.conversationId })
+                          .catch(() => {});
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] text-content-main transition-colors hover:bg-surface-hover"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Open this chat on the web
+                    </button>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeepSeekMenuOpen(false);
+                      void webviewBridge.invoke('deepseek_open_chat', {}).catch(() => {});
+                    }}
+                    className="flex w-full items-center gap-2 border-t border-surface-border px-3 py-2 text-left text-[11px] text-content-main transition-colors hover:bg-surface-hover"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Manage chats on the web
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeepSeekMenuOpen(false);
+                      openDeepSeekWindow();
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] text-content-main transition-colors hover:bg-surface-hover"
+                  >
+                    <PanelLeftOpen className="h-3 w-3" />
+                    Open the DeepSeek window
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeepSeekMenuOpen(false);
+                      void webviewBridge
+                        .invoke('deepseek_signout')
+                        .then(() => setDeepSeekSignedIn(false))
+                        .catch(() => {});
+                    }}
+                    className="flex w-full items-center gap-2 border-t border-surface-border px-3 py-2 text-left text-[11px] text-state-danger transition-colors hover:bg-surface-hover"
+                  >
+                    <X className="h-3 w-3" />
+                    Sign out and forget the account
+                  </button>
+                  <p className="border-t border-surface-border px-3 py-2 text-[10px] leading-relaxed text-content-dim">
+                    Answers come from chat.deepseek.com, driven in this app with your own account.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {/* Runner Dropdown with Multi-Profile Popover */}
-          <div className="relative">
+          <div className={isDeepSeek ? 'hidden' : 'relative'}>
             <button
               onClick={() => setIsProfilePopoverOpen(!isProfilePopoverOpen)}
               className="text-xs px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-content-main font-mono flex items-center space-x-2 transition shadow-sm"
@@ -444,15 +681,39 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
               caused them lives, and where the retry is offered. */}
           {activeSession ? <PermissionRequestBar sessionId={activeSession.id} /> : null}
 
+          {deepSeekApproval ? (
+            <div className="flex items-center gap-2 border-b border-amber-500/25 bg-amber-500/10 px-4 py-2 text-[11px] text-state-warning">
+              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+              <span className="flex-1 truncate" title={deepSeekApproval.preview}>
+                DeepSeek wants to {deepSeekApproval.preview}
+              </span>
+              <button
+                type="button"
+                onClick={() => answerDeepSeekApproval(true)}
+                className="flex-shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] transition-colors hover:bg-amber-500/20"
+              >
+                Allow
+              </button>
+              <button
+                type="button"
+                onClick={() => answerDeepSeekApproval(false)}
+                className="flex-shrink-0 rounded border border-surface-border px-2 py-0.5 font-mono text-[10px] text-content-muted transition-colors hover:text-content-main"
+              >
+                Deny
+              </button>
+            </div>
+          ) : null}
+
           {activeSession ? (
             <ChatInput
               sessionId={activeSession.id}
               profileName={activeSession?.profile || activeProfileName}
-              blockedNotice={
-                !isRunnerStopped || autoRunDefaultProfile
-                  ? null
-                  : `Runner ${profileLabel(runnerName)} is stopped. Start it to send a message.`
-              }
+            blockedNotice={
+              // A DeepSeek turn never starts a runner, so gating it on one is wrong.
+              isDeepSeek || !isRunnerStopped || autoRunDefaultProfile
+                ? null
+                : `Runner ${profileLabel(runnerName)} is stopped. Start it to send a message.`
+            }
               onStartRunner={() => void startProfile(runnerName)}
               onSendMessage={handleSendMessage}
               onStop={handleStopGenerating}
@@ -463,6 +724,9 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
               sessionTokens={activeSession?.tokens}
               turnCount={activeSession?.messages.filter(message => message.sender === 'assistant').length}
               onOpenGitModal={onOpenGitModal}
+              engine={activeSession.engine}
+              deepSeekSignedIn={deepSeekSignedIn}
+              onDeepSeekLogin={openDeepSeekLogin}
               activeCli={activeWorkspace?.primaryCli}
               workingDirectory={activeWorkspace?.workingDirectory}
             />

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DeepSeekAccountsCard } from '../components/profiles/DeepSeekAccountsCard';
 import {
   Users,
   Plus,
@@ -262,7 +263,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
       workingDirectory: '',
       antigravityProfile: activeProfileName,
       colorTag: '#06b6d4',
-      primaryCli: 'Hermes',
+      primaryCli: 'AntigravityCli',
       secondaryCli: 'ClaudeCode',
       splitMode: 'single',
     });
@@ -291,7 +292,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
       workingDirectory: editingWorkspace.workingDirectory || '',
       antigravityProfile: editingWorkspace.antigravityProfile || activeProfileName,
       colorTag: editingWorkspace.colorTag || '#06b6d4',
-      primaryCli: editingWorkspace.primaryCli || 'Hermes',
+      primaryCli: editingWorkspace.primaryCli || 'AntigravityCli',
       secondaryCli: editingWorkspace.secondaryCli || 'ClaudeCode',
       splitMode: editingWorkspace.splitMode || 'single',
       isDefault: Boolean(editingWorkspace.isDefault),
@@ -307,7 +308,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
         <div className="flex items-center justify-between flex-wrap gap-4 pb-4 border-b border-surface-border">
           <div>
             <h2 className="text-base font-bold text-content-main flex items-center space-x-2">
-              <span>Antigravity Multi-Account Profiles</span>
+              <span>AccountsHub</span>
             </h2>
             <p className="text-xs text-content-muted mt-0.5">
               Switch Google AI Pro accounts instantly without touching credentials
@@ -315,13 +316,35 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
           </div>
 
           <div className="flex items-center space-x-2.5">
+            <details className="relative">
+              <summary
+                className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-lg border border-surface-border bg-surface-card font-mono text-xs text-content-muted transition hover:text-content-main"
+                title="Where credentials and ports live"
+                aria-label="Isolation details"
+              >
+                ?
+              </summary>
+              <div className="absolute right-0 top-9 z-40 w-72 space-y-2 rounded-xl border border-surface-border bg-surface-card p-3 shadow-xl">
+                <p className="font-mono text-[9.5px] uppercase tracking-wide text-content-dim">Credential store</p>
+                <p className="text-[11px] text-content-main">Windows Credential Manager <span className="text-state-success">Encrypted</span></p>
+                <p className="font-mono text-[9.5px] uppercase tracking-wide text-content-dim">VirtualHome paths</p>
+                <p className="font-mono text-[11px] text-content-main">~/.gemini/antigravity-ide <span className="text-accent">Isolated</span></p>
+                <p className="font-mono text-[9.5px] uppercase tracking-wide text-content-dim">Port range</p>
+                <p className="font-mono text-[11px] text-content-main">127.0.0.1:9339 - 9350 <span className="text-content-dim">Auto-alloc</span></p>
+              </div>
+            </details>
+
             <button
-              onClick={handleRotateIp}
-              disabled={isRotatingIp}
-              className="px-3 py-1.5 bg-surface-card hover:bg-slate-800 text-state-warning border border-amber-800/50 rounded-lg text-xs font-mono font-medium flex items-center space-x-1.5 transition"
+              onClick={() => setIsGatewayExpanded(!isGatewayExpanded)}
+              title="Claude Code Gateway engine"
+              aria-label="Claude Code Gateway engine"
+              className={`flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+                isInjectionEnabled
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-state-success'
+                  : 'border-surface-border bg-surface-card text-content-muted hover:text-content-main'
+              }`}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRotatingIp ? 'animate-spin' : ''}`} />
-              <span>Rotate WARP IP</span>
+              <Shield className="h-4 w-4" />
             </button>
 
             <button
@@ -334,8 +357,21 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
           </div>
         </div>
 
-        {/* 1. Claude Code Gateway Engine Configuration Card (Collapsible) */}
-        <div className="bg-surface-card border border-surface-border rounded-xl p-4 transition shadow-sm">
+        {/* 1. Claude Code Gateway Engine: a floating panel, not a permanent card in the page. */}
+        {isGatewayExpanded ? (
+          <div
+            className="fixed inset-0 z-[79] bg-black/40 backdrop-blur-[1px]"
+            onClick={() => setIsGatewayExpanded(false)}
+          />
+        ) : null}
+
+        <div
+          className={
+            isGatewayExpanded
+              ? 'fixed left-1/2 top-16 z-[80] max-h-[78vh] w-[min(780px,92vw)] -translate-x-1/2 overflow-y-auto rounded-2xl border border-surface-border bg-surface-card p-4 shadow-2xl'
+              : 'hidden'
+          }
+        >
           <div
             className="flex items-center justify-between cursor-pointer flex-wrap gap-2"
             onClick={() => setIsGatewayExpanded(!isGatewayExpanded)}
@@ -515,7 +551,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
         </div>
 
         {/* 2. Project Workspaces & Context Profiles Card (Collapsible) */}
-        <div className="bg-surface-card border border-surface-border rounded-xl p-4 transition shadow-sm">
+        <div className="bg-surface-card border border-surface-border rounded-xl p-3 transition shadow-sm">
           <div
             className="flex items-center justify-between cursor-pointer flex-wrap gap-2"
             onClick={() => setIsWorkspacesExpanded(!isWorkspacesExpanded)}
@@ -575,7 +611,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                       <div
                         key={ws.id}
                         onClick={() => !isActive && switchWorkspace(ws.id)}
-                        className={`p-3.5 rounded-xl border bg-surface-deep/60 transition cursor-pointer flex flex-col justify-between space-y-3 ${
+                        className={`p-2.5 rounded-xl border bg-surface-deep/60 transition cursor-pointer flex flex-col justify-between space-y-2 ${
                           isActive
                             ? 'border-cyan-500/70 ring-1 ring-cyan-500/40 bg-surface-deep/90'
                             : 'border-surface-border hover:border-surface-border'
@@ -635,7 +671,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                             </span>
                             <span className="px-1.5 py-0.5 rounded bg-surface-card border border-surface-border flex items-center gap-1">
                               <Layers className="w-2.5 h-2.5 text-content-muted" />
-                              <span>{ws.primaryCli || 'Hermes'}</span>
+                              <span>{ws.primaryCli === 'Hermes' || ws.primaryCli === 'Hub' || !ws.primaryCli ? 'Default engine' : ws.primaryCli}</span>
                             </span>
                           </div>
                         </div>
@@ -677,44 +713,14 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
           )}
         </div>
 
-        {/* Security & Isolation Telemetry Banner */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono text-xs">
-          <div className="bg-surface-card border border-surface-border rounded-xl p-3.5 flex items-center justify-between shadow-sm">
-            <div>
-              <span className="text-content-dim block text-[10px] uppercase font-semibold">Credential Store</span>
-              <span className="text-content-main font-medium">Windows Credential Mgr</span>
-            </div>
-            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-state-success border border-emerald-500/30">
-              Encrypted
-            </span>
-          </div>
-
-          <div className="bg-surface-card border border-surface-border rounded-xl p-3.5 flex items-center justify-between shadow-sm">
-            <div>
-              <span className="text-content-dim block text-[10px] uppercase font-semibold">VirtualHome Paths</span>
-              <span className="text-content-main font-medium">~/.gemini/antigravity-ide</span>
-            </div>
-            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-accent border border-sky-500/30">
-              Isolated
-            </span>
-          </div>
-
-          <div className="bg-surface-card border border-surface-border rounded-xl p-3.5 flex items-center justify-between shadow-sm">
-            <div>
-              <span className="text-content-dim block text-[10px] uppercase font-semibold">Port Range</span>
-              <span className="text-content-main font-medium">127.0.0.1:9339 - 9350</span>
-            </div>
-            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-state-success border border-emerald-500/30">
-              Auto-Alloc
-            </span>
-          </div>
-        </div>
+        {/* Accounts: DeepSeek first, because its login is the one people change most often. */}
+        <DeepSeekAccountsCard />
 
         {/* 3. Antigravity Multi-Account Profiles Grid */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-content-dim font-mono">
-              Configured Profiles ({profiles.length})
+              Antigravity accounts ({profiles.length})
             </h3>
           </div>
 
@@ -1019,47 +1025,19 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
               </div>
 
               <div>
-                <label className="block font-semibold text-content-muted mb-1">Bound Antigravity Profile</label>
-                <select
-                  value={editingWorkspace.antigravityProfile || activeProfileName}
-                  onChange={e =>
-                    setEditingWorkspace(prev => (prev ? { ...prev, antigravityProfile: e.target.value } : prev))
-                  }
-                  className="w-full bg-surface-deep border border-surface-border rounded-lg px-3 py-2 font-mono text-content-main focus:outline-none focus:border-cyan-500"
-                >
-                  {profiles.map(p => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-content-muted mb-1">Color Tag</label>
+                <label className="block font-semibold text-content-muted mb-1">Colour tag</label>
+                <div className="flex items-center gap-2">
                   <input
                     type="color"
                     value={editingWorkspace.colorTag || '#06b6d4'}
                     onChange={e =>
                       setEditingWorkspace(prev => (prev ? { ...prev, colorTag: e.target.value } : prev))
                     }
-                    className="w-full h-8 bg-surface-deep border border-surface-border rounded-lg cursor-pointer"
+                    className="h-8 w-12 cursor-pointer rounded-lg border border-surface-border bg-surface-deep"
                   />
-                </div>
-                <div>
-                  <label className="block font-semibold text-content-muted mb-1">Layout Mode</label>
-                  <select
-                    value={editingWorkspace.splitMode || 'single'}
-                    onChange={e =>
-                      setEditingWorkspace(prev => (prev ? { ...prev, splitMode: e.target.value as any } : prev))
-                    }
-                    className="w-full bg-surface-deep border border-surface-border rounded-lg px-2.5 py-1.5 font-mono text-content-main focus:outline-none focus:border-cyan-500"
-                  >
-                    <option value="single">Single Terminal</option>
-                    <option value="vertical">Vertical Split</option>
-                    <option value="horizontal">Horizontal Split</option>
-                  </select>
+                  <span className="font-mono text-[11px] text-content-dim">
+                    {editingWorkspace.colorTag || '#06b6d4'}
+                  </span>
                 </div>
               </div>
             </div>

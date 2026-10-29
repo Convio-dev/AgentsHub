@@ -12,7 +12,7 @@ namespace AgentsHub;
 
 public partial class MainForm : Form
 {
-    private HermesProcessService? _hermesService;
+    private HubProcessService? _hubService;
     private CliManagerService? _cliManager;
     private LanProxyService? _lanProxyService;
     private DashboardWebBridge? _dashboardWebBridge;
@@ -39,7 +39,7 @@ public partial class MainForm : Form
     private ToolStripMenuItem? _trayStartAllItem;
     private ToolStripMenuItem? _trayStopAllItem;
     private ToolStripMenuItem? _trayRestartAllItem;
-    private ToolStripMenuItem? _trayCliHermesItem;
+    private ToolStripMenuItem? _trayCliHubItem;
     private ToolStripMenuItem? _trayCliClaudeItem;
     private ToolStripMenuItem? _trayCliAntigravityItem;
     private ToolStripMenuItem? _trayToggleThemeItem;
@@ -77,18 +77,18 @@ public partial class MainForm : Form
         ThemeManager.Initialize();
 
         // Load Ports and Config
-        var savedEnginePort = StartupHelper.GetIntPreference("EnginePort", HermesProcessService.DefaultHermesPort);
+        var savedEnginePort = StartupHelper.GetIntPreference("EnginePort", HubProcessService.DefaultHubPort);
         var savedLanPort = StartupHelper.GetIntPreference("LanPort", 9191);
 
-        _hermesService = new HermesProcessService(savedEnginePort);
-        _cliManager = new CliManagerService(_hermesService);
+        _hubService = new HubProcessService(savedEnginePort);
+        _cliManager = new CliManagerService(_hubService);
         _openCodeWatcher = new OpenCodeWatcherService();
         _lanProxyService = new LanProxyService
         {
             ListenPort = savedLanPort,
             TargetPort = savedEnginePort,
-            StartHermesAction = () => { _cliManager.Start(CliType.Hermes); return Task.CompletedTask; },
-            CheckHermesAliveAction = () => Task.FromResult(_cliManager.GetInfo(CliType.Hermes).State == CliState.Running)
+            StartHubAction = () => { _cliManager.Start(CliType.Hub); return Task.CompletedTask; },
+            CheckHubAliveAction = () => Task.FromResult(_cliManager.GetInfo(CliType.Hub).State == CliState.Running)
         };
         var lanProxyEnabled = StartupHelper.GetPreference("LanProxyEnabled", true);
         if (lanProxyEnabled)
@@ -187,6 +187,10 @@ public partial class MainForm : Form
             {
                 _dashboardWebBridge = new DashboardWebBridge(this, _cliManager, _lanProxyService, _openCodeWatcher);
                 _dashboardWebBridge.AttachWebView(_webView.CoreWebView2);
+
+                // The DeepSeek engine owns its own WebView2, and WebView2 has thread affinity, so it
+                // has to be created here on the UI thread rather than on first use from the bridge.
+                Services.DeepSeek.DeepSeekEngine.Instance.Initialize(this);
             }
 
             // Automatically start the compiled Bun Sidecar Engine in the background
@@ -266,7 +270,7 @@ public partial class MainForm : Form
         {
             if (_cliManager != null)
             {
-                _cliManager.Start(CliType.Hermes);
+                _cliManager.Start(CliType.Hub);
                 _cliManager.Start(CliType.ClaudeCode);
                 _cliManager.Start(CliType.AntigravityCli);
                 ShowTrayBalloon("CLI Engines", "Started all CLIs.");
@@ -277,7 +281,7 @@ public partial class MainForm : Form
         {
             if (_cliManager != null)
             {
-                await _cliManager.StopAsync(CliType.Hermes);
+                await _cliManager.StopAsync(CliType.Hub);
                 await _cliManager.StopAsync(CliType.ClaudeCode);
                 await _cliManager.StopAsync(CliType.AntigravityCli);
                 ShowTrayBalloon("CLI Engines", "Stopped all CLIs.");
@@ -289,16 +293,16 @@ public partial class MainForm : Form
             await RestartAllClisAsync();
         });
 
-        _trayCliHermesItem = new ToolStripMenuItem("Hermes Web", null, async (_, _) =>
+        _trayCliHubItem = new ToolStripMenuItem("Hub Web", null, async (_, _) =>
         {
             if (_cliManager == null) return;
-            if (_cliManager.GetInfo(CliType.Hermes).State == CliState.Running)
+            if (_cliManager.GetInfo(CliType.Hub).State == CliState.Running)
             {
-                await _cliManager.StopAsync(CliType.Hermes);
+                await _cliManager.StopAsync(CliType.Hub);
             }
             else
             {
-                _cliManager.Start(CliType.Hermes);
+                _cliManager.Start(CliType.Hub);
             }
         });
 
@@ -332,7 +336,7 @@ public partial class MainForm : Form
         _trayCliControlsMenu.DropDownItems.Add(_trayStopAllItem);
         _trayCliControlsMenu.DropDownItems.Add(_trayRestartAllItem);
         _trayCliControlsMenu.DropDownItems.Add(new ToolStripSeparator());
-        _trayCliControlsMenu.DropDownItems.Add(_trayCliHermesItem);
+        _trayCliControlsMenu.DropDownItems.Add(_trayCliHubItem);
         _trayCliControlsMenu.DropDownItems.Add(_trayCliClaudeItem);
         _trayCliControlsMenu.DropDownItems.Add(_trayCliAntigravityItem);
 
@@ -455,10 +459,10 @@ public partial class MainForm : Form
 
         if (_cliManager != null)
         {
-            var hermesState = _cliManager.GetInfo(CliType.Hermes).State;
-            bool hermesRunning = hermesState == CliState.Running;
-            if (_trayCliHermesItem != null)
-                _trayCliHermesItem.Text = $"Hermes Web ({(hermesRunning ? "● Running" : "○ Stopped")})";
+            var hubState = _cliManager.GetInfo(CliType.Hub).State;
+            bool hubRunning = hubState == CliState.Running;
+            if (_trayCliHubItem != null)
+                _trayCliHubItem.Text = $"Hub Web ({(hubRunning ? "● Running" : "○ Stopped")})";
 
             var claudeState = _cliManager.GetInfo(CliType.ClaudeCode).State;
             bool claudeRunning = claudeState == CliState.Running;
@@ -503,11 +507,11 @@ public partial class MainForm : Form
     {
         if (_cliManager == null) return;
         ShowTrayBalloon("CLI Engines", "Restarting CLI engines...");
-        await _cliManager.StopAsync(CliType.Hermes);
+        await _cliManager.StopAsync(CliType.Hub);
         await _cliManager.StopAsync(CliType.ClaudeCode);
         await _cliManager.StopAsync(CliType.AntigravityCli);
         await Task.Delay(400);
-        _cliManager.Start(CliType.Hermes);
+        _cliManager.Start(CliType.Hub);
         _cliManager.Start(CliType.ClaudeCode);
         _cliManager.Start(CliType.AntigravityCli);
         ShowTrayBalloon("CLI Engines", "All active CLI engines restarted.");
@@ -727,7 +731,7 @@ public partial class MainForm : Form
         {
             _ = Task.Run(async () =>
             {
-                await _cliManager.StopAsync(CliType.Hermes);
+                await _cliManager.StopAsync(CliType.Hub);
                 await _cliManager.StopAsync(CliType.ClaudeCode);
                 await _cliManager.StopAsync(CliType.AntigravityCli);
             });
@@ -1171,7 +1175,7 @@ public partial class MainForm : Form
                 this,
                 quickPrompt =>
                 {
-                    _cliManager?.SendInput("hermes", quickPrompt.Trim() + "\r\n");
+                    _cliManager?.SendInput("hub", quickPrompt.Trim() + "\r\n");
                     ShowTrayBalloon("Prompt Sent", quickPrompt);
                 },
                 () => AiConfigService.Instance.GetActiveWorkspace()?.Name ?? "Default Workspace",

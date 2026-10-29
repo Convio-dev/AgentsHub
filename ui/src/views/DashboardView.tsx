@@ -208,7 +208,6 @@ export const DashboardView: React.FC = () => {
               onChange={e => setSelectedPort(e.target.value)}
               className="px-2.5 py-1 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-xs text-[var(--text-main,#F1F5F9)] font-mono focus:outline-none"
             >
-              <option value="9119">Hermes API: 9119</option>
               <option value="9229">Claude Code: 9229</option>
               <option value="9339">Antigravity CLI: 9339</option>
               <option value="9191">LAN Proxy: 9191</option>
@@ -245,7 +244,6 @@ export const DashboardView: React.FC = () => {
           {/* Running Ports Chips */}
           <div className="flex flex-wrap gap-2">
             {[
-              { label: 'Hermes Engine', port: '9119', active: true },
               { label: 'Claude Gateway', port: '9229', active: false },
               { label: 'Antigravity CLI', port: '9339', active: false },
               { label: 'LAN Proxy', port: '9191', active: true },
@@ -441,7 +439,7 @@ export const DashboardView: React.FC = () => {
           <div className="grid grid-cols-3 gap-2.5 text-xs font-mono">
             <div className="p-2.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
               <div className="text-[10px] text-[var(--text-dim,#64748B)]">Agents Hub</div>
-              <div className="font-bold text-[var(--text-main,#F1F5F9)] mt-0.5">{telemetry.hermesMemMb || 136} MB</div>
+              <div className="font-bold text-[var(--text-main,#F1F5F9)] mt-0.5">{telemetry.hubMemMb || 136} MB</div>
             </div>
             <div className="p-2.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
               <div className="text-[10px] text-[var(--text-dim,#64748B)]">Network</div>
@@ -553,25 +551,6 @@ export const DashboardView: React.FC = () => {
         </div>
 
         <div className="space-y-3">
-          {/* Hermes */}
-          <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">Hermes CLI</span>
-                <span className="text-[11px] text-[var(--text-dim,#64748B)] font-mono">Port 9119</span>
-              </div>
-              <div className="text-[11px] text-state-success mt-0.5 font-mono">State: Active</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="primary" size="xs">
-                Start
-              </Button>
-              <Button variant="secondary" size="xs">
-                Restart
-              </Button>
-            </div>
-          </div>
-
           {/* Claude Code */}
           <div className="flex items-center justify-between p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
             <div>

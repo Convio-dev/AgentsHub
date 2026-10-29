@@ -61,8 +61,8 @@ internal static partial class Program
         Console.WriteLine($" Platform: {Services.Platform.PlatformHelper.PlatformName} ({System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture})");
         Console.WriteLine("==========================================================");
 
-        var hermes = new Services.HermesProcessService();
-        var cliManager = new Services.CliManagerService(hermes);
+        var hub = new Services.HubProcessService();
+        var cliManager = new Services.CliManagerService(hub);
         var lanProxy = new Services.LanProxyService();
         var openCode = new Services.OpenCodeWatcherService();
         using var bridge = new Services.DashboardWebBridge(null, cliManager, lanProxy, openCode);

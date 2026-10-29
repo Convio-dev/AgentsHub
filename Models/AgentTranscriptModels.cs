@@ -35,7 +35,7 @@ public sealed class AgentSessionSummary
     public string TranscriptPath { get; set; } = string.Empty;
 
     [JsonPropertyName("engine")]
-    public string Engine { get; set; } = "Antigravity"; // Antigravity, Claude, Hermes, OpenCode
+    public string Engine { get; set; } = "Antigravity"; // Antigravity, Claude, Hub, OpenCode
 }
 
 public sealed class TranscriptStepItem

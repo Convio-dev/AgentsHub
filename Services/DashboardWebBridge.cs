@@ -172,7 +172,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                 var lanIp = NetworkHelper.GetLocalIPv4();
                 var lanProxyPort = _lanProxyService?.ListenPort ?? 8080;
-                var rPorts = GetRunningWebPorts(lanIp, _cliManager.HermesService.Port, lanProxyPort);
+                var rPorts = GetRunningWebPorts(lanIp, _cliManager.HubService.Port, lanProxyPort);
                 PostEventToUi("running_ports_updated", new
                 {
                     runningPorts = rPorts
@@ -256,7 +256,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             _lanProxyService.StateChanged += (isRunning) =>
             {
                 var lanIp = NetworkHelper.GetLocalIPv4();
-                var rPorts = GetRunningWebPorts(lanIp, _cliManager.HermesService.Port, _lanProxyService.ListenPort);
+                var rPorts = GetRunningWebPorts(lanIp, _cliManager.HubService.Port, _lanProxyService.ListenPort);
                 PostEventToUi("lan_proxy_state_changed", new
                 {
                     lanProxyEnabled = isRunning,
@@ -362,7 +362,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 count++;
                 primaryName = "Antigravity";
             }
-            if (_cliManager.GetInfo(CliType.Hermes).State == CliState.Running)
+            if (_cliManager.GetInfo(CliType.Hub).State == CliState.Running)
             {
                 count++;
             }
@@ -423,7 +423,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             var workspaces = AiConfigService.Instance.GetCliWorkspaces();
             var firstEnabled = workspaces.FirstOrDefault(w => w.IsEnabled);
-            CliType initType = CliType.Hermes;
+            CliType initType = CliType.Hub;
             if (firstEnabled != null)
             {
                 string norm = AiConfigService.NormalizeCliId(firstEnabled.Id);
@@ -480,7 +480,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
         long totalRamMb = 16384;
         long usedRamMb = 4096;
-        long hermesMemMb = 0;
+        long hubMemMb = 0;
         try
         {
             var mem = new MEMORYSTATUSEX { dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf<MEMORYSTATUSEX>() };
@@ -495,7 +495,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         try
         {
             using var proc = Process.GetCurrentProcess();
-            hermesMemMb = proc.WorkingSet64 / (1024 * 1024);
+            hubMemMb = proc.WorkingSet64 / (1024 * 1024);
         }
         catch { }
 
@@ -510,7 +510,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             totalRamMb,
             memoryUsedGb = memUsedGb,
             memoryTotalGb = memTotalGb,
-            hermesMemMb
+            hubMemMb
         };
     }
 
@@ -571,10 +571,169 @@ public sealed partial class DashboardWebBridge : IDisposable
                     // The session's own conversation, so a chat never answers with another chat's history.
                     string? conversationId = data.TryGetProperty("conversationId", out var cvElem) ? cvElem.GetString() : null;
 
+#if DEEPSEEK_UI
+                    // A DeepSeek session never touches agy: its turn runs in our own WebView2 and
+                    // reports through the same events, so the chat UI needs no special case.
+                    string? engine = data.TryGetProperty("engine", out var enElem) ? enElem.GetString() : null;
+                    if (string.Equals(engine, "deepseek", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Fire and forget, exactly like the sidecar path. A DeepSeek turn can run for
+                        // minutes (priming, several tool rounds), and awaiting it here made the UI's
+                        // 25s request timeout fire while the turn was still going, painting a red
+                        // error into a chat that then answered normally.
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                bool toolsAllowed = !data.TryGetProperty("toolsEnabled", out var teElem) || teElem.ValueKind != JsonValueKind.False;
+                                await DispatchDeepSeekAsync(sessionId, prompt, conversationId, cwd, skipPermissions, profile, toolsAllowed).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                PostEventToUi("session_status", new
+                                {
+                                    sessionId,
+                                    state = "error",
+                                    error = ex.Message,
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+                            }
+                        });
+
+                        SendResponse(requestId, true, new { sent = true, sessionId, engine = "deepseek" });
+                        break;
+                    }
+#endif
+
                     await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd, effort, skipPermissions, conversationId).ConfigureAwait(false);
                     SendResponse(requestId, true, new { sent = true, sessionId });
                 }
                 break;
+
+#if DEEPSEEK_UI
+            case "deepseek_status":
+                {
+                    bool signedIn = await Services.DeepSeek.DeepSeekEngine.Instance.ProbeSignedInAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, new { signedIn });
+                }
+                break;
+
+            case "deepseek_login":
+                await Services.DeepSeek.DeepSeekEngine.Instance.ShowLoginWindowAsync().ConfigureAwait(false);
+                SendResponse(requestId, true, new { opened = true });
+                break;
+
+            case "deepseek_accounts":
+                {
+                    var accounts = Services.DeepSeek.DeepSeekAccounts.All()
+                        .Select(a => new { id = a.Id, label = a.Label })
+                        .ToList();
+                    SendResponse(requestId, true, new { active = Services.DeepSeek.DeepSeekAccounts.ActiveId, accounts });
+                }
+                break;
+
+            case "deepseek_add_account":
+                {
+                    var added = Services.DeepSeek.DeepSeekAccounts.Add();
+                    await Services.DeepSeek.DeepSeekEngine.Instance.SwitchAccountAsync(added.Id).ConfigureAwait(false);
+                    await Services.DeepSeek.DeepSeekEngine.Instance.ShowLoginWindowAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, new { id = added.Id, label = added.Label });
+                }
+                break;
+
+            case "deepseek_switch_account":
+                {
+                    string id = data.TryGetProperty("id", out var idElem) ? idElem.GetString() ?? string.Empty : string.Empty;
+                    bool switched = await Services.DeepSeek.DeepSeekEngine.Instance.SwitchAccountAsync(id).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { switched });
+                }
+                break;
+
+            case "deepseek_remove_account":
+                {
+                    string id = data.TryGetProperty("id", out var idElem2) ? idElem2.GetString() ?? string.Empty : string.Empty;
+                    bool removed = Services.DeepSeek.DeepSeekAccounts.Remove(id);
+                    if (removed)
+                    {
+                        await Services.DeepSeek.DeepSeekEngine.Instance
+                            .SwitchAccountAsync(Services.DeepSeek.DeepSeekAccounts.ActiveId).ConfigureAwait(false);
+                    }
+                    SendResponse(requestId, true, new { removed });
+                }
+                break;
+
+            case "deepseek_approve":
+                {
+                    string callId = data.TryGetProperty("callId", out var cElem) ? cElem.GetString() ?? string.Empty : string.Empty;
+                    bool approved = data.TryGetProperty("approved", out var aElem) && aElem.ValueKind is JsonValueKind.True or JsonValueKind.False
+                        && aElem.GetBoolean();
+
+                    bool resolved = _deepSeekApprovals.TryGetValue(callId, out var pending) && pending.TrySetResult(approved);
+                    SendResponse(requestId, true, new { resolved });
+                }
+                break;
+
+            case "deepseek_open_chat":
+                {
+                    // The webview has no NewWindowRequested handler, so an anchor with target=_blank
+                    // would open nothing. The host opens the default browser instead.
+                    string chatId = data.TryGetProperty("conversationId", out var cElem) ? cElem.GetString() ?? string.Empty : string.Empty;
+
+                    // No id means "the chat list", which is the cleanup helper: we cannot delete a
+                    // web chat through any API, so the honest tool is a link to where they live.
+                    if (chatId.Length == 0)
+                    {
+                        try
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                                "https://chat.deepseek.com/") { UseShellExecute = true });
+                            SendResponse(requestId, true, new { opened = true });
+                        }
+                        catch (Exception)
+                        {
+                            SendResponse(requestId, true, new { opened = false });
+                        }
+                        break;
+                    }
+
+                    // Same test as ^[0-9a-fA-F-]{20,}$ without a regex: a chat id is hex and dashes.
+                    bool valid = chatId.Length >= 20 && chatId.All(c => char.IsAsciiHexDigit(c) || c == '-');
+
+                    if (valid)
+                    {
+                        try
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                                $"https://chat.deepseek.com/a/chat/s/{chatId}") { UseShellExecute = true });
+                        }
+                        catch (Exception)
+                        {
+                            valid = false;
+                        }
+                    }
+
+                    SendResponse(requestId, true, new { opened = valid });
+                }
+                break;
+
+            case "deepseek_open":
+                await Services.DeepSeek.DeepSeekEngine.Instance.ShowWindowAsync().ConfigureAwait(false);
+                SendResponse(requestId, true, new { opened = true });
+                break;
+
+            case "deepseek_cancel":
+                {
+                    string sessionId = data.TryGetProperty("sessionId", out var cElem) ? cElem.GetString() ?? string.Empty : string.Empty;
+                    bool cancelled = CancelDeepSeek(sessionId);
+                    SendResponse(requestId, true, new { cancelled });
+                }
+                break;
+
+            case "deepseek_signout":
+                await Services.DeepSeek.DeepSeekEngine.Instance.SignOutAsync().ConfigureAwait(false);
+                SendResponse(requestId, true, new { signedOut = true });
+                break;
+#endif
 
             // Persisted per profile and shared with the terminal tab's own checkbox, so chat and
             // terminal can never disagree about whether full access is on.
@@ -2741,7 +2900,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string? activeWs = data.TryGetProperty("activeWorkspaceId", out var actWsProp) ? actWsProp.GetString() : null;
                     string? activeView = data.TryGetProperty("activeView", out var vProp) ? vProp.GetString() : null;
                     string? activeTab = data.TryGetProperty("activeCliTab", out var tProp) ? tProp.GetString() : null;
-                    SessionStateService.Instance.SaveSnapshot(activeWs ?? "", activeView ?? "dashboard", activeTab ?? "hermes");
+                    SessionStateService.Instance.SaveSnapshot(activeWs ?? "", activeView ?? "dashboard", activeTab ?? "hub");
                     SendResponse(requestId, true, new { success = true });
                 }
                 break;
@@ -3024,7 +3183,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                     if (enable)
                     {
-                        var savedEnginePort = StartupHelper.GetIntPreference("EnginePort", HermesProcessService.DefaultHermesPort);
+                        var savedEnginePort = StartupHelper.GetIntPreference("EnginePort", HubProcessService.DefaultHubPort);
                         var savedLanPort = StartupHelper.GetIntPreference("LanPort", 9191);
                         _lanProxyService.Start(savedLanPort, savedEnginePort);
                         StartupHelper.SetPreference("LanProxyEnabled", true);
@@ -3037,7 +3196,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                     var lanIp = NetworkHelper.GetLocalIPv4();
                     var isRunning = _lanProxyService.IsRunning;
-                    var rPorts = GetRunningWebPorts(lanIp, _cliManager.HermesService.Port, _lanProxyService.ListenPort);
+                    var rPorts = GetRunningWebPorts(lanIp, _cliManager.HubService.Port, _lanProxyService.ListenPort);
 
                     SendResponse(requestId, true, new
                     {
@@ -3187,28 +3346,28 @@ public sealed partial class DashboardWebBridge : IDisposable
                 break;
 
             // The dashboard terminal renders a CLI session, so it asks for that session's
-            // scrollback and running state before it attaches. Hermes is a web dashboard rather
-            // than a ConPTY session, so its tab answers with the Hermes port alone.
+            // scrollback and running state before it attaches. Hub is a web dashboard rather
+            // than a ConPTY session, so its tab answers with the Hub port alone.
             case "get_terminal_session":
                 {
-                    string reqCli = data.TryGetProperty("cli", out var gCli) ? (gCli.GetString() ?? "hermes") : "hermes";
+                    string reqCli = data.TryGetProperty("cli", out var gCli) ? (gCli.GetString() ?? "hub") : "hub";
                     string normId = AiConfigService.NormalizeCliId(reqCli);
 
-                    if (string.Equals(normId, "hermes", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(normId, "hub", StringComparison.OrdinalIgnoreCase))
                     {
-                        var hermesInfo = _cliManager.GetInfo("hermes");
-                        int hermesPort = _cliManager.HermesService.Port;
+                        var hubInfo = _cliManager.GetInfo("hub");
+                        int hubPort = _cliManager.HubService.Port;
                         SendResponse(requestId, true, new
                         {
-                            cli = "hermes",
-                            sessionId = "hermes",
-                            isRunning = hermesInfo.State == CliState.Running,
-                            status = hermesInfo.StatusText,
+                            cli = "hub",
+                            sessionId = "hub",
+                            isRunning = hubInfo.State == CliState.Running,
+                            status = hubInfo.StatusText,
                             history = string.Empty,
                             isWebUi = true,
-                            webUrl = $"http://127.0.0.1:{hermesPort}/",
-                            port = hermesPort,
-                            displayName = "Hermes Web"
+                            webUrl = $"http://127.0.0.1:{hubPort}/",
+                            port = hubPort,
+                            displayName = "Hub Web"
                         });
                     }
                     else
@@ -4630,12 +4789,12 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         if (targetUrl.Contains(":9119") || targetUrl.Contains(":9191"))
                         {
-                            var hermesInfo = _cliManager.GetInfo(CliType.Hermes);
-                            if (hermesInfo.State != CliState.Running)
+                            var hubInfo = _cliManager.GetInfo(CliType.Hub);
+                            if (hubInfo.State != CliState.Running)
                             {
-                                if (hermesInfo.State != CliState.Starting)
+                                if (hubInfo.State != CliState.Starting)
                                 {
-                                    _cliManager.Start(CliType.Hermes);
+                                    _cliManager.Start(CliType.Hub);
                                 }
 
                                 for (int i = 0; i < 35; i++)
@@ -4645,7 +4804,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                                     {
                                         using var testClient = new System.Net.Sockets.TcpClient();
                                         using var cts = new CancellationTokenSource(200);
-                                        await testClient.ConnectAsync(System.Net.IPAddress.Loopback, _cliManager.HermesService.Port, cts.Token);
+                                        await testClient.ConnectAsync(System.Net.IPAddress.Loopback, _cliManager.HubService.Port, cts.Token);
                                         if (testClient.Connected) break;
                                     }
                                     catch { }
@@ -4878,9 +5037,9 @@ public sealed partial class DashboardWebBridge : IDisposable
         if (string.IsNullOrWhiteSpace(target)) return;
         try
         {
-            if (target.Equals("cli:hermes", StringComparison.OrdinalIgnoreCase))
+            if (target.Equals("cli:hub", StringComparison.OrdinalIgnoreCase))
             {
-                ToggleCliInternal(CliType.Hermes);
+                ToggleCliInternal(CliType.Hub);
                 return;
             }
             if (target.Equals("cli:claude", StringComparison.OrdinalIgnoreCase))
@@ -4983,12 +5142,12 @@ public sealed partial class DashboardWebBridge : IDisposable
     private object GetInitialStateDto()
     {
         var lanIp = NetworkHelper.GetLocalIPv4();
-        int hermesPort = _cliManager.HermesService.Port;
+        int hubPort = _cliManager.HubService.Port;
         int lanProxyPort = _lanProxyService?.ListenPort ?? 9191;
         bool lanProxyRunning = _lanProxyService?.IsRunning ?? false;
         string lanUrl = $"http://{lanIp}:{lanProxyPort}/";
         string qrBase64 = QrCodeHelper.GenerateQrCodeBase64(lanUrl);
-        var runningPorts = GetRunningWebPorts(lanIp, hermesPort, lanProxyPort);
+        var runningPorts = GetRunningWebPorts(lanIp, hubPort, lanProxyPort);
 
         return new
         {
@@ -5026,7 +5185,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             },
             clis = new[]
             {
-                new { name = "Hermes", type = CliType.Hermes.ToString(), state = _cliManager.GetInfo(CliType.Hermes).State.ToString(), port = hermesPort, pid = _cliManager.GetInfo(CliType.Hermes).ProcessId },
+                new { name = "Hub", type = CliType.Hub.ToString(), state = _cliManager.GetInfo(CliType.Hub).State.ToString(), port = hubPort, pid = _cliManager.GetInfo(CliType.Hub).ProcessId },
                 new { name = "Claude Code", type = CliType.ClaudeCode.ToString(), state = _cliManager.GetInfo(CliType.ClaudeCode).State.ToString(), port = 9229, pid = _cliManager.GetInfo(CliType.ClaudeCode).ProcessId },
                 new { name = "Antigravity CLI", type = CliType.AntigravityCli.ToString(), state = _cliManager.GetInfo(CliType.AntigravityCli).State.ToString(), port = 9339, pid = _cliManager.GetInfo(CliType.AntigravityCli).ProcessId }
             },
@@ -5106,7 +5265,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             lanIp,
             gatewayPort = proxy?.ListenPort ?? StartupHelper.GetIntPreference("LanPort", 9191),
-            targetPort = proxy?.TargetPort ?? _cliManager.HermesService.Port,
+            targetPort = proxy?.TargetPort ?? _cliManager.HubService.Port,
             running = proxy?.IsRunning ?? false,
             enabled = StartupHelper.GetPreference("LanProxyEnabled", true),
             bindError = proxy?.LastBindError ?? "",
@@ -5166,21 +5325,21 @@ public sealed partial class DashboardWebBridge : IDisposable
         })];
     }
 
-    private List<object> GetRunningWebPorts(string lanIp, int hermesPort, int lanProxyPort)
+    private List<object> GetRunningWebPorts(string lanIp, int hubPort, int lanProxyPort)
     {
         string themeParam = $"?theme={(ThemeManager.CurrentTheme == AppTheme.Light ? "light" : "dark")}&accent={Uri.EscapeDataString(ThemeManager.AccentHex)}";
         var list = new List<object>
         {
             new
             {
-                id = "hermes",
-                name = "Hermes Dashboard",
-                port = hermesPort,
+                id = "hub",
+                name = "Hub Dashboard",
+                port = hubPort,
                 lanPort = lanProxyPort,
-                localUrl = $"http://127.0.0.1:{hermesPort}/{themeParam}",
+                localUrl = $"http://127.0.0.1:{hubPort}/{themeParam}",
                 lanUrl = $"http://{lanIp}:{lanProxyPort}/{themeParam}",
-                state = _cliManager.GetInfo(CliType.Hermes).State.ToString(),
-                isRunning = _cliManager.GetInfo(CliType.Hermes).State == CliState.Running
+                state = _cliManager.GetInfo(CliType.Hub).State.ToString(),
+                isRunning = _cliManager.GetInfo(CliType.Hub).State == CliState.Running
             },
             new
             {
@@ -5399,7 +5558,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     private int GetCliPort(CliType type) => type switch
     {
-        CliType.Hermes => _cliManager.HermesService.Port,
+        CliType.Hub => _cliManager.HubService.Port,
         CliType.ClaudeCode => 9229,
         CliType.AntigravityCli => 9339,
         _ => 0
@@ -5562,6 +5721,211 @@ public sealed partial class DashboardWebBridge : IDisposable
 #endif
         WebMessageBroadcast?.Invoke(envelope);
     }
+
+#if DEEPSEEK_UI
+    /// <summary>Approval cards waiting for an answer, keyed by tool call id.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<bool>> _deepSeekApprovals = new();
+
+    /// <summary>Live DeepSeek runs, so the stop button can cancel one by session id.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _deepSeekRuns = new();
+
+    /// <summary>
+    /// Runs one DeepSeek turn and reports it in the vocabulary the chat already understands.
+    ///
+    /// Deltas are forwarded as they arrive: reasoning becomes `thinking` chunks (which is what the
+    /// timeline renders as a Thought node) and answer text becomes `chat_token` chunks. ChatId is
+    /// emitted as `conversation_started` so the next turn continues the same DeepSeek chat.
+    /// </summary>
+    private async Task DispatchDeepSeekAsync(string sessionId, string prompt, string? chatId, string? cwd, bool skipPermissions, string? profile, bool toolsAllowed)
+    {
+        var cts = new CancellationTokenSource();
+        _deepSeekRuns[sessionId] = cts;
+
+        // MCP servers live in the profile's VirtualHome, so the registry has to be told which
+        // profile this turn belongs to before the guide is built.
+        try
+        {
+            Services.DeepSeek.McpRegistry.UseProfileHome(
+                string.IsNullOrWhiteSpace(profile) ? null : AntigravityProfileService.GetVirtualHomeDirectory(profile));
+        }
+        catch (Exception ex)
+        {
+            PostEventToUi("session_status", new
+            {
+                sessionId,
+                state = "running",
+                error = $"MCP profile home could not be resolved: {ex.Message}",
+                timestamp = DateTime.UtcNow.ToString("O"),
+            });
+        }
+
+        static string Now() => DateTime.UtcNow.ToString("O");
+
+        PostEventToUi("session_status", new { sessionId, state = "running", timestamp = Now() });
+
+        var progress = new Progress<Services.DeepSeek.DeepSeekEngine.DeepSeekDelta>(delta =>
+        {
+            if (!string.IsNullOrEmpty(delta.Reasoning))
+            {
+                PostEventToUi("thinking", new
+                {
+                    sessionId,
+                    state = "running",
+                    text = delta.Reasoning,
+                    thinkingTokens = 0,
+                    timestamp = Now(),
+                });
+            }
+
+            if (!string.IsNullOrEmpty(delta.Answer))
+            {
+                PostEventToUi("chat_token", new { sessionId, text = delta.Answer, timestamp = Now() });
+            }
+        });
+
+        // File steps surface as the same timeline nodes the CLI engine produces. `toolKind` is what
+        // classifies them, so the node reads "Wrote hi.py" instead of a generic row.
+        var toolProgress = new Progress<Services.DeepSeek.DeepSeekEngine.DeepSeekToolStep>(step =>
+        {
+            var (label, kind) = Services.DeepSeek.DeepSeekTools.Describe(step.Action);
+
+            if (step.IsStart)
+            {
+                PostEventToUi("tool_start", new
+                {
+                    sessionId,
+                    callId = step.CallId,
+                    tool = label,
+                    // A `Ran` node reads its command from params, so the command line has to travel
+                    // there or the step shows the word "Ran" and nothing else.
+                    @params = new Dictionary<string, object?>
+                    {
+                        ["toolKind"] = kind,
+                        ["path"] = step.Path,
+                        ["action"] = step.Action,
+                        ["commandLine"] = step.Action == "run_command" ? step.Detail : null,
+                    },
+                    timestamp = Now(),
+                });
+                return;
+            }
+
+            PostEventToUi("tool_output", new
+            {
+                sessionId,
+                callId = step.CallId,
+                tool = label,
+                success = step.Success,
+                result = step.Summary,
+                error = step.Error,
+                durationMs = step.DurationMs,
+                timestamp = Now(),
+            });
+        });
+
+        // Full access is the same per-profile flag the CLI engine uses, so the two agree and the
+        // terminal tab's checkbox reflects it. Off means every destructive call asks first.
+        Services.DeepSeek.DeepSeekEngine.Instance.ApprovalRequested = skipPermissions
+            ? (_, _, _) => Task.FromResult(true)
+            : async (callId, action, preview) =>
+        {
+            var pending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _deepSeekApprovals[callId] = pending;
+
+            PostEventToUi("deepseek_approval_request", new
+            {
+                sessionId,
+                callId,
+                action,
+                preview,
+                timestamp = Now(),
+            });
+
+            using var registration = cts.Token.Register(() => pending.TrySetResult(false));
+            bool approved = await pending.Task.ConfigureAwait(false);
+            _deepSeekApprovals.TryRemove(callId, out _);
+            return approved;
+        };
+
+        try
+        {
+            // The id is announced the moment it exists, not when the turn ends, so a stop or a crash
+            // no longer costs the conversation and forces a fresh web chat next time.
+            string? knownChat = chatId;
+
+            var reply = await Services.DeepSeek.DeepSeekEngine.Instance
+                .SendAsync(prompt, chatId, cwd, progress, toolProgress, id =>
+                {
+                    if (string.IsNullOrWhiteSpace(id) || string.Equals(id, knownChat, StringComparison.Ordinal)) return;
+                    knownChat = id;
+                    PostEventToUi("conversation_started", new
+                    {
+                        sessionId,
+                        conversationId = id,
+                        timestamp = DateTime.UtcNow.ToString("O"),
+                    });
+                }, toolsAllowed, cts.Token)
+                .ConfigureAwait(false);
+
+            if (!string.IsNullOrWhiteSpace(reply.ChatId) && !string.Equals(reply.ChatId, knownChat, StringComparison.Ordinal))
+            {
+                PostEventToUi("conversation_started", new
+                {
+                    sessionId,
+                    conversationId = reply.ChatId,
+                    timestamp = Now(),
+                });
+            }
+
+            // Closing the thought node, with the real reasoning duration from the page.
+            PostEventToUi("thinking", new
+            {
+                sessionId,
+                state = "done",
+                durationSeconds = reply.ReasoningSeconds ?? 0,
+                thinkingTokens = 0,
+                timestamp = Now(),
+            });
+
+            PostEventToUi("session_status", new { sessionId, state = "idle", timestamp = Now() });
+        }
+        catch (OperationCanceledException)
+        {
+            PostEventToUi("session_status", new { sessionId, state = "idle", timestamp = Now() });
+        }
+        catch (Exception ex)
+        {
+            PostEventToUi("session_status", new
+            {
+                sessionId,
+                state = "error",
+                error = ex.Message,
+                timestamp = Now(),
+            });
+        }
+        finally
+        {
+            _deepSeekRuns.TryRemove(sessionId, out _);
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>Stops a running DeepSeek turn. The sidecar's abort path never sees these turns.</summary>
+    private bool CancelDeepSeek(string sessionId)
+    {
+        if (!_deepSeekRuns.TryGetValue(sessionId, out var cts)) return false;
+        try
+        {
+            cts.Cancel();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+
+#endif
 
     private void PostEventToUi(string eventType, object payload)
     {

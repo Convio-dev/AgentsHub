@@ -68,7 +68,7 @@ public sealed class DependencyStatus
 /// </summary>
 public static class DependencyCheckerService
 {
-    // Some CLIs are slow to start: "hermes --version" is a ~4s Python interpreter boot, so the
+    // Some CLIs are slow to start: "hub --version" is a ~4s Python interpreter boot, so the
     // probe budget has to clear that. Probes run in parallel, so this bounds the whole scan.
     private const int VersionProbeTimeoutMs = 8000;
 
@@ -105,7 +105,7 @@ public static class DependencyCheckerService
         {
             Id = "python",
             Name = "Python 3.10+ & pip",
-            Description = "Required by the Hermes Agent engine.",
+            Description = "Required by the Hub Agent engine.",
             Category = "runtime",
             InstallKind = "winget",
             InstallCommand = "winget install Python.Python.3.12 -e --accept-source-agreements --accept-package-agreements",
@@ -160,18 +160,18 @@ public static class DependencyCheckerService
         },
         new DependencyDefinition
         {
-            Id = "hermes",
-            Name = "Hermes Agent Engine",
-            Description = "Backend agent daemon that powers the Hermes web dashboard.",
+            Id = "hub",
+            Name = "Hub Agent Engine",
+            Description = "Backend agent daemon that powers the Hub web dashboard.",
             Category = "agent",
             InstallKind = "browser",
-            SiteUrl = "https://hermes-agent.nousresearch.com/",
-            CommandPreview = "hermes dashboard",
-            Commands = ["hermes"],
+            SiteUrl = "https://hub-agent.nousresearch.com/",
+            CommandPreview = "hub dashboard",
+            Commands = ["hub"],
             FallbackPaths =
             [
-                @"%APPDATA%\Python\Scripts\hermes.exe",
-                @"%LOCALAPPDATA%\Programs\Python\Scripts\hermes.exe"
+                @"%APPDATA%\Python\Scripts\hub.exe",
+                @"%LOCALAPPDATA%\Programs\Python\Scripts\hub.exe"
             ]
         },
         new DependencyDefinition

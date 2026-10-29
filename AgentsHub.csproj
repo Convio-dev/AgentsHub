@@ -30,6 +30,8 @@
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
     <UseWindowsForms>true</UseWindowsForms>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <!-- The DeepSeek engine needs WebView2, so it only exists in the desktop build. -->
+    <DefineConstants>$(DefineConstants);DEEPSEEK_UI</DefineConstants>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0'">
@@ -47,7 +49,16 @@
     <Compile Remove="ManageClisForm.cs" />
     <Compile Remove="ManageClisForm.Designer.cs" />
     <Compile Remove="Forms\**\*.cs" />
+    <Compile Remove="Services\DeepSeek\**\*.cs" />
     <EmbeddedResource Remove="**\*.resx" />
+  </ItemGroup>
+
+  <!-- Separate project living under tools/. Its obj/ output would otherwise be globbed into this
+       build and produce duplicate assembly attributes. -->
+  <ItemGroup>
+    <Compile Remove="tools\**\*.cs" />
+    <None Remove="tools\**" />
+    <EmbeddedResource Remove="tools\**" />
   </ItemGroup>
 
   <!-- تفعيل خصائص الـ Trimming و SingleFile فقط أثناء الـ Publish ليبقى المصمم يعمل بسلاسة -->

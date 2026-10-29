@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The tool layer has no WinForms dependency, so it can be exercised directly. -->
+    <Compile Include="Program.cs" />
+    <Compile Include="..\..\Services\DeepSeek\DeepSeekTools.cs" />
+    <Compile Include="..\..\Services\DeepSeek\SkillCatalog.cs" />
+    <Compile Include="..\..\Services\DeepSeek\McpClient.cs" />
+  </ItemGroup>
+</Project>

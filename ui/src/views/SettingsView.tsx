@@ -1971,7 +1971,7 @@ export const SettingsView: React.FC = () => {
 
                 {/* Summary Paragraph */}
                 <p className="text-xs text-[var(--text-muted,#94A3B8)] leading-relaxed">
-                  Agents Hub runs Hermes, Claude Code and Antigravity CLI from one unified window. Each agent gets a real
+                  Agents Hub runs Hub, Claude Code and Antigravity CLI from one unified window. Each agent gets a real
                   terminal session with its own credentials, and a port you can open in a browser or hand to a phone
                   on the same network. It ships as a single portable executable built on .NET 10, ConPTY and WebView2.
                 </p>
@@ -2677,7 +2677,6 @@ export const SettingsView: React.FC = () => {
                 >
                   <option value="AntigravityCli">Google Antigravity CLI (agy)</option>
                   <option value="Claude">Claude Code CLI</option>
-                  <option value="Hermes">Hermes Engine</option>
                 </select>
               </div>
 
@@ -2804,12 +2803,12 @@ export const SettingsView: React.FC = () => {
                   </div>
 
                   <p className="text-xs text-[var(--text-muted,#94A3B8)] leading-relaxed">
-                    AgentsHub lets you orchestrate Hermes, Claude Code, and Google Antigravity (agy) seamlessly under one roof. Each agent runs inside an isolated real terminal with its own credentials and full ConPTY support.
+                    AgentsHub lets you orchestrate Hub, Claude Code, and Google Antigravity (agy) seamlessly under one roof. Each agent runs inside an isolated real terminal with its own credentials and full ConPTY support.
                   </p>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
                     <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-1">
-                      <div className="text-xs font-bold text-accent">Hermes Engine</div>
+                      <div className="text-xs font-bold text-accent">Hub Engine</div>
                       <div className="text-[11px] text-[var(--text-dim,#64748B)]">Self-orchestrating task execution with real-time feedback loops.</div>
                     </div>
                     <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-1">

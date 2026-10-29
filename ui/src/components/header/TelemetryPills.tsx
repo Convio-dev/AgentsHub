@@ -36,12 +36,6 @@ export const TelemetryPills: React.FC<TelemetryPillsProps> = ({ activeSession, t
         <span>Network:</span>
         <span className="text-state-success">{telemetry.netKbps} KB/s</span>
       </div>
-      {telemetry.hermesMemMb > 0 && (
-        <div className="flex justify-between gap-4 text-content-muted">
-          <span>AgentsHub Host RAM:</span>
-          <span className="text-accent">{telemetry.hermesMemMb} MB</span>
-        </div>
-      )}
     </div>
   );
 

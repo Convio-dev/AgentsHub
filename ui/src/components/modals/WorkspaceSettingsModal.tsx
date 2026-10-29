@@ -214,7 +214,7 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({ 
               >
                 <option value="AntigravityCli">Antigravity CLI</option>
                 <option value="ClaudeCode">Claude Code</option>
-                <option value="Hermes">Hermes CLI</option>
+                <option value="Hub">Hub CLI</option>
                 <option value="powershell">PowerShell</option>
                 <option value="cmd">Command Prompt</option>
               </select>
@@ -230,7 +230,7 @@ export const WorkspaceSettingsModal: React.FC<WorkspaceSettingsModalProps> = ({ 
                 <option value="none">None (Single Pane)</option>
                 <option value="powershell">PowerShell</option>
                 <option value="cmd">Command Prompt</option>
-                <option value="Hermes">Hermes CLI</option>
+                <option value="Hub">Hub CLI</option>
                 <option value="ClaudeCode">Claude Code</option>
                 <option value="AntigravityCli">Antigravity CLI</option>
               </select>

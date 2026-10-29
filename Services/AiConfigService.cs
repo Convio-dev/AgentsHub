@@ -160,7 +160,7 @@ public class ProjectWorkspace
     public string AntigravityProfile { get; set; } = "";
 
     [JsonPropertyName("primaryCli")]
-    public string PrimaryCli { get; set; } = "Hermes";
+    public string PrimaryCli { get; set; } = "Hub";
 
     [JsonPropertyName("secondaryCli")]
     public string SecondaryCli { get; set; } = "powershell";
@@ -875,7 +875,7 @@ public class AiConfigService
         {
             if (string.Equals(ws.Id, "AntigravityCli", StringComparison.OrdinalIgnoreCase)) ws.Id = "antigravity_cli";
             else if (string.Equals(ws.Id, "ClaudeCode", StringComparison.OrdinalIgnoreCase)) ws.Id = "claude_code";
-            else if (string.Equals(ws.Id, "Hermes", StringComparison.OrdinalIgnoreCase)) ws.Id = "hermes";
+            else if (string.Equals(ws.Id, "Hub", StringComparison.OrdinalIgnoreCase)) ws.Id = "hub";
         }
 
         void EnsureDefaultCli(string id, string name, string cmd, int port, bool isWebUi)
@@ -905,7 +905,7 @@ public class AiConfigService
             }
         }
 
-        EnsureDefaultCli("hermes", "Hermes", "hermes dashboard", 9119, true);
+        EnsureDefaultCli("hub", "Hub", "hub dashboard", 9119, true);
         EnsureDefaultCli("claude_code", "Claude Code", "claude", 9229, false);
         EnsureDefaultCli("antigravity_cli", "Antigravity CLI", "agy", 9339, false);
 
@@ -997,7 +997,7 @@ public class AiConfigService
 
     public static string NormalizeCliId(string? id)
     {
-        if (string.IsNullOrWhiteSpace(id)) return "hermes";
+        if (string.IsNullOrWhiteSpace(id)) return "hub";
         id = id.Trim();
         if (id.StartsWith("antigravity_cli:", StringComparison.OrdinalIgnoreCase))
         {
@@ -1006,7 +1006,7 @@ public class AiConfigService
         var clean = id.ToLowerInvariant().Replace("_", "").Replace("-", "");
         return clean switch
         {
-            "hermes" => "hermes",
+            "hub" => "hub",
             "claude" or "claudecode" => "claude_code",
             "antigravity" or "antigravitycli" => "antigravity_cli",
             _ => id
@@ -1157,14 +1157,14 @@ public class AiConfigService
     {
         var preset = NormalizeWorkspacePreset(presetName);
 
-        var (hermes, claude, antigravity) = preset switch
+        var (hub, claude, antigravity) = preset switch
         {
             "Preset_Clean" => (false, false, false),
             "Preset_All" => (true, true, true),
             _ => (false, true, true)
         };
 
-        SetWorkspaceEnabled("hermes", hermes);
+        SetWorkspaceEnabled("hub", hub);
         SetWorkspaceEnabled("claude_code", claude);
         SetWorkspaceEnabled("antigravity_cli", antigravity);
 
@@ -1193,13 +1193,13 @@ public class AiConfigService
     /// </summary>
     private string MatchPresetToFlags()
     {
-        bool hermes = IsWorkspaceEnabled("hermes");
+        bool hub = IsWorkspaceEnabled("hub");
         bool claude = IsWorkspaceEnabled("claude_code");
         bool antigravity = IsWorkspaceEnabled("antigravity_cli");
 
-        if (!hermes && !claude && !antigravity) return "Preset_Clean";
-        if (hermes && claude && antigravity) return "Preset_All";
-        if (!hermes && claude && antigravity) return "Preset_Duo";
+        if (!hub && !claude && !antigravity) return "Preset_Clean";
+        if (hub && claude && antigravity) return "Preset_All";
+        if (!hub && claude && antigravity) return "Preset_Duo";
 
         return string.Empty;
     }
@@ -1469,7 +1469,7 @@ public class AiConfigService
         "google/gemini-2.0-flash-thinking-exp:free",
         "minimax/minimax-01:free",
         "mistralai/mistral-small-24b-instruct-2501:free",
-        "nousresearch/hermes-3-llama-3.1-405b:free",
+        "nousresearch/hub-3-llama-3.1-405b:free",
         "microsoft/phi-3-medium-128k-instruct:free",
         "huggingfaceh4/zephyr-7b-beta:free"
     ];
@@ -1576,7 +1576,7 @@ public class AiConfigService
                     Name = "Default Workspace",
                     WorkingDirectory = Environment.CurrentDirectory,
                     AntigravityProfile = "",
-                    PrimaryCli = "Hermes",
+                    PrimaryCli = "Hub",
                     SecondaryCli = "powershell",
                     SplitMode = "horizontal",
                     SplitRatio = 0.5,

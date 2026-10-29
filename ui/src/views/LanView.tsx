@@ -191,7 +191,6 @@ export const LanView: React.FC = () => {
 
           <div className="space-y-2.5">
             {[
-              { name: 'Hermes Web Gateway', type: 'HTTP Gateway', port: 9191, status: 'Healthy' },
               { name: 'Claude Code Relay', type: 'TCP Relay', port: 9229, status: 'Bound' },
               { name: 'Antigravity VirtualHome', type: 'CLI RPC', port: 9339, status: 'Healthy' },
             ].map(svc => (

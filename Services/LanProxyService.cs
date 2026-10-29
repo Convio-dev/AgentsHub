@@ -48,8 +48,8 @@ public partial class LanProxyService : IDisposable
     /// <summary>Set when the last Start() could not bind. Null once a start succeeds.</summary>
     public string? LastBindError { get; private set; }
 
-    public Func<Task>? StartHermesAction { get; set; }
-    public Func<Task<bool>>? CheckHermesAliveAction { get; set; }
+    public Func<Task>? StartHubAction { get; set; }
+    public Func<Task<bool>>? CheckHubAliveAction { get; set; }
 
     public event Action<bool>? StateChanged;
     public event Action<string>? LogMessage;
@@ -92,7 +92,7 @@ public partial class LanProxyService : IDisposable
                 var lanIpStr = NetworkHelper.GetLocalIPv4();
                 if (IPAddress.TryParse(lanIpStr, out var lanIp) && !IPAddress.IsLoopback(lanIp))
                 {
-                    BindDirectForwarder(lanIp, targetPort, targetPort, "Hermes");
+                    BindDirectForwarder(lanIp, targetPort, targetPort, "Hub");
                     BindDirectForwarder(lanIp, 9229, 9229, "Claude Code");
                     BindDirectForwarder(lanIp, 9339, 9339, "Antigravity");
                 }
@@ -117,7 +117,7 @@ public partial class LanProxyService : IDisposable
 
     private void BindDirectForwarder(IPAddress ip, int listenPort, int targetPort, string label)
     {
-        bool isHermes = listenPort == targetPort;
+        bool isHub = listenPort == targetPort;
         try
         {
             var l = new TcpListener(ip, listenPort);
@@ -127,7 +127,7 @@ public partial class LanProxyService : IDisposable
 
             if (_cts != null)
             {
-                if (isHermes)
+                if (isHub)
                 {
                     _ = Task.Run(() => AcceptConnectionsAsync(l, _cts.Token));
                 }
@@ -481,18 +481,18 @@ public partial class LanProxyService : IDisposable
 
                 // Handle internal proxy control endpoints
                 if (requestPath.StartsWith("/start", StringComparison.OrdinalIgnoreCase) ||
-                    requestPath.StartsWith("/__hermes/start", StringComparison.OrdinalIgnoreCase))
+                    requestPath.StartsWith("/__hub/start", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (StartHermesAction != null)
+                    if (StartHubAction != null)
                     {
-                        _ = StartHermesAction.Invoke();
+                        _ = StartHubAction.Invoke();
                     }
                     await SendStartingPageAsync(clientStream, requestPath);
                     return;
                 }
 
                 if (requestPath.StartsWith("/status", StringComparison.OrdinalIgnoreCase) ||
-                    requestPath.StartsWith("/__hermes/status", StringComparison.OrdinalIgnoreCase))
+                    requestPath.StartsWith("/__hub/status", StringComparison.OrdinalIgnoreCase))
                 {
                     var isAlive = await CheckBackendAliveAsync(TargetPort);
                     await SendStatusJsonAsync(clientStream, isAlive);
@@ -559,9 +559,9 @@ public partial class LanProxyService : IDisposable
 
     private async Task<bool> CheckBackendAliveAsync(int port)
     {
-        if (CheckHermesAliveAction != null)
+        if (CheckHubAliveAction != null)
         {
-            return await CheckHermesAliveAction.Invoke();
+            return await CheckHubAliveAction.Invoke();
         }
 
         using var client = new TcpClient();
@@ -778,15 +778,15 @@ public partial class LanProxyService : IDisposable
             <body>
               <div class="card">
                 <div class="badge">Engine Offline</div>
-                <h1>Hermes Engine Offline</h1>
-                <p>The local Hermes daemon on port 9119 is stopped. You can launch it directly from this web page.</p>
+                <h1>Hub Engine Offline</h1>
+                <p>The local Hub daemon on port 9119 is stopped. You can launch it directly from this web page.</p>
                 <div class="btn-group" id="actions">
-                  <button type="button" class="btn btn-start" onclick="triggerStart()">Start Hermes Engine</button>
+                  <button type="button" class="btn btn-start" onclick="triggerStart()">Start Hub Engine</button>
                   <a href="/" class="btn btn-open">Open Dashboard (Retry)</a>
                 </div>
                 <div class="progress" id="progressArea">
                   <div class="spinner"></div>
-                  <p class="status-msg" id="statusMsg">Initiating Hermes Engine...</p>
+                  <p class="status-msg" id="statusMsg">Initiating Hub Engine...</p>
                   <p class="status-sub">Waiting for port 9119 to become ready. Redirecting automatically.</p>
                 </div>
               </div>
@@ -849,7 +849,7 @@ public partial class LanProxyService : IDisposable
                 function triggerStart() {
                   document.getElementById('actions').style.display = 'none';
                   document.getElementById('progressArea').style.display = 'block';
-                  fetch('/__hermes/start').catch(() => {});
+                  fetch('/__hub/start').catch(() => {});
                   startPolling();
                 }
                 function startPolling() {
@@ -857,13 +857,13 @@ public partial class LanProxyService : IDisposable
                   isPolling = true;
                   const interval = setInterval(async () => {
                     try {
-                      const res = await fetch('/__hermes/status');
+                      const res = await fetch('/__hub/status');
                       if (res.ok) {
                         const data = await res.json();
                         if (data.theme) applyLanTheme(data.theme, data.accent);
                         if (data.online) {
                           clearInterval(interval);
-                          document.getElementById('statusMsg').innerText = 'Hermes Online! Loading...';
+                          document.getElementById('statusMsg').innerText = 'Hub Online! Loading...';
                           setTimeout(() => { window.location.href = '/'; }, 600);
                         }
                       }
@@ -873,7 +873,7 @@ public partial class LanProxyService : IDisposable
                 setInterval(async () => {
                   if (isPolling) return;
                   try {
-                    const res = await fetch('/__hermes/status');
+                    const res = await fetch('/__hub/status');
                     if (res.ok) {
                       const data = await res.json();
                       if (data.theme) applyLanTheme(data.theme, data.accent);
@@ -906,7 +906,7 @@ public partial class LanProxyService : IDisposable
             <head>
               <meta charset="utf-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Starting Hermes Engine</title>
+              <title>Starting Hub Engine</title>
               <style>
                 :root {
                   --bg-app: {{t.BgApp}};
@@ -935,9 +935,9 @@ public partial class LanProxyService : IDisposable
             <body>
               <div class="card">
                 <div class="spinner"></div>
-                <h1>Starting Hermes Engine...</h1>
+                <h1>Starting Hub Engine...</h1>
                 <p>Background process has been launched. Waiting for local port 9119 to respond.</p>
-                <a href="/" class="btn">Open Hermes Dashboard</a>
+                <a href="/" class="btn">Open Hub Dashboard</a>
               </div>
               <script>
                 function hexToHsl(hex) {
@@ -995,7 +995,7 @@ public partial class LanProxyService : IDisposable
                 }
                 const interval = setInterval(async () => {
                   try {
-                    const res = await fetch('/__hermes/status');
+                    const res = await fetch('/__hub/status');
                     if (res.ok) {
                       const data = await res.json();
                       if (data.theme) applyLanTheme(data.theme, data.accent);

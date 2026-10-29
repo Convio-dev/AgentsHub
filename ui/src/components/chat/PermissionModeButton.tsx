@@ -7,6 +7,11 @@ import { isUnsetProfile } from '../../lib/profileName';
 interface PermissionModeButtonProps {
   /** Profile that owns the setting. Empty means the active runner. */
   profileName?: string;
+  /**
+   * Which engine the copy is written for. The setting is the same profile flag either way, but a
+   * DeepSeek turn has no shell policy: it has an approval card for writes and commands.
+   */
+  engine?: 'agy' | 'deepseek';
 }
 
 const PANEL_WIDTH = 296;
@@ -21,7 +26,8 @@ const VIEWPORT_MARGIN = 8;
  * prompt, so gated tools are denied outright and the composer offers to allow them afterwards. The
  * copy says so rather than implying the agent will ask.
  */
-export const PermissionModeButton: React.FC<PermissionModeButtonProps> = ({ profileName }) => {
+export const PermissionModeButton: React.FC<PermissionModeButtonProps> = ({ profileName, engine }) => {
+  const isDeepSeek = engine === 'deepseek';
   const profiles = useProfileStore(state => state.profiles);
   const activeProfileName = useProfileStore(state => state.activeProfileName);
   const setSkipPermissions = useProfileStore(state => state.setSkipPermissions);
@@ -130,14 +136,22 @@ export const PermissionModeButton: React.FC<PermissionModeButtonProps> = ({ prof
               className="fixed z-50 rounded-lg border border-surface-border bg-surface-card p-3 shadow-xl"
             >
               <p className="text-[11.5px] leading-relaxed text-content-main">
-                {isAllowed
-                  ? 'Every tool runs without asking, including shell commands.'
-                  : 'Shell commands are blocked. The agent lists the ones it needs and you allow them from the composer.'}
+                {isDeepSeek
+                  ? isAllowed
+                    ? 'Writes, deletes and commands run without asking.'
+                    : 'Writes, deletes and commands ask first. You allow each one from the composer.'
+                  : isAllowed
+                    ? 'Every tool runs without asking, including shell commands.'
+                    : 'Shell commands are blocked. The agent lists the ones it needs and you allow them from the composer.'}
               </p>
               <p className="mt-1.5 text-[11px] leading-relaxed text-content-dim">
-                {isAllowed
-                  ? 'Only keep this on for work you trust.'
-                  : 'File reads and edits still run.'}
+                {isDeepSeek
+                  ? isAllowed
+                    ? 'Only keep this on for work you trust.'
+                    : 'Reads and searches still run.'
+                  : isAllowed
+                    ? 'Only keep this on for work you trust.'
+                    : 'File reads and edits still run.'}
               </p>
 
               <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border/60 pt-2.5">
@@ -171,7 +185,9 @@ export const PermissionModeButton: React.FC<PermissionModeButtonProps> = ({ prof
               ) : null}
               {!error && !isSaving ? (
                 <p className="mt-2 text-[10.5px] leading-relaxed text-content-dim">
-                  Saved for {targetName || 'this profile'}. The terminal tab shows the same setting.
+                  {isDeepSeek
+                    ? `Saved for ${targetName || 'this profile'}. DeepSeek chats use it too.`
+                    : `Saved for ${targetName || 'this profile'}. The terminal tab shows the same setting.`}
                 </p>
               ) : null}
             </div>,

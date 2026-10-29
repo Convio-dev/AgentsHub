@@ -11,7 +11,7 @@ public sealed class SessionSnapshotData
 {
     public string ActiveWorkspaceId { get; set; } = string.Empty;
     public string ActiveView { get; set; } = "dashboard";
-    public string ActiveCliTab { get; set; } = "hermes";
+    public string ActiveCliTab { get; set; } = "hub";
     public DateTime LastSavedUtc { get; set; } = DateTime.UtcNow;
     public Dictionary<string, string> TerminalBuffers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
@@ -67,7 +67,7 @@ public sealed class SessionStateService
                 {
                     ActiveWorkspaceId = activeWorkspaceId ?? "",
                     ActiveView = activeView ?? "dashboard",
-                    ActiveCliTab = activeCliTab ?? "hermes",
+                    ActiveCliTab = activeCliTab ?? "hub",
                     LastSavedUtc = DateTime.UtcNow,
                     TerminalBuffers = buffers != null ? new Dictionary<string, string>(buffers, StringComparer.OrdinalIgnoreCase) : []
                 };

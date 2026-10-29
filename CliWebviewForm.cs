@@ -70,13 +70,13 @@ public partial class CliWebviewForm : Form
     /// <summary>Raised with the new tab id whenever the active workspace tab changes.</summary>
     public event Action<string>? ActiveTabChanged;
 
-    private bool _hermesInitialized;
+    private bool _hubInitialized;
     private readonly string _terminalHtmlPath = string.Empty;
-    private readonly string _hermesOfflineHtmlPath = string.Empty;
+    private readonly string _hubOfflineHtmlPath = string.Empty;
     private Color _toggleRunNormalColor = ThemeManager.Colors.AccentGreen;
     private Color _toggleRunHoverColor = ThemeManager.Colors.AccentGreenHover;
 
-    private Microsoft.Web.WebView2.WinForms.WebView2 hermesWebView = null!;
+    private Microsoft.Web.WebView2.WinForms.WebView2 hubWebView = null!;
     private Microsoft.Web.WebView2.WinForms.WebView2 claudeWebView = null!;
     private Microsoft.Web.WebView2.WinForms.WebView2 antigravityWebView = null!;
     private readonly Dictionary<string, Microsoft.Web.WebView2.WinForms.WebView2> _customWebViews = new(StringComparer.OrdinalIgnoreCase);
@@ -126,7 +126,7 @@ public partial class CliWebviewForm : Form
         InitializeComponent();
     }
 
-    public CliWebviewForm(CliManagerService? cliManager, CliType initialTab = CliType.Hermes, Form? mainForm = null) : this()
+    public CliWebviewForm(CliManagerService? cliManager, CliType initialTab = CliType.Hub, Form? mainForm = null) : this()
     {
         if (System.ComponentModel.LicenseManager.UsageMode != System.ComponentModel.LicenseUsageMode.Designtime && cliManager != null)
         {
@@ -140,7 +140,7 @@ public partial class CliWebviewForm : Form
             // The assets/web fallback that used to sit behind this check has been removed.
             var baseDir = AppContext.BaseDirectory;
             _terminalHtmlPath = Path.Combine(baseDir, "ui", "terminal.html");
-            _hermesOfflineHtmlPath = Path.Combine(baseDir, "ui", "hermes-offline.html");
+            _hubOfflineHtmlPath = Path.Combine(baseDir, "ui", "hub-offline.html");
 
             var cliIconPath = Path.Combine(baseDir, "assets", "cli.ico");
             if (File.Exists(cliIconPath))
@@ -166,7 +166,7 @@ public partial class CliWebviewForm : Form
     {
         CliType.ClaudeCode => "claude_code",
         CliType.AntigravityCli => "antigravity_cli",
-        _ => "hermes"
+        _ => "hub"
     };
 
     private static CliType IdToCliType(string id)
@@ -176,14 +176,14 @@ public partial class CliWebviewForm : Form
         {
             "claude_code" => CliType.ClaudeCode,
             "antigravity_cli" => CliType.AntigravityCli,
-            _ => CliType.Hermes
+            _ => CliType.Hub
         };
     }
 
     private static bool IsBuiltInCli(string id)
     {
         string norm = AiConfigService.NormalizeCliId(id);
-        return string.Equals(norm, "hermes", StringComparison.OrdinalIgnoreCase) ||
+        return string.Equals(norm, "hub", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(norm, "claude_code", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(norm, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
     }
@@ -1407,7 +1407,7 @@ public partial class CliWebviewForm : Form
 
     private void EnsureTabWebViewAsync(string tabId, WorkspacePane pane)
     {
-        if (string.Equals(tabId, "hermes", StringComparison.OrdinalIgnoreCase) ||
+        if (string.Equals(tabId, "hub", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(tabId, "claude_code", StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -1560,8 +1560,8 @@ public partial class CliWebviewForm : Form
 
         var activeSecWv = _isSplitActive ? GetWebViewForPane(_secondaryTabId, WorkspacePane.Secondary) : null;
 
-        if (hermesWebView != null && hermesWebView != primaryWv && hermesWebView != activeSecWv)
-            hermesWebView.Visible = false;
+        if (hubWebView != null && hubWebView != primaryWv && hubWebView != activeSecWv)
+            hubWebView.Visible = false;
         if (claudeWebView != null && claudeWebView != primaryWv && claudeWebView != activeSecWv)
             claudeWebView.Visible = false;
         if (antigravityWebView != null && antigravityWebView != primaryWv && antigravityWebView != activeSecWv)
@@ -1811,8 +1811,8 @@ public partial class CliWebviewForm : Form
 
         menu.Items.Add(new ToolStripSeparator());
 
-        bool isHermes = string.Equals(tabId, "hermes", StringComparison.OrdinalIgnoreCase);
-        if (!isHermes)
+        bool isHub = string.Equals(tabId, "hub", StringComparison.OrdinalIgnoreCase);
+        if (!isHub)
         {
             string? curWorkDir = isAgyProfile
                 ? _cliManager?.ProfileService.GetProfileWorkingDirectory(profileName)
@@ -2183,7 +2183,7 @@ public partial class CliWebviewForm : Form
     /// </summary>
     private void SetTerminalContentVisible(bool visible)
     {
-        if (hermesWebView != null) hermesWebView.Visible = visible && string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase);
+        if (hubWebView != null) hubWebView.Visible = visible && string.Equals(ActivePaneTabId, "hub", StringComparison.OrdinalIgnoreCase);
         if (claudeWebView != null) claudeWebView.Visible = visible && string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
         if (antigravityWebView != null) antigravityWebView.Visible = visible && string.Equals(ActivePaneTabId, "antigravity_cli", StringComparison.OrdinalIgnoreCase);
 
@@ -2432,8 +2432,8 @@ public partial class CliWebviewForm : Form
             bool isAntigravityActive = IsAntigravityTab(ActivePaneTabId);
             bool isClaudeActive = string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase);
             bool isClaudeOpenRouter = isClaudeActive && string.Equals(AiConfigService.Instance.GetClaudeEngineMode(), "OpenRouter", StringComparison.OrdinalIgnoreCase);
-            bool isHermes = string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase);
-            bool showCliTools = !string.IsNullOrEmpty(ActivePaneTabId) && !isHermes;
+            bool isHub = string.Equals(ActivePaneTabId, "hub", StringComparison.OrdinalIgnoreCase);
+            bool showCliTools = !string.IsNullOrEmpty(ActivePaneTabId) && !isHub;
 
             if (_sessionConfigButton != null) _sessionConfigButton.Visible = showCliTools;
 
@@ -2742,7 +2742,7 @@ public partial class CliWebviewForm : Form
         };
         var json = JsonSerializer.Serialize(payload);
 
-        PostToWebView(hermesWebView, json);
+        PostToWebView(hubWebView, json);
         PostToWebView(claudeWebView, json);
         PostToWebView(antigravityWebView, json);
 
@@ -3100,9 +3100,9 @@ public partial class CliWebviewForm : Form
         UpdateSessionConfigButton();
         LayoutToolbar();
 
-        if (string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase) && _hermesInitialized)
+        if (string.Equals(ActivePaneTabId, "hub", StringComparison.OrdinalIgnoreCase) && _hubInitialized)
         {
-            RefreshHermesNavigation();
+            RefreshHubNavigation();
         }
         else if (CliManagerService.IsAntigravityProfileId(ActivePaneTabId, out var activeTabProf))
         {
@@ -3284,11 +3284,11 @@ public partial class CliWebviewForm : Form
     {
         try
         {
-            hermesWebView = CreateHostedWebView();
+            hubWebView = CreateHostedWebView();
             claudeWebView = CreateHostedWebView();
             antigravityWebView = CreateHostedWebView();
 
-            paneHostLeft.Controls.Add(hermesWebView);
+            paneHostLeft.Controls.Add(hubWebView);
             paneHostLeft.Controls.Add(claudeWebView);
             paneHostLeft.Controls.Add(antigravityWebView);
 
@@ -3297,15 +3297,15 @@ public partial class CliWebviewForm : Form
             _webViewEnv = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
             _envInitTcs.TrySetResult(true);
 
-            // Hermes WebView
-            await hermesWebView.EnsureCoreWebView2Async(_webViewEnv);
-            ConfigureWebViewSettings(hermesWebView.CoreWebView2);
-            hermesWebView.CoreWebView2.WebMessageReceived += HermesWebView_WebMessageReceived;
-            hermesWebView.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
-            _hermesInitialized = true;
-            if (IsTabEnabled("hermes"))
+            // Hub WebView
+            await hubWebView.EnsureCoreWebView2Async(_webViewEnv);
+            ConfigureWebViewSettings(hubWebView.CoreWebView2);
+            hubWebView.CoreWebView2.WebMessageReceived += HubWebView_WebMessageReceived;
+            hubWebView.CoreWebView2.NavigationCompleted += (_, _) => NotifyWebViewsTheme();
+            _hubInitialized = true;
+            if (IsTabEnabled("hub"))
             {
-                RefreshHermesNavigation();
+                RefreshHubNavigation();
             }
 
             // Claude Code WebView
@@ -3350,36 +3350,36 @@ public partial class CliWebviewForm : Form
         webView.Settings.IsZoomControlEnabled = true;
     }
 
-    private void RefreshHermesNavigation()
+    private void RefreshHubNavigation()
     {
-        if (!_hermesInitialized || _cliManager == null || hermesWebView?.CoreWebView2 == null)
+        if (!_hubInitialized || _cliManager == null || hubWebView?.CoreWebView2 == null)
         {
             return;
         }
 
-        var hermesInfo = _cliManager.GetInfo("hermes");
-        if (hermesInfo.State == CliState.Running)
+        var hubInfo = _cliManager.GetInfo("hub");
+        if (hubInfo.State == CliState.Running)
         {
-            var targetUrl = $"http://127.0.0.1:{_cliManager.HermesService.Port}/";
-            if (hermesWebView.Source == null || !hermesWebView.Source.AbsoluteUri.StartsWith(targetUrl))
+            var targetUrl = $"http://127.0.0.1:{_cliManager.HubService.Port}/";
+            if (hubWebView.Source == null || !hubWebView.Source.AbsoluteUri.StartsWith(targetUrl))
             {
-                hermesWebView.CoreWebView2.Navigate(targetUrl);
+                hubWebView.CoreWebView2.Navigate(targetUrl);
             }
         }
         else
         {
-            if (File.Exists(_hermesOfflineHtmlPath))
+            if (File.Exists(_hubOfflineHtmlPath))
             {
-                hermesWebView.CoreWebView2.Navigate(new Uri(_hermesOfflineHtmlPath).AbsoluteUri);
+                hubWebView.CoreWebView2.Navigate(new Uri(_hubOfflineHtmlPath).AbsoluteUri);
             }
             else
             {
-                hermesWebView.CoreWebView2.NavigateToString("<html><body style='background:#09090b;color:#fafafa;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;'><h2>Hermes Engine Offline</h2></body></html>");
+                hubWebView.CoreWebView2.NavigateToString("<html><body style='background:#09090b;color:#fafafa;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;'><h2>Hub Engine Offline</h2></body></html>");
             }
         }
     }
 
-    private void HermesWebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    private void HubWebView_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         try
         {
@@ -3388,9 +3388,9 @@ public partial class CliWebviewForm : Form
             if (doc.RootElement.TryGetProperty("type", out var typeEl))
             {
                 var typeStr = typeEl.GetString();
-                if (typeStr == "start_hermes")
+                if (typeStr == "start_hub")
                 {
-                    _cliManager?.Start("hermes");
+                    _cliManager?.Start("hub");
                 }
             }
         }
@@ -3452,7 +3452,7 @@ public partial class CliWebviewForm : Form
 
     private Microsoft.Web.WebView2.WinForms.WebView2? GetWebViewForId(string id)
     {
-        if (string.Equals(id, "hermes", StringComparison.OrdinalIgnoreCase)) return hermesWebView;
+        if (string.Equals(id, "hub", StringComparison.OrdinalIgnoreCase)) return hubWebView;
         if (string.Equals(id, "claude_code", StringComparison.OrdinalIgnoreCase)) return claudeWebView;
         if (string.Equals(id, "antigravity_cli", StringComparison.OrdinalIgnoreCase))
         {
@@ -3533,9 +3533,9 @@ public partial class CliWebviewForm : Form
             UpdateToolbarUi();
         }
 
-        if (string.Equals(cliId, "hermes", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(cliId, "hub", StringComparison.OrdinalIgnoreCase))
         {
-            RefreshHermesNavigation();
+            RefreshHubNavigation();
         }
         else
         {
@@ -3716,9 +3716,9 @@ public partial class CliWebviewForm : Form
 
     private int GetBrowserPortForActiveTab()
     {
-        if (string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(ActivePaneTabId, "hub", StringComparison.OrdinalIgnoreCase))
         {
-            return _cliManager?.HermesService.Port ?? 8000;
+            return _cliManager?.HubService.Port ?? 8000;
         }
         if (string.Equals(ActivePaneTabId, "claude_code", StringComparison.OrdinalIgnoreCase))
         {
@@ -3858,8 +3858,8 @@ public partial class CliWebviewForm : Form
         if (_sessionConfigButton == null) return;
 
         string tabId = ActivePaneTabId;
-        bool isHermes = string.Equals(tabId, "hermes", StringComparison.OrdinalIgnoreCase);
-        if (string.IsNullOrEmpty(tabId) || isHermes)
+        bool isHub = string.Equals(tabId, "hub", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(tabId) || isHub)
         {
             _sessionConfigButton.Visible = false;
             return;
@@ -3923,7 +3923,7 @@ public partial class CliWebviewForm : Form
         if (_sessionConfigButton == null) return;
 
         string tabId = ActivePaneTabId;
-        if (string.IsNullOrEmpty(tabId) || string.Equals(tabId, "hermes", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrEmpty(tabId) || string.Equals(tabId, "hub", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -4119,7 +4119,7 @@ public partial class CliWebviewForm : Form
 
     private void HandleClearTerminalClick()
     {
-        if (_cliManager == null || string.Equals(ActivePaneTabId, "hermes", StringComparison.OrdinalIgnoreCase))
+        if (_cliManager == null || string.Equals(ActivePaneTabId, "hub", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }

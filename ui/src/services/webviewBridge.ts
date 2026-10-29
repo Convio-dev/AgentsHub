@@ -159,12 +159,12 @@ class WebViewBridge {
         lanProxyPort: 9191,
         lanProxyRunning: true,
         runningPorts: [
-          { name: 'Hermes CLI', port: 9191, protocol: 'http', status: 'Running' },
+          { name: 'Hub CLI', port: 9191, protocol: 'http', status: 'Running' },
           { name: 'Bun Sidecar', port: 8089, protocol: 'ws', status: 'Running' },
           { name: 'Antigravity VirtualHome', port: 9339, protocol: 'http', status: 'Running' },
         ],
         clis: [
-          { name: 'Hermes', type: 'Hermes', state: 'Running', port: 9191, pid: 4892 },
+          { name: 'Hub', type: 'Hub', state: 'Running', port: 9191, pid: 4892 },
           { name: 'Claude Code', type: 'ClaudeCode', state: 'Stopped', port: 9229, pid: 0 },
           { name: 'Antigravity CLI', type: 'AntigravityCli', state: 'Running', port: 9339, pid: 5120 },
         ],
@@ -194,7 +194,7 @@ class WebViewBridge {
             workingDirectory: 'c:\\Users\\Gaming\\Desktop\\Folders-Z\\userscript\\WebAPPS\\APPS\\AgentsHub.v2',
             accentColor: '#10B981',
             antigravityProfile: 'Work',
-            primaryCli: 'Hermes',
+            primaryCli: 'Hub',
             secondaryCli: 'ClaudeCode',
             splitMode: 'horizontal',
             splitRatio: '0.6',
@@ -251,7 +251,7 @@ class WebViewBridge {
         netMbps: 0.05,
         memoryUsedGb: 15.9,
         memoryTotalGb: 32.0,
-        hermesMemMb: 142,
+        hubMemMb: 142,
       };
     } else if (action === 'get_agent_sessions') {
       mockData = {

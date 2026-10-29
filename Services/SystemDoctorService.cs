@@ -35,7 +35,7 @@ public sealed class SystemDoctorService
             await CheckCommandAsync("agy", "Antigravity CLI (agy)", "agy --version", "Agents", "https://github.com/google-deepmind/antigravity").ConfigureAwait(false),
             await CheckCommandAsync("claude", "Claude Code CLI (claude)", "claude --version", "Agents", "https://claude.ai/code").ConfigureAwait(false),
             CheckPortAvailability(9191, "LAN Proxy Port 9191"),
-            CheckPortAvailability(9119, "Hermes Engine Port 9119")
+            CheckPortAvailability(9119, "Hub Engine Port 9119")
         ];
     }
 

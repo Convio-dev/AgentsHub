@@ -108,7 +108,7 @@ public sealed class SlashCommandService
         if (id.Contains("claude", StringComparison.Ordinal)) return "claude";
         if (id.Contains("antigravity", StringComparison.Ordinal) || id == "agy") return "antigravity";
         if (id.Contains("codex", StringComparison.Ordinal)) return "codex";
-        if (id.Contains("hermes", StringComparison.Ordinal)) return "hermes";
+        if (id.Contains("hub", StringComparison.Ordinal)) return "hub";
         return "custom";
     }
 
@@ -164,7 +164,7 @@ public sealed class SlashCommandService
                 new("new", "Start a new conversation", "builtin", engine),
                 new("status", "Show session, account and model status", "builtin", engine),
             ],
-            "hermes" =>
+            "hub" =>
             [
                 new("status", "Show session, account and model status", "builtin", engine),
             ],

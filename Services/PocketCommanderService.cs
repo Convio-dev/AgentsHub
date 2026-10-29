@@ -1418,16 +1418,16 @@ public sealed class PocketCommanderService : IDisposable
             IsRunning = claudeRunning
         });
 
-        // 3. Hermes
-        var hermesInfo = _cliManager?.GetInfo("hermes");
-        bool hermesRunning = hermesInfo != null && (hermesInfo.State == CliState.Running || hermesInfo.State == CliState.Starting);
+        // 3. Hub
+        var hubInfo = _cliManager?.GetInfo("hub");
+        bool hubRunning = hubInfo != null && (hubInfo.State == CliState.Running || hubInfo.State == CliState.Starting);
         list.Add(new RunnableTarget
         {
             Index = idx++,
-            Id = "hermes",
-            ShortName = "hermes",
-            DisplayName = "Hermes",
-            IsRunning = hermesRunning
+            Id = "hub",
+            ShortName = "hub",
+            DisplayName = "Hub",
+            IsRunning = hubRunning
         });
 
         return list;
@@ -1589,7 +1589,7 @@ public sealed class PocketCommanderService : IDisposable
         try
         {
             var curWs = AiConfigService.Instance.GetActiveWorkspace();
-            string wsName = curWs?.Name ?? "HermesOn";
+            string wsName = curWs?.Name ?? "HubOn";
             string wsDir = curWs?.WorkingDirectory ?? AppDomain.CurrentDomain.BaseDirectory;
 
             var runningInfos = _cliManager?.GetAllInfos().Where(c => c.State == CliState.Running).ToList() ?? [];

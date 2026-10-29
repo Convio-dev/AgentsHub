@@ -14,7 +14,7 @@ import {
 import { XTermView } from '../components/terminal/XTermView';
 
 export const TerminalsView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'hermes' | 'claude_code' | 'antigravity_cli' | 'powershell'>('antigravity_cli');
+  const [activeTab, setActiveTab] = useState<'hub' | 'claude_code' | 'antigravity_cli' | 'powershell'>('antigravity_cli');
   const [activePreset, setActivePreset] = useState('AI Duo (Claude + agy)');
   const [snapshots, setSnapshots] = useState<string[]>([
     'Checkpoint #1 - Initial workspace state',
@@ -105,7 +105,6 @@ export const TerminalsView: React.FC = () => {
           {[
             { id: 'antigravity_cli', label: 'Antigravity CLI' },
             { id: 'claude_code', label: 'Claude Code' },
-            { id: 'hermes', label: 'Hermes Web' },
             { id: 'powershell', label: 'PowerShell' },
           ].map(tab => {
             const isActive = activeTab === tab.id;
