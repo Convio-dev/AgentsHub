@@ -20,7 +20,7 @@ if (args.Contains("--redact"))
         2026-10-30T00:00:00Z token found via userToken (json-object)
         Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature
         {"userToken":"sk-live-abcdef0123456789","api_key":"AKIAIOSFODNN7EXAMPLE"}
-        profile=C:\Users\Gaming\AppData\Roaming\AgentsHub\deepseek-accounts\default
+        profile=C:\Users\someone\AppData\Roaming\AgentsHub\deepseek-accounts\default
         owner=gaming@example.com key=ghp_0123456789abcdefghijklmnopqrstuvwxyz
         """;
 
@@ -34,7 +34,7 @@ if (args.Contains("--redact"))
         clean.Contains("eyJhbGciOiJIUzI1NiJ9") ||
         clean.Contains("ghp_0123456789") ||
         clean.Contains("gaming@example.com") ||
-        clean.Contains("Users\\Gaming");
+        clean.Contains("Users\\someone");
 
     Console.WriteLine($"leak check: {(leaked ? "FAIL - something survived" : "PASS - nothing survived")}");
     return;
