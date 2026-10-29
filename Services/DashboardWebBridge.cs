@@ -18,6 +18,35 @@ namespace AgentsHub.Services;
 
 public sealed partial class DashboardWebBridge : IDisposable
 {
+    /// <summary>
+    /// A shell that runs <paramref name="command"/> inside <paramref name="directory"/>.
+    ///
+    /// Windows needs COMSPEC with /k to keep the console open; POSIX shells take -c and stay open
+    /// only while the terminal they were started in lives. Hardcoding cmd.exe is the usual way this
+    /// breaks on macOS and Linux.
+    /// </summary>
+    private static ProcessStartInfo ShellInDirectory(string directory, string command, bool keepOpen = true)
+    {
+        if (Services.Platform.PlatformHelper.IsWindows)
+        {
+            return new ProcessStartInfo
+            {
+                FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd",
+                Arguments = $"{(keepOpen ? "/k" : "/c")} \"cd /d \"{directory}\" && {command}\"",
+                WorkingDirectory = directory,
+                UseShellExecute = true,
+            };
+        }
+
+        return new ProcessStartInfo
+        {
+            FileName = Services.Platform.PlatformHelper.GetDefaultShell(),
+            Arguments = $"-c \"cd \"{directory}\" && {command}\"",
+            WorkingDirectory = directory,
+            UseShellExecute = true,
+        };
+    }
+
 #if WINDOWS
     private readonly Form? _mainForm;
     private CoreWebView2? _coreWebView;
@@ -622,6 +651,7 @@ public sealed partial class DashboardWebBridge : IDisposable
 #if DEEPSEEK_UI
             case "deepseek_status":
                 {
+
                     bool signedIn = await Services.DeepSeek.DeepSeekEngine.Instance.ProbeSignedInAsync().ConfigureAwait(false);
                     SendResponse(requestId, true, new { signedIn });
                 }
@@ -2085,8 +2115,11 @@ public sealed partial class DashboardWebBridge : IDisposable
                         {
                             if (target == "explorer")
                             {
-                                Process.Start(new ProcessStartInfo { FileName = "explorer.exe", Arguments = $"\"{repoPath}\"", UseShellExecute = true });
-                                SendResponse(requestId, true, new { success = true, message = "Opened in Explorer" });
+                                Process.Start(new ProcessStartInfo(
+                                    Services.Platform.PlatformHelper.IsWindows ? "explorer.exe"
+                                        : Services.Platform.PlatformHelper.IsMacOS ? "open" : "xdg-open",
+                                    $"\"{repoPath}\"") { UseShellExecute = true });
+                                SendResponse(requestId, true, new { success = true, message = "Opened the folder" });
                             }
                             else if (target == "terminal")
                             {
@@ -2169,12 +2202,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                                 _ => "claude"
                             };
 
-                            Process.Start(new ProcessStartInfo
-                            {
-                                FileName = "cmd.exe",
-                                Arguments = $"/k \"cd /d \"{repoPath}\" && {cmd}\"",
-                                UseShellExecute = true
-                            });
+                            Process.Start(ShellInDirectory(repoPath, cmd));
 
                             SendResponse(requestId, true, new { success = true });
                         }
@@ -2834,14 +2862,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         if (mode == "window")
                         {
-                            var psi = new ProcessStartInfo
-                            {
-                                FileName = "cmd.exe",
-                                Arguments = $"/k \"cd /d \"{workDir}\" && {command}\"",
-                                WorkingDirectory = workDir,
-                                UseShellExecute = true
-                            };
-                            Process.Start(psi);
+                            Process.Start(ShellInDirectory(workDir, command));
                             SendResponse(requestId, true, new { success = true, mode = "window" });
                         }
                         else
@@ -3090,7 +3111,17 @@ public sealed partial class DashboardWebBridge : IDisposable
                     bool opened = Directory.Exists(path);
                     if (opened)
                     {
-                        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true }); }
+                        try
+                        {
+                            // Explorer, Finder and xdg-open respectively. Hardcoding explorer.exe
+                            // worked on Windows and silently failed everywhere else.
+                            var info = Services.Platform.PlatformHelper.IsWindows
+                                ? new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true }
+                                : new System.Diagnostics.ProcessStartInfo(
+                                    Services.Platform.PlatformHelper.IsMacOS ? "open" : "xdg-open",
+                                    $"\"{path}\"") { UseShellExecute = true };
+                            System.Diagnostics.Process.Start(info);
+                        }
                         catch (Exception) { opened = false; }
                     }
                     SendResponse(requestId, true, new { opened });
@@ -3106,13 +3137,24 @@ public sealed partial class DashboardWebBridge : IDisposable
                         try
                         {
                             // Windows Terminal when installed, otherwise a console rooted there.
-                            var info = new System.Diagnostics.ProcessStartInfo
+                            var info = new System.Diagnostics.ProcessStartInfo { WorkingDirectory = path, UseShellExecute = true };
+
+                            if (Services.Platform.PlatformHelper.IsWindows)
                             {
-                                FileName = "cmd.exe",
-                                Arguments = $"/k cd /d \"{path}\"",
-                                WorkingDirectory = path,
-                                UseShellExecute = true,
-                            };
+                                info.FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd";
+                                info.Arguments = $"/k cd /d \"{path}\"";
+                            }
+                            else if (Services.Platform.PlatformHelper.IsMacOS)
+                            {
+                                info.FileName = "open";
+                                info.Arguments = $"-a Terminal \"{path}\"";
+                            }
+                            else
+                            {
+                                info.FileName = "x-terminal-emulator";
+                                info.Arguments = string.Empty;
+                            }
+
                             System.Diagnostics.Process.Start(info);
                         }
                         catch (Exception) { opened = false; }
@@ -3142,7 +3184,13 @@ public sealed partial class DashboardWebBridge : IDisposable
                         }
                         catch (Exception)
                         {
-                            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true }); }
+                            try
+                            {
+                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                                    Services.Platform.PlatformHelper.IsWindows ? "explorer.exe"
+                                        : Services.Platform.PlatformHelper.IsMacOS ? "open" : "xdg-open",
+                                    $"\"{path}\"") { UseShellExecute = true });
+                            }
                             catch (Exception) { opened = false; }
                         }
                     }
@@ -3751,7 +3799,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                         var profileDir = Path.Combine(AntigravityProfileService.ProfilesBaseDir, pName);
                         if (Directory.Exists(profileDir))
                         {
-                            Process.Start(new ProcessStartInfo("explorer.exe", profileDir) { UseShellExecute = true });
+                            Process.Start(new ProcessStartInfo(
+                                Services.Platform.PlatformHelper.IsWindows ? "explorer.exe"
+                                    : Services.Platform.PlatformHelper.IsMacOS ? "open" : "xdg-open",
+                                profileDir) { UseShellExecute = true });
                             SendResponse(requestId, true, null);
                         }
                         else
@@ -3768,7 +3819,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                     var folderPath = pathProp.GetString()?.Trim();
                     if (!string.IsNullOrWhiteSpace(folderPath) && Directory.Exists(folderPath))
                     {
-                        Process.Start(new ProcessStartInfo("explorer.exe", folderPath) { UseShellExecute = true });
+                        Process.Start(new ProcessStartInfo(
+                            Services.Platform.PlatformHelper.IsWindows ? "explorer.exe"
+                                : Services.Platform.PlatformHelper.IsMacOS ? "open" : "xdg-open",
+                            folderPath) { UseShellExecute = true });
                         SendResponse(requestId, true, null);
                     }
                     else

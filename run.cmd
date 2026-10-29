@@ -17,9 +17,57 @@ taskkill /F /IM AgentsHub.exe >nul 2>&1
 taskkill /F /IM AgentsEngine.exe >nul 2>&1
 
 :: ---------------------------------------------------------
-:: 1. Check and Build Bun Sidecar Engine
+:: 1. Check the Antigravity CLI
 :: ---------------------------------------------------------
-echo [*] Step 1/3: Checking Bun runtime and building Sidecar Engine...
+:: The Antigravity engine drives `agy`. Without it that engine cannot start, and profile
+:: switching has nothing to switch. DeepSeek mode works regardless, so a missing CLI warns
+:: instead of stopping the run.
+echo [*] Step 1/4: Checking the Antigravity CLI (agy)...
+
+set "AGY_CMD="
+
+call :FindAgy
+if not "%AGY_CMD%"=="" goto :AgyReady
+
+echo [!] agy was not found, so the Antigravity engine has no CLI to run.
+echo [*] Installing the Antigravity CLI...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://antigravity.google/cli/install.ps1 | iex"
+echo [*] Installer finished with code %ERRORLEVEL%.
+
+:: A fresh install writes a new PATH entry, and this window still holds the old one. Probe the
+:: known locations directly before believing it failed.
+call :FindAgy
+if not "%AGY_CMD%"=="" goto :AgyReady
+
+set "AGY_DIR=%USERPROFILE%\.antigravity\bin"
+if exist "%AGY_DIR%\agy.exe" (
+    set "PATH=%AGY_DIR%;%PATH%"
+    set "AGY_CMD=%AGY_DIR%\agy.exe"
+    goto :AgyReady
+)
+
+if exist "%APPDATA%\npm\agy.cmd" (
+    set "PATH=%APPDATA%\npm;%PATH%"
+    set "AGY_CMD=%APPDATA%\npm\agy.cmd"
+    goto :AgyReady
+)
+
+echo [WARN] agy is still missing. Antigravity chats will not start until it is installed.
+echo        Install it, then close and reopen this window so PATH is picked up:
+echo          irm https://antigravity.google/cli/install.ps1 ^| iex
+echo.
+goto :AgyDone
+
+:AgyReady
+echo [OK] Found %AGY_CMD%.
+echo.
+
+:AgyDone
+
+:: ---------------------------------------------------------
+:: 2. Check and Build Bun Sidecar Engine
+:: ---------------------------------------------------------
+echo [*] Step 2/4: Checking Bun runtime and building Sidecar Engine...
 
 set "BUN_CMD="
 if exist "%USERPROFILE%\.bun\bin\bun.exe" (
@@ -63,9 +111,9 @@ echo [OK] Sidecar Engine built successfully.
 echo.
 
 :: ---------------------------------------------------------
-:: 2. Check and Build React / Vite Frontend
+:: 3. Check and Build React / Vite Frontend
 :: ---------------------------------------------------------
-echo [*] Step 2/3: Checking dependencies and building React UI...
+echo [*] Step 3/4: Checking dependencies and building React UI...
 if not exist "ui\node_modules" (
     echo [*] ui\node_modules not found. Running npm install in ui...
     call npm.cmd --prefix "%SCRIPT_DIR%ui" install
@@ -74,7 +122,12 @@ if not exist "ui\node_modules" (
 echo [*] Building React UI...
 call npm.cmd --prefix "%SCRIPT_DIR%ui" run build
 if errorlevel 1 (
-    echo [ERROR] React / Vite build failed!
+    echo.
+    echo [ERROR] React / Vite build failed. The message above names the file and line.
+    echo         If it points at a type error that no longer exists in the source, the installed
+    echo         dependencies are stale: delete ui\node_modules and ui\package-lock.json,
+    echo         then run this script again.
+    echo.
     pause
     exit /b 1
 )
@@ -89,9 +142,9 @@ echo [OK] React frontend built successfully.
 echo.
 
 :: ---------------------------------------------------------
-:: 3. Launch Agents Hub via .NET 10 (Windows GUI)
+:: 4. Launch Agents Hub via .NET 10 (Windows GUI)
 :: ---------------------------------------------------------
-echo [*] Step 3/3: Starting Agents Hub via dotnet run (-f net10.0-windows)...
+echo [*] Step 4/4: Starting Agents Hub via dotnet run (-f net10.0-windows)...
 echo ========================================================
 echo.
 
@@ -104,3 +157,18 @@ if %APP_ERR% neq 0 (
 )
 
 exit /b %APP_ERR%
+
+:: ---------------------------------------------------------
+:: Subroutines
+:: ---------------------------------------------------------
+:FindAgy
+:: Two names: the installer may add either, and PATH lookups are case-insensitive but not
+:: extension-inventing, so both are probed explicitly.
+where agy.exe >nul 2>&1
+if not errorlevel 1 (
+    set "AGY_CMD=agy.exe"
+    goto :eof
+)
+where agy >nul 2>&1
+if not errorlevel 1 set "AGY_CMD=agy"
+goto :eof

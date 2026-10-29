@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Check, Copy, SquareTerminal } from 'lucide-react';
 import { copyToClipboard } from '../../lib/clipboard';
 import { highlightCode } from '../../lib/highlight';
+import { webviewBridge } from '../../services/webviewBridge';
 
 interface MarkdownRendererProps {
   content: string;
@@ -273,15 +274,11 @@ function linkifyText(text: string, keyBase: number): React.ReactNode[] {
         tabIndex={0}
         onClick={event => {
           event.stopPropagation();
-          void import('../../services/webviewBridge')
-            .then(m => m.webviewBridge.invoke('open_external', { url }))
-            .catch(() => {});
+          void webviewBridge.invoke('open_external', { url }).catch(() => {});
         }}
         onKeyDown={event => {
           if (event.key !== 'Enter') return;
-          void import('../../services/webviewBridge')
-            .then(m => m.webviewBridge.invoke('open_external', { url }))
-            .catch(() => {});
+          void webviewBridge.invoke('open_external', { url }).catch(() => {});
         }}
         className="cursor-pointer break-all text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
         title={url}

@@ -58,15 +58,38 @@ public sealed class DeepSeekEngine
     /// valid session. That single mistake hid the sign-in bar and closed the sign-in window
     /// seconds after it opened.
     /// </summary>
+    /// <summary>
+    /// The session token, or null when signed out.
+    ///
+    /// Reads several key names and both stored shapes: a plain string, or JSON wrapping `value`.
+    /// Requiring exactly one shape meant that a change on their side read as "signed out" for a
+    /// user who was signed in, with no way to tell why.
+    /// </summary>
     private const string TokenJs = """
         (() => {
           try {
-            const raw = localStorage.getItem('userToken');
-            if (!raw) return null;
-            let parsed = null;
-            try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
-            const value = (parsed && typeof parsed === 'object') ? parsed.value : null;
-            return typeof value === 'string' && value.length > 0 ? value : null;
+            const keys = ['userToken', 'user_token', 'userTokenV2', 'token'];
+            for (const key of keys) {
+              const raw = localStorage.getItem(key);
+              if (!raw) continue;
+
+              if (typeof raw === 'string' && raw.length > 12 && raw[0] !== '{' && raw[0] !== '"') {
+                return { key: key, shape: 'string', value: raw };
+              }
+
+              let parsed = null;
+              try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+
+              if (typeof parsed === 'string' && parsed.length > 0) {
+                return { key: key, shape: 'json-string', value: parsed };
+              }
+
+              const value = (parsed && typeof parsed === 'object') ? parsed.value : null;
+              if (typeof value === 'string' && value.length > 0) {
+                return { key: key, shape: 'json-object', value: value };
+              }
+            }
+            return null;
           } catch (e) { return null; }
         })()
         """;
@@ -100,6 +123,7 @@ public sealed class DeepSeekEngine
 
     /// <summary>True once a userToken is present in the profile.</summary>
     public bool IsSignedIn { get; private set; }
+
 
     /// <summary>
     /// Creates the off-screen host window. Must run on the UI thread, and only once.
@@ -179,7 +203,7 @@ public sealed class DeepSeekEngine
         try
         {
             var token = await EvalAsync(TokenJs);
-            alreadySignedIn = token.ValueKind == JsonValueKind.String;
+            alreadySignedIn = token.ValueKind == JsonValueKind.Object;
             IsSignedIn = alreadySignedIn;
         }
         catch (InvalidOperationException)
@@ -201,8 +225,10 @@ public sealed class DeepSeekEngine
             try
             {
                 var token = await EvalAsync(TokenJs);
-                if (token.ValueKind != JsonValueKind.String) return;
+                if (token.ValueKind != JsonValueKind.Object) return;
+
                 IsSignedIn = true;
+                Log($"signed in via {StringOf(token, "key")} ({StringOf(token, "shape")})");
                 timer.Stop();
                 timer.Dispose();
                 _watchLogin = null;
@@ -618,7 +644,7 @@ public sealed class DeepSeekEngine
         string delta;
         if (full.Length > so_far.Length && full.StartsWith(so_far, StringComparison.Ordinal))
         {
-            delta = full.Substring(so_far.Length);
+            delta = full[so_far.Length..];
         }
         else if (full.Length > so_far.Length)
         {
@@ -675,6 +701,8 @@ public sealed class DeepSeekEngine
     /// <summary>True when this chat already carries the protocol line.</summary>
     private async Task<bool> HasProtocolAsync(string? chatId, CancellationToken ct)
     {
+        // A stopped turn should not keep probing the page.
+        ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(chatId)) return false;
 
         try
@@ -937,7 +965,11 @@ public sealed class DeepSeekEngine
             try
             {
                 var token = await EvalAsync(TokenJs);
-                if (token.ValueKind == JsonValueKind.String) return true;
+                if (token.ValueKind == JsonValueKind.Object)
+                {
+                    Log($"token found via {StringOf(token, "key")} ({StringOf(token, "shape")})");
+                    return true;
+                }
             }
             catch (InvalidOperationException)
             {

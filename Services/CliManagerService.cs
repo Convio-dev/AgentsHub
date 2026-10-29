@@ -1025,13 +1025,21 @@ public class CliManagerService : IDisposable
             {
                 using var p = new Process
                 {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "cmd.exe",
-                        Arguments = "/c claude logout",
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
+                    StartInfo = Services.Platform.PlatformHelper.IsWindows
+                        ? new ProcessStartInfo
+                        {
+                            FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd",
+                            Arguments = "/c claude logout",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                        }
+                        : new ProcessStartInfo
+                        {
+                            FileName = Services.Platform.PlatformHelper.GetDefaultShell(),
+                            Arguments = "-c \"claude logout\"",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                        }
                 };
                 p.Start();
                 await p.WaitForExitAsync();

@@ -1240,10 +1240,18 @@ public sealed class GitRepositoryManagerService
 
             if (!hasArgs && launcher.Command.Contains(' '))
             {
-                // A full command line ("npm run dev") is not a file name. It has to go through the
-                // shell, and /k keeps the console open so the output is readable after it finishes.
-                psi.FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd";
-                psi.Arguments = $"/k {launcher.Command}";
+                // A full command line ("npm run dev") is not a file name, so it has to go through a
+                // shell. Windows keeps the console open with /k; POSIX shells get -c.
+                if (Services.Platform.PlatformHelper.IsWindows)
+                {
+                    psi.FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd";
+                    psi.Arguments = $"/k {launcher.Command}";
+                }
+                else
+                {
+                    psi.FileName = Services.Platform.PlatformHelper.GetDefaultShell();
+                    psi.Arguments = $"-c \"{launcher.Command}\"";
+                }
             }
             else
             {

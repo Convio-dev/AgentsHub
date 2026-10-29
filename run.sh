@@ -11,9 +11,36 @@ echo "========================================================"
 echo ""
 
 # ---------------------------------------------------------
-# 1. Check and Build Bun Sidecar Engine
+# 1. Check the Antigravity CLI
 # ---------------------------------------------------------
-echo "[*] Step 1/3: Checking Bun runtime and building Sidecar Engine..."
+# The Antigravity engine drives `agy`. Without it that engine cannot start, and profile
+# switching has nothing to switch. DeepSeek mode works regardless, so a missing CLI warns
+# instead of stopping the run.
+echo "[*] Step 1/4: Checking the Antigravity CLI (agy)..."
+
+AGY_PATH=""
+if command -v agy >/dev/null 2>&1; then
+    AGY_PATH="$(command -v agy)"
+elif [ -x "$HOME/.antigravity/bin/agy" ]; then
+    # An installer writes a new PATH entry that this shell will never see.
+    AGY_PATH="$HOME/.antigravity/bin/agy"
+    export PATH="$HOME/.antigravity/bin:$PATH"
+fi
+
+if [ -n "$AGY_PATH" ]; then
+    echo "[OK] Found agy at $AGY_PATH."
+    echo ""
+else
+    echo "[WARN] agy was not found, so the Antigravity engine has no CLI to run."
+    echo "       Install it from https://antigravity.google/cli and reopen this terminal"
+    echo "       so PATH is picked up. DeepSeek mode works without it."
+    echo ""
+fi
+
+# ---------------------------------------------------------
+# 2. Check and Build Bun Sidecar Engine
+# ---------------------------------------------------------
+echo "[*] Step 2/4: Checking Bun runtime and building Sidecar Engine..."
 
 BUN_CMD=""
 if command -v bun >/dev/null 2>&1; then
@@ -54,23 +81,31 @@ echo "[OK] Sidecar Engine built successfully."
 echo ""
 
 # ---------------------------------------------------------
-# 2. Check and Build React / Vite Frontend
+# 3. Check and Build React / Vite Frontend
 # ---------------------------------------------------------
-echo "[*] Step 2/3: Checking dependencies and building React UI..."
+echo "[*] Step 3/4: Checking dependencies and building React UI..."
 if [ ! -d "ui/node_modules" ]; then
     echo "[*] ui/node_modules not found. Running npm install in ui..."
     (cd ui && npm install)
 fi
 
 echo "[*] Building React UI..."
-(cd ui && npm run build)
+if ! (cd ui && npm run build); then
+    echo ""
+    echo "[ERROR] React / Vite build failed. The message above names the file and line."
+    echo "        If it points at a type error that no longer exists in the source, the installed"
+    echo "        dependencies are stale: delete ui/node_modules and ui/package-lock.json,"
+    echo "        then run this script again."
+    echo ""
+    exit 1
+fi
 echo "[OK] React frontend built successfully."
 echo ""
 
 # ---------------------------------------------------------
-# 3. Launch Agents Hub via .NET 10
+# 4. Launch Agents Hub via .NET 10
 # ---------------------------------------------------------
-echo "[*] Step 3/3: Starting Agents Hub via dotnet run..."
+echo "[*] Step 4/4: Starting Agents Hub via dotnet run..."
 echo "========================================================"
 echo ""
 
