@@ -1,42 +1,25 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  Menu,
   FolderOpen,
   GitBranch,
-  Terminal,
-  Bell,
-  RefreshCw,
-  Settings,
   Cpu,
   CheckCircle2,
+  PanelLeft,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { useSidecarStore } from '../../store/useSidecarStore';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 
 interface HeaderProps {
+  /** Kept for callers that still pass it; the settings entry point lives in the rail. */
   onOpenSettings?: () => void;
   onOpenWorkspaceModal?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenWorkspaceModal }) => {
-  const {
-    health,
-    telemetry,
-    toggleSidebar,
-    refreshSidecarStatus,
-    hydrateInitialState,
-    setActiveView,
-  } = useSidecarStore();
+export const Header: React.FC<HeaderProps> = ({ onOpenWorkspaceModal }) => {
+  const { health, toggleRail, isRailCollapsed } = useSidecarStore();
 
   const { activeWorkspace, branch } = useWorkspaceStore();
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await refreshSidecarStatus();
-    await hydrateInitialState();
-    setTimeout(() => setIsRefreshing(false), 500);
-  };
 
   return (
     <header
@@ -47,22 +30,17 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenWorkspaceM
       <div className="flex items-center space-x-3">
         <button
           id="btn-toggle-sidebar"
-          onClick={toggleSidebar}
+          onClick={toggleRail}
           className="w-7 h-7 flex items-center justify-center text-content-muted hover:text-content-main rounded-lg hover:bg-surface-card transition border border-transparent hover:border-surface-border"
-          title="Toggle Secondary Sidebar"
+          title={isRailCollapsed ? 'Show the navigation rail' : 'Hide the navigation rail'}
+          aria-label={isRailCollapsed ? 'Show the navigation rail' : 'Hide the navigation rail'}
         >
-          <Menu className="w-4 h-4" />
+          {isRailCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
         </button>
 
         <div className="flex items-center space-x-2 font-semibold text-content-main">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
           <span className="tracking-wide text-xs">AGENTS HUB</span>
-          <span
-            id="brand-version"
-            className="px-1.5 py-0.5 text-[10px] bg-sky-500/10 text-accent border border-sky-500/30 rounded font-mono"
-          >
-            {health.version || '--'}
-          </span>
         </div>
 
         <span className="opacity-30">|</span>
@@ -85,22 +63,9 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenWorkspaceM
         </button>
       </div>
 
-      {/* 2. Center: ConPTY status. The PTY runs inside the sidecar, so this reports the sidecar's
-          real connection state rather than a fixed "Active" label. */}
-      <div className="hidden md:flex items-center space-x-2 text-xs font-mono text-content-muted">
-        <span
-          className={`w-2 h-2 rounded-full ${health.isOnline ? 'bg-emerald-500' : 'bg-rose-500'}`}
-          aria-hidden="true"
-        />
-        <span>
-          ConPTY:{' '}
-          <strong className={health.isOnline ? 'text-state-success font-semibold' : 'text-state-danger font-semibold'}>
-            {health.isOnline ? 'Active' : 'Offline'}
-          </strong>
-        </span>
-      </div>
-
-      {/* 3. Right: Sidecar Health Popover, Telemetry Pill, HUD Button, Bell, Refresh, Settings */}
+      {/* 2. Right: sidecar health dot and the terminal HUD. Everything else that used to live here
+          (ConPTY status, RAM/NET, notifications, refresh, settings) was noise on a 40px strip.
+          Settings is in the rail, and the telemetry that mattered is in the sidecar popover. */}
       <div className="flex items-center space-x-2">
         {/* Bun Sidecar Pure Icon Indicator with Modern Hover Tooltip Popover */}
         <div id="sidecar-status-container" className="relative group/sidecar flex items-center">
@@ -161,55 +126,6 @@ export const Header: React.FC<HeaderProps> = ({ onOpenSettings, onOpenWorkspaceM
           </div>
         </div>
 
-        {/* Combined Compact Telemetry Pill */}
-        <div className="flex items-center space-x-2 text-[11px] font-mono px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border text-content-muted shadow-sm">
-          <span className="text-accent font-semibold">
-            RAM {telemetry.ramMb > 0 ? `${telemetry.ramMb} MB` : '--'}
-          </span>
-          <span className="opacity-30">|</span>
-          <span className="text-state-success">NET {telemetry.netKbps > 0 ? `${telemetry.netKbps} KB/s` : '--'}</span>
-        </div>
-
-        {/* Quake HUD Toggle (F12) */}
-        <button
-          onClick={() => setActiveView('terminals')}
-          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-content-main transition text-xs shadow-sm"
-          title="Toggle HUD Terminal (F12)"
-        >
-          <Terminal className="w-3 h-3 text-accent" />
-          <span>HUD</span>
-          <kbd className="px-1 py-0.2 bg-surface-sunken rounded text-[9px] border border-surface-border font-mono text-content-dim">
-            F12
-          </kbd>
-        </button>
-
-        {/* Notifications Button */}
-        <button
-          className="relative w-7 h-7 flex items-center justify-center rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-content-main transition shadow-sm"
-          title="Notifications"
-        >
-          <Bell className="w-3.5 h-3.5" />
-        </button>
-
-        {/* Refresh State Button */}
-        <button
-          onClick={handleRefresh}
-          className="w-7 h-7 flex items-center justify-center rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-content-main transition shadow-sm"
-          title="Refresh Backend Telemetry & State"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-accent' : ''}`} />
-        </button>
-
-        {/* Workspace Settings Button */}
-        {onOpenSettings && (
-          <button
-            onClick={onOpenSettings}
-            className="w-7 h-7 flex items-center justify-center rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-content-muted hover:text-content-main transition shadow-sm"
-            title="Application Settings"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-        )}
       </div>
     </header>
   );

@@ -10,6 +10,11 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import {
+  EngineStartTimeout,
+  createStartWatchdog,
+  resolveStartTimeoutMs,
+} from '../lib/engineWatchdog';
 import { OutboundEvent, AccountProfileInfo } from '../types/protocol.ts';
 import { ShellExecutor } from '../tools/executor.ts';
 import { TaskQueue } from '../queue/taskQueue.ts';
@@ -792,6 +797,11 @@ export class SessionManager {
    * without assuming hardcoded user directories.
    */
   public resolveAgyCommand(): string {
+    // Explicit override first: it is the only way to point a test at a stub, and the escape hatch
+    // when the CLI is installed somewhere the candidates below do not know about.
+    const override = process.env.AGY_CLI_PATH;
+    if (override && existsSync(override)) return override;
+
     if (process.platform === 'win32') {
       const candidates = [
         process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'agy', 'bin', 'agy.exe') : '',
@@ -891,6 +901,12 @@ export class SessionManager {
         try { proc.kill(9); } catch {}
       });
 
+      // A CLI that hangs before its first byte never resolves the read loop below, and killing it
+      // does not unblock a pending read either (measured). So the turn races this deadline.
+      const watchdog = createStartWatchdog(agyCmd, undefined, () => {
+        try { proc.kill(9); } catch {}
+      });
+
       // Consume stderr in background to prevent pipe deadlock
       if (proc.stderr) {
         (async () => {
@@ -902,6 +918,8 @@ export class SessionManager {
               if (done) break;
               const errText = errDecoder.decode(value, { stream: true });
               if (errText.trim()) {
+                // A CLI that complains is running, even before its first line of JSON.
+                watchdog.markAlive();
                 console.warn(`[agy stderr]: ${errText.trim()}`);
               }
             }
@@ -909,41 +927,48 @@ export class SessionManager {
         })();
       }
 
-      // Stream stdout NDJSON lines
-      if (proc.stdout) {
-        const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+      // Stream stdout NDJSON lines, then the exit code. Both live in `drain` so the deadline above
+      // can cut the turn short: a pending read never resolves on its own when the engine is dead.
+      const drain = async (): Promise<number> => {
+        if (proc.stdout) {
+          const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
 
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+              watchdog.markAlive();
 
-            if (trimmed.startsWith('{')) {
-              try {
-                const evt = JSON.parse(trimmed);
-                this.processAgyEvent(sessionId, evt, sessionState);
+              if (trimmed.startsWith('{')) {
+                try {
+                  const evt = JSON.parse(trimmed);
+                  this.processAgyEvent(sessionId, evt, sessionState);
+                  hasReceivedAnyToken = true;
+                } catch {}
+              } else {
+                this.processRawCliLine(sessionId, trimmed, sessionState);
                 hasReceivedAnyToken = true;
-              } catch {}
-            } else {
-              this.processRawCliLine(sessionId, trimmed, sessionState);
-              hasReceivedAnyToken = true;
+              }
             }
           }
         }
-      }
 
-      const exitCode = await proc.exited;
+        return await proc.exited;
+      };
+
+      const exitCode = await Promise.race([drain(), watchdog.promise]);
 
       if ((exitCode !== 0 || !hasReceivedAnyToken) && !abortController.signal.aborted) {
+        watchdog.dispose();
         console.warn(`[executeAgyTurn] Initial turn exited with code ${exitCode} and receivedToken=${hasReceivedAnyToken}. Falling back to fresh conversation...`);
         await this.executeAgyFresh(opts);
         return;
@@ -959,7 +984,14 @@ export class SessionManager {
       });
 
       this.pollQuota(sessionState.profileName, sessionState.model).catch(() => {});
+      watchdog.dispose();
     } catch (err: any) {
+      // The deadline already answered the question. Retrying would hang identically and double the
+      // wait, which is how the broken binary looked like "nothing happens" for forty minutes.
+      if (err instanceof EngineStartTimeout) {
+        throw err;
+      }
+
       // If first attempt failed with --continue (no previous conversation), retry without --continue
       if (!hasReceivedAnyToken && !abortController.signal.aborted) {
         await this.executeAgyFresh(opts);
@@ -1017,6 +1049,12 @@ export class SessionManager {
       try { proc.kill(9); } catch {}
     });
 
+    // Same deadline as the resuming turn: this path is where a hanging engine lands after the
+    // first attempt fails, and it must not become a second silent wait.
+    const watchdog = createStartWatchdog(agyCmd, undefined, () => {
+      try { proc.kill(9); } catch {}
+    });
+
     if (proc.stderr) {
       (async () => {
         try {
@@ -1026,40 +1064,50 @@ export class SessionManager {
             const { done, value } = await errReader.read();
             if (done) break;
             const errText = errDecoder.decode(value, { stream: true });
-            if (errText.trim()) console.warn(`[agy fresh stderr]: ${errText.trim()}`);
+            if (errText.trim()) {
+              watchdog.markAlive();
+              console.warn(`[agy fresh stderr]: ${errText.trim()}`);
+            }
           }
         } catch {}
       })();
     }
 
-    if (proc.stdout) {
-      const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+    const drain = async (): Promise<number> => {
+      if (proc.stdout) {
+        const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          if (trimmed.startsWith('{')) {
-            try {
-              const evt = JSON.parse(trimmed);
-              this.processAgyEvent(sessionId, evt, sessionState);
-            } catch {}
-          } else {
-            this.processRawCliLine(sessionId, trimmed, sessionState);
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            watchdog.markAlive();
+            if (trimmed.startsWith('{')) {
+              try {
+                const evt = JSON.parse(trimmed);
+                this.processAgyEvent(sessionId, evt, sessionState);
+              } catch {}
+            } else {
+              this.processRawCliLine(sessionId, trimmed, sessionState);
+            }
           }
         }
       }
-    }
-    await proc.exited;
+
+      return await proc.exited;
+    };
+
+    await Promise.race([drain(), watchdog.promise]);
+    watchdog.dispose();
 
     this.emit({
       event: 'thinking',
@@ -1443,7 +1491,18 @@ export class SessionManager {
         stdin: 'ignore'
       });
 
-      const output = await new Response(proc.stdout).text();
+      // A probe that hangs leaves the quota popover on "checking" forever, so it gets its own
+      // deadline. Shorter than a turn: nothing streams here, silence means the engine is stuck.
+      const watchdog = createStartWatchdog(agyCmd, resolveStartTimeoutMs(15_000), () => {
+        try { proc.kill(9); } catch {}
+      });
+
+      let output: string;
+      try {
+        output = await Promise.race([new Response(proc.stdout).text(), watchdog.promise]);
+      } finally {
+        watchdog.dispose();
+      }
       await proc.exited;
 
       const snapshot = this.summariseQuota(this.parseQuotaWindows(output), modelHint);

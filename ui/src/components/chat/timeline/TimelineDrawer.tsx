@@ -40,8 +40,8 @@ export const TimelineDrawer: React.FC<TimelineDrawerProps> = ({
   };
 
   return (
-    <div className="mt-0.5 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-terminal)]">
-      <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-2 py-1">
+    <div className="mt-0.5 overflow-hidden rounded-md bg-[var(--bg-terminal)]">
+      <div className="flex items-center justify-between px-2 py-1">
         <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em] text-content-dim">
           {visible.length > 1 ? 'Details' : visible[0]?.label || 'Details'}
         </span>

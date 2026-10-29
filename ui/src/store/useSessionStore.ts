@@ -36,6 +36,35 @@ function isPlaceholderTitle(title: string | undefined): boolean {
   return raw.replace(/<[^>]*>/g, '').trim().length === 0;
 }
 const STORAGE_KEY_ACTIVE = 'agentshub_active_session_v2';
+/**
+ * Tabs open in the chat tab bar. Separate from the session list on purpose: closing a tab hides it
+ * from the bar and leaves the conversation in the sidebar, where deleting still means deleting.
+ */
+const STORAGE_KEY_TABS = 'agentshub_open_tabs_v1';
+
+function readOpenTabs(sessions: Record<string, SessionRecord>): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_TABS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter((id): id is string => typeof id === 'string' && Boolean(sessions[id]));
+        if (valid.length > 0) return valid;
+      }
+    }
+  } catch {
+    // Fall through to "everything is open".
+  }
+  return Object.keys(sessions);
+}
+
+function persistOpenTabs(ids: string[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_TABS, JSON.stringify(ids));
+  } catch {
+    // Tab state is a convenience; the sidebar is the source of truth.
+  }
+}
 /** Conversation-scoped allow-rules, kept only so a crash cannot leave them in the profile forever. */
 const STORAGE_KEY_CONV_RULES = 'agentshub_conv_rules_v1';
 
@@ -99,6 +128,11 @@ interface SessionStoreState {
   pinSession: (sessionId: string, isPinned?: boolean) => void;
   deleteSession: (sessionId: string) => void;
   clearSessionMessages: (sessionId: string) => void;
+  /** Ids shown in the tab bar, in order. */
+  openTabIds: string[];
+  openTab: (sessionId: string) => void;
+  /** Closes the tab only. The session stays in the sidebar. */
+  closeTab: (sessionId: string) => void;
 
   // Real-time Chat & Streaming Actions
   addUserPrompt: (
@@ -348,6 +382,7 @@ if (migratedSessions !== initialData.sessions) {
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
   sessions: migratedSessions,
   activeSessionId: initialData.activeId,
+  openTabIds: readOpenTabs(migratedSessions),
   pendingDenials: {},
   onceRules: {},
   conversationRules: readConversationRules(),
@@ -476,10 +511,13 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
 
     set(state => {
       const nextSessions = { ...state.sessions, [id]: newSession };
+      const nextTabs = state.openTabIds.includes(id) ? state.openTabIds : [...state.openTabIds, id];
       persistState(nextSessions, id);
+      persistOpenTabs(nextTabs);
       return {
         sessions: nextSessions,
         activeSessionId: id,
+        openTabIds: nextTabs,
       };
     });
 
@@ -489,8 +527,38 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   switchSession: (sessionId: string) => {
     set(state => {
       if (!state.sessions[sessionId]) return state;
+      // Picking a session from the sidebar reopens its tab rather than opening a duplicate.
+      const nextTabs = state.openTabIds.includes(sessionId) ? state.openTabIds : [...state.openTabIds, sessionId];
       persistState(state.sessions, sessionId);
-      return { activeSessionId: sessionId };
+      persistOpenTabs(nextTabs);
+      return { activeSessionId: sessionId, openTabIds: nextTabs };
+    });
+  },
+
+  openTab: (sessionId: string) => {
+    set(state => {
+      if (!state.sessions[sessionId] || state.openTabIds.includes(sessionId)) return state;
+      const nextTabs = [...state.openTabIds, sessionId];
+      persistOpenTabs(nextTabs);
+      return { openTabIds: nextTabs };
+    });
+  },
+
+  /**
+   * Removes the tab and nothing else. The session keeps its messages, its conversation id and its
+   * place in the sidebar; only the tab bar forgets it.
+   */
+  closeTab: (sessionId: string) => {
+    set(state => {
+      if (!state.openTabIds.includes(sessionId)) return state;
+
+      const nextTabs = state.openTabIds.filter(id => id !== sessionId);
+      const nextActive =
+        state.activeSessionId === sessionId ? (nextTabs[nextTabs.length - 1] ?? '') : state.activeSessionId;
+
+      persistOpenTabs(nextTabs);
+      persistState(state.sessions, nextActive);
+      return { openTabIds: nextTabs, activeSessionId: nextActive };
     });
   },
 
@@ -568,10 +636,15 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         nextActiveId = Object.keys(nextSessions)[0];
       }
 
+      // A deleted session cannot keep a tab: that is the one case where the bar loses an entry
+      // without the user closing it.
+      const nextTabs = state.openTabIds.filter(id => id !== sessionId);
+      persistOpenTabs(nextTabs);
       persistState(nextSessions, nextActiveId);
       return {
         sessions: nextSessions,
         activeSessionId: nextActiveId,
+        openTabIds: nextTabs,
       };
     });
   },

@@ -19,6 +19,8 @@ interface SidecarStoreState {
   telemetry: HardwareTelemetry;
   activeView: ActiveView;
   isSidebarCollapsed: boolean;
+  /** The icon rail, collapsed independently of the secondary panel. */
+  isRailCollapsed: boolean;
   isBridgeConnected: boolean;
 
   // Actions
@@ -26,6 +28,8 @@ interface SidecarStoreState {
   setTelemetry: (telemetry: Partial<HardwareTelemetry>) => void;
   setActiveView: (view: ActiveView) => void;
   toggleSidebar: () => void;
+  toggleRail: () => void;
+  setRailCollapsed: (collapsed: boolean) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   initBridgeListeners: () => () => void;
   refreshSidecarStatus: () => Promise<void>;
@@ -68,6 +72,18 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
       return false;
     }
   })(),
+  /**
+   * The icon rail. Separate from `isSidebarCollapsed` so either panel can go without the other:
+   * the rail is navigation, the secondary panel is content, and they are hidden for different
+   * reasons (more room for the editor versus more room for the chat).
+   */
+  isRailCollapsed: (function (): boolean {
+    try {
+      return localStorage.getItem('agents_hub_rail_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  })(),
   isBridgeConnected: false,
 
   setHealth: healthUpdate =>
@@ -94,6 +110,21 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
       localStorage.setItem('agents_hub_sidebar_collapsed', String(next));
     } catch {}
     set({ isSidebarCollapsed: next });
+  },
+
+  toggleRail: () => {
+    const next = !get().isRailCollapsed;
+    try {
+      localStorage.setItem('agents_hub_rail_collapsed', String(next));
+    } catch {}
+    set({ isRailCollapsed: next });
+  },
+
+  setRailCollapsed: collapsed => {
+    try {
+      localStorage.setItem('agents_hub_rail_collapsed', String(collapsed));
+    } catch {}
+    set({ isRailCollapsed: collapsed });
   },
 
   setSidebarCollapsed: collapsed => {

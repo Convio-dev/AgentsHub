@@ -195,7 +195,7 @@ export const SettingsView: React.FC = () => {
     if (!audit) return;
 
     const lines = (audit.issues ?? []).slice(0, 40).map((issue: any) =>
-      `- [${issue.severity}] ${issue.type} — ${issue.filePath}:${issue.lineNumber}\n  ${issue.matchSnippet}`
+      `- [${issue.severity}] ${issue.type}: ${issue.filePath}:${issue.lineNumber}\n  ${issue.matchSnippet}`
     );
 
     const prompt = [
@@ -816,7 +816,7 @@ export const SettingsView: React.FC = () => {
                       On: the default runner is started automatically before the message is sent.
                     </p>
                     <p className="text-[11px] text-[var(--text-dim,#64748B)] pl-7 font-mono">
-                      Default runner: {defaultProfileName ? profileLabel(defaultProfileName) : 'not set — pick one with the star in Multi-Profile Agents'}
+                      Default runner: {defaultProfileName ? profileLabel(defaultProfileName) : 'not set. Pick one with the star in Multi-Profile Agents'}
                     </p>
                   </div>
 
@@ -1742,7 +1742,7 @@ export const SettingsView: React.FC = () => {
 
                 {diagnostics.length === 0 ? (
                   <p className="rounded-lg border border-dashed border-[var(--border-subtle,#1E293B)] px-4 py-8 text-center text-[11px] text-[var(--text-dim,#64748B)]">
-                    No scan has run yet — press Run Scan to measure this machine.
+                    No scan has run yet. Press Run Scan to measure this machine.
                   </p>
                 ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">

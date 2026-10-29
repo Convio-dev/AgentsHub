@@ -204,7 +204,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
       const payload: any = await webviewBridge.invoke('toggle_skill', { directoryPath, enabled });
       if (!payload?.success) {
         // Silence here was the problem: a refused toggle looked like a dead switch.
-        set({ error: `Could not ${enabled ? 'enable' : 'disable'} this skill — the host refused the rename.` });
+        set({ error: `Could not ${enabled ? 'enable' : 'disable'} this skill. The host refused the rename.` });
         return false;
       }
       set({ error: null });

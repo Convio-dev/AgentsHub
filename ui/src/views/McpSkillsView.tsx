@@ -312,7 +312,7 @@ const NewSkillModal: React.FC<{ onClose: () => void; workspaceLabel: string }> =
 
   const submit = async () => {
     if (!name.trim()) return setError('A name is required.');
-    if (!description.trim()) return setError('A description is required — it tells the agent when to use this skill.');
+    if (!description.trim()) return setError('A description is required. It tells the agent when to use this skill.');
     if (!content.trim()) return setError('Instructions are required.');
 
     setIsSaving(true);
@@ -784,8 +784,8 @@ export const McpSkillsView: React.FC = () => {
                             disabled={isBusy}
                             title={
                               skill.isEnabled
-                                ? 'Disable — renames SKILL.md so the agent stops loading it'
-                                : 'Enable — restores SKILL.md'
+                                ? 'Disable: renames SKILL.md so the agent stops loading it'
+                                : 'Enable: restores SKILL.md'
                             }
                             className={`relative h-4 w-7 flex-shrink-0 rounded-full border transition-colors ${
                               skill.isEnabled
@@ -905,7 +905,7 @@ export const McpSkillsView: React.FC = () => {
                     hour: '2-digit',
                     minute: '2-digit',
                   })
-                : '—';
+                : '-';
 
               return (
                 <div
@@ -1067,7 +1067,7 @@ export const McpSkillsView: React.FC = () => {
                 autoFocus
               />
               <span className="block text-[10px] text-content-dim">
-                Any npm package — runs <span className="font-mono">npx -y &lt;package&gt;</span>. The default is
+                Any npm package: runs <span className="font-mono">npx -y &lt;package&gt;</span>. The default is
                 only a suggestion.
               </span>
             </label>

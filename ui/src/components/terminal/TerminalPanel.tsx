@@ -90,8 +90,14 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ cwd, onClose }) =>
     const onResize = () => refit();
     window.addEventListener('resize', onResize);
 
+    // The panel is docked and resizable, so its width can change without the window ever resizing.
+    // Without this the shell keeps the column count it had when it opened.
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => refit()) : null;
+    observer?.observe(host);
+
     return () => {
       window.removeEventListener('resize', onResize);
+      observer?.disconnect();
       dataSub.dispose();
       offData();
       offExit();
@@ -103,7 +109,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ cwd, onClose }) =>
   }, [cwd]);
 
   return (
-    <div className="flex h-[280px] flex-shrink-0 flex-col border-t border-surface-border bg-surface-deep">
+    <div className="flex h-full w-full min-w-0 flex-col bg-surface-deep">
       <div className="flex flex-shrink-0 items-center justify-between border-b border-surface-border px-3 py-1.5">
         <div className="flex min-w-0 items-center gap-2">
           <TerminalIcon className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
@@ -141,9 +147,9 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ cwd, onClose }) =>
         <div ref={hostRef} className="h-full w-full" />
       </div>
 
-      <div className="flex flex-shrink-0 items-center justify-between border-t border-surface-border px-3 py-1 font-mono text-[9px] text-content-dim">
-        <span>Click the console to type · commands run in the workspace folder</span>
-        <span>{isRunning ? 'running' : 'stopped'}</span>
+      <div className="flex flex-shrink-0 items-center justify-between gap-2 border-t border-surface-border px-3 py-1 font-mono text-[9px] text-content-dim">
+        <span className="truncate">Click the console to type · commands run in the workspace folder</span>
+        <span className="flex-shrink-0">{isRunning ? 'running' : 'stopped'}</span>
       </div>
     </div>
   );

@@ -16,7 +16,7 @@ export const TimelineRail: React.FC<{ children: React.ReactNode; className?: str
   className = '',
 }) => (
   <div className={`relative pl-[18px] ${className}`}>
-    <span className="absolute bottom-1 left-[7px] top-1 w-px bg-[var(--border-light)]/70" aria-hidden="true" />
+    <span className="absolute bottom-1 left-[7px] top-1 w-px bg-[var(--border-light)]/45" aria-hidden="true" />
     {children}
   </div>
 );

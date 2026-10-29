@@ -197,7 +197,7 @@ export const QuotaPopover: React.FC<QuotaPopoverProps> = ({
 
         {groups.length === 0 ? (
           <p className="px-3 py-4 text-center font-mono text-[10.5px] leading-relaxed text-content-dim">
-            No quota reading yet — click to check.
+            No quota reading yet. Click to check.
           </p>
         ) : (
           <div className="max-h-[240px] overflow-y-auto">
@@ -221,7 +221,7 @@ export const QuotaPopover: React.FC<QuotaPopoverProps> = ({
                         {Math.round(row.percent)}%
                       </span>
                       <span className="w-[74px] text-right font-mono text-[9px] tabular-nums text-content-dim">
-                        {formatResetAt(row.resetAt) || '—'}
+                        {formatResetAt(row.resetAt) || '-'}
                       </span>
                     </span>
                   </div>

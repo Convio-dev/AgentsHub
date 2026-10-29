@@ -18,7 +18,7 @@ import { useWorkspaceStore } from './store/useWorkspaceStore';
 import { useThemeStore } from './store/useThemeStore';
 
 export const App: React.FC = () => {
-  const { activeView, isSidebarCollapsed, initBridgeListeners } = useSidecarStore();
+  const { activeView, isSidebarCollapsed, isRailCollapsed, initBridgeListeners } = useSidecarStore();
   const { loadProfiles } = useProfileStore();
   const { loadWorkspaces, loadWorkspaceFiles, loadBackendSessions } = useWorkspaceStore();
   const { initTheme } = useThemeStore();
@@ -78,15 +78,29 @@ export const App: React.FC = () => {
 
       {/* 2. DUAL-SIDEBAR WORKSPACE CONTAINER */}
       <div id="app-container" className="flex-1 flex overflow-hidden relative">
-        {/* Left-most Primary Rail (56px) */}
-        <PrimaryRail />
+        {/* Left-most Primary Rail (56px). Same collapse treatment as the panel beside it, with its
+            own state: navigation and content are hidden for different reasons. */}
+        <div
+          className={`relative flex flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${
+            isRailCollapsed ? 'w-0' : 'w-14'
+          }`}
+        >
+          <PrimaryRail />
+        </div>
 
-        {/* Secondary Collapsible Sidebar (260px) - ONLY visible in Chat view */}
-        {activeView === 'chat' && !isSidebarCollapsed && (
-          <SecondarySidebar
-            onOpenWorkspaceModal={() => setActiveModal('workspace')}
-          />
-        )}
+        {/* Secondary sidebar: kept mounted and animated, so collapsing gives the chat its width
+            back without losing the list's scroll position or its filters. Both panels are reopened
+            from their own toggle (header for the rail, chat header for this one) rather than from a
+            strip at the seam, which read as a stray line. */}
+        {activeView === 'chat' ? (
+          <div
+            className={`relative flex flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${
+              isSidebarCollapsed ? 'w-0' : 'w-64'
+            }`}
+          >
+            <SecondarySidebar onOpenWorkspaceModal={() => setActiveModal('workspace')} />
+          </div>
+        ) : null}
 
         {/* Main Workspace Content Area */}
         <main id="main-area" className="flex-1 flex flex-col bg-surface-deep overflow-hidden relative min-w-0">

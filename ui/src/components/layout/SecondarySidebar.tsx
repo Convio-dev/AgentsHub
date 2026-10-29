@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, File, FileCode, FileText, Filter, Folder, FolderOpen, FolderPlus, GitBranch, Loader2, Plus, Settings, Trash2, Zap } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, FileCode, FileText, Filter, Folder, FolderOpen, GitBranch, Loader2, Plus, Settings, Trash2, Zap } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useSessionStore } from '../../store/useSessionStore';
 import { useProfileStore } from '../../store/useProfileStore';
@@ -34,13 +34,12 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
     renameSession,
   } = useSessionStore();
 
-  const { activeProfileName, profiles, switchActiveProfile } = useProfileStore();
+  const { activeProfileName } = useProfileStore();
   const { saveWorkspace, loadWorkspaces } = useWorkspaceStore();
 
   // Creating a workspace belongs where you pick one, not only in the settings dialog.
   const [newWorkspace, setNewWorkspace] = useState<{ name: string; dir: string } | null>(null);
   const [newWorkspaceError, setNewWorkspaceError] = useState<string | null>(null);
-  const [isNewWorkspaceMenuOpen, setIsNewWorkspaceMenuOpen] = useState(false);
   const [sessionFilter, setSessionFilter] = useState('');
   const [isFilterVisible, setIsFilterVisible] = useState(false);
 
@@ -68,7 +67,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
 
   const NOISY = /(^|[\\/])(__pycache__|node_modules|\.git|\.venv|venv|dist|build|bin|obj|target)([\\/]|$)|(\.pyc|\.pyo|\.class|\.o|\.obj|\.log)$/i;
   const visibleFiles = showNoisyFiles ? files : files.filter(file => !NOISY.test(file.path));
-  const { setActiveView } = useSidecarStore();
+  const { setActiveView, toggleSidebar } = useSidecarStore();
 
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -102,7 +101,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
    * Passing the workspace id explicitly is what makes the `+` mean "new conversation in *this*
    * project" rather than "somewhere in whatever is active".
    */
-  const handleNewSessionInWorkspace = (workspaceId: string) => {
+  const handleNewSessionInWorkspace = (workspaceId: string | null) => {
     const newId = createSession(activeProfileName, undefined, workspaceId);
     switchSession(newId);
     setActiveView('chat');
@@ -205,17 +204,15 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
             </span>
           </button>
 
-          {isWorkspace ? (
-            <button
-              type="button"
-              onClick={() => handleNewSessionInWorkspace(groupKey)}
-              className="flex-shrink-0 rounded p-1 text-content-dim transition hover:bg-surface-hover hover:text-accent"
-              title={`New conversation in ${title}`}
-              aria-label={`New conversation in ${title}`}
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => handleNewSessionInWorkspace(isWorkspace ? groupKey : null)}
+            className="flex-shrink-0 rounded p-1 text-content-dim transition hover:bg-surface-hover hover:text-accent"
+            title={`New conversation in ${title}`}
+            aria-label={`New conversation in ${title}`}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
         </div>
 
         {!isCollapsed && (
@@ -223,10 +220,10 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
             {items.length === 0 ? (
               <button
                 type="button"
-                onClick={() => handleNewSessionInWorkspace(groupKey)}
+                onClick={() => handleNewSessionInWorkspace(isWorkspace ? groupKey : null)}
                 className="w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] text-content-dim transition hover:bg-surface-card hover:text-content-main"
               >
-                No conversations yet — start one
+                No conversations yet. Start one
               </button>
             ) : null}
             {items.map(s => {
@@ -274,7 +271,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                       ? 'bg-surface-card border border-surface-border text-content-main shadow-sm'
                       : 'hover:bg-surface-card text-content-muted hover:text-content-main'
                   }`}
-                  title={s.isLocal ? `${s.goal || s.sessionId} — double-click to rename` : s.goal || s.sessionId}
+                  title={s.isLocal ? `${s.goal || s.sessionId}. Double-click to rename` : s.goal || s.sessionId}
                 >
                   <Zap className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-sky-400 fill-sky-400' : 'text-sky-500'}`} />
                   <span className="truncate flex-1 font-medium text-xs text-left" title={s.goal || s.sessionId}>
@@ -312,114 +309,77 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
       id="conversations-sidebar"
       className="w-64 bg-surface-sidebar border-r border-surface-border flex flex-col flex-shrink-0 transition-all duration-200 select-none z-10"
     >
-      {/* 1. Project Workspace Directory Selector */}
-      <div className="p-3 border-b border-surface-border space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] uppercase tracking-wider text-content-dim font-semibold block">
-            Project Workspace
-          </label>
+      {/* One compact row. The old block spent about 200px on two section labels, a full width
+          select, a full width button and a runner row the chat header already shows. */}
+      <div className="border-b border-surface-border px-2 py-2 space-y-1.5">
+        <div className="flex items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <select
+              value={activeWorkspaceId}
+              onChange={e => {
+                if (e.target.value === '__new__') {
+                  setNewWorkspace({ name: '', dir: '' });
+                  setNewWorkspaceError(null);
+                  return;
+                }
+                switchWorkspace(e.target.value);
+              }}
+              title="Switch workspace"
+              className="w-full cursor-pointer appearance-none rounded-md border border-surface-border bg-surface-card py-1 pl-2 pr-6 font-mono text-[11px] text-content-main shadow-sm focus:border-sky-500 focus:outline-none"
+            >
+              {workspaces.map(ws => (
+                <option key={ws.id} value={ws.id}>
+                  {ws.name}
+                </option>
+              ))}
+              {workspaces.length === 0 && <option value="">Loading workspaces...</option>}
+              <option value="__new__">+ New workspace...</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-1.5 top-1.5 h-3 w-3 text-content-dim" />
+          </div>
+
           <button
-            onClick={onOpenWorkspaceModal}
-            className="text-content-dim hover:text-sky-400 p-0.5 rounded transition"
-            title="Configure Workspaces"
+            type="button"
+            onClick={() => setIsFilterVisible(visible => !visible)}
+            title="Filter sessions"
+            aria-label="Filter sessions"
+            className={`rounded p-1 transition-colors hover:bg-surface-card hover:text-content-main ${
+              isFilterVisible || sessionFilter ? 'text-accent' : 'text-content-dim'
+            }`}
           >
-            <Settings className="w-3 h-3" />
+            <Filter className="h-3.5 w-3.5" />
           </button>
-        </div>
 
-        <div className="flex items-center justify-between px-1 pb-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-content-dim">
-            Workspaces ({workspaces.length})
-          </span>
+          <button
+            type="button"
+            onClick={handleNewSession}
+            title={`New conversation in ${activeWorkspace?.name || 'the active workspace'}`}
+            aria-label="New conversation"
+            className="rounded p-1 text-accent transition-colors hover:bg-surface-card"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
 
-          <span className="relative flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setIsFilterVisible(visible => !visible)}
-              title="Filter sessions"
-              className={`rounded p-0.5 transition-colors hover:text-content-main ${
-                isFilterVisible || sessionFilter ? 'text-accent' : 'text-content-dim'
-              }`}
-            >
-              <Filter className="h-3 w-3" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsNewWorkspaceMenuOpen(open => !open)}
-              title="Create a new workspace"
-              className="rounded p-0.5 text-content-dim transition-colors hover:text-content-main"
-            >
-              <FolderPlus className="h-3.5 w-3.5" />
-            </button>
-
-            {isNewWorkspaceMenuOpen ? (
-              <div className="absolute right-0 top-5 z-40 w-40 overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsNewWorkspaceMenuOpen(false);
-                    setNewWorkspace({ name: '', dir: '' });
-                    setNewWorkspaceError(null);
-                  }}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-content-main hover:bg-surface-hover"
-                >
-                  <FolderPlus className="h-3 w-3" />
-                  New Project
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsNewWorkspaceMenuOpen(false);
-                    // Quick Start is a conversation, not a project: create a session with no workspace
-                    // and go straight to it.
-                    const id = createSession(activeProfileName, '', null);
-                    switchSession(id);
-                    setActiveView('chat');
-                  }}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] text-content-muted hover:bg-surface-hover hover:text-content-main"
-                >
-                  <Zap className="h-3 w-3" />
-                  Quick Start
-                </button>
-              </div>
-            ) : null}
-          </span>
+          <button
+            type="button"
+            onClick={onOpenWorkspaceModal}
+            title="Configure workspaces"
+            aria-label="Configure workspaces"
+            className="rounded p-1 text-content-dim transition-colors hover:bg-surface-card hover:text-content-main"
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </button>
         </div>
 
         {isFilterVisible ? (
           <input
             value={sessionFilter}
             onChange={e => setSessionFilter(e.target.value)}
-            placeholder="Filter sessions…"
+            placeholder="Filter sessions..."
             autoFocus
-            className="mb-1 w-full rounded-lg border border-surface-border bg-surface-deep px-2 py-1 font-mono text-[11px] text-content-main outline-none focus:border-sky-500"
+            className="w-full rounded-md border border-surface-border bg-surface-deep px-2 py-1 font-mono text-[11px] text-content-main outline-none focus:border-sky-500"
           />
         ) : null}
-
-        <div className="relative">
-          <select
-            value={activeWorkspaceId}
-            onChange={e => {
-              if (e.target.value === '__new__') {
-                setNewWorkspace({ name: '', dir: '' });
-                setNewWorkspaceError(null);
-                return;
-              }
-              switchWorkspace(e.target.value);
-            }}
-            className="w-full bg-surface-card border border-surface-border text-xs text-content-main rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-sky-500 cursor-pointer appearance-none pr-8 font-mono shadow-sm"
-          >
-            {workspaces.map(ws => (
-              <option key={ws.id} value={ws.id}>
-                {ws.name} {ws.id === activeWorkspaceId ? '(active)' : ''}
-              </option>
-            ))}
-            {workspaces.length === 0 && <option value="">Loading workspaces...</option>}
-            <option value="__new__">+ New workspace…</option>
-          </select>
-          <ChevronDown className="w-3.5 h-3.5 text-content-dim absolute right-2.5 top-2.5 pointer-events-none" />
-        </div>
 
         {newWorkspace
           ? createPortal(
@@ -517,37 +477,9 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
               document.body
             )
           : null}
-
-        {/* '+ New Agent Session' Button */}
-        <button
-          onClick={handleNewSession}
-          className="w-full bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs py-1.5 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition shadow-sm active:scale-98"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>New Agent Session</span>
-        </button>
       </div>
 
-      {/* 2. Active Runner / Profile Selector Pill */}
-      <div className="px-3 py-2 bg-surface-deep border-b border-surface-border flex items-center justify-between text-xs">
-        <span className="text-content-dim text-[11px]">Runner:</span>
-        <div className="flex items-center space-x-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <select
-            value={activeProfileName}
-            onChange={e => switchActiveProfile(e.target.value)}
-            className="bg-transparent text-content-main font-mono text-[11px] focus:outline-none cursor-pointer"
-          >
-            {profiles.map(p => (
-              <option key={p.name} value={p.name} className="bg-slate-900 text-content-main">
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* 3. Conversations & Work History List */}
+      {/* 2. Sessions, grouped by workspace */}
       <div className="flex-1 overflow-y-auto px-2 py-3 space-y-3" id="sessions-scroll-container">
         {workspaceGroups.map(group => renderSessionGroup(group.name, group.items, group.id))}
 
@@ -602,7 +534,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
             </div>
           ) : visibleFiles.length === 0 ? (
             <div className="py-2 text-[11px] text-content-dim italic">
-              {files.length === 0 ? 'Workspace empty' : 'Only build/cache files here — press "all"'}
+              {files.length === 0 ? 'Workspace empty' : 'Only build/cache files here. Press "all"'}
             </div>
           ) : (
             visibleFiles.slice(0, 30).map(file => (

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   MessageSquare,
   LayoutDashboard,
@@ -11,13 +12,19 @@ import {
   Sliders,
   Zap,
   UserCheck,
+  PanelLeftClose,
 } from 'lucide-react';
 import { ActiveView } from '../../types/agent';
 import { useSidecarStore } from '../../store/useSidecarStore';
 import { useProfileStore } from '../../store/useProfileStore';
 
 export const PrimaryRail: React.FC = () => {
-  const { activeView, setActiveView } = useSidecarStore();
+  const { activeView, setActiveView, toggleRail } = useSidecarStore();
+  /**
+   * The rail lives inside a width-animated, overflow-hidden wrapper, so a tooltip anchored inside it
+   * would be clipped to 56px. Rendered into the body instead, positioned from the hovered button.
+   */
+  const [tooltip, setTooltip] = useState<{ label: string; top: number } | null>(null);
   const { activeProfileName, profiles } = useProfileStore();
 
   const activeProfile = profiles.find(
@@ -60,6 +67,14 @@ export const PrimaryRail: React.FC = () => {
               <button
                 key={item.id}
                 onClick={() => setActiveView(item.id)}
+                onMouseEnter={event =>
+                  setTooltip({ label: item.label, top: event.currentTarget.getBoundingClientRect().top })
+                }
+                onMouseLeave={() => setTooltip(null)}
+                onFocus={event =>
+                  setTooltip({ label: item.label, top: event.currentTarget.getBoundingClientRect().top })
+                }
+                onBlur={() => setTooltip(null)}
                 className={`w-10 h-10 rounded-xl flex items-center justify-center transition relative group ${
                   isActive
                     ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-sm'
@@ -68,19 +83,25 @@ export const PrimaryRail: React.FC = () => {
                 title={item.label}
               >
                 {item.icon}
-
-                {/* Floating tooltip */}
-                <div className="absolute left-full ml-3 px-2.5 py-1 rounded-md bg-surface-card border border-surface-border text-xs text-content-main whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition shadow-xl z-50">
-                  {item.label}
-                </div>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Bottom Profile Avatar Indicator */}
+      {/* Bottom: collapse the rail, then the profile avatar. The rail is the one panel a user hides
+          when they want the full width back without losing the sessions list. */}
       <div className="flex flex-col items-center space-y-2">
+        <button
+          type="button"
+          onClick={toggleRail}
+          className="w-9 h-9 rounded-xl flex items-center justify-center text-content-dim hover:text-content-main hover:bg-surface-card transition"
+          title="Hide the navigation rail"
+          aria-label="Hide the navigation rail"
+        >
+          <PanelLeftClose className="w-4 h-4" />
+        </button>
+
         <button
           onClick={() => setActiveView('profiles')}
           className="relative w-9 h-9 rounded-xl bg-surface-card border border-surface-border hover:border-sky-500 flex items-center justify-center text-content-muted hover:text-sky-400 transition group"
@@ -94,6 +115,18 @@ export const PrimaryRail: React.FC = () => {
           />
         </button>
       </div>
+
+      {tooltip
+        ? createPortal(
+            <div
+              style={{ top: tooltip.top + 6, left: 64 }}
+              className="pointer-events-none fixed z-[60] whitespace-nowrap rounded-md border border-surface-border bg-surface-card px-2.5 py-1 text-xs text-content-main shadow-xl"
+            >
+              {tooltip.label}
+            </div>,
+            document.body
+          )
+        : null}
     </nav>
   );
 };

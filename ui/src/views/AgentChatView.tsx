@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   MessageSquare,
   ChevronDown,
@@ -8,6 +8,8 @@ import {
   X,
   Loader2,
   Star,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { useSessionStore } from '../store/useSessionStore';
 import { useProfileStore } from '../store/useProfileStore';
@@ -25,14 +27,20 @@ interface AgentChatViewProps {
   onOpenGitModal: () => void;
 }
 
+/** Docked terminal sizing. The floor keeps a shell usable; the ceiling keeps the chat readable. */
+const MIN_TERMINAL_WIDTH = 320;
+const DEFAULT_TERMINAL_WIDTH = 460;
+const MIN_TRANSCRIPT_WIDTH = 420;
+
 export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) => {
   const {
     sessions,
     activeSessionId,
+    openTabIds,
     getActiveSession,
     createSession,
     switchSession,
-    deleteSession,
+    closeTab,
   } = useSessionStore();
 
   const {
@@ -47,11 +55,65 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
     setDefaultProfile,
   } = useProfileStore();
 
-  const { setActiveView } = useSidecarStore();
+  const { setActiveView, toggleSidebar, isSidebarCollapsed } = useSidecarStore();
   const { activeWorkspace } = useWorkspaceStore();
 
   const [isProfilePopoverOpen, setIsProfilePopoverOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+
+  /**
+   * Docked terminal width, in pixels from the right edge.
+   *
+   * A side dock is what every IDE does and it keeps the transcript's full height; the previous
+   * bottom strip stole ~280px from the message list and squeezed the composer.
+   */
+  const [terminalWidth, setTerminalWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('agentshub_terminal_width'));
+      if (Number.isFinite(saved) && saved >= MIN_TERMINAL_WIDTH) return saved;
+    } catch {
+      // Fall through to the default.
+    }
+    return DEFAULT_TERMINAL_WIDTH;
+  });
+  const dockRef = useRef<HTMLDivElement>(null);
+  /** Mirrors `terminalWidth` so the pointerup handler persists the value the drag ended on. */
+  const widthRef = useRef(terminalWidth);
+
+  const startTerminalResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    const dock = dockRef.current;
+    if (!dock) return;
+
+    event.preventDefault();
+    const bounds = dock.getBoundingClientRect();
+
+    const move = (moveEvent: PointerEvent) => {
+      const next = bounds.right - moveEvent.clientX;
+      // Leave the transcript enough room to stay readable; never collapse the terminal to a sliver.
+      const ceiling = Math.max(MIN_TERMINAL_WIDTH + 80, bounds.width - MIN_TRANSCRIPT_WIDTH);
+      const clamped = Math.min(Math.max(next, MIN_TERMINAL_WIDTH), ceiling);
+      widthRef.current = clamped;
+      setTerminalWidth(clamped);
+    };
+
+    const end = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      try {
+        localStorage.setItem('agentshub_terminal_width', String(Math.round(widthRef.current)));
+      } catch {
+        // Persisting the width is a convenience, not a requirement.
+      }
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+  };
+
 
   const activeSession = getActiveSession();
   const activeProfile = profiles.find(
@@ -103,13 +165,26 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
     switchSession(newId);
   };
 
-  const openTabs = Object.values(sessions);
+  // The tab bar shows the open subset, not every session: closing a tab must not delete a chat.
+  const openTabs = openTabIds.map(id => sessions[id]).filter(Boolean);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-surface-deep text-content-main select-none relative">
       {/* 1. Top Context Bar */}
       <div className="h-12 border-b border-surface-border px-4 flex items-center justify-between bg-surface-deep z-20 flex-shrink-0 relative">
         <div className="flex items-center space-x-3">
+          {/* Sessions panel toggle. It belongs here rather than in the global header, which showed
+              it on every view even where that panel does not exist. */}
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            title={isSidebarCollapsed ? 'Show the sessions panel' : 'Hide the sessions panel'}
+            aria-label={isSidebarCollapsed ? 'Show the sessions panel' : 'Hide the sessions panel'}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-content-dim transition-colors hover:bg-surface-card hover:text-content-main"
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          </button>
+
           {/* Active Session Label */}
           <div className="flex items-center space-x-2">
             <MessageSquare className="w-4 h-4 text-accent" />
@@ -134,20 +209,6 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
               />
               <span>Runner: {profileLabel(activeProfileName)}</span>
               <ChevronDown className="w-3 h-3 text-content-dim ml-1" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsTerminalOpen(open => !open)}
-              title={isTerminalOpen ? 'Close the terminal' : 'Open a terminal in the workspace folder'}
-              className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[10.5px] transition-colors ${
-                isTerminalOpen
-                  ? 'border-sky-500/50 bg-sky-500/10 text-accent'
-                  : 'border-surface-border bg-surface-deep text-content-muted hover:text-content-main'
-              }`}
-            >
-              <Terminal className="w-3 h-3" />
-              Terminal
             </button>
 
             {/* Multi-Profile Popover Panel */}
@@ -208,7 +269,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                                 onClick={() => setDefaultProfile(isDefault ? '' : p.name)}
                                 title={
                                   isDefault
-                                    ? `${p.name} is the default runner — click to clear`
+                                    ? `${p.name} is the default runner. Click to clear`
                                     : `Use ${p.name} as the default runner`
                                 }
                                 aria-pressed={isDefault}
@@ -272,17 +333,22 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
           </div>
         </div>
 
-        {/* Right Controls: Review Diff, Terminals. Model, effort, quota and tokens live in the
-            composer footer, where they belong to the prompt rather than to the window chrome. */}
+        {/* Right Controls: one terminal control, the compact toggle that used to sit under the
+            runner. Model, effort, quota and tokens live in the composer footer, where they belong
+            to the prompt rather than to the window chrome. */}
         <div className="flex items-center space-x-2">
-          {/* Terminal View Trigger */}
           <button
-            onClick={() => setActiveView('terminals')}
-            title="Open Interactive Terminals"
-            className="px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-xs text-content-muted hover:text-content-main flex items-center space-x-1.5 transition shadow-sm"
+            type="button"
+            onClick={() => setIsTerminalOpen(open => !open)}
+            title={isTerminalOpen ? 'Close the terminal' : 'Open a terminal in the workspace folder'}
+            className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[10.5px] transition-colors ${
+              isTerminalOpen
+                ? 'border-sky-500/50 bg-sky-500/10 text-accent'
+                : 'border-surface-border bg-surface-deep text-content-muted hover:text-content-main'
+            }`}
           >
-            <Terminal className="w-3 h-3 text-accent" />
-            <span>Terminals</span>
+            <Terminal className="w-3 h-3" />
+            Terminal
           </button>
         </div>
       </div>
@@ -317,19 +383,18 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                   />
                 )}
                 <span className="truncate text-[11px] font-mono">{tab.title}</span>
-                {openTabs.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={e => {
-                      e.stopPropagation();
-                      deleteSession(tab.id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 hover:text-state-danger transition ml-1 p-0.5 text-[10px]"
-                    title="Close tab"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation();
+                    closeTab(tab.id);
+                  }}
+                  className="ml-1 p-0.5 text-[10px] opacity-0 transition hover:text-content-main group-hover:opacity-100"
+                  title="Close the tab. The conversation stays in the sidebar."
+                  aria-label="Close tab"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </div>
             );
           })}
@@ -346,54 +411,98 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
         </button>
       </div>
 
-      {/* 3. Messages List with Claude-Code Connected Stepper */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-        {activeSession ? (
-          <ChatMessageList
-            messages={activeSession.messages}
-            activeExecutionCardId={activeSession.activeExecutionCardId}
-            isGenerating={isExecuting}
-          />
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-content-dim font-mono text-xs">
-            No active session selected.
-          </div>
-        )}
+      {/* 3. Transcript + composer on the left, terminal docked to the right. The terminal used to
+          sit under the composer and ate the bottom of the transcript; docked, both keep full height. */}
+      <div ref={dockRef} className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+          {activeSession ? (
+            <ChatMessageList
+              messages={activeSession.messages}
+              activeExecutionCardId={activeSession.activeExecutionCardId}
+              isGenerating={isExecuting}
+            />
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-content-dim">
+              <p className="font-mono text-xs">No conversation open.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = createSession(defaultProfileName || activeProfileName);
+                  switchSession(id);
+                }}
+                className="rounded-md border border-surface-border bg-surface-card px-3 py-1.5 text-xs text-content-main transition-colors hover:border-sky-500"
+              >
+                New conversation
+              </button>
+              <p className="max-w-[240px] text-center font-mono text-[10.5px] leading-relaxed">
+                Every conversation stays in the sidebar. Closing a tab never deletes one.
+              </p>
+            </div>
+          )}
 
-        {/* 4. Bottom Floating Input Dock */}
+          {/* Blocked tool calls sit directly above the composer: that is where the switch that
+              caused them lives, and where the retry is offered. */}
+          {activeSession ? <PermissionRequestBar sessionId={activeSession.id} /> : null}
+
+          {activeSession ? (
+            <ChatInput
+              sessionId={activeSession.id}
+              profileName={activeSession?.profile || activeProfileName}
+              blockedNotice={
+                !isRunnerStopped || autoRunDefaultProfile
+                  ? null
+                  : `Runner ${profileLabel(runnerName)} is stopped. Start it to send a message.`
+              }
+              onStartRunner={() => void startProfile(runnerName)}
+              onSendMessage={handleSendMessage}
+              onStop={handleStopGenerating}
+              isExecuting={isExecuting}
+              activeModel={activeSession?.model || defaultModel || undefined}
+              reasoningEffort={activeSession?.reasoningEffort}
+              lastTurnTokens={activeSession?.lastTurnTokens}
+              sessionTokens={activeSession?.tokens}
+              turnCount={activeSession?.messages.filter(message => message.sender === 'assistant').length}
+              onOpenGitModal={onOpenGitModal}
+              activeCli={activeWorkspace?.primaryCli}
+              workingDirectory={activeWorkspace?.workingDirectory}
+            />
+          ) : null}
+        </div>
+
         {isTerminalOpen ? (
-          <TerminalPanel
-            cwd={activeWorkspace?.workingDirectory}
-            onClose={() => setIsTerminalOpen(false)}
-          />
+          <>
+            {/* Splitter: drag to resize, double-click to restore the default width. */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize terminal"
+              onPointerDown={startTerminalResize}
+              onDoubleClick={() => {
+                widthRef.current = DEFAULT_TERMINAL_WIDTH;
+                setTerminalWidth(DEFAULT_TERMINAL_WIDTH);
+                try {
+                  localStorage.setItem('agentshub_terminal_width', String(DEFAULT_TERMINAL_WIDTH));
+                } catch {
+                  // Optional.
+                }
+              }}
+              className="group relative w-1.5 flex-shrink-0 cursor-col-resize bg-surface-border/40 transition-colors hover:bg-accent/40 active:bg-accent/60"
+              title="Drag to resize · double-click to reset"
+            >
+              <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-surface-border transition-colors group-hover:bg-accent/70" />
+            </div>
+
+            <div
+              style={{ width: terminalWidth, maxWidth: `calc(100% - ${MIN_TRANSCRIPT_WIDTH}px)` }}
+              className="flex h-full min-w-0 flex-shrink-0 flex-col overflow-hidden border-l border-surface-border"
+            >
+              <TerminalPanel
+                cwd={activeWorkspace?.workingDirectory}
+                onClose={() => setIsTerminalOpen(false)}
+              />
+            </div>
+          </>
         ) : null}
-
-        {/* Blocked tool calls sit directly above the composer: that is where the switch that
-            caused them lives, and where the retry is offered. */}
-        {activeSession ? <PermissionRequestBar sessionId={activeSession.id} /> : null}
-
-        <ChatInput
-          sessionId={activeSession?.id || ''}
-          profileName={activeSession?.profile || activeProfileName}
-          blockedNotice={
-            !isRunnerStopped || autoRunDefaultProfile
-              ? null
-              : `Runner ${profileLabel(runnerName)} is stopped. Start it to send a message.`
-          }
-          onStartRunner={() => void startProfile(runnerName)}
-          onSendMessage={handleSendMessage}
-          onStop={handleStopGenerating}
-          isExecuting={isExecuting}
-          activeModel={activeSession?.model || defaultModel || undefined}
-          reasoningEffort={activeSession?.reasoningEffort}
-          lastTurnTokens={activeSession?.lastTurnTokens}
-          sessionTokens={activeSession?.tokens}
-          turnCount={activeSession?.messages.filter(message => message.sender === 'assistant').length}
-          onOpenGitModal={onOpenGitModal}
-          onOpenTerminal={() => setActiveView('terminals')}
-          activeCli={activeWorkspace?.primaryCli}
-          workingDirectory={activeWorkspace?.workingDirectory}
-        />
       </div>
     </div>
   );

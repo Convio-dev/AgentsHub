@@ -127,7 +127,9 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
         if (isUser) {
           return (
             <div key={message.id} className="group flex justify-end">
-              <div className="max-w-[85%] space-y-2.5 rounded-2xl rounded-tr-sm border border-surface-border/60 bg-surface-card p-3.5 text-sm text-content-main">
+              {/* Filled, not outlined: an overlay tint reads as a bubble in both themes, where a
+                  white card on the near-white canvas would have no edge at all. */}
+              <div className="max-w-[85%] space-y-2.5 rounded-2xl rounded-tr-sm bg-surface-strong px-3.5 py-2.5 text-sm text-content-main">
                 <div className="flex items-center gap-2 font-mono text-[11px] text-content-dim">
                   <User className="h-3.5 w-3.5 text-accent" />
                   <span className="font-semibold text-content-muted">You</span>
@@ -221,15 +223,13 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
 
         return (
           <div key={message.id} className="group flex justify-start">
-            <div className="w-full rounded-2xl rounded-tl-sm border border-surface-border bg-surface-card/70 p-4 text-content-main">
-              <div className="mb-2 flex items-center justify-between border-b border-surface-border/70 pb-2.5 text-xs">
+            <div className="w-full text-content-main">
+              <div className="mb-1.5 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
-                  <div className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-md border border-surface-border bg-surface-deep p-0.5">
-                    <img src={appMascot} alt="" className="h-full w-full object-contain" />
-                  </div>
+                  <img src={appMascot} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
                   <span className="font-semibold text-content-main">Agent</span>
                   <span
-                    className="rounded border border-surface-border/60 bg-surface-deep px-1.5 py-0.5 font-mono text-[10px] text-accent"
+                    className="rounded bg-surface-strong/60 px-1.5 py-0.5 font-mono text-[10px] text-accent"
                     title={message.profile ? `Runner profile: ${message.profile}` : 'No runner profile configured'}
                   >
                     {profileLabel(message.profile)}
@@ -274,7 +274,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
               ) : null}
 
               {message.markdown ? (
-                <div className={message.timeline?.length ? 'mt-3 border-t border-surface-border/70 pt-3' : 'mt-1'}>
+                <div className={message.timeline?.length ? 'mt-2' : 'mt-0.5'}>
                   <MarkdownRenderer content={message.markdown} />
                 </div>
               ) : isActive && (!message.timeline || message.timeline.length === 0) ? (

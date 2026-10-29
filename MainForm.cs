@@ -1046,13 +1046,15 @@ public partial class MainForm : Form
 
         foreach (var part in mod.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
+            // Unsuffixed literals make the switch return int, and `uint |= int` sign-extends the
+            // operand. The `u` suffixes keep the whole expression unsigned.
             flags |= part.ToLowerInvariant() switch
             {
-                "alt" => 0x0001,
-                "ctrl" or "control" => 0x0002,
-                "shift" => 0x0004,
-                "win" or "windows" or "super" => 0x0008,
-                _ => 0
+                "alt" => 0x0001u,
+                "ctrl" or "control" => 0x0002u,
+                "shift" => 0x0004u,
+                "win" or "windows" or "super" => 0x0008u,
+                _ => 0u
             };
         }
 

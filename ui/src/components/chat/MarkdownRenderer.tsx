@@ -82,8 +82,8 @@ const CodeBlock: React.FC<{ language?: string; code?: string }> = ({ language = 
   };
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-edge-code bg-surface-code">
-      <div className="flex select-none items-center justify-between border-b border-edge-code bg-surface-codeHeader px-3.5 py-2 font-mono text-xs">
+    <div className="my-3 overflow-hidden rounded-lg bg-surface-code">
+      <div className="flex select-none items-center justify-between bg-surface-codeHeader/70 px-3.5 py-1.5 font-mono text-xs">
         <span className="flex items-center gap-2 font-semibold lowercase text-accent">
           <SquareTerminal className="h-3.5 w-3.5 text-content-dim" />
           <span>{highlighted?.language || language || 'code'}</span>
@@ -147,7 +147,7 @@ const ProseBlock: React.FC<{ text?: string }> = ({ text = '' }) => {
     }
     if (line.startsWith('## ')) {
       elements.push(
-        <h2 key={i} className="mb-1 mt-3 border-b border-surface-border pb-1 text-sm font-bold text-content-main">
+        <h2 key={i} className="mb-1 mt-4 text-sm font-bold text-content-main">
           {line.slice(3)}
         </h2>
       );
@@ -155,7 +155,7 @@ const ProseBlock: React.FC<{ text?: string }> = ({ text = '' }) => {
     }
     if (line.startsWith('# ')) {
       elements.push(
-        <h1 key={i} className="mb-2 mt-4 border-b border-surface-border pb-1 text-base font-bold text-content-main">
+        <h1 key={i} className="mb-2 mt-5 text-base font-bold text-content-main">
           {line.slice(2)}
         </h1>
       );
@@ -264,7 +264,7 @@ function renderInlineTokens(line: string): React.ReactNode[] {
       tokens.push(
         <code
           key={match.index}
-          className="mx-0.5 rounded border border-edge-code bg-surface-strong px-1.5 py-0.5 font-mono text-[11.5px] text-accent"
+          className="mx-0.5 rounded bg-surface-strong px-1.5 py-0.5 font-mono text-[11.5px] text-accent"
         >
           {token.slice(1, -1)}
         </code>

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { AlertTriangle, ArrowUp, Paperclip, Square, Terminal, GitBranch, X, FileText } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Paperclip, Square, GitBranch, X, FileText } from 'lucide-react';
 import { ChatAttachment, SlashCommand, TokenUsage } from '../../types/agent';
 import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
@@ -24,7 +24,6 @@ interface ChatInputProps {
   /** Completed replies in this session, so the token panel can say what the total adds up. */
   turnCount?: number;
   onOpenGitModal?: () => void;
-  onOpenTerminal?: () => void;
   /** Active CLI id, so command and model discovery target the right engine. */
   activeCli?: string;
   /** Workspace root, used to discover project-level skills and command manifests. */
@@ -63,7 +62,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   sessionTokens,
   turnCount,
   onOpenGitModal,
-  onOpenTerminal,
   activeCli,
   workingDirectory,
   sessionId,
@@ -472,16 +470,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </button>
 
             <span className="opacity-30">|</span>
-
-            <button
-              type="button"
-              onClick={onOpenTerminal}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono text-content-muted hover:text-content-main hover:bg-surface-hover transition"
-              title="Quick Exec in ConPTY Terminal"
-            >
-              <Terminal className="w-3 h-3 text-accent" />
-              <span>Exec</span>
-            </button>
 
             <button
               type="button"

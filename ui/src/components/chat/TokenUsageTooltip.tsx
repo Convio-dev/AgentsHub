@@ -173,7 +173,7 @@ export const TokenUsageTooltip: React.FC<TokenUsageTooltipProps> = ({ turn, sess
                   </div>
                   <p className="mt-1 text-[10px] leading-relaxed text-content-dim">
                     {turns && turns > 1 ? `Added up over ${turns} replies. ` : 'Added up over every reply. '}
-                    Each turn re-sends the conversation, so earlier context is counted again — this is
+                    Each turn re-sends the conversation, so earlier context is counted again. This is
                     tokens processed, not unique text.
                   </p>
                 </>

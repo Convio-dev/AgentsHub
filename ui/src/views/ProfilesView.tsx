@@ -780,7 +780,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                               onClick={() => setDefaultProfile(isDefault ? '' : p.name)}
                               title={
                                 isDefault
-                                  ? `${p.name} is the default profile — click to clear`
+                                  ? `${p.name} is the default profile. Click to clear`
                                   : `Set ${p.name} as the default profile`
                               }
                               aria-pressed={isDefault}

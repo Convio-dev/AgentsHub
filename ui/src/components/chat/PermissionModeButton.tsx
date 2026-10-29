@@ -171,7 +171,7 @@ export const PermissionModeButton: React.FC<PermissionModeButtonProps> = ({ prof
               ) : null}
               {!error && !isSaving ? (
                 <p className="mt-2 text-[10.5px] leading-relaxed text-content-dim">
-                  Saved for {targetName || 'this profile'} — the terminal tab shows the same setting.
+                  Saved for {targetName || 'this profile'}. The terminal tab shows the same setting.
                 </p>
               ) : null}
             </div>,
