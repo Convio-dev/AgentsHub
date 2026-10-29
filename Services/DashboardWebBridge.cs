@@ -3082,6 +3082,121 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            // The repository detail panel called four actions that never existed, so its buttons were
+            // dead in exactly the way `pick_directory` was: a rejected promise inside an empty catch.
+            case "open_in_explorer":
+                {
+                    string path = data.TryGetProperty("path", out var exPath) ? exPath.GetString() ?? string.Empty : string.Empty;
+                    bool opened = Directory.Exists(path);
+                    if (opened)
+                    {
+                        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true }); }
+                        catch (Exception) { opened = false; }
+                    }
+                    SendResponse(requestId, true, new { opened });
+                }
+                break;
+
+            case "open_terminal_at":
+                {
+                    string path = data.TryGetProperty("path", out var termPath) ? termPath.GetString() ?? string.Empty : string.Empty;
+                    bool opened = Directory.Exists(path);
+                    if (opened)
+                    {
+                        try
+                        {
+                            // Windows Terminal when installed, otherwise a console rooted there.
+                            var info = new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = "cmd.exe",
+                                Arguments = $"/k cd /d \"{path}\"",
+                                WorkingDirectory = path,
+                                UseShellExecute = true,
+                            };
+                            System.Diagnostics.Process.Start(info);
+                        }
+                        catch (Exception) { opened = false; }
+                    }
+                    SendResponse(requestId, true, new { opened });
+                }
+                break;
+
+            case "open_external_editor":
+                {
+                    string path = data.TryGetProperty("path", out var edPath) ? edPath.GetString() ?? string.Empty : string.Empty;
+                    bool opened = Directory.Exists(path);
+
+                    if (opened)
+                    {
+                        try
+                        {
+                            // `code` if VS Code is on PATH; the folder is the honest fallback rather
+                            // than a silent no-op.
+                            var start = new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = "code",
+                                Arguments = $"\"{path}\"",
+                                UseShellExecute = true,
+                            };
+                            System.Diagnostics.Process.Start(start);
+                        }
+                        catch (Exception)
+                        {
+                            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true }); }
+                            catch (Exception) { opened = false; }
+                        }
+                    }
+
+                    SendResponse(requestId, true, new { opened });
+                }
+                break;
+
+            case "git_branch_at":
+                {
+                    // Branch from a commit, never reset. `git branch` moves nothing, so the current
+                    // branch and its commits are untouched even if the checkout step fails.
+                    string repoPath = data.TryGetProperty("repoPath", out var bp) ? bp.GetString() ?? string.Empty : string.Empty;
+                    string name = data.TryGetProperty("name", out var bn) ? bn.GetString() ?? string.Empty : string.Empty;
+                    string hash = data.TryGetProperty("hash", out var bh) ? bh.GetString() ?? string.Empty : string.Empty;
+                    bool alsoSwitch = data.TryGetProperty("switchTo", out var bs) && bs.ValueKind == JsonValueKind.True;
+
+                    bool validName = name.Length > 0
+                        && System.Text.RegularExpressions.Regex.IsMatch(name, @"^[A-Za-z0-9._\-/]+$")
+                        && !name.Contains("..");
+                    bool validHash = System.Text.RegularExpressions.Regex.IsMatch(hash, "^[0-9a-fA-F]{4,40}$");
+
+                    if (!Directory.Exists(repoPath) || !validName || !validHash)
+                    {
+                        SendResponse(requestId, true, new { created = false, switched = false, error = "Invalid branch name, commit, or repository." });
+                        break;
+                    }
+
+                    var (branchRc, branchOut) = await GitRepositoryManagerService
+                        .RunGitAsync(repoPath, ["branch", name, hash]).ConfigureAwait(false);
+
+                    if (branchRc != 0)
+                    {
+                        SendResponse(requestId, true, new { created = false, switched = false, error = branchOut.Trim() });
+                        break;
+                    }
+
+                    bool switched = false;
+                    string? switchError = null;
+
+                    if (alsoSwitch)
+                    {
+                        // Only after the branch exists, and never forced: a dirty tree may refuse,
+                        // and that refusal is reported rather than worked around.
+                        var (coRc, coOut) = await GitRepositoryManagerService
+                            .RunGitAsync(repoPath, ["checkout", name]).ConfigureAwait(false);
+                        switched = coRc == 0;
+                        if (!switched) switchError = coOut.Trim();
+                    }
+
+                    SendResponse(requestId, true, new { created = true, switched, error = switchError });
+                }
+                break;
+
             case "git_commit_graph":
                 {
                     // GetCommitGraphAsync has existed all along; nothing exposed it, so the graph tab

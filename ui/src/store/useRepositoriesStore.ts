@@ -277,11 +277,14 @@ export const useRepositoriesStore = create<RepositoriesStoreState>((set, get) =>
       const rawLaunchers: any[] = launchersRes.status === 'fulfilled' && Array.isArray(launchersRes.value?.launchers)
         ? launchersRes.value.launchers
         : [];
+      // The service sends `label` ("npm run dev"), not `name`, so every card used to fall back to
+      // the word "Script". The full command is assembled from command + args for the same reason:
+      // the payload carries them separately and the card shows one string.
       const launchers: LauncherItem[] = rawLaunchers.map((l: any) => ({
-        id: l.id || `launch_${l.name || Date.now()}`,
-        name: l.name || 'Script',
-        command: l.command || '',
-        type: l.type || 'npm script',
+        id: l.id || `launch_${l.label || Date.now()}`,
+        name: l.label || l.name || 'Script',
+        command: [l.command, ...(Array.isArray(l.args) ? l.args : [])].filter(Boolean).join(' '),
+        type: l.type || 'script',
         icon: l.icon,
       }));
 

@@ -1232,11 +1232,25 @@ public sealed class GitRepositoryManagerService
         {
             var psi = new ProcessStartInfo
             {
-                FileName = launcher.Command,
                 WorkingDirectory = string.IsNullOrEmpty(launcher.Cwd) ? repoPath : launcher.Cwd,
-                UseShellExecute = true
+                UseShellExecute = true,
             };
-            foreach (var arg in launcher.Args) psi.ArgumentList.Add(arg);
+
+            bool hasArgs = launcher.Args is { Count: > 0 };
+
+            if (!hasArgs && launcher.Command.Contains(' '))
+            {
+                // A full command line ("npm run dev") is not a file name. It has to go through the
+                // shell, and /k keeps the console open so the output is readable after it finishes.
+                psi.FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd";
+                psi.Arguments = $"/k {launcher.Command}";
+            }
+            else
+            {
+                psi.FileName = launcher.Command;
+                foreach (var arg in launcher.Args) psi.ArgumentList.Add(arg);
+            }
+
             Process.Start(psi);
             return true;
         }

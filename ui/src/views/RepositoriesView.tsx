@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useState, useEffect } from 'react';
 import {
   GitBranch,
@@ -93,6 +94,58 @@ export const RepositoriesView: React.FC = () => {
   useEffect(() => {
     loadRepoManagerState();
   }, [loadRepoManagerState]);
+
+  /** Commit the user wants a branch from, if the confirm modal is open. */
+  const [branchTarget, setBranchTarget] = useState<{ hash: string; subject: string } | null>(null);
+  const [branchName, setBranchName] = useState('');
+  const [branchSwitch, setBranchSwitch] = useState(false);
+  const [branchBusy, setBranchBusy] = useState(false);
+  const [branchError, setBranchError] = useState<string | null>(null);
+
+  const openBranchModal = (hash: string, subject: string) => {
+    setBranchTarget({ hash, subject });
+    setBranchName(`restore/${hash.slice(0, 7)}`);
+    setBranchSwitch(false);
+    setBranchError(null);
+  };
+
+  const createBranch = async () => {
+    if (!branchTarget) return;
+
+    const repo = useRepositoriesStore.getState();
+    const target = repo.repositories.find(r => r.id === repo.selectedRepoId);
+    if (!target) return;
+
+    setBranchBusy(true);
+    setBranchError(null);
+
+    try {
+      const res: any = await webviewBridge.invoke('git_branch_at', {
+        repoPath: target.path,
+        name: branchName.trim(),
+        hash: branchTarget.hash,
+        switchTo: branchSwitch,
+      });
+
+      if (!res?.created) {
+        setBranchError(res?.error || 'The branch could not be created.');
+        return;
+      }
+
+      if (res.error) {
+        // Created, but the checkout refused (usually a dirty tree). Say so instead of closing.
+        setBranchError(`Branch created, but not checked out: ${res.error}`);
+        return;
+      }
+
+      setBranchTarget(null);
+      await repo.loadRepoManagerState();
+    } catch (err) {
+      setBranchError(err instanceof Error ? err.message : 'The branch could not be created.');
+    } finally {
+      setBranchBusy(false);
+    }
+  };
 
   // The graph is fetched when its tab opens, and again when the selection changes, because the
   // commit list belongs to one repository rather than to the whole manager state.
@@ -678,7 +731,12 @@ export const RepositoriesView: React.FC = () => {
                         <span className="text-[var(--text-dim,#64748B)]">{diffStats}</span>
                       </div>
                       <pre className="flex-1 p-4 font-mono text-xs overflow-auto bg-[var(--bg-input,#0D1322)] text-content-muted leading-relaxed whitespace-pre">
-                        {diffContent || 'No diff available for this file.'}
+                        {/* An empty diff is not a failure: a new file has nothing to compare
+                            against, and a binary has no text to show. "No diff available" made both
+                            read like an error. `selectedDiffFile` is a path string, so the wording
+                            covers both cases instead of branching on a status it does not carry. */}
+                        {diffContent
+                          || 'No text diff to show. A new file has nothing to compare against, and a binary file has no text.'}
                       </pre>
                     </div>
                   </div>
@@ -790,14 +848,95 @@ export const RepositoriesView: React.FC = () => {
                           </div>
                         </div>
 
-                        {c.stats && (
-                          <span className="text-xs font-mono text-[var(--text-dim,#64748B)]">{c.stats}</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {c.stats && (
+                            <span className="text-xs font-mono text-[var(--text-dim,#64748B)]">{c.stats}</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openBranchModal(c.hash, c.subject)}
+                            className="rounded-md border border-surface-border px-2 py-0.5 font-mono text-[10px] text-content-muted transition-colors hover:border-accent hover:text-accent"
+                            title="Create a branch from this commit. The current branch is not changed."
+                          >
+                            Branch from here
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
+
+              {/* Branch from a commit. Nothing here moves the current branch. */}
+              {branchTarget
+                ? createPortal(
+                    <div
+                      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+                      onClick={() => setBranchTarget(null)}
+                      role="dialog"
+                      aria-modal="true"
+                    >
+                      <div
+                        className="w-full max-w-md space-y-3 rounded-2xl border border-surface-border bg-surface-card p-5 shadow-2xl"
+                        onClick={event => event.stopPropagation()}
+                      >
+                        <h3 className="text-sm font-bold text-content-main">Create a branch from this commit</h3>
+
+                        <div className="rounded-lg border border-surface-border bg-surface-deep/60 p-2.5">
+                          <div className="font-mono text-[10px] text-accent">{branchTarget.hash.slice(0, 7)}</div>
+                          <div className="truncate text-[11px] text-content-main" title={branchTarget.subject}>
+                            {branchTarget.subject}
+                          </div>
+                        </div>
+
+                        <label className="block space-y-1">
+                          <span className="font-mono text-[10px] uppercase tracking-wide text-content-dim">Branch name</span>
+                          <input
+                            value={branchName}
+                            onChange={event => setBranchName(event.target.value)}
+                            className="w-full rounded-lg border border-surface-border bg-surface-deep px-3 py-1.5 font-mono text-[11px] text-content-main focus:border-accent focus:outline-none"
+                          />
+                        </label>
+
+                        <label className="flex items-center gap-2 text-[11px] text-content-main">
+                          <input
+                            type="checkbox"
+                            checked={branchSwitch}
+                            onChange={event => setBranchSwitch(event.target.checked)}
+                            className="h-3.5 w-3.5 accent-sky-500"
+                          />
+                          Switch to it after creating
+                        </label>
+
+                        <p className="text-[10.5px] leading-relaxed text-content-dim">
+                          The current branch is not changed and no commit is discarded. Switching may be
+                          refused if you have uncommitted changes, and that is reported rather than forced.
+                        </p>
+
+                        {branchError ? <p className="text-[11px] text-state-danger">{branchError}</p> : null}
+
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setBranchTarget(null)}
+                            className="rounded-lg border border-surface-border px-3 py-1.5 text-[11px] text-content-muted transition-colors hover:text-content-main"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={branchBusy || branchName.trim().length === 0}
+                            onClick={() => void createBranch()}
+                            className="rounded-lg bg-sky-600 px-3 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+                          >
+                            {branchBusy ? 'Creating...' : 'Create branch'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>,
+                    document.body
+                  )
+                : null}
 
               {/* 4. RUN & LAUNCHERS */}
               {activeSubTab === 'run' && (
