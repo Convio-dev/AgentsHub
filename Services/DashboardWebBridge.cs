@@ -581,12 +581,17 @@ public sealed partial class DashboardWebBridge : IDisposable
                         // minutes (priming, several tool rounds), and awaiting it here made the UI's
                         // 25s request timeout fire while the turn was still going, painting a red
                         // error into a chat that then answered normally.
+                        // Read the payload here, not inside the task. `data` is a JsonElement over a
+                        // document the handler disposes on return, so touching it from a task that
+                        // outlives the handler throws "Cannot access a disposed object".
+                        bool toolsAllowed = !data.TryGetProperty("toolsEnabled", out var teElem) || teElem.ValueKind != JsonValueKind.False;
+                        var attachmentFiles = MaterialiseAttachments(data);
+
                         _ = Task.Run(async () =>
                         {
                             try
                             {
-                                bool toolsAllowed = !data.TryGetProperty("toolsEnabled", out var teElem) || teElem.ValueKind != JsonValueKind.False;
-                                await DispatchDeepSeekAsync(sessionId, prompt, conversationId, cwd, skipPermissions, profile, toolsAllowed).ConfigureAwait(false);
+                                await DispatchDeepSeekAsync(sessionId, prompt, conversationId, cwd, skipPermissions, profile, toolsAllowed, attachmentFiles).ConfigureAwait(false);
                             }
                             catch (Exception ex)
                             {
@@ -5736,7 +5741,44 @@ public sealed partial class DashboardWebBridge : IDisposable
     /// timeline renders as a Thought node) and answer text becomes `chat_token` chunks. ChatId is
     /// emitted as `conversation_started` so the next turn continues the same DeepSeek chat.
     /// </summary>
-    private async Task DispatchDeepSeekAsync(string sessionId, string prompt, string? chatId, string? cwd, bool skipPermissions, string? profile, bool toolsAllowed)
+    /// <summary>
+    /// Writes the payload's data URLs to temp files the page can be given.
+    ///
+    /// The store keeps attachments as data URLs and no path, and a file input needs a path, so the
+    /// bytes have to land on disk first. The caller deletes them when the turn ends.
+    /// </summary>
+    private static List<string> MaterialiseAttachments(JsonElement data)
+    {
+        var files = new List<string>();
+        if (!data.TryGetProperty("attachments", out var items) || items.ValueKind != JsonValueKind.Array) return files;
+
+        foreach (var item in items.EnumerateArray())
+        {
+            string? dataUrl = item.TryGetProperty("dataUrl", out var du) ? du.GetString() : null;
+            string name = item.TryGetProperty("name", out var nm) ? nm.GetString() ?? "attachment" : "attachment";
+            if (string.IsNullOrWhiteSpace(dataUrl)) continue;
+
+            int comma = dataUrl.IndexOf(',');
+            if (comma < 0) continue;
+
+            try
+            {
+                var bytes = Convert.FromBase64String(dataUrl[(comma + 1)..]);
+                string safe = string.Concat(name.Split(Path.GetInvalidFileNameChars()));
+                string temp = Path.Combine(Path.GetTempPath(), $"agentshub-attach-{Guid.NewGuid():N}-{safe}");
+                File.WriteAllBytes(temp, bytes);
+                files.Add(temp);
+            }
+            catch (FormatException)
+            {
+                // A malformed data URL is skipped; the turn still runs without it.
+            }
+        }
+
+        return files;
+    }
+
+    private async Task DispatchDeepSeekAsync(string sessionId, string prompt, string? chatId, string? cwd, bool skipPermissions, string? profile, bool toolsAllowed, List<string> attachmentFiles)
     {
         var cts = new CancellationTokenSource();
         _deepSeekRuns[sessionId] = cts;
@@ -5864,7 +5906,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                         conversationId = id,
                         timestamp = DateTime.UtcNow.ToString("O"),
                     });
-                }, toolsAllowed, cts.Token)
+                }, toolsAllowed, attachmentFiles, cts.Token)
                 .ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(reply.ChatId) && !string.Equals(reply.ChatId, knownChat, StringComparison.Ordinal))
@@ -5907,6 +5949,11 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             _deepSeekRuns.TryRemove(sessionId, out _);
             cts.Dispose();
+
+            foreach (var file in attachmentFiles)
+            {
+                try { File.Delete(file); } catch (IOException) { }
+            }
         }
     }
 

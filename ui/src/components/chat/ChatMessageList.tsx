@@ -1,4 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ImageLightbox } from './ImageLightbox';
+import { Paperclip } from 'lucide-react';
 import { AlertCircle, MessageSquare, User } from 'lucide-react';
 import { ChatMessage } from '../../types/agent';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -23,11 +26,53 @@ function statusLabel(message: ChatMessage): string {
   return message.markdown ? 'Streaming' : 'Working';
 }
 
+/**
+ * Renders the `[Attached: name (size)]` lines the prompt carries as chips.
+ *
+ * The text has to stay in the prompt: it is the only hint the CLI engine gets, since attachments are
+ * not handed to it as files. Rendering it as a pill keeps that hint without the bracket noise.
+ */
+function renderAttachmentLine(prompt?: string): React.ReactNode {
+  if (!prompt) return null;
+
+  const pattern = /\[Attached: ([^\]]+)\]/g;
+  if (!pattern.test(prompt)) return prompt;
+
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  pattern.lastIndex = 0;
+
+  while ((match = pattern.exec(prompt)) !== null) {
+    if (match.index > cursor) parts.push(prompt.slice(cursor, match.index));
+
+    const [name, size] = match[1].split(/\s+\(/);
+    parts.push(
+      <span
+        key={`${match.index}-${match[1]}`}
+        className="mx-0.5 inline-flex max-w-[220px] items-center gap-1 rounded-md border border-surface-border bg-surface-deep px-1.5 py-0.5 align-middle font-mono text-[10.5px] text-content-muted"
+        title={match[1]}
+      >
+        <Paperclip className="h-3 w-3 flex-shrink-0 text-accent" />
+        <span className="truncate">{name}</span>
+        {size ? <span className="flex-shrink-0 text-content-dim">{size.replace('(', '').replace(')', '')}</span> : null}
+      </span>
+    );
+
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < prompt.length) parts.push(prompt.slice(cursor));
+  return parts;
+}
+
 export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGenerating = false }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** Data URL of the attachment being previewed, if any. */
+  const [preview, setPreview] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
@@ -153,13 +198,18 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
                         className="flex items-center gap-2 rounded-lg border border-surface-border/70 bg-surface-deep/80 p-1.5 pr-2.5 text-xs"
                       >
                         {att.isImage && att.dataUrl ? (
-                          <a href={att.dataUrl} target="_blank" rel="noreferrer" className="block flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setPreview(att.dataUrl || null)}
+                            className="block flex-shrink-0 cursor-zoom-in"
+                            title="Open the image"
+                          >
                             <img
                               src={att.dataUrl}
                               alt={att.name}
                               className="h-8 w-8 rounded border border-surface-border object-cover"
                             />
-                          </a>
+                          </button>
                         ) : (
                           <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-sky-500/25 bg-sky-500/10 font-mono text-[10px] font-bold uppercase text-accent">
                             {att.name.split('.').pop()?.slice(0, 3) || 'file'}
@@ -213,7 +263,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
                   </div>
                 ) : (
                   <div className="select-text whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">
-                    {message.prompt}
+                    {renderAttachmentLine(message.prompt)}
                   </div>
                 )}
               </div>
@@ -295,6 +345,10 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
           </div>
         );
       })}
+      {preview
+        ? createPortal(<ImageLightbox src={preview} onClose={() => setPreview(null)} />, document.body)
+        : null}
+
     </div>
   );
 };

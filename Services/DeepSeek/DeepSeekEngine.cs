@@ -340,6 +340,7 @@ public sealed class DeepSeekEngine
         IProgress<DeepSeekToolStep>? tools = null,
         Action<string>? onChatId = null,
         bool toolsAllowed = true,
+        IReadOnlyList<string>? attachments = null,
         CancellationToken ct = default)
     {
         string? chat = chatId;
@@ -377,6 +378,26 @@ public sealed class DeepSeekEngine
             if (!string.IsNullOrWhiteSpace(primed.ChatId)) chat = primed.ChatId;
             if (chat is not null) _primedChats.Add(chat);
             Log($"primed chat={chat}");
+        }
+
+        // Files are attached here, after priming on purpose. Attaching before it made the protocol
+        // message carry the image, so the guide went out with the user's file attached to it and the
+        // real question arrived as a plain text follow-up.
+        if (attachments is { Count: > 0 })
+        {
+            foreach (var file in attachments)
+            {
+                try
+                {
+                    await UiAsync(() => AttachFileAsync(file)).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Log($"attach failed {Path.GetFileName(file)}: {ex.Message}");
+                }
+            }
+
+            await Task.Delay(1200, ct).ConfigureAwait(false);
         }
 
         string message = prompt;
@@ -601,6 +622,35 @@ public sealed class DeepSeekEngine
           return { hasProtocol: found };
         })()
         """;
+
+    /// <summary>
+    /// Puts a real file on the page's file input.
+    ///
+    /// A textarea cannot carry bytes, so the only honest way to hand DeepSeek an image is the
+    /// upload control, and a file input can only be set from outside the page. CDP does that.
+    /// </summary>
+    private async Task AttachFileAsync(string path)
+    {
+        var core = _web?.CoreWebView2 ?? throw new InvalidOperationException("WebView2 is not ready.");
+
+        var docRaw = await core.CallDevToolsProtocolMethodAsync("DOM.getDocument", "{\"depth\":-1}");
+        using var doc = JsonDocument.Parse(docRaw);
+        int rootId = doc.RootElement.GetProperty("root").GetProperty("nodeId").GetInt32();
+
+        var queryRaw = await core.CallDevToolsProtocolMethodAsync(
+            "DOM.querySelector",
+            JsonSerializer.Serialize(new { nodeId = rootId, selector = "input[type=file]" }));
+
+        using var query = JsonDocument.Parse(queryRaw);
+        int nodeId = query.RootElement.GetProperty("nodeId").GetInt32();
+        if (nodeId == 0) throw new InvalidOperationException("the page has no file input");
+
+        await core.CallDevToolsProtocolMethodAsync(
+            "DOM.setFileInputFiles",
+            JsonSerializer.Serialize(new { files = new[] { path }, nodeId }));
+
+        Log($"attached {Path.GetFileName(path)}");
+    }
 
     private static string Describe(string error) => error switch
     {

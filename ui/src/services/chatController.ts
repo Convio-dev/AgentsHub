@@ -14,6 +14,8 @@ import { profileForDispatch } from '../lib/profileName';
 import { resolveModelId, useModelStore } from '../store/useModelStore';
 
 interface DispatchTarget {
+  /** Files the user attached; carried as data URLs because the store keeps no path. */
+  attachments?: ChatAttachment[];
   sessionId: string;
   prompt: string;
 }
@@ -64,7 +66,7 @@ function resolveSkipPermissions(profile?: string): boolean {
   return match?.skipPermissions !== false;
 }
 
-async function dispatch({ sessionId, prompt }: DispatchTarget): Promise<void> {
+async function dispatch({ sessionId, prompt, attachments }: DispatchTarget): Promise<void> {
   const context = resolveContext(sessionId);
 
   try {
@@ -78,6 +80,10 @@ async function dispatch({ sessionId, prompt }: DispatchTarget): Promise<void> {
       conversationId: context.conversationId,
       engine: context.engine,
       toolsEnabled: context.toolsEnabled,
+      // The host writes these to temp files and hands them to the engine as real files.
+      attachments: attachments
+        ?.filter(a => Boolean(a.dataUrl))
+        .map(a => ({ name: a.name, type: a.type, dataUrl: a.dataUrl })),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to dispatch chat prompt';
@@ -92,7 +98,7 @@ export async function sendPrompt(
   attachments?: ChatAttachment[]
 ): Promise<void> {
   useSessionStore.getState().addUserPrompt(sessionId, prompt, undefined, attachments);
-  await dispatch({ sessionId, prompt });
+  await dispatch({ sessionId, prompt, attachments });
 }
 
 /**

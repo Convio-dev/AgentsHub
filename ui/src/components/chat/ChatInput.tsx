@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { AlertTriangle, ArrowUp, Brain, Paperclip, Square, GitBranch, X, FileText } from 'lucide-react';
 import { ChatAttachment, SlashCommand, TokenUsage } from '../../types/agent';
@@ -5,6 +6,7 @@ import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
 import { SlashCommandPalette } from './SlashCommandPalette';
 import { ModelSelector } from './ModelSelector';
+import { ImageLightbox } from './ImageLightbox';
 import { PermissionModeButton } from './PermissionModeButton';
 import { TokenUsageTooltip } from './TokenUsageTooltip';
 import { CircularQuotaWidget } from './CircularQuotaWidget';
@@ -336,6 +338,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const turnTokens = lastTurnTokens?.totalTokens || 0;
   const isDeepSeek = engine === 'deepseek';
+  /** Data URL of the attachment being previewed, if any. */
+  const [preview, setPreview] = useState<string | null>(null);
   /**
    * Shown until sign-in is *confirmed*, not only when it is known to be missing. A probe that is
    * slow or never answers used to leave the composer with no sign-in affordance at all.
@@ -382,6 +386,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               : 'border-surface-border focus-within:border-sky-500/70 focus-within:ring-1 focus-within:ring-sky-500/30'
           }`}
         >
+        {/* Portalled: the composer clips its own children, so a fixed overlay inside it renders
+            confined to the input box. */}
+        {preview
+          ? createPortal(<ImageLightbox src={preview} onClose={() => setPreview(null)} />, document.body)
+          : null}
+
         {/* Attached Files Preview Bar */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 px-3.5 pt-3 pb-1 border-b border-surface-border/40 max-h-36 overflow-y-auto">
@@ -394,7 +404,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   <img
                     src={att.dataUrl}
                     alt={att.name}
-                    className="w-7 h-7 rounded object-cover flex-shrink-0 border border-surface-border"
+                    onClick={() => setPreview(att.dataUrl || null)}
+                    className="w-7 h-7 cursor-zoom-in rounded object-cover flex-shrink-0 border border-surface-border"
                   />
                 ) : (
                   <div className="w-7 h-7 rounded bg-sky-500/10 border border-sky-500/20 flex items-center justify-center flex-shrink-0 text-accent">
