@@ -77,6 +77,13 @@ Check("nested args keep the action", nestedCall.Count == 1 && nestedCall[0].GetP
 Check("nested server resolves", DeepSeekTools.Preview("mcp_call", nestedCall[0]).Contains("blender.get_scene_info"),
     DeepSeekTools.Preview("mcp_call", nestedCall[0]));
 
+// --- a write reports what changed, not just a byte count
+var write1 = JsonDocument.Parse("""{"action":"write_file","path":"diff.txt","content":"one\ntwo\nthree\n"}""").RootElement.Clone();
+DeepSeekTools.Execute("write_file", write1, root);
+var write2 = JsonDocument.Parse("""{"action":"write_file","path":"diff.txt","content":"one\nTWO\nthree\nfour\n"}""").RootElement.Clone();
+var (_, diffBody) = DeepSeekTools.Execute("write_file", write2, root);
+Check("diff shows the change", diffBody.Contains("- two") && diffBody.Contains("+ TWO") && diffBody.Contains("+ four"), diffBody.Split('\n').Length + " lines");
+
 // --- the streaming filter (P0: the block must never reach the prose)
 var openFence = DeepSeekTools.Visible("Sure\n```tool\n{\"action\"");
 Check("holds an open fence", !openFence.Contains("```") && !openFence.Contains("action"), openFence.Replace("\n", "\\n"));

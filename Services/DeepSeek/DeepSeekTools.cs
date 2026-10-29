@@ -379,12 +379,23 @@ internal static class DeepSeekTools
         if (content.Length > MaxWrite) throw new InvalidOperationException($"refusing to write {content.Length} characters (limit {MaxWrite})");
         if (Directory.Exists(target)) throw new InvalidOperationException($"{Rel(target, root)} is a directory");
 
+        string name = Rel(target, root);
+        string? previous = File.Exists(target) ? File.ReadAllText(target) : null;
+
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         File.WriteAllText(target, content, new UTF8Encoding(false));
 
-        string name = Rel(target, root);
         int written = Encoding.UTF8.GetByteCount(content);
-        return ($"wrote {name} ({written} B)", $"wrote {name}: {content.Length} characters");
+
+        // A new file has nothing to compare against, so a diff would just echo the content back to
+        // a model that wrote it a moment ago. Say what it is and stop there.
+        if (previous is null)
+        {
+            return ($"wrote {name} ({written} B)", $"wrote {name}: new file, {content.Length} characters");
+        }
+
+        return ($"wrote {name} ({written} B)",
+                $"wrote {name}: {content.Length} characters\n\n{Diff(previous, content)}");
     }
 
     private static (string, string) ApplyPatch(string target, string root, string? oldText, string? newText)
@@ -400,10 +411,12 @@ internal static class DeepSeekTools
             throw new InvalidOperationException("old_text appears more than once; include more surrounding text");
         }
 
-        File.WriteAllText(target, text[..at] + newText + text[(at + oldText.Length)..], new UTF8Encoding(false));
+        string updated = text[..at] + newText + text[(at + oldText.Length)..];
+        File.WriteAllText(target, updated, new UTF8Encoding(false));
+
         string name = Rel(target, root);
         return ($"patched {name} (-{oldText.Length} +{newText.Length})",
-                $"patched {name}: replaced {oldText.Length} characters with {newText.Length}");
+                $"patched {name}: replaced {oldText.Length} characters with {newText.Length}\n\n{Diff(text, updated)}");
     }
 
     private static (string, string) RunCommand(string root, string? command)
@@ -490,6 +503,43 @@ internal static class DeepSeekTools
         string body = File.ReadAllText(match.Path);
         if (body.Length > MaxRead) body = body[..MaxRead] + "\n… truncated …";
         return ($"read_skill {match.Name}", body);
+    }
+
+    /// <summary>
+    /// A compact line diff: removed lines prefixed '-', added '+', unchanged context ' '.
+    ///
+    /// Enough to see what a write actually did, which a byte count never showed. Capped so a large
+    /// rewrite does not flood the drawer or the model's context.
+    /// </summary>
+    private static string Diff(string? before, string after)
+    {
+        const int MaxLines = 60;
+
+        string[] oldLines = (before ?? string.Empty).Replace("\r\n", "\n").Split('\n');
+        string[] newLines = after.Replace("\r\n", "\n").Split('\n');
+
+        // Trim the common head and tail so the visible part is the change, not the whole file.
+        int head = 0;
+        while (head < oldLines.Length && head < newLines.Length && oldLines[head] == newLines[head]) head++;
+
+        int tail = 0;
+        while (tail < oldLines.Length - head && tail < newLines.Length - head
+               && oldLines[^(tail + 1)] == newLines[^(tail + 1)]) tail++;
+
+        var lines = new List<string>();
+        if (head > 0) lines.Add($"  … {head} unchanged line{(head == 1 ? "" : "s")} …");
+
+        for (int i = head; i < oldLines.Length - tail; i++) lines.Add($"- {oldLines[i]}");
+        for (int i = head; i < newLines.Length - tail; i++) lines.Add($"+ {newLines[i]}");
+
+        if (tail > 0) lines.Add($"  … {tail} unchanged line{(tail == 1 ? "" : "s")} …");
+        if (lines.Count == 0) return "no textual change";
+
+        bool capped = lines.Count > MaxLines;
+        if (capped) lines = lines.Take(MaxLines).ToList();
+        if (capped) lines.Add($"… diff truncated at {MaxLines} lines …");
+
+        return string.Join('\n', lines);
     }
 
     private static string Rel(string path, string root)

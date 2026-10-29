@@ -79,6 +79,15 @@ public sealed class DeepSeekEngine
     /// </summary>
     public Func<string, string, string, Task<bool>>? ApprovalRequested { get; set; }
 
+    /// <summary>
+    /// Serialises turns. There is one page, so two sessions sending at once would type into the same
+    /// composer and then poll each other's chat ids, mixing two conversations into one reply.
+    /// </summary>
+    private readonly SemaphoreSlim _turnLock = new(1, 1);
+
+    /// <summary>True while a turn holds the page, so the host can show a queued state.</summary>
+    public bool IsBusy => _turnLock.CurrentCount == 0;
+
     private Form? _host;
     private WebView2? _web;
     private System.Windows.Forms.Timer? _watchLogin;
@@ -332,6 +341,7 @@ public sealed class DeepSeekEngine
     /// inside the working directory, and answered with the results. A reply with no block ends the
     /// turn. Ported from `refrenceDS/deepseek/cli.py`, which is the version that was proven.
     /// </summary>
+    /// <summary>One turn, serialised against every other turn on this page.</summary>
     public async Task<DeepSeekReply> SendAsync(
         string prompt,
         string? chatId,
@@ -341,6 +351,33 @@ public sealed class DeepSeekEngine
         Action<string>? onChatId = null,
         bool toolsAllowed = true,
         IReadOnlyList<string>? attachments = null,
+        bool deepThink = true,
+        bool webSearch = false,
+        CancellationToken ct = default)
+    {
+        await _turnLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await SendLockedAsync(prompt, chatId, root, progress, tools, onChatId, toolsAllowed, attachments, deepThink, webSearch, ct)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _turnLock.Release();
+        }
+    }
+
+    private async Task<DeepSeekReply> SendLockedAsync(
+        string prompt,
+        string? chatId,
+        string? root,
+        IProgress<DeepSeekDelta>? progress = null,
+        IProgress<DeepSeekToolStep>? tools = null,
+        Action<string>? onChatId = null,
+        bool toolsAllowed = true,
+        IReadOnlyList<string>? attachments = null,
+        bool deepThink = true,
+        bool webSearch = false,
         CancellationToken ct = default)
     {
         string? chat = chatId;
@@ -373,7 +410,7 @@ public sealed class DeepSeekEngine
             {
                 Log($"mcp tools unavailable: {ex.GetType().Name}: {ex.Message}");
             }
-            var primed = await SendOnceAsync(DeepSeekTools.Guide(root!, skills, mcpTools), chat, null, null, ct).ConfigureAwait(false);
+            var primed = await SendOnceAsync(DeepSeekTools.Guide(root!, skills, mcpTools), chat, null, null, deepThink, webSearch, ct).ConfigureAwait(false);
             Log($"primed chat={chat} skills={skills.Count} mcpTools={mcpTools.Count}");
             if (!string.IsNullOrWhiteSpace(primed.ChatId)) chat = primed.ChatId;
             if (chat is not null) _primedChats.Add(chat);
@@ -406,7 +443,7 @@ public sealed class DeepSeekEngine
         {
             ct.ThrowIfCancellationRequested();
 
-            var reply = await SendOnceAsync(message, chat, progress, onChatId, ct).ConfigureAwait(false);
+            var reply = await SendOnceAsync(message, chat, progress, onChatId, deepThink, webSearch, ct).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(reply.ChatId)) chat = reply.ChatId;
 
             if (!toolsEnabled) return reply;
@@ -489,11 +526,13 @@ public sealed class DeepSeekEngine
         string? chatId,
         IProgress<DeepSeekDelta>? progress,
         Action<string>? onChatId,
+        bool deepThink,
+        bool webSearch,
         CancellationToken ct)
     {
         Log($"send start chat={chatId ?? "-"} chars={prompt.Length}");
 
-        var prepared = await UiAsync(() => EvalAsync(BuildPrepareScript(prompt, chatId))).ConfigureAwait(false);
+        var prepared = await UiAsync(() => EvalAsync(BuildPrepareScript(prompt, chatId, deepThink, webSearch))).ConfigureAwait(false);
         if (!IsTrue(prepared, "ok"))
         {
             string error = StringOf(prepared, "error") ?? "unknown";
@@ -511,6 +550,7 @@ public sealed class DeepSeekEngine
         var reasoning = new StringBuilder();
         var answer = new StringBuilder();
         string emitted = string.Empty;
+        int lastLength = 0;
         double? seconds = null;
         long deadline = Environment.TickCount64 + SendBudgetMs;
         bool finished = false;
@@ -546,7 +586,11 @@ public sealed class DeepSeekEngine
                 break;
             }
 
-            await Task.Delay(900, ct).ConfigureAwait(false);
+            // Fast while the answer is growing, slow when nothing changes. A flat 900ms made the
+            // reply arrive in visible chunks even though the page had it sooner.
+            int grew = answer.Length > lastLength ? 250 : 900;
+            lastLength = answer.Length;
+            await Task.Delay(grew, ct).ConfigureAwait(false);
         }
 
         if (!finished && answer.Length == 0)
@@ -590,6 +634,43 @@ public sealed class DeepSeekEngine
         buffer.Append(delta);
         progress?.Report(isReasoning ? new DeepSeekDelta(delta, null) : new DeepSeekDelta(null, delta));
     }
+
+    /// <summary>
+    /// The chats in the sidebar, newest first.
+    ///
+    /// Read from the page's own DOM rather than calling an undocumented endpoint: the anchors carry
+    /// both the id and the title, so this cannot drift from what the user sees.
+    /// </summary>
+    public Task<List<(string Id, string Title)>> ListChatsAsync() => UiAsync(async () =>
+    {
+        var result = await EvalAsync("""
+            (() => {
+              const seen = new Set();
+              const out = [];
+              for (const a of document.querySelectorAll('a[href*="/a/chat/s/"]')) {
+                const id = (a.getAttribute('href') || '').match(/\/s\/([0-9a-fA-F-]{20,})/);
+                if (!id || seen.has(id[1])) continue;
+                seen.add(id[1]);
+                const title = (a.textContent || '').trim();
+                if (title) out.push({ id: id[1], title: title.slice(0, 80) });
+              }
+              return out;
+            })()
+            """).ConfigureAwait(false);
+
+        var chats = new List<(string, string)>();
+        if (result.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in result.EnumerateArray())
+            {
+                string? id = StringOf(item, "id");
+                string? title = StringOf(item, "title");
+                if (!string.IsNullOrWhiteSpace(id)) chats.Add((id!, title ?? id!));
+            }
+        }
+
+        return chats;
+    });
 
     /// <summary>True when this chat already carries the protocol line.</summary>
     private async Task<bool> HasProtocolAsync(string? chatId, CancellationToken ct)
@@ -680,7 +761,7 @@ public sealed class DeepSeekEngine
             : null;
 
     /// <summary>Types the prompt, submits it, and reports the chat id plus the message baseline.</summary>
-    private static string BuildPrepareScript(string prompt, string? chatId) => $$"""
+    private static string BuildPrepareScript(string prompt, string? chatId, bool deepThink, bool webSearch) => $$"""
         (async () => {
           const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
           const token = {{TokenJs}};
@@ -701,9 +782,26 @@ public sealed class DeepSeekEngine
             }
           }
 
-          const toggle = Array.from(document.querySelectorAll(".ds-toggle-button, [role='button'], button"))
-            .find((e) => /deep\s*think/i.test(e.textContent || '') && (e.textContent || '').length < 40);
-          if (toggle && (toggle.getAttribute('aria-pressed') || '') !== 'true') toggle.click();
+          // Their composer carries two chips, DeepThink and Search. Both are plain buttons whose
+          // pressed state is in aria-pressed or a selected class, so one setter drives both.
+          const setChip = (label, wanted) => {
+            const chip = Array.from(document.querySelectorAll(".ds-toggle-button, [role='button'], button"))
+              .find((e) => label.test((e.textContent || '').trim()) && (e.textContent || '').trim().length < 24);
+            if (!chip) return 'missing';
+
+            const pressed = chip.getAttribute('aria-pressed') === 'true'
+              || /selected/i.test(chip.className || '')
+              || /--on|--active/.test(chip.className || '');
+
+            if (pressed === wanted) return 'already';
+            chip.click();
+            return 'clicked';
+          };
+
+          const chips = {
+            deepThink: setChip(/^deep\s*think$/i, {{(deepThink ? "true" : "false")}}),
+            search: setChip(/^search$/i, {{(webSearch ? "true" : "false")}})
+          };
 
           const box = document.querySelector("textarea[name='search']") || document.querySelector('textarea');
           if (!box) return { ok: false, error: 'composer_missing' };
@@ -743,7 +841,7 @@ public sealed class DeepSeekEngine
             if (!chatId) await sleep(400);
           }
 
-          return { ok: !!chatId, chat_id: chatId, baseline, submitted: (box.value || '').trim().length === 0 };
+          return { ok: !!chatId, chat_id: chatId, baseline, chips, submitted: (box.value || '').trim().length === 0 };
         })()
         """;
 

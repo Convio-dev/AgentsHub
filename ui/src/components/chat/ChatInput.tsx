@@ -1,11 +1,13 @@
 import { createPortal } from 'react-dom';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { AlertTriangle, ArrowUp, Brain, Paperclip, Square, GitBranch, X, FileText } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Brain, FileCode, Folder, Paperclip, Quote, Square, GitBranch, X, FileText } from 'lucide-react';
 import { ChatAttachment, SlashCommand, TokenUsage } from '../../types/agent';
 import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
 import { SlashCommandPalette } from './SlashCommandPalette';
 import { ModelSelector } from './ModelSelector';
+import { useSessionStore } from '../../store/useSessionStore';
+import { webviewBridge } from '../../services/webviewBridge';
 import { ImageLightbox } from './ImageLightbox';
 import { PermissionModeButton } from './PermissionModeButton';
 import { TokenUsageTooltip } from './TokenUsageTooltip';
@@ -39,6 +41,12 @@ interface ChatInputProps {
   deepSeekSignedIn?: boolean | null;
   /** Opens the one-time DeepSeek sign-in window. */
   onDeepSeekLogin?: () => void;
+  /** DeepSeek's DeepThink chip; undefined means its default, which is on. */
+  deepThink?: boolean;
+  /** DeepSeek's Search chip; undefined means its default, which is off. */
+  webSearch?: boolean;
+  /** Toggles one of those two chips for this session. */
+  onDeepSeekOption?: (option: 'deepThink' | 'webSearch', value: boolean) => void;
   /** Session that owns the model/effort selection. */
   sessionId: string;
   /** Profile whose quota the footer ring reports. Quota is per account, never shared. */
@@ -72,6 +80,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   engine,
   deepSeekSignedIn,
   onDeepSeekLogin,
+  deepThink,
+  webSearch,
+  onDeepSeekOption,
   lastTurnTokens,
   sessionTokens,
   turnCount,
@@ -83,7 +94,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   blockedNotice,
   onStartRunner,
 }) => {
-  const [prompt, setPrompt] = useState('');
+  // Seeded from the session so a tab switch restores what was typed, not an empty box.
+  const [prompt, setPrompt] = useState(() => useSessionStore.getState().sessions[sessionId]?.draft ?? '');
+
+  // Text quoted from the transcript lands here, ready to send or edit.
+  useEffect(() => {
+    const onQuote = (event: Event) => {
+      const quoted = (event as CustomEvent<string>).detail;
+      if (!quoted) return;
+      setPrompt(prev => (prev.trim().length > 0 ? `${prev}\n\n${quoted}` : quoted));
+    };
+
+    window.addEventListener('agentshub:quote', onQuote);
+    return () => window.removeEventListener('agentshub:quote', onQuote);
+  }, []);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -130,10 +154,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const handleInsert = (e: any) => {
       const path = e.detail?.path;
       if (!path) return;
-      setPrompt(prev => {
-        const sep = prev.endsWith(' ') || prev.length === 0 ? '' : ' ';
-        return `${prev}${sep}@${path} `;
-      });
+
+      // A file clicked in the FILES panel is the same thing as one picked from `@` completion, so
+      // it becomes a chip too instead of a line of text in the box.
+      setMentions(current => (current.includes(path) ? current : [...current, path]));
       textareaRef.current?.focus();
     };
 
@@ -148,6 +172,68 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
     }
   }, [prompt]);
+
+
+  /**
+   * `@` completion over the workspace root.
+   *
+   * One directory listing, filtered in the browser: the tree is small enough that a round trip per
+   * keystroke would be slower than filtering a list we already hold.
+   */
+  const onMentionDetect = async (text: string, caret: number) => {
+    const before = text.slice(0, caret);
+    const match = before.match(/(?:^|\s)@([^\s@]*)$/);
+
+    if (!match) {
+      setMention(null);
+      setMentionItems([]);
+      return;
+    }
+
+    const query = match[1];
+    const start = caret - query.length - 1;
+    setMention({ query, start });
+
+    const rect = textareaRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMentionPos({ top: rect.top, left: rect.left, width: rect.width });
+    }
+
+    try {
+      const res: any = await webviewBridge.invoke('list_dir_entries', {
+        path: workingDirectory || '.',
+      });
+
+      const entries = Array.isArray(res?.entries) ? res.entries : [];
+      setMentionItems(
+        entries
+          .filter((entry: any) => typeof entry?.name === 'string')
+          .map((entry: any) => ({
+            name: entry.name,
+            path: entry.path || entry.name,
+            isDir: Boolean(entry.isDirectory ?? entry.isDir),
+          }))
+          .filter((entry: any) => entry.name.toLowerCase().includes(query.toLowerCase()))
+          .slice(0, 8)
+      );
+    } catch {
+      setMentionItems([]);
+    }
+  };
+
+  const applyMention = (item: { name: string; path: string }) => {
+    if (!mention) return;
+
+    // The token is removed from the text and kept as a chip, which is the only way a textarea can
+    // show a mention the way the reference does.
+    const next = `${prompt.slice(0, mention.start)}${prompt.slice(mention.start + mention.query.length + 1)}`.replace(/\s{2,}/g, ' ');
+    setPrompt(next);
+    useSessionStore.getState().setDraft(sessionId, next);
+    setMentions(current => (current.includes(item.path) ? current : [...current, item.path]));
+    setMention(null);
+    setMentionItems([]);
+    textareaRef.current?.focus();
+  };
 
   const processFiles = (files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -285,6 +371,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const nextPrompt = `${prompt.slice(0, start)}${inserted}${prompt.slice(caret)}`;
 
     setPrompt(nextPrompt);
+    useSessionStore.getState().setDraft(sessionId, nextPrompt);
     setIsPaletteOpen(false);
 
     if (!command.takesArgument) {
@@ -325,7 +412,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleSend = () => {
-    submitPrompt(prompt);
+    // The engine still needs the paths, so they ride along with the text it receives.
+    const withMentions = mentions.length > 0 ? `${prompt} ${mentions.map(p => `@${p}`).join(' ')}`.trim() : prompt;
+    submitPrompt(withMentions);
+    setMentions([]);
   };
 
   const formatFileSize = (bytes: number) => {
@@ -338,6 +428,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const turnTokens = lastTurnTokens?.totalTokens || 0;
   const isDeepSeek = engine === 'deepseek';
+  /** Files picked from `@` completion. Kept out of the text so they can render as chips. */
+  const [mentions, setMentions] = useState<string[]>([]);
+
+  /** Open `@` completion: what is being typed and where the token starts. */
+  const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
+  const [mentionPos, setMentionPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [mentionItems, setMentionItems] = useState<Array<{ name: string; path: string; isDir: boolean }>>([]);
+
+  /** Lines the quote toolbar added, so they can be shown as one chip and removed together. */
+  const quoteLines = prompt.split('\n').filter(line => line.startsWith('> '));
   /** Data URL of the attachment being previewed, if any. */
   const [preview, setPreview] = useState<string | null>(null);
   /**
@@ -391,6 +491,92 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         {preview
           ? createPortal(<ImageLightbox src={preview} onClose={() => setPreview(null)} />, document.body)
           : null}
+
+        {mentions.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-surface-border/40 px-3.5 py-2">
+            {mentions.map(path => (
+              <span
+                key={path}
+                className="inline-flex max-w-[240px] items-center gap-1.5 rounded-lg bg-sky-500/15 py-1 pl-1.5 pr-1 text-[11px] text-accent"
+                title={path}
+              >
+                <FileCode className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="truncate font-mono">{path}</span>
+                <button
+                  type="button"
+                  onClick={() => setMentions(current => current.filter(p => p !== path))}
+                  className="flex-shrink-0 rounded p-0.5 text-accent/70 transition-colors hover:text-state-danger"
+                  title="Remove"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {/* Floats over the chat instead of growing the composer: an in-flow list pushed the input
+            upward and covered the conversation. */}
+        {mention && mentionItems.length > 0 && mentionPos
+          ? createPortal(
+              <div
+                style={{
+                  top: Math.max(8, mentionPos.top - Math.min(mentionItems.length * 28 + 10, 260)),
+                  left: mentionPos.left,
+                  width: Math.min(mentionPos.width, 420),
+                }}
+                className="fixed z-[125] max-h-[260px] overflow-y-auto rounded-xl border border-surface-border bg-surface-card py-1 shadow-2xl"
+              >
+                {mentionItems.map(item => (
+                  <button
+                    key={item.path}
+                    type="button"
+                    onClick={() => applyMention(item)}
+                    className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left font-mono text-[11px] text-content-muted transition-colors hover:bg-surface-hover hover:text-content-main"
+                  >
+                    {item.isDir ? (
+                      <Folder className="h-3 w-3 flex-shrink-0 text-state-warning" />
+                    ) : (
+                      <FileCode className="h-3 w-3 flex-shrink-0 text-accent" />
+                    )}
+                    <span className="truncate">{item.name}</span>
+                  </button>
+                ))}
+              </div>,
+              document.body
+            )
+          : null}
+
+        {/* Quoted text reads as a chip instead of a wall of '>' lines in the box. */}
+        {quoteLines.length > 0 ? (
+          <div className="flex items-start gap-2 border-b border-surface-border/40 px-3.5 py-2">
+            <Quote className="mt-0.5 h-3 w-3 flex-shrink-0 text-accent" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-mono uppercase tracking-wide text-content-dim">
+                Quoted from the conversation
+              </p>
+              <p className="truncate text-[11px] text-content-muted" title={quoteLines.join('\n')}>
+                {quoteLines.map(line => line.replace(/^>\s?/, '')).join(' ')}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const kept = prompt
+                  .split('\n')
+                  .filter(line => !line.startsWith('> '))
+                  .join('\n')
+                  .trim();
+                setPrompt(kept);
+                useSessionStore.getState().setDraft(sessionId, kept);
+              }}
+              className="flex-shrink-0 rounded p-1 text-content-dim transition-colors hover:text-state-danger"
+              title="Remove the quote"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ) : null}
 
         {/* Attached Files Preview Bar */}
         {attachments.length > 0 && (
@@ -480,6 +666,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           value={prompt}
           onChange={e => {
             setPrompt(e.target.value);
+            onMentionDetect(e.target.value, e.target.selectionStart ?? 0);
             syncPalette(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
           onKeyDown={handleKeyDown}
@@ -490,6 +677,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           }}
           onClick={e => syncPalette(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
           onPaste={handlePaste}
+          onDragOver={event => {
+            if (event.dataTransfer?.types?.includes('Files')) event.preventDefault();
+          }}
+          onDrop={event => {
+            const files = event.dataTransfer?.files;
+            if (!files || files.length === 0) return;
+            event.preventDefault();
+            processFiles(files);
+          }}
           placeholder={
             attachments.length > 0
               ? 'Add instructions for attached files, or press Enter to send...'
@@ -543,6 +739,34 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   <Brain className="h-3 w-3" />
                   DeepSeek
                 </span>
+
+                <span className="opacity-30">|</span>
+
+                {/* Their two composer chips, driven per session. Same mechanism the page uses:
+                    click to flip, state read back from the button. */}
+                {([
+                  { key: 'deepThink' as const, label: 'DeepThink', on: deepThink !== false },
+                  { key: 'webSearch' as const, label: 'Search', on: webSearch === true },
+                ]).map(chip => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => onDeepSeekOption?.(chip.key, !chip.on)}
+                    aria-pressed={chip.on}
+                    title={
+                      chip.key === 'deepThink'
+                        ? 'Show the reasoning trace. Off answers faster.'
+                        : 'Let DeepSeek search the web before answering.'
+                    }
+                    className={`rounded px-1.5 py-0.5 font-mono text-[10.5px] transition-colors ${
+                      chip.on
+                        ? 'bg-sky-500/15 text-accent'
+                        : 'text-content-dim hover:bg-surface-hover hover:text-content-main'
+                    }`}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
 
                 <span className="opacity-30">|</span>
 

@@ -585,13 +585,17 @@ public sealed partial class DashboardWebBridge : IDisposable
                         // document the handler disposes on return, so touching it from a task that
                         // outlives the handler throws "Cannot access a disposed object".
                         bool toolsAllowed = !data.TryGetProperty("toolsEnabled", out var teElem) || teElem.ValueKind != JsonValueKind.False;
+                        // DeepThink defaults on, Search defaults off: those are the two states a fresh
+                        // web chat starts in, so an older session keeps behaving as it did.
+                        bool deepThink = !data.TryGetProperty("deepThink", out var dtElem) || dtElem.ValueKind != JsonValueKind.False;
+                        bool webSearch = data.TryGetProperty("webSearch", out var wsElem) && wsElem.ValueKind == JsonValueKind.True;
                         var attachmentFiles = MaterialiseAttachments(data);
 
                         _ = Task.Run(async () =>
                         {
                             try
                             {
-                                await DispatchDeepSeekAsync(sessionId, prompt, conversationId, cwd, skipPermissions, profile, toolsAllowed, attachmentFiles).ConfigureAwait(false);
+                                await DispatchDeepSeekAsync(sessionId, prompt, conversationId, cwd, skipPermissions, profile, toolsAllowed, attachmentFiles, deepThink, webSearch).ConfigureAwait(false);
                             }
                             catch (Exception ex)
                             {
@@ -664,6 +668,72 @@ public sealed partial class DashboardWebBridge : IDisposable
                             .SwitchAccountAsync(Services.DeepSeek.DeepSeekAccounts.ActiveId).ConfigureAwait(false);
                     }
                     SendResponse(requestId, true, new { removed });
+                }
+                break;
+
+            case "list_dir_entries":
+                {
+                    // `browse_directory` opens the native folder picker, so it cannot be used for
+                    // completion. This one only reads a directory that already exists.
+                    string dir = data.TryGetProperty("path", out var dirElem) ? dirElem.GetString() ?? string.Empty : string.Empty;
+
+                    var entries = new List<object>();
+                    if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+                    {
+                        try
+                        {
+                            foreach (var entry in Directory.EnumerateFileSystemEntries(dir)
+                                         .OrderBy(Directory.Exists)
+                                         .ThenBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                                         .Take(200))
+                            {
+                                entries.Add(new
+                                {
+                                    name = Path.GetFileName(entry),
+                                    path = Path.GetFileName(entry),
+                                    isDir = Directory.Exists(entry),
+                                });
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            // An unreadable directory yields an empty list rather than an error.
+                        }
+                    }
+
+                    SendResponse(requestId, true, new { entries });
+                }
+                break;
+
+            case "open_external":
+                {
+                    string url = data.TryGetProperty("url", out var urlElem) ? urlElem.GetString() ?? string.Empty : string.Empty;
+                    bool ok = url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                           || url.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+
+                    if (ok)
+                    {
+                        try
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+                        }
+                        catch (Exception)
+                        {
+                            ok = false;
+                        }
+                    }
+
+                    SendResponse(requestId, true, new { opened = ok });
+                }
+                break;
+
+            case "deepseek_chats":
+                {
+                    var chats = await Services.DeepSeek.DeepSeekEngine.Instance.ListChatsAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, new
+                    {
+                        chats = chats.Take(25).Select(c => new { id = c.Id, title = c.Title }).ToList(),
+                    });
                 }
                 break;
 
@@ -5778,7 +5848,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         return files;
     }
 
-    private async Task DispatchDeepSeekAsync(string sessionId, string prompt, string? chatId, string? cwd, bool skipPermissions, string? profile, bool toolsAllowed, List<string> attachmentFiles)
+    private async Task DispatchDeepSeekAsync(string sessionId, string prompt, string? chatId, string? cwd, bool skipPermissions, string? profile, bool toolsAllowed, List<string> attachmentFiles, bool deepThink, bool webSearch)
     {
         var cts = new CancellationTokenSource();
         _deepSeekRuns[sessionId] = cts;
@@ -5906,7 +5976,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                         conversationId = id,
                         timestamp = DateTime.UtcNow.ToString("O"),
                     });
-                }, toolsAllowed, attachmentFiles, cts.Token)
+                }, toolsAllowed, attachmentFiles, deepThink, webSearch, cts.Token)
                 .ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(reply.ChatId) && !string.Equals(reply.ChatId, knownChat, StringComparison.Ordinal))
@@ -5928,6 +5998,30 @@ public sealed partial class DashboardWebBridge : IDisposable
                 thinkingTokens = 0,
                 timestamp = Now(),
             });
+
+            // The web app titles the conversation itself; take that when our session is unnamed.
+            try
+            {
+                var chats = await Services.DeepSeek.DeepSeekEngine.Instance.ListChatsAsync().ConfigureAwait(false);
+                var match = chats.FirstOrDefault(c => string.Equals(c.Id, reply.ChatId, StringComparison.Ordinal));
+
+                // The web app names a chat after its first message, and ours is the protocol guide,
+                // so the title it picks is "Protocol acknowledged". Adopting that made every session
+                // in the sidebar read the same, which is worse than leaving our own name in place.
+                bool isProtocolTitle = System.Text.RegularExpressions.Regex.IsMatch(
+                    match.Title ?? string.Empty,
+                    "acknowledg|protocol|understand|tool protocol",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                if (!string.IsNullOrWhiteSpace(match.Title) && !isProtocolTitle)
+                {
+                    PostEventToUi("session_title", new { sessionId, title = match.Title, timestamp = Now() });
+                }
+            }
+            catch (Exception)
+            {
+                // A title is a nicety; never let it fail the turn.
+            }
 
             PostEventToUi("session_status", new { sessionId, state = "idle", timestamp = Now() });
         }

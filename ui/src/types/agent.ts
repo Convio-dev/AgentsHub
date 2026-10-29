@@ -149,6 +149,12 @@ export interface SessionRecord {
   engine?: 'agy' | 'deepseek';
   /** DeepSeek only: false turns the chat answer-only, with no tools and no protocol line. */
   toolsEnabled?: boolean;
+  /** Unsent composer text, kept so switching tabs does not discard it. */
+  draft?: string;
+  /** DeepSeek only: the DeepThink chip in their composer. Defaults to on. */
+  deepThink?: boolean;
+  /** DeepSeek only: the Search chip in their composer. Defaults to off. */
+  webSearch?: boolean;
   /**
    * The CLI conversation this session owns. Without it every turn resumed whichever conversation
    * ran last, so chats shared memory and token counts.

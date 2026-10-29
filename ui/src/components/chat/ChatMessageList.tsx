@@ -1,6 +1,8 @@
+import { FileCode } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ImageLightbox } from './ImageLightbox';
+import { useSessionStore } from '../../store/useSessionStore';
 import { Paperclip } from 'lucide-react';
 import { AlertCircle, MessageSquare, User } from 'lucide-react';
 import { ChatMessage } from '../../types/agent';
@@ -27,15 +29,16 @@ function statusLabel(message: ChatMessage): string {
 }
 
 /**
- * Renders the `[Attached: name (size)]` lines the prompt carries as chips.
+ * Renders the two markers a prompt can carry as pills instead of punctuation.
  *
- * The text has to stay in the prompt: it is the only hint the CLI engine gets, since attachments are
- * not handed to it as files. Rendering it as a pill keeps that hint without the bracket noise.
+ * `[Attached: name (size)]` becomes a file chip, and `@path/to/file.ext` becomes a mention chip. The
+ * mention pattern requires a leading space and a file extension so an email address in ordinary
+ * prose is not mistaken for one.
  */
-function renderAttachmentLine(prompt?: string): React.ReactNode {
+function renderPromptText(prompt?: string): React.ReactNode {
   if (!prompt) return null;
 
-  const pattern = /\[Attached: ([^\]]+)\]/g;
+  const pattern = /(\[Attached: [^\]]+\]|(?:^|\s)@[\w.\/-]+\.[A-Za-z0-9]{1,8})/g;
   if (!pattern.test(prompt)) return prompt;
 
   const parts: React.ReactNode[] = [];
@@ -44,22 +47,43 @@ function renderAttachmentLine(prompt?: string): React.ReactNode {
   pattern.lastIndex = 0;
 
   while ((match = pattern.exec(prompt)) !== null) {
-    if (match.index > cursor) parts.push(prompt.slice(cursor, match.index));
+    const token = match[0];
+    const leadingSpace = token.startsWith(' ') || token.startsWith('\n');
+    const body = leadingSpace ? token.slice(1) : token;
+    const tokenStart = match.index + (leadingSpace ? 1 : 0);
 
-    const [name, size] = match[1].split(/\s+\(/);
-    parts.push(
-      <span
-        key={`${match.index}-${match[1]}`}
-        className="mx-0.5 inline-flex max-w-[220px] items-center gap-1 rounded-md border border-surface-border bg-surface-deep px-1.5 py-0.5 align-middle font-mono text-[10.5px] text-content-muted"
-        title={match[1]}
-      >
-        <Paperclip className="h-3 w-3 flex-shrink-0 text-accent" />
-        <span className="truncate">{name}</span>
-        {size ? <span className="flex-shrink-0 text-content-dim">{size.replace('(', '').replace(')', '')}</span> : null}
-      </span>
-    );
+    if (tokenStart > cursor) parts.push(prompt.slice(cursor, tokenStart));
+    if (leadingSpace) parts.push(' ');
 
-    cursor = match.index + match[0].length;
+    if (body.startsWith('[Attached:')) {
+      const inner = body.slice('[Attached:'.length, -1).trim();
+      const [name, size] = inner.split(/\s+\(/);
+
+      parts.push(
+        <span
+          key={`att_${tokenStart}`}
+          className="mx-0.5 inline-flex max-w-[220px] items-center gap-1 rounded-md border border-surface-border bg-surface-deep px-1.5 py-0.5 align-middle font-mono text-[10.5px] text-content-muted"
+          title={inner}
+        >
+          <Paperclip className="h-3 w-3 flex-shrink-0 text-accent" />
+          <span className="truncate">{name}</span>
+          {size ? <span className="flex-shrink-0 text-content-dim">{size.replace('(', '').replace(')', '')}</span> : null}
+        </span>
+      );
+    } else {
+      parts.push(
+        <span
+          key={`mention_${tokenStart}`}
+          className="mx-0.5 inline-flex max-w-[240px] items-center gap-1 rounded-md bg-sky-500/15 px-1.5 py-0.5 align-middle font-mono text-[10.5px] text-accent"
+          title={body.slice(1)}
+        >
+          <FileCode className="h-3 w-3 flex-shrink-0" />
+          <span className="truncate">{body.slice(1)}</span>
+        </span>
+      );
+    }
+
+    cursor = tokenStart + body.length;
   }
 
   if (cursor < prompt.length) parts.push(prompt.slice(cursor));
@@ -263,7 +287,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
                   </div>
                 ) : (
                   <div className="select-text whitespace-pre-wrap font-sans text-[13.5px] leading-relaxed">
-                    {renderAttachmentLine(message.prompt)}
+                    {renderPromptText(message.prompt)}
                   </div>
                 )}
               </div>
@@ -338,7 +362,17 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
 
               {message.error ? (
                 <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2.5 font-mono text-[11px] text-state-danger">
-                  {message.error}
+                  <span className="flex-1">{message.error}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sessionId = useSessionStore.getState().activeSessionId;
+                      if (sessionId) void regenerateResponse(sessionId, message.id);
+                    }}
+                    className="flex-shrink-0 rounded border border-state-danger/40 px-2 py-0.5 font-mono text-[10px] text-state-danger transition-colors hover:bg-state-danger/10"
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : null}
             </div>

@@ -316,6 +316,19 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
 
     // 6. Live Thinking Stream -> Target Session
     unsubs.push(
+      webviewBridge.on('session_title', (data: any) => {
+        // The web app names the conversation; take that while ours is still unnamed, and never
+        // overwrite a title the user set themselves.
+        const store = useSessionStore.getState();
+        const session = store.sessions[data?.sessionId];
+        const current = (session?.title || '').trim();
+        if (!session || !data?.title) return;
+        if (current && current !== 'New Session' && current !== 'New Chat') return;
+        store.renameSession(data.sessionId, String(data.title).slice(0, 80));
+      })
+    );
+
+    unsubs.push(
       webviewBridge.on('thinking', (data: any) => {
         const sessionStore = useSessionStore.getState();
         const targetSessionId = data.sessionId || sessionStore.activeSessionId;

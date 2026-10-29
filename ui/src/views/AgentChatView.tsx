@@ -26,6 +26,7 @@ import { ChatAttachment } from '../types/agent';
 import { profileLabel } from '../lib/profileName';
 import { TerminalPanel } from '../components/terminal/TerminalPanel';
 import { webviewBridge } from '../services/webviewBridge';
+import { SelectionToolbar } from '../components/chat/SelectionToolbar';
 
 interface AgentChatViewProps {
   onOpenGitModal: () => void;
@@ -46,6 +47,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
     switchSession,
     closeTab,
     setToolsEnabled,
+    setDeepSeekOption,
   } = useSessionStore();
 
   const {
@@ -182,6 +184,17 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
    */
   const [deepSeekSignedIn, setDeepSeekSignedIn] = useState<boolean | null>(null);
   const [deepSeekMenuOpen, setDeepSeekMenuOpen] = useState(false);
+  const [webChats, setWebChats] = useState<Array<{ id: string; title: string }> | null>(null);
+
+  const loadWebChats = async () => {
+    try {
+      const res: any = await webviewBridge.invoke('deepseek_chats');
+      setWebChats(Array.isArray(res?.chats) ? res.chats : []);
+    } catch {
+      setWebChats([]);
+    }
+  };
+
   const [deepSeekAccounts, setDeepSeekAccounts] = useState<{
     active: string;
     accounts: Array<{ id: string; label: string }>;
@@ -277,6 +290,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-surface-deep text-content-main select-none relative">
+      <SelectionToolbar />
       {/* 1. Top Context Bar */}
       <div className="h-12 border-b border-surface-border px-4 flex items-center justify-between bg-surface-deep z-20 flex-shrink-0 relative">
         <div className="flex items-center space-x-3">
@@ -371,6 +385,39 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                     />
                   </label>
 
+                  <button
+                    type="button"
+                    onClick={() => void loadWebChats()}
+                    className="flex w-full items-center gap-2 border-t border-surface-border px-3 py-2 text-left text-[11px] text-content-main transition-colors hover:bg-surface-hover"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Continue a chat from the web
+                  </button>
+
+                  {webChats ? (
+                    <div className="max-h-40 overflow-y-auto border-t border-surface-border px-2 py-1">
+                      {webChats.length === 0 ? (
+                        <p className="px-1 py-1 text-[10px] text-content-dim">No chats found.</p>
+                      ) : (
+                        webChats.slice(0, 12).map(chat => (
+                          <button
+                            key={chat.id}
+                            type="button"
+                            onClick={() => {
+                              useSessionStore.getState().updateSessionTelemetry(activeSession.id, { conversationId: chat.id });
+                              setWebChats(null);
+                              setDeepSeekMenuOpen(false);
+                            }}
+                            className="block w-full truncate rounded px-1 py-0.5 text-left text-[10.5px] text-content-muted transition-colors hover:bg-surface-hover hover:text-content-main"
+                            title={chat.title}
+                          >
+                            {chat.title}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
+
                   {activeSession?.conversationId ? (
                     <button
                       type="button"
@@ -386,18 +433,6 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
                       Open this chat on the web
                     </button>
                   ) : null}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeepSeekMenuOpen(false);
-                      void webviewBridge.invoke('deepseek_open_chat', {}).catch(() => {});
-                    }}
-                    className="flex w-full items-center gap-2 border-t border-surface-border px-3 py-2 text-left text-[11px] text-content-main transition-colors hover:bg-surface-hover"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    Manage chats on the web
-                  </button>
 
                   <button
                     type="button"
@@ -727,6 +762,9 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
               engine={activeSession.engine}
               deepSeekSignedIn={deepSeekSignedIn}
               onDeepSeekLogin={openDeepSeekLogin}
+              deepThink={activeSession.deepThink}
+              webSearch={activeSession.webSearch}
+              onDeepSeekOption={(option, value) => setDeepSeekOption(activeSession.id, option, value)}
               activeCli={activeWorkspace?.primaryCli}
               workingDirectory={activeWorkspace?.workingDirectory}
             />

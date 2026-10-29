@@ -135,6 +135,10 @@ interface SessionStoreState {
   clearSessionMessages: (sessionId: string) => void;
   /** Turns the DeepSeek tool loop on or off for one session. */
   setToolsEnabled: (sessionId: string, enabled: boolean) => void;
+  /** Persists the unsent composer text so a tab switch does not lose it. */
+  setDraft: (sessionId: string, draft: string) => void;
+  /** DeepSeek's two composer chips, stored per session. */
+  setDeepSeekOption: (sessionId: string, option: 'deepThink' | 'webSearch', value: boolean) => void;
   /** Ids shown in the tab bar, in order. */
   openTabIds: string[];
   openTab: (sessionId: string) => void;
@@ -533,6 +537,13 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
   },
 
   switchSession: (sessionId: string) => {
+    // A session belongs to a workspace, so opening it must take the app there. Without this the
+    // header and the FILES panel kept showing whichever workspace was active before.
+    const target = get().sessions[sessionId];
+    if (target?.workspaceId && target.workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) {
+      void useWorkspaceStore.getState().switchWorkspace(target.workspaceId);
+    }
+
     set(state => {
       if (!state.sessions[sessionId]) return state;
       // Picking a session from the sidebar reopens its tab rather than opening a duplicate.
@@ -654,6 +665,28 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
         activeSessionId: nextActiveId,
         openTabIds: nextTabs,
       };
+    });
+  },
+
+  setDeepSeekOption: (sessionId, option, value) => {
+    set(state => {
+      const target = state.sessions[sessionId];
+      if (!target) return state;
+
+      const nextSessions = { ...state.sessions, [sessionId]: { ...target, [option]: value } };
+      persistState(nextSessions, state.activeSessionId);
+      return { sessions: nextSessions };
+    });
+  },
+
+  setDraft: (sessionId, draft) => {
+    set(state => {
+      const target = state.sessions[sessionId];
+      if (!target || target.draft === draft) return state;
+
+      const nextSessions = { ...state.sessions, [sessionId]: { ...target, draft } };
+      persistState(nextSessions, state.activeSessionId);
+      return { sessions: nextSessions };
     });
   },
 

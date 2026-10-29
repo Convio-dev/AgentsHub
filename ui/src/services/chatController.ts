@@ -55,6 +55,9 @@ function resolveContext(sessionId: string) {
     engine: session?.engine,
     /** DeepSeek only: an answer-only chat skips tools and the protocol line. */
     toolsEnabled: session?.toolsEnabled,
+    /** DeepSeek only: their two composer chips. */
+    deepThink: session?.deepThink,
+    webSearch: session?.webSearch,
   };
 }
 
@@ -80,6 +83,8 @@ async function dispatch({ sessionId, prompt, attachments }: DispatchTarget): Pro
       conversationId: context.conversationId,
       engine: context.engine,
       toolsEnabled: context.toolsEnabled,
+      deepThink: context.deepThink,
+      webSearch: context.webSearch,
       // The host writes these to temp files and hands them to the engine as real files.
       attachments: attachments
         ?.filter(a => Boolean(a.dataUrl))

@@ -21,7 +21,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
   const parts = splitMarkdownBlocks(content);
 
   return (
-    <div className={`space-y-3 font-sans text-[13.5px] leading-relaxed text-content-main ${className}`}>
+    <div className={`select-text space-y-3 font-sans text-[13.5px] leading-relaxed text-content-main ${className}`}>
       {parts.map((part, index) =>
         part.type === 'code' ? (
           <CodeBlock key={index} language={part.lang} code={part.code} />
@@ -248,6 +248,55 @@ const MarkdownTable: React.FC<{ rawLines: string[] }> = ({ rawLines }) => {
   );
 };
 
+/**
+ * Turns bare URLs into clickable spans.
+ *
+ * An anchor would navigate the app's own WebView2 away from the UI, so the click is intercepted and
+ * handed to the host, which opens the default browser.
+ */
+function linkifyText(text: string, keyBase: number): React.ReactNode[] {
+  if (!text) return [];
+
+  const urlPattern = /https?:\/\/[^\s<>()\[\]]+/g;
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = urlPattern.exec(text)) !== null) {
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+
+    const url = match[0].replace(/[.,;:]+$/, '');
+    nodes.push(
+      <span
+        key={`url_${keyBase}_${match.index}`}
+        role="link"
+        tabIndex={0}
+        onClick={event => {
+          event.stopPropagation();
+          void import('../../services/webviewBridge')
+            .then(m => m.webviewBridge.invoke('open_external', { url }))
+            .catch(() => {});
+        }}
+        onKeyDown={event => {
+          if (event.key !== 'Enter') return;
+          void import('../../services/webviewBridge')
+            .then(m => m.webviewBridge.invoke('open_external', { url }))
+            .catch(() => {});
+        }}
+        className="cursor-pointer break-all text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
+        title={url}
+      >
+        {url}
+      </span>
+    );
+
+    cursor = match.index + url.length;
+  }
+
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes;
+}
+
 function renderInlineTokens(line: string): React.ReactNode[] {
   const tokens: React.ReactNode[] = [];
   const regex = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
@@ -256,7 +305,7 @@ function renderInlineTokens(line: string): React.ReactNode[] {
 
   while ((match = regex.exec(line)) !== null) {
     if (match.index > lastIdx) {
-      tokens.push(line.substring(lastIdx, match.index));
+      tokens.push(...linkifyText(line.substring(lastIdx, match.index), lastIdx));
     }
 
     const token = match[0];
@@ -300,7 +349,7 @@ function renderInlineTokens(line: string): React.ReactNode[] {
   }
 
   if (lastIdx < line.length) {
-    tokens.push(line.substring(lastIdx));
+    tokens.push(...linkifyText(line.substring(lastIdx), lastIdx));
   }
 
   return tokens;
