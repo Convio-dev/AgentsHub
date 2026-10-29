@@ -812,6 +812,102 @@ public sealed partial class DashboardWebBridge : IDisposable
                 SendResponse(requestId, true, new { shown = true });
                 break;
 
+            case "open_log_bundle_location":
+                {
+                    // Reveal the file in the file manager rather than launching it: a log is something
+                    // to look at, and a .txt opening in an editor is not what "show me where it is" means.
+                    string bundlePath = data.TryGetProperty("path", out var bundlePathProp)
+                        ? bundlePathProp.GetString() ?? string.Empty
+                        : string.Empty;
+
+                    bool revealed = false;
+
+                    if (!string.IsNullOrWhiteSpace(bundlePath) && File.Exists(bundlePath))
+                    {
+                        try
+                        {
+                            var info = new System.Diagnostics.ProcessStartInfo { UseShellExecute = true };
+
+                            if (Services.Platform.PlatformHelper.IsWindows)
+                            {
+                                info.FileName = "explorer.exe";
+                                info.Arguments = $"/select,\"{bundlePath}\"";
+                            }
+                            else if (Services.Platform.PlatformHelper.IsMacOS)
+                            {
+                                info.FileName = "open";
+                                info.Arguments = $"-R \"{bundlePath}\"";
+                            }
+                            else
+                            {
+                                info.FileName = "xdg-open";
+                                info.Arguments = $"\"{Path.GetDirectoryName(bundlePath)}\"";
+                            }
+
+                            System.Diagnostics.Process.Start(info);
+                            revealed = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            SendResponse(requestId, false, $"Could not open the folder: {ex.Message}");
+                            break;
+                        }
+                    }
+
+                    SendResponse(requestId, true, new { revealed });
+                }
+                break;
+
+            case "export_log_bundle":
+                {
+                    try
+                    {
+                        var (path, files, bytes) = Services.LogBundleService.Export();
+                        SendResponse(requestId, true, new { path, files, bytes });
+                    }
+                    catch (Exception ex)
+                    {
+                        SendResponse(requestId, false, $"Could not build the bundle: {ex.Message}");
+                    }
+                }
+                break;
+
+            case "engine_health":
+                {
+                    // Passive on purpose: nothing here navigates a page or probes a token, because a
+                    // health check that can hang is worse than no health check.
+                    var qwen = Services.Qwen.QwenEngine.Instance.Health();
+                    var deepSeek = Services.DeepSeek.DeepSeekEngine.Instance;
+
+                    SendResponse(requestId, true, new
+                    {
+                        engines = new object[]
+                        {
+                            new
+                            {
+                                id = "deepseek",
+                                name = "DeepSeek",
+                                initialized = deepSeek.IsInitialized,
+                                signedIn = deepSeek.IsSignedIn,
+                                primedIn = (string?)null,
+                                lastTurnAt = (string?)null,
+                                lastError = (string?)null,
+                            },
+                            new
+                            {
+                                id = "qwen",
+                                name = "Qwen",
+                                initialized = qwen.Initialized,
+                                signedIn = (bool?)null,
+                                primedIn = qwen.PrimedIn,
+                                lastTurnAt = qwen.LastTurnAt?.ToString("O"),
+                                lastError = qwen.LastError,
+                            },
+                        },
+                    });
+                }
+                break;
+
             case "qwen_models":
                 {
                     var models = await Services.Qwen.QwenEngine.Instance.ListModelsAsync().ConfigureAwait(false);
@@ -3349,6 +3445,58 @@ public sealed partial class DashboardWebBridge : IDisposable
                         catch (Exception) { opened = false; }
                     }
                     SendResponse(requestId, true, new { opened });
+                }
+                break;
+
+            case "run_dependency_cli":
+                {
+                    // Opens a console running the tool itself. The dependency catalog already knows the
+                    // command name, so this cannot drift from what the scanner looks for.
+                    string runId = data.TryGetProperty("id", out var runIdProp) ? runIdProp.GetString() ?? string.Empty : string.Empty;
+                    var definition = DependencyCheckerService.Find(runId);
+                    string command = definition != null && definition.Commands.Length > 0
+                        ? definition.Commands[0]
+                        : string.Empty;
+
+                    bool started = false;
+
+                    if (command.Length > 0)
+                    {
+                        try
+                        {
+                            var info = new System.Diagnostics.ProcessStartInfo
+                            {
+                                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                                UseShellExecute = true,
+                            };
+
+                            if (Services.Platform.PlatformHelper.IsWindows)
+                            {
+                                info.FileName = Environment.GetEnvironmentVariable("COMSPEC") ?? "cmd";
+                                info.Arguments = $"/k {command}";
+                            }
+                            else if (Services.Platform.PlatformHelper.IsMacOS)
+                            {
+                                info.FileName = "open";
+                                info.Arguments = $"-a Terminal --args {command}";
+                            }
+                            else
+                            {
+                                info.FileName = "x-terminal-emulator";
+                                info.Arguments = $"-e {command}";
+                            }
+
+                            System.Diagnostics.Process.Start(info);
+                            started = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            SendResponse(requestId, false, $"Could not start {command}: {ex.Message}");
+                            break;
+                        }
+                    }
+
+                    SendResponse(requestId, true, new { started, command });
                 }
                 break;
 
@@ -6059,7 +6207,10 @@ public sealed partial class DashboardWebBridge : IDisposable
         path = status.Path,
         installKind = status.InstallKind,
         siteUrl = status.SiteUrl,
-        commandPreview = status.CommandPreview
+        commandPreview = status.CommandPreview,
+        // Whether the tool can drive a chat session, or only a terminal. The panel marks the rest
+        // "Not used" rather than implying support that does not exist.
+        chatSupported = DependencyCheckerService.Find(status.Id)?.ChatSupported ?? false
     };
 
     /// <summary>

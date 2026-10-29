@@ -13,5 +13,6 @@
     <Compile Include="..\..\Services\DeepSeek\SkillCatalog.cs" />
     <Compile Include="..\..\Services\DeepSeek\McpClient.cs" />
     <Compile Include="..\..\Services\Qwen\QwenTools.cs" />
+    <Compile Include="..\..\Services\LogBundleService.cs" />
   </ItemGroup>
 </Project>

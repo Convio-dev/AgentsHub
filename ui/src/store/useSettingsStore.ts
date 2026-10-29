@@ -34,6 +34,16 @@ export interface AppSettings {
   enableHardwareMonitor: boolean;
 }
 
+export interface EngineHealthItem {
+  id: string;
+  name: string;
+  initialized: boolean;
+  signedIn: boolean | null;
+  primedIn: string | null;
+  lastTurnAt: string | null;
+  lastError: string | null;
+}
+
 export interface DependencyItem {
   id: string;
   name: string;
@@ -43,6 +53,8 @@ export interface DependencyItem {
   path?: string;
   commandPreview?: string;
   installKind: 'winget' | 'powershell' | 'browser';
+  /** False means the tool is detected and launchable, but cannot drive a chat session yet. */
+  chatSupported?: boolean;
 }
 
 export interface DiagnosticItem {
@@ -70,6 +82,13 @@ interface SettingsStoreState {
 
   // Dependencies
   dependencies: DependencyItem[];
+  /** Passive engine state for the health panel. */
+  engineHealth: EngineHealthItem[];
+  engineHealthLoading: boolean;
+  /** The dependency whose installer is running, if any. */
+  installingId: string | null;
+  /** Last progress line per dependency, so a row can say what it is doing. */
+  installLines: Record<string, string>;
   dependenciesLoading: boolean;
 
   // Soundpack
@@ -248,6 +267,9 @@ interface SettingsStoreState {
   // Dependencies actions
   loadDependencies: () => Promise<void>;
   runDependencyInstall: (id: string) => Promise<void>;
+  loadEngineHealth: () => Promise<void>;
+  noteInstallLine: (id: string, line: string) => void;
+  finishInstall: (id: string, success: boolean, message: string) => void;
   installAllDependencies: () => Promise<void>;
 
   // Soundpack actions
@@ -340,16 +362,10 @@ const defaultSettings: AppSettings = {
   enableHardwareMonitor: false,
 };
 
-const defaultDependencies: DependencyItem[] = [
-  { id: 'node', name: 'Node.js', category: 'runtime', isInstalled: true, version: 'v24.19.0', path: 'C:\\Program Files\\nodejs\\node.exe', installKind: 'winget' },
-  { id: 'git', name: 'Git for Windows', category: 'runtime', isInstalled: true, version: 'v2.55.0', path: 'C:\\Program Files\\Git\\cmd\\git.exe', installKind: 'winget' },
-  { id: 'python', name: 'Python 3', category: 'runtime', isInstalled: true, version: '3.13.1', path: 'C:\\Python313\\python.exe', installKind: 'winget' },
-  { id: 'claude', name: 'Claude Code CLI', category: 'agent', isInstalled: true, version: 'v1.0.18', commandPreview: 'claude', installKind: 'powershell' },
-  { id: 'antigravity', name: 'Google Antigravity CLI (agy)', category: 'agent', isInstalled: true, version: 'v1.4.7', commandPreview: 'agy', installKind: 'powershell' },
-  { id: 'hub', name: 'Hub Process Engine', category: 'agent', isInstalled: true, version: 'v2.0.0-rc', commandPreview: 'hub-engine', installKind: 'powershell' },
-  { id: 'warp', name: 'Cloudflare WARP (Dual-Stack)', category: 'tool', isInstalled: true, version: '2024.12', commandPreview: 'warp-cli', installKind: 'winget' },
-  { id: 'proton', name: 'Proton VPN Provider', category: 'tool', isInstalled: false, commandPreview: 'protonvpn', installKind: 'browser' },
-];
+// Deliberately empty. This used to hold a hardcoded sample list, which is why removed tools kept
+// appearing in the panel and why installed ones showed invented version numbers. The real scan
+// fills it; until it answers, the panel says nothing rather than something false.
+const defaultDependencies: DependencyItem[] = [];
 
 // Deliberately empty: the panel shows nothing until a real scan returns.
 const defaultDiagnostics: DiagnosticItem[] = [];
@@ -372,6 +388,10 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
   saveFeedback: null,
 
   dependencies: defaultDependencies,
+  engineHealth: [],
+  engineHealthLoading: false,
+  installingId: null,
+  installLines: {},
   dependenciesLoading: false,
 
   soundpackEnabled: false,
@@ -510,13 +530,51 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
     set({ dependenciesLoading: false });
   },
 
+  loadEngineHealth: async () => {
+    set({ engineHealthLoading: true });
+    try {
+      const res = await webviewBridge.invoke('engine_health');
+      if (res && Array.isArray(res.engines)) {
+        set({ engineHealth: res.engines });
+      }
+    } catch {}
+    set({ engineHealthLoading: false });
+  },
+
   runDependencyInstall: async (id: string) => {
+    // The installer streams for minutes, so the row has to show that it started. Before this, the
+    // button looked inert: the call worked and nothing on screen ever changed.
+    set({ installingId: id, installLines: { ...get().installLines, [id]: 'Starting...' } });
+
+    // A safety net: the completion event normally clears this, but a crashed installer would leave
+    // the button disabled forever.
+    window.setTimeout(() => {
+      if (get().installingId === id) {
+        set({ installingId: null, installLines: { ...get().installLines, [id]: 'No response from the installer.' } });
+      }
+    }, 180000);
+
     try {
       await webviewBridge.invoke('run_dependency_install', { id });
-      setTimeout(() => get().loadDependencies(), 2000);
     } catch (err) {
       console.warn('Failed to run dependency install:', err);
+      set({
+        installingId: null,
+        installLines: { ...get().installLines, [id]: 'Could not start the installer.' },
+      });
     }
+  },
+
+  noteInstallLine: (id: string, line: string) => {
+    set({ installLines: { ...get().installLines, [id]: line } });
+  },
+
+  finishInstall: (id: string, success: boolean, message: string) => {
+    set({
+      installingId: get().installingId === id ? null : get().installingId,
+      installLines: { ...get().installLines, [id]: success ? message || 'Done.' : message || 'Failed.' },
+    });
+    get().loadDependencies();
   },
 
   installAllDependencies: async () => {

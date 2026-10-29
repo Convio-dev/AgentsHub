@@ -27,6 +27,13 @@ public sealed class DependencyDefinition
     /// <summary>Executable names looked up on PATH (without extension).</summary>
     public string[] Commands { get; init; } = [];
 
+    /// <summary>
+    /// True when this tool can drive a chat session, not just a terminal. Everything else is
+    /// detected and launched but marked "Not used" in the panel, so the list never implies support
+    /// the app does not have.
+    /// </summary>
+    public bool ChatSupported { get; init; }
+
     /// <summary>Absolute fallbacks; may contain %ENVIRONMENT% tokens.</summary>
     public string[] FallbackPaths { get; init; } = [];
 
@@ -120,7 +127,7 @@ public static class DependencyCheckerService
         {
             Id = "claude",
             Name = "Claude Code CLI",
-            Description = "Anthropic's terminal coding agent. Routed through the local OpenRouter gateway.",
+            Description = "Anthropic's terminal coding agent.",
             Category = "agent",
             InstallKind = "powershell",
             SiteUrl = "https://claude.ai/",
@@ -139,8 +146,153 @@ public static class DependencyCheckerService
         },
         new DependencyDefinition
         {
+            Id = "codex",
+            Name = "OpenAI Codex CLI",
+            Description = "OpenAI's terminal coding agent, installed through npm.",
+            Category = "agent",
+            InstallKind = "powershell",
+            SiteUrl = "https://github.com/openai/codex",
+            InstallCommand = "npm install -g @openai/codex",
+            CommandPreview = "npm install -g @openai/codex",
+            Commands = ["codex"],
+            FallbackPaths =
+            [
+                @"%APPDATA%\npm\codex.cmd",
+                @"%APPDATA%\npm\codex",
+                @"%LOCALAPPDATA%\Programs\codex\codex.exe",
+                @"~/.local/bin/codex",
+                @"/usr/local/bin/codex",
+                @"/opt/homebrew/bin/codex"
+            ]
+        },
+        new DependencyDefinition
+        {
+            Id = "opencode",
+            Name = "OpenCode CLI",
+            Description = "Open-source terminal agent with provider switching.",
+            Category = "agent",
+            InstallKind = "powershell",
+            SiteUrl = "https://opencode.ai/",
+            InstallCommand = "npm install -g opencode-ai",
+            CommandPreview = "npm install -g opencode-ai",
+            Commands = ["opencode"],
+            FallbackPaths =
+            [
+                @"%APPDATA%\npm\opencode.cmd",
+                @"%APPDATA%\npm\opencode",
+                @"%LOCALAPPDATA%\Programs\opencode\opencode.exe",
+                @"~/.local/bin/opencode",
+                @"/usr/local/bin/opencode",
+                @"/opt/homebrew/bin/opencode"
+            ]
+        },
+        new DependencyDefinition
+        {
+            Id = "vyce",
+            Name = "Vyce Code",
+            Description = "Terminal agent with free tiers. Sign up on their site, then pick a model with /model.",
+            Category = "agent",
+            InstallKind = "powershell",
+            SiteUrl = "https://www.vyce-code.com/",
+            InstallCommand = "npm i -g vyce-code",
+            CommandPreview = "npm i -g vyce-code",
+            Commands = ["vyce"],
+            FallbackPaths =
+            [
+                @"%APPDATA%\npm\vyce.cmd",
+                @"%APPDATA%\npm\vyce",
+                @"~/.local/bin/vyce",
+                @"/usr/local/bin/vyce",
+                @"/opt/homebrew/bin/vyce"
+            ]
+        },
+        new DependencyDefinition
+        {
+            Id = "qwen-code",
+            Name = "Qwen Code CLI",
+            Description = "Apache-2.0 terminal agent. 2000 free calls a day with a Qwen account.",
+            Category = "agent",
+            InstallKind = "powershell",
+            SiteUrl = "https://github.com/QwenLM/qwen-code",
+            InstallCommand = "npm install -g @qwen-code/qwen-code",
+            CommandPreview = "npm install -g @qwen-code/qwen-code",
+            Commands = ["qwen"],
+            FallbackPaths =
+            [
+                @"%APPDATA%\npm\qwen.cmd",
+                @"%APPDATA%\npm\qwen",
+                @"~/.local/bin/qwen",
+                @"/usr/local/bin/qwen",
+                @"/opt/homebrew/bin/qwen"
+            ]
+        },
+        new DependencyDefinition
+        {
+            Id = "crush",
+            Name = "Crush",
+            Description = "Charm's terminal agent. Model-agnostic, bring your own provider.",
+            Category = "agent",
+            InstallKind = "powershell",
+            SiteUrl = "https://charm.land/crush",
+            InstallCommand = "npm install -g @charmland/crush",
+            CommandPreview = "npm install -g @charmland/crush",
+            Commands = ["crush"],
+            FallbackPaths =
+            [
+                @"%APPDATA%\npm\crush.cmd",
+                @"%APPDATA%\npm\crush",
+                @"%LOCALAPPDATA%\Programs\crush\crush.exe",
+                @"~/.local/bin/crush",
+                @"/usr/local/bin/crush",
+                @"/opt/homebrew/bin/crush"
+            ]
+        },
+        new DependencyDefinition
+        {
+            Id = "aider",
+            Name = "Aider",
+            Description = "Pair-programming agent. Bring your own model key.",
+            Category = "agent",
+            InstallKind = "powershell",
+            SiteUrl = "https://aider.chat/",
+            InstallCommand = "python -m pip install --user aider-chat",
+            CommandPreview = "python -m pip install --user aider-chat",
+            Commands = ["aider"],
+            FallbackPaths =
+            [
+                @"%APPDATA%\Python\Scripts\aider.exe",
+                @"%LOCALAPPDATA%\Programs\Python\Python313\Scripts\aider.exe",
+                @"~/.local/bin/aider",
+                @"/usr/local/bin/aider",
+                @"/opt/homebrew/bin/aider"
+            ]
+        },
+        new DependencyDefinition
+        {
+            Id = "kimi",
+            Name = "Kimi Code",
+            // No npm or pip package name could be verified, so this entry opens the vendor site
+            // rather than running a command that might not exist. Detection still works.
+            Description = "Moonshot's terminal agent. Install it from the vendor site.",
+            Category = "agent",
+            InstallKind = "browser",
+            SiteUrl = "https://www.kimi.com/",
+            CommandPreview = "kimi",
+            Commands = ["kimi"],
+            FallbackPaths =
+            [
+                @"%APPDATA%\npm\kimi.cmd",
+                @"%APPDATA%\npm\kimi",
+                @"~/.local/bin/kimi",
+                @"/usr/local/bin/kimi",
+                @"/opt/homebrew/bin/kimi"
+            ]
+        },
+        new DependencyDefinition
+        {
             Id = "antigravity",
             Name = "Antigravity CLI (agy)",
+            ChatSupported = true,
             Description = "Google Antigravity terminal agent, run per isolated profile.",
             Category = "agent",
             InstallKind = "powershell",
@@ -160,22 +312,6 @@ public static class DependencyCheckerService
         },
         new DependencyDefinition
         {
-            Id = "hub",
-            Name = "Hub Agent Engine",
-            Description = "Backend agent daemon that powers the Hub web dashboard.",
-            Category = "agent",
-            InstallKind = "browser",
-            SiteUrl = "https://hub-agent.nousresearch.com/",
-            CommandPreview = "hub dashboard",
-            Commands = ["hub"],
-            FallbackPaths =
-            [
-                @"%APPDATA%\Python\Scripts\hub.exe",
-                @"%LOCALAPPDATA%\Programs\Python\Scripts\hub.exe"
-            ]
-        },
-        new DependencyDefinition
-        {
             Id = "warp",
             Name = "Cloudflare WARP",
             Description = "Used to rotate the public IP when resetting provider quota.",
@@ -191,25 +327,6 @@ public static class DependencyCheckerService
                 @"%ProgramFiles(x86)%\Cloudflare\Cloudflare WARP\Cloudflare WARP.exe"
             ],
             GuiExecutableNames = ["Cloudflare WARP.exe"]
-        },
-        new DependencyDefinition
-        {
-            Id = "proton",
-            Name = "Proton VPN Client",
-            Description = "Alternative IP rotation provider for quota resets.",
-            Category = "utility",
-            InstallKind = "browser",
-            SiteUrl = "https://protonvpn.com/download",
-            CommandPreview = "protonvpn-cli --version",
-            Commands = ["protonvpn-cli", "protonvpn"],
-            FallbackPaths =
-            [
-                @"%ProgramFiles%\Proton\VPN\ProtonVPN.exe",
-                // Proton installs into a versioned subfolder, e.g. ...\VPN\v5.1.8\ProtonVPN.Client.exe
-                @"%ProgramFiles%\Proton\VPN\v*\ProtonVPN.Client.exe",
-                @"%ProgramFiles%\Proton\VPN\ProtonVPN.Launcher.exe"
-            ],
-            GuiExecutableNames = ["ProtonVPN.exe", "ProtonVPN.Client.exe", "ProtonVPN.Launcher.exe"]
         }
     ];
 

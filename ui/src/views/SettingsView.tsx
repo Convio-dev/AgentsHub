@@ -39,7 +39,33 @@ import {
   KeyRound,
   Eye,
   EyeOff,
+  Bot,
+  Sparkles,
+  Code2,
+  Package,
+  FolderOpen,
 } from 'lucide-react';
+
+/**
+ * A mark per agent, so a list of four CLIs is readable at a glance instead of four identical rows.
+ * Unknown ids fall back to a package icon rather than rendering nothing.
+ */
+function dependencyIcon(id: string) {
+  const cls = 'w-3.5 h-3.5 flex-shrink-0';
+
+  switch (id) {
+    case 'antigravity':
+      return <Sparkles className={cls} />;
+    case 'claude':
+      return <Bot className={cls} />;
+    case 'codex':
+      return <Code2 className={cls} />;
+    case 'opencode':
+      return <Terminal className={cls} />;
+    default:
+      return <Package className={cls} />;
+  }
+}
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useThemeStore, PRESET_SWATCHES } from '../store/useThemeStore';
 import { useProfileStore } from '../store/useProfileStore';
@@ -62,6 +88,13 @@ export const SettingsView: React.FC = () => {
     saveFeedback,
     dependencies,
     dependenciesLoading,
+    engineHealth,
+    engineHealthLoading,
+    loadEngineHealth,
+    installingId,
+    installLines,
+    noteInstallLine,
+    finishInstall,
     loadDependencies,
     runDependencyInstall,
     installAllDependencies,
@@ -163,6 +196,26 @@ export const SettingsView: React.FC = () => {
     deleteAutomation,
     runAutomationNow,
   } = useSettingsStore();
+
+  /** Where the last log bundle was written, so the path is visible rather than assumed. */
+  const [bundlePath, setBundlePath] = useState<string | null>(null);
+
+  // The installer streams progress for minutes. Without these two subscriptions the button looked
+  // dead: the call worked, the install ran, and the row never changed.
+  useEffect(() => {
+    const offProgress = webviewBridge.on('dependency_install_progress', (data: any) => {
+      if (data?.id) noteInstallLine(String(data.id), String(data.line ?? ''));
+    });
+
+    const offComplete = webviewBridge.on('dependency_install_complete', (data: any) => {
+      if (data?.id) finishInstall(String(data.id), Boolean(data.success), String(data.message ?? ''));
+    });
+
+    return () => {
+      offProgress?.();
+      offComplete?.();
+    };
+  }, [noteInstallLine, finishInstall]);
 
   const { theme, accentColor, themeIntensity, setTheme, setAccentColor, setThemeIntensity } = useThemeStore();
 
@@ -305,6 +358,8 @@ export const SettingsView: React.FC = () => {
 
   useEffect(() => {
     loadDependencies();
+    // Passive, so it is safe to ask on mount: it reads state the engines already hold.
+    loadEngineHealth();
     loadSoundpackConfig();
     loadWebhookConfig();
     loadDiscordRpcStatus();
@@ -909,6 +964,106 @@ export const SettingsView: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Engine health: passive state only. Nothing here loads a page, because a
+                    health check that can hang is worse than no health check. */}
+                <div className="space-y-2 pb-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs font-semibold text-accent">Engine health</div>
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        onClick={async () => {
+                          try {
+                            const res: any = await webviewBridge.invoke('export_log_bundle');
+                            setBundlePath(res?.path ?? null);
+                          } catch {
+                            setBundlePath(null);
+                          }
+                        }}
+                      >
+                        Export logs
+                      </Button>
+                    </div>
+                    <Button variant="secondary" size="xs" onClick={() => loadEngineHealth()}>
+                      <RefreshCw className={`w-3.5 h-3.5 ${engineHealthLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+
+                  {engineHealth.length === 0 ? (
+                    <p className="text-[11px] text-content-dim">Not checked yet. Press refresh.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {engineHealth.map(engine => (
+                        <div
+                          key={engine.id}
+                          className="p-3 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]"
+                        >
+                          <div className="flex items-center gap-2 flex-wrap text-xs font-bold text-[var(--text-main,#F1F5F9)]">
+                            <span className="text-accent">{dependencyIcon(engine.id)}</span>
+                            <span>{engine.name}</span>
+
+                            <span
+                              className={`px-1.5 rounded text-[10px] font-mono border ${
+                                engine.initialized
+                                  ? 'bg-emerald-500/10 text-state-success border-emerald-500/20'
+                                  : 'bg-slate-500/10 text-content-dim border-slate-500/20'
+                              }`}
+                            >
+                              {engine.initialized ? 'window ready' : 'not started'}
+                            </span>
+
+                            {engine.signedIn !== null ? (
+                              <span
+                                className={`px-1.5 rounded text-[10px] font-mono border ${
+                                  engine.signedIn
+                                    ? 'bg-emerald-500/10 text-state-success border-emerald-500/20'
+                                    : 'bg-amber-500/10 text-state-warning border-amber-500/20'
+                                }`}
+                              >
+                                {engine.signedIn ? 'signed in' : 'guest'}
+                              </span>
+                            ) : null}
+
+                            <span
+                              className={`px-1.5 rounded text-[10px] font-mono border ${
+                                engine.primedIn
+                                  ? 'bg-emerald-500/10 text-state-success border-emerald-500/20'
+                                  : 'bg-slate-500/10 text-content-dim border-slate-500/20'
+                              }`}
+                              title={engine.primedIn ?? 'No primer in the current conversation'}
+                            >
+                              {engine.primedIn ? 'tools primed' : 'no primer'}
+                            </span>
+                          </div>
+
+                          {engine.lastError ? (
+                            <p className="text-[11px] font-mono text-state-danger mt-1 break-words">{engine.lastError}</p>
+                          ) : (
+                            <p className="text-[11px] font-mono text-[var(--text-dim,#64748B)] mt-1">
+                              {engine.lastTurnAt ? `last turn ${new Date(engine.lastTurnAt).toLocaleTimeString()}` : 'no turn yet'}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {bundlePath ? (
+                    <div className="flex items-start gap-1.5">
+                      <p className="flex-1 text-[10.5px] font-mono text-content-dim break-all">Saved to {bundlePath}</p>
+                      <button
+                        type="button"
+                        title="Show this file in its folder"
+                        onClick={() => void webviewBridge.invoke('open_log_bundle_location', { path: bundlePath })}
+                        className="mt-0.5 flex-shrink-0 rounded p-0.5 text-content-dim transition-colors hover:text-accent"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
                 {/* Group 1: Core System & Dev Runtimes */}
                 <div className="space-y-2 pt-2">
                   <div className="text-xs font-semibold text-accent">1. Core Dev Runtimes (Required by CLI Agents)</div>
@@ -922,6 +1077,7 @@ export const SettingsView: React.FC = () => {
                         >
                           <div>
                             <div className="text-xs font-bold text-[var(--text-main,#F1F5F9)] flex items-center gap-2">
+                              <span className="text-accent">{dependencyIcon(dep.id)}</span>
                               <span>{dep.name}</span>
                               <span
                                 className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
@@ -936,14 +1092,24 @@ export const SettingsView: React.FC = () => {
                             <div className="text-[11px] font-mono text-[var(--text-dim,#64748B)] mt-0.5">
                               {dep.version || dep.path || 'Not detected on PATH'}
                             </div>
+                            {installLines[dep.id] ? (
+                              <div className="text-[10.5px] font-mono text-accent mt-0.5 break-all">
+                                {installLines[dep.id]}
+                              </div>
+                            ) : null}
                           </div>
 
                           <Button
                             variant="secondary"
                             size="xs"
+                            disabled={installingId === dep.id}
                             onClick={() => runDependencyInstall(dep.id)}
                           >
-                            {dep.isInstalled ? 'Reinstall' : 'Install via Winget'}
+                            {installingId === dep.id
+                              ? 'Installing...'
+                              : dep.isInstalled
+                                ? 'Reinstall'
+                                : 'Install'}
                           </Button>
                         </div>
                       ))}
@@ -952,7 +1118,14 @@ export const SettingsView: React.FC = () => {
 
                 {/* Group 2: AI Agents & VPN Utilities */}
                 <div className="space-y-2 pt-3 border-t border-[var(--border-subtle,#1E293B)]">
-                  <div className="text-xs font-semibold text-state-success">2. AI Agents & Network Tools</div>
+                  <div>
+                    <div className="text-xs font-semibold text-state-success">2. AI Agents & Network Tools</div>
+                    <p className="text-[10.5px] text-content-dim mt-0.5">
+                      Optional. Only the runtimes above are required for the app to run, and only
+                      Antigravity is used in chat today. The rest are detected and can be launched in a
+                      terminal.
+                    </p>
+                  </div>
                   <div className="space-y-1.5">
                     {dependencies
                       .filter(d => d.category !== 'runtime')
@@ -963,6 +1136,7 @@ export const SettingsView: React.FC = () => {
                         >
                           <div>
                             <div className="text-xs font-bold text-[var(--text-main,#F1F5F9)] flex items-center gap-2">
+                              <span className="text-accent">{dependencyIcon(dep.id)}</span>
                               <span>{dep.name}</span>
                               <span
                                 className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
@@ -973,19 +1147,51 @@ export const SettingsView: React.FC = () => {
                               >
                                 {dep.isInstalled ? 'Ready' : 'Missing'}
                               </span>
+
+                              {dep.chatSupported === false ? (
+                                <span
+                                  className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-slate-500/10 text-content-dim border border-slate-500/20"
+                                  title="Detected and launchable, but not wired into chat yet"
+                                >
+                                  Not used
+                                </span>
+                              ) : null}
                             </div>
                             <div className="text-[11px] font-mono text-[var(--text-dim,#64748B)] mt-0.5">
                               {dep.version || dep.commandPreview || 'Available as agent terminal'}
                             </div>
+                            {installLines[dep.id] ? (
+                              <div className="text-[10.5px] font-mono text-accent mt-0.5 break-all">
+                                {installLines[dep.id]}
+                              </div>
+                            ) : null}
                           </div>
 
-                          <Button
-                            variant="secondary"
-                            size="xs"
-                            onClick={() => runDependencyInstall(dep.id)}
-                          >
-                            {dep.isInstalled ? 'Update / Check' : 'Run Installer'}
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            {dep.isInstalled ? (
+                              <Button
+                                variant="secondary"
+                                size="xs"
+                                title={`Open a terminal running ${dep.name}`}
+                                onClick={() => void webviewBridge.invoke('run_dependency_cli', { id: dep.id })}
+                              >
+                                Run
+                              </Button>
+                            ) : null}
+
+                            <Button
+                              variant="secondary"
+                              size="xs"
+                              disabled={installingId === dep.id}
+                              onClick={() => runDependencyInstall(dep.id)}
+                            >
+                              {installingId === dep.id
+                                ? 'Installing...'
+                                : dep.isInstalled
+                                  ? 'Update / Check'
+                                  : 'Run Installer'}
+                            </Button>
+                          </div>
                         </div>
                       ))}
                   </div>

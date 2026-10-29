@@ -18,12 +18,20 @@ public enum QwenStatus
 /// <summary>One assistant answer, and the selector that produced it.</summary>
 public sealed record QwenReply(string Text, string Selector, string Thinking = "");
 
+/// <summary>Read-only state for the health panel. Nothing here starts a page load.</summary>
+public sealed record QwenHealth(
+    bool Initialized,
+    bool PageLoaded,
+    string? PrimedIn,
+    DateTime? LastTurnAt,
+    string? LastError);
+
 /// <summary>
 /// Drives chat.qwen.ai in a hidden WebView2, the way <c>DeepSeekEngine</c> drives its own page.
 ///
-/// Differences on purpose: no accounts, no tool loop, no priming. Qwen has no tool protocol, and
-/// inventing one would be fiction. Guest use is allowed, so a missing sign-in is a nudge rather than
-/// a gate.
+/// Differences on purpose: no accounts. Guest use is allowed, so a missing sign-in is a nudge rather
+/// than a gate. The tool loop, the guide and the parser are this engine's own (QwenTools) because a
+/// rendered page gives no code fences, while execution is shared with the DeepSeek layer.
 ///
 /// Selectors below came from a Phase 0 probe of the live page, not from guessing:
 ///   composer  textarea.message-input-textarea
@@ -50,6 +58,37 @@ public sealed class QwenEngine : IDisposable
     private bool _navigationStarted;
     private bool _shuttingDown;
     private string? _primedRoot;
+
+    /// <summary>Characters of tool output one turn may add to the context, in total.</summary>
+    private const int ResultBudget = 12000;
+
+    private DateTime? _lastTurnAt;
+    private string? _lastError;
+
+    /// <summary>
+    /// What the health panel shows. Deliberately passive: it reads state the engine already has and
+    /// never navigates the page, because asking the page a question is exactly what can hang.
+    /// </summary>
+    public QwenHealth Health() => new(
+        Initialized: _host != null,
+        PageLoaded: _web?.CoreWebView2 != null,
+        PrimedIn: _primedChat,
+        LastTurnAt: _lastTurnAt,
+        LastError: _lastError);
+
+    /// <summary>Ceiling for a single tool result, regardless of the turn budget.</summary>
+    private const int PerResultLimit = 4000;
+
+    /// <summary>
+    /// Appended to every prompt. The guide is the oldest message in the chat, so a provider that
+    /// compacts a long conversation can summarise it away; this keeps the format where it is read last.
+    /// </summary>
+    private const string ProtocolReminder =
+        "\n\n[If this needs a file or command action, reply with a tool block.]";
+
+    /// <summary>The page path the primer was sent in. A new chat has a new path, and a new chat has
+    /// no primer.</summary>
+    private string? _primedChat;
 
     /// <summary>
     /// Asks the user before a destructive action, exactly like the DeepSeek engine does.
@@ -493,18 +532,27 @@ public sealed class QwenEngine : IDisposable
         await _turnLock.WaitAsync(ct).ConfigureAwait(false);
         Log($"turn start, {prompt.Length} chars, tools={toolsEnabled}");
 
+        _lastTurnAt = DateTime.UtcNow;
+
         try
         {
             if (!toolsEnabled || string.IsNullOrWhiteSpace(root))
             {
-                return await SendOnceAsync(prompt, progress, thinking, ct).ConfigureAwait(false);
+                var plain = await SendOnceAsync(prompt, progress, thinking, ct).ConfigureAwait(false);
+                _lastError = null;
+                return plain;
             }
 
-            return await RunWithToolsAsync(prompt, root!, skipPermissions, progress, thinking, ct)
+            var reply = await RunWithToolsAsync(prompt, root!, skipPermissions, progress, thinking, ct)
                 .ConfigureAwait(false);
+
+            _lastError = null;
+            return reply;
         }
         catch (Exception ex)
         {
+            // The health panel reads this instead of making the user grep a log file.
+            _lastError = $"{ex.GetType().Name}: {ex.Message}";
             Log($"turn failed: {ex.GetType().Name}: {ex.Message}");
             throw;
         }
@@ -528,9 +576,14 @@ public sealed class QwenEngine : IDisposable
         IProgress<string>? thinking,
         CancellationToken ct)
     {
-        // Priming is per workspace, not per process: the guide names a working directory, and the
-        // skills and MCP tools are discovered from it. Re-prime when the workspace changes.
-        if (_primedRoot != root)
+        // Priming is per conversation, not per process. The guide names a working directory, and it
+        // is the oldest message in the chat, so a new chat, a cleared history or a provider-side
+        // compaction drops it while this object still believes it is primed. DeepSeek re-checks the
+        // chat before every turn for the same reason; the page path is the cheapest equivalent here.
+        string pathBefore = await CurrentPagePathAsync().ConfigureAwait(false);
+        bool needsPriming = _primedRoot != root || pathBefore != _primedChat;
+
+        if (needsPriming)
         {
             _primedRoot = root;
 
@@ -554,10 +607,19 @@ public sealed class QwenEngine : IDisposable
             Log($"priming with the tool guide, skills={skills.Count} mcpTools={mcpTools.Count}");
 
             await SendOnceAsync(guide, null, null, ct).ConfigureAwait(false);
+
+            // Read the path after priming: sending the guide is what creates the conversation, so
+            // the path before it is not the one the primer now lives in.
+            _primedChat = await CurrentPagePathAsync().ConfigureAwait(false);
+            Log($"primed in {_primedChat}");
         }
 
-        string message = prompt;
+        // The guide is the oldest message in the chat, and a provider that compacts a long conversation
+        // can summarise it away. One short line at the end of the prompt keeps the format where it is
+        // read last, which is the only mitigation that survives compaction.
+        string message = prompt + ProtocolReminder;
         string lastText = string.Empty;
+        int spent = 0;
 
         for (int round = 0; round < 6; round++)
         {
@@ -614,14 +676,34 @@ public sealed class QwenEngine : IDisposable
 
                 Log($"tool {kind} -> {summary}");
 
-                results.AppendLine($"[{kind}] {summary}");
-                if (!string.IsNullOrWhiteSpace(body))
-                {
-                    results.AppendLine(body.Length > 4000 ? body[..4000] : body);
-                }
+                    results.AppendLine($"[{kind}] {summary}");
+                    if (!string.IsNullOrWhiteSpace(body))
+                    {
+                        // Per result and per turn. Capping only the single result lets a dozen reads
+                        // fill the context between them, which is what triggers the compaction that
+                        // loses the guide in the first place.
+                        int room = Math.Max(0, ResultBudget - spent);
+                        int allow = Math.Min(PerResultLimit, room);
+
+                        if (allow <= 0)
+                        {
+                            results.AppendLine("[truncated: this turn's result budget is spent. Ask for a smaller range.]");
+                        }
+                        else
+                        {
+                            string clipped = body.Length > allow ? body[..allow] : body;
+                            results.AppendLine(clipped);
+                            spent += clipped.Length;
+
+                            if (clipped.Length < body.Length)
+                            {
+                                results.AppendLine($"[truncated at {allow} of {body.Length} characters]");
+                            }
+                        }
+                    }
             }
 
-            message = $"Tool results://n{results}//nContinue. Use another action if needed, otherwise answer.";
+            message = $"Tool results:\n{results}\nContinue. Use another action if needed, otherwise answer.";
         }
 
         return new QwenReply(lastText, "tools", string.Empty);
@@ -649,6 +731,28 @@ public sealed class QwenEngine : IDisposable
         return lastLine.Length is > 0 and <= 3 && int.TryParse(lastLine, out _)
             ? text[..lineStart]
             : text;
+    }
+
+    /// <summary>
+    /// The page path, used as a conversation identity.
+    ///
+    /// `/` is a new chat, `/c/...` is an existing one, `/auth` is the sign-in form. Comparing it with
+    /// the path the primer was sent in is enough to notice that the conversation changed underneath
+    /// us, without parsing the transcript or trusting a virtualised message list.
+    /// </summary>
+    private async Task<string> CurrentPagePathAsync()
+    {
+        try
+        {
+            return await UiAsync(() => EvalAsync("location.pathname")).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // A page that cannot answer tells us nothing about the conversation; do not re-prime on
+            // a failed probe, which would put the guide into every turn.
+            Log($"path probe failed: {ex.GetType().Name}: {ex.Message}");
+            return _primedChat ?? string.Empty;
+        }
     }
 
     /// <summary>One exchange: type, send, read. No tool handling.</summary>

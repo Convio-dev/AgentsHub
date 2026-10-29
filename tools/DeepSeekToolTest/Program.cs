@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AgentsHub.Services;
 using AgentsHub.Services.DeepSeek;
 using AgentsHub.Services.Qwen;
 
@@ -11,6 +12,33 @@ if (args.Contains("--mcp"))
     return;
 }
 
+
+if (args.Contains("--redact"))
+{
+    // A log line shaped like the ones this app writes, carrying everything that must never leave.
+    const string dirty = """
+        2026-10-30T00:00:00Z token found via userToken (json-object)
+        Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature
+        {"userToken":"sk-live-abcdef0123456789","api_key":"AKIAIOSFODNN7EXAMPLE"}
+        profile=C:\Users\Gaming\AppData\Roaming\AgentsHub\deepseek-accounts\default
+        owner=gaming@example.com key=ghp_0123456789abcdefghijklmnopqrstuvwxyz
+        """;
+
+    string clean = LogBundleService.Redact(dirty);
+    Console.WriteLine("--- redacted ---");
+    Console.WriteLine(clean);
+
+    bool leaked =
+        clean.Contains("sk-live-abcdef") ||
+        clean.Contains("AKIAIOSFODNN7EXAMPLE") ||
+        clean.Contains("eyJhbGciOiJIUzI1NiJ9") ||
+        clean.Contains("ghp_0123456789") ||
+        clean.Contains("gaming@example.com") ||
+        clean.Contains("Users\\Gaming");
+
+    Console.WriteLine($"leak check: {(leaked ? "FAIL - something survived" : "PASS - nothing survived")}");
+    return;
+}
 
 if (args.Contains("--guide"))
 {
