@@ -210,7 +210,7 @@ public static class DependencyCheckerService
         {
             Id = "qwen-code",
             Name = "Qwen Code CLI",
-            Description = "Apache-2.0 terminal agent. 2000 free calls a day with a Qwen account.",
+            Description = "Terminal agent built on Gemini CLI. Needs a Qwen Cloud, ModelStudio or third-party provider key.",
             Category = "agent",
             InstallKind = "powershell",
             SiteUrl = "https://github.com/QwenLM/qwen-code",
