@@ -26,13 +26,12 @@ The point of this project is that a capable agent setup should not require a sub
 | :--- | :--- |
 | **DeepSeek chat** | A full coding agent driven through chat.deepseek.com in a hidden window, with the same tool protocol as the CLI engines. Uses your own free account. |
 | **Qwen chat** | chat.qwen.ai as a third engine. Works signed out; signing in raises the quota. **Under construction.** |
-| **Local models** | Point the gateway at Ollama or any OpenAI-compatible server and nothing leaves your machine. |
-| **OpenRouter / Groq / DeepSeek API** | Bring your own key, route Claude Code through it, and see what each turn costs. |
 | **Antigravity CLI (`agy`)** | Multiple isolated accounts on one machine, each with its own home directory and port. |
 | **The whole app** | MIT-licensed source, portable build, no account, no telemetry, no licence server. |
 
-Everything below runs locally. There is no cloud component, and nothing is uploaded anywhere unless
-you configure a provider that requires it.
+Everything below runs locally. There is no cloud component and no telemetry endpoint. The only traffic
+is what an engine you started sends to its own service: the CLI you launched, or the web chat you
+chose to use.
 
 ---
 
@@ -42,7 +41,6 @@ you configure a provider that requires it.
 AgentsHub.exe ── WebView2 dashboard ── HTTP/JSON ── AgentsEngine (sidecar)
                                                       ├── process supervisor
                                                       ├── PTY sessions
-                                                      ├── provider gateway
                                                       ├── telemetry
                                                       └── local API
 ```
@@ -66,7 +64,7 @@ architectures) that the host starts and supervises. That split is what makes the
 | **Antigravity** | `agy` CLI in a PTY | Yes | Multiple isolated accounts, per-account ports |
 | **DeepSeek** | chat.deepseek.com in a hidden WebView2 | Yes | Free account, no API key |
 | **Qwen** | chat.qwen.ai in a hidden WebView2 | Yes | Free, guest allowed; **under construction** |
-| **Claude Code** | CLI, optionally through the gateway | Yes | Route to OpenRouter, Groq, Ollama or any OpenAI-compatible endpoint |
+| **Claude Code** | CLI in a PTY | Yes | Uses your own account |
 | **Custom CLIs** | Any command you define | Depends | Per-CLI working directory and shell |
 
 ### One tool protocol, two kinds of engine
@@ -119,11 +117,6 @@ an agent without leaving the game or the editor.
 Interactive commit graph with branch lanes, working-tree inspector, side-by-side and unified diffs,
 branch-from-commit, stash and worktree management, and direct GitHub push with credential detection.
 
-### Provider gateway and cost telemetry
-A local proxy translates Anthropic Messages calls to OpenAI-compatible endpoints with SSE streaming
-and `tool_use` / `tool_result` mapping. Live counters show prompt and completion tokens, requests per
-minute, model mix, and the cost against Anthropic list prices.
-
 ### MCP and skills
 Inspect MCP servers, tools, skills and rules across user and system locations, and hand the ones you
 enable to any engine that supports tools.
@@ -164,7 +157,6 @@ live log console, secret scanning before commit, and a theme engine with custom 
 | `9119` | Hermes dashboard | `127.0.0.1` | Legacy engine UI |
 | `9191` | LAN proxy | `0.0.0.0` | Opt-in only |
 | `9229` | Claude Code terminal | `127.0.0.1` | Web pseudoconsole server |
-| `9230` | Gateway proxy | `127.0.0.1` | Anthropic to OpenAI translation |
 | `9339`+ | Antigravity engines | `127.0.0.1` | Allocated per profile |
 
 ---
@@ -229,7 +221,7 @@ AgentsHub/
 │   ├── Qwen/                      # second web engine (under construction)
 │   ├── Platform/                  # PlatformHelper, ToolWindowHost
 │   ├── ConPty/                    # Windows pseudoconsole interop
-│   └── …                          # git, profiles, LAN, gateway, telemetry
+│   └── …                          # git, profiles, LAN, telemetry
 ├── ui/src/                        # React dashboard (Vite + Tailwind)
 ├── tools/                         # test harnesses and probes
 └── dist/                          # packaged output
