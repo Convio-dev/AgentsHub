@@ -548,7 +548,7 @@ public sealed class GitRepositoryManagerService
                 repo.LastCommitHash = parts[0];
                 repo.LastCommitAuthor = parts[1];
                 repo.LastCommitDate = parts[2];
-                repo.LastCommitMsg = parts[3];
+                repo.LastCommitMessage = parts[3];
             }
         }
 

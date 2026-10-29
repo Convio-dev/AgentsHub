@@ -50,7 +50,7 @@ public sealed class RepositoryItem
     public string? LastCommitDate { get; set; }
 
     [JsonPropertyName("lastCommitMsg")]
-    public string? LastCommitMsg { get; set; }
+    public string? LastCommitMessage { get; set; }
 
     [JsonPropertyName("lastCommitAuthor")]
     public string? LastCommitAuthor { get; set; }

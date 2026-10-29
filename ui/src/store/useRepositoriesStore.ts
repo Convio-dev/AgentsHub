@@ -96,6 +96,8 @@ interface RepositoriesStoreState {
 
   // Actions
   loadRepoManagerState: () => Promise<void>;
+  /** Fetches the commit graph for one repo; the service already builds parents and refs. */
+  loadCommits: (repoPath: string) => Promise<void>;
   startRepoScan: () => Promise<void>;
   cancelRepoScan: () => Promise<void>;
   selectRepo: (id: string) => Promise<void>;
@@ -159,6 +161,28 @@ export const useRepositoriesStore = create<RepositoriesStoreState>((set, get) =>
     set({ selectedBatchRepoIds: new Set() });
   },
 
+  loadCommits: async repoPath => {
+    if (!repoPath) return;
+
+    try {
+      const res: any = await webviewBridge.invoke('git_commit_graph', { repoPath });
+      const list = Array.isArray(res?.commits) ? res.commits : [];
+
+      set({
+        commits: list.map((c: any) => ({
+          hash: String(c.hash ?? ''),
+          shortHash: String(c.shortHash ?? c.hash ?? '').slice(0, 7),
+          subject: String(c.subject ?? c.message ?? ''),
+          message: String(c.message ?? c.subject ?? ''),
+          author: String(c.author ?? c.authorName ?? ''),
+          date: String(c.date ?? c.authorDate ?? ''),
+        })),
+      });
+    } catch {
+      set({ commits: [] });
+    }
+  },
+
   loadRepoManagerState: async () => {
     try {
       const res = await webviewBridge.invoke('get_repo_manager_state');
@@ -169,7 +193,13 @@ export const useRepositoriesStore = create<RepositoriesStoreState>((set, get) =>
           path: r.path || '',
           branch: r.branch || 'main',
           isPinned: Boolean(r.isPinned),
-          status: r.status ? r.status.toLowerCase() : (r.isDirty ? 'modified' : 'clean'),
+          // `status` on this payload is the project's lifecycle ("active"), not git cleanliness, so
+          // using it marked every repository Modified, including trees that `git status` reports as
+          // clean. The counts are the real signal, and the service already computes `isClean`.
+          status:
+            r.isClean === true || (r.stagedCount ?? 0) + (r.unstagedCount ?? 0) + (r.untrackedCount ?? 0) === 0
+              ? 'clean'
+              : 'modified',
           hasIssues: Boolean(r.hasIssues),
           aheadCount: r.aheadCount || 0,
           behindCount: r.behindCount || 0,

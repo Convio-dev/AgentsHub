@@ -51,6 +51,7 @@ export const RepositoriesView: React.FC = () => {
     launchers,
     healthFindings,
     commits,
+    loadCommits,
     repoNotes,
     notesSaved,
     selectedBatchRepoIds,
@@ -92,6 +93,18 @@ export const RepositoriesView: React.FC = () => {
   useEffect(() => {
     loadRepoManagerState();
   }, [loadRepoManagerState]);
+
+  // The graph is fetched when its tab opens, and again when the selection changes, because the
+  // commit list belongs to one repository rather than to the whole manager state.
+  useEffect(() => {
+    if (activeSubTab !== 'history') return;
+
+    // Read the selection from the store rather than the local binding: this hook runs before that
+    // binding is declared, and the path is only needed when the tab opens.
+    const state = useRepositoriesStore.getState();
+    const repo = state.repositories.find(r => r.id === state.selectedRepoId);
+    if (repo?.path) void loadCommits(repo.path);
+  }, [activeSubTab, loadCommits]);
 
   const selectedRepo = repositories.find(r => r.id === selectedRepoId) || repositories[0];
   const workingRepo = repositories.find(r => r.id === workingProjectId) || selectedRepo;
@@ -365,6 +378,9 @@ export const RepositoriesView: React.FC = () => {
                             : 'bg-amber-500/10 text-state-warning border border-amber-500/20'
                         }`}
                       >
+                        {/* `status` is a closed union, so the badge is only as good as the store's
+                            mapping from the service payload. A clean repo showing "Modified" means
+                            that mapping, not this line. */}
                         {repo.status === 'clean' ? 'Clean' : 'Modified'}
                       </span>
                     </div>
@@ -561,7 +577,13 @@ export const RepositoriesView: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="p-4 rounded-xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] space-y-1">
                       <div className="text-[11px] font-semibold text-[var(--text-dim,#64748B)] uppercase tracking-wider">Latest Commit</div>
-                      <div className="text-xs font-medium text-[var(--text-main,#F1F5F9)]">{selectedRepo.lastCommitMessage || 'No commits found'}</div>
+                      <div className="text-xs font-medium text-[var(--text-main,#F1F5F9)]">
+                        {/* A repo with a hash but no subject is not "no commits"; the service simply
+                            did not read the subject, and claiming otherwise contradicted the hash
+                            printed directly below. */}
+                        {selectedRepo.lastCommitMessage
+                          || (selectedRepo.lastCommitHash ? '(no commit message)' : 'No commits found')}
+                      </div>
                       <div className="text-[11px] font-mono text-[var(--text-dim,#64748B)]">
                         {selectedRepo.lastCommitHash} • {selectedRepo.lastCommitAuthor} • {selectedRepo.lastCommitTime}
                       </div>

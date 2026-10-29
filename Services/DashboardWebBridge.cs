@@ -3082,6 +3082,22 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "git_commit_graph":
+                {
+                    // GetCommitGraphAsync has existed all along; nothing exposed it, so the graph tab
+                    // rendered an empty list rather than a broken one.
+                    string? repoPath = data.TryGetProperty("repoPath", out var graphPath) ? graphPath.GetString() : null;
+                    if (string.IsNullOrEmpty(repoPath) || !Directory.Exists(repoPath))
+                    {
+                        SendResponse(requestId, true, new { commits = Array.Empty<object>() });
+                        break;
+                    }
+
+                    var nodes = await GitRepositoryManagerService.Instance.GetCommitGraphAsync(repoPath).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { commits = nodes });
+                }
+                break;
+
             case "get_git_status":
                 {
                     string? repoPath = data.TryGetProperty("repoPath", out var rProp) ? rProp.GetString() : null;
