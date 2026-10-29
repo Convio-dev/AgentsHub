@@ -277,11 +277,32 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
 
   const handleBrowseWorkspaceDir = async () => {
     try {
-      const res = await webviewBridge.invoke('pick_directory');
-      if (res && res.path) {
-        setEditingWorkspace(prev => (prev ? { ...prev, workingDirectory: res.path } : prev));
+      // `pick_directory` never existed, and the empty catch hid the failure: the button did
+      // nothing at all. The folder chooser is `browse_directory`, which returns { path }.
+      const res: any = await webviewBridge.invoke('browse_directory');
+      if (res?.path) {
+        // The folder name is almost always the name the user wants, so it fills the field when the
+        // name is still a placeholder. A name they typed is never overwritten.
+        const folder = String(res.path).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
+
+        setEditingWorkspace(prev => {
+          if (!prev) return prev;
+
+          const current = (prev.name || '').trim();
+          const isPlaceholder = current.length === 0
+            || /^workspace\s*\d*$/i.test(current)
+            || /^untitled workspace$/i.test(current);
+
+          return {
+            ...prev,
+            workingDirectory: res.path,
+            name: isPlaceholder && folder ? folder : prev.name,
+          };
+        });
       }
-    } catch {}
+    } catch {
+      // Cancelling the picker rejects; that is not an error worth reporting.
+    }
   };
 
   const handleSaveWorkspaceModal = async () => {

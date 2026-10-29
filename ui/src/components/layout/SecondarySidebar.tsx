@@ -23,6 +23,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
     isLoadingFiles,
     switchWorkspace,
     deleteBackendSession,
+    clearWorkspace,
   } = useWorkspaceStore();
 
   const {
@@ -149,10 +150,15 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
   }));
 
   const allSessions: Array<BackendSessionItem & { isLocal?: boolean }> = [...localSessionList];
-  backendSessions.forEach(bs => {
-    if (!allSessions.some(s => s.sessionId === bs.sessionId)) {
-      allSessions.push(bs);
-    }
+
+  // The CLI's own transcripts are deliberately not listed.
+  //
+  // They were merged here, but they are not in this store, so `switchSession` returned early and
+  // every row was a dead click. Fifteen unopenable entries buried the sessions that actually work,
+  // and importing them would be a feature rather than a fix. Kept in the code, not in the list, so
+  // bringing them back means deleting this guard once there is a loader.
+  backendSessions.forEach(() => {
+    return;
   });
 
   // Workspace tree: each project with the sessions that ran in it. Sessions created before
@@ -290,6 +296,9 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                 <div
                   key={s.sessionId}
                   onClick={() => {
+                    // Backend-only sessions are the CLI's own history. They are not in this store,
+                    // so switchSession would return early and the click would look broken.
+                    if (!s.isLocal) return;
                     switchSession(s.sessionId);
                     setActiveView('chat');
                   }}
@@ -297,14 +306,18 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                     // Backend-only sessions live outside the store, so only local ones can be renamed.
                     if (s.isLocal) beginRename(s.sessionId, s.goal || '');
                   }}
-                  className={`group w-full px-2.5 py-2 rounded-lg text-xs flex items-center space-x-2 transition cursor-pointer select-none ${
+                  className={`group w-full px-2.5 py-2 rounded-lg text-xs flex items-center space-x-2 transition select-none ${
+                    s.isLocal ? 'cursor-pointer' : 'cursor-default opacity-70'
+                  } ${
                     isActive
                       ? 'bg-surface-card border border-surface-border text-content-main shadow-sm'
                       : 'hover:bg-surface-card text-content-muted hover:text-content-main'
                   }`}
-                  title={`${s.goal || s.sessionId}${isDeepSeek ? ' (DeepSeek, runs in this app)' : ''}${
-                    s.isLocal ? '. Double-click to rename' : ''
-                  }`}
+                  title={
+                    s.isLocal
+                      ? `${s.goal || s.sessionId}${isDeepSeek ? ' (DeepSeek, runs in this app)' : ''}. Double-click to rename`
+                      : `${s.goal || s.sessionId} — found in the CLI's own history. Not importable yet, so it cannot be opened here.`
+                  }
                 >
                   {isDeepSeek ? (
                     <Brain
@@ -355,11 +368,15 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
         <div className="flex items-center gap-1">
           <div className="relative min-w-0 flex-1">
             <select
-              value={activeWorkspaceId}
+              value={activeWorkspaceId || '__none__'}
               onChange={e => {
                 if (e.target.value === '__new__') {
                   setNewWorkspace({ name: '', dir: '' });
                   setNewWorkspaceError(null);
+                  return;
+                }
+                if (e.target.value === '__none__') {
+                  clearWorkspace();
                   return;
                 }
                 switchWorkspace(e.target.value);
@@ -373,6 +390,8 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                 </option>
               ))}
               {workspaces.length === 0 && <option value="">Loading workspaces...</option>}
+              {/* No folder at all. Chats started here land in the Unfiled group. */}
+              <option value="__none__">Unfiled (no workspace)</option>
               <option value="__new__">+ New workspace...</option>
             </select>
             <ChevronDown className="pointer-events-none absolute right-1.5 top-1.5 h-3 w-3 text-content-dim" />
@@ -402,9 +421,9 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
 
           <button
             type="button"
-            onClick={onOpenWorkspaceModal}
-            title="Configure workspaces"
-            aria-label="Configure workspaces"
+            onClick={() => setActiveView('profiles')}
+            title="Configure workspaces in AccountsHub"
+            aria-label="Configure workspaces in AccountsHub"
             className="rounded p-1 text-content-dim transition-colors hover:bg-surface-card hover:text-content-main"
           >
             <Settings className="h-3.5 w-3.5" />

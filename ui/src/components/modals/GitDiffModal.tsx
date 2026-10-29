@@ -72,8 +72,17 @@ export const GitDiffModal: React.FC<GitDiffModalProps> = ({ isOpen, onClose }) =
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none">
-      <div className="w-full max-w-4xl h-[82vh] flex flex-col rounded-2xl bg-surface-card border border-surface-border shadow-2xl overflow-hidden font-sans">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Workspace git changes"
+    >
+      <div
+        className="w-full max-w-4xl h-[82vh] flex flex-col rounded-2xl bg-surface-card border border-surface-border shadow-2xl overflow-hidden font-sans"
+        onClick={event => event.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-surface-border bg-surface-deep/80">
           <div className="flex items-center space-x-2.5">

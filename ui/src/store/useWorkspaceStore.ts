@@ -20,6 +20,8 @@ interface WorkspaceStoreState {
   // Actions
   loadWorkspaces: () => Promise<void>;
   switchWorkspace: (workspaceId: string) => Promise<void>;
+  /** Works with no folder at all, which is what the Unfiled group holds. */
+  clearWorkspace: () => void;
   saveWorkspace: (ws: ProjectWorkspace) => Promise<boolean>;
   deleteWorkspace: (id: string) => Promise<boolean>;
   loadWorkspaceFiles: (pathOverride?: string) => Promise<void>;
@@ -57,6 +59,10 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     } catch (err) {
       console.warn('[WorkspaceStore] Could not load workspaces:', err);
     }
+  },
+
+  clearWorkspace: () => {
+    set({ activeWorkspaceId: '', activeWorkspace: null, files: [], branch: 'main' });
   },
 
   switchWorkspace: async (workspaceId: string) => {
