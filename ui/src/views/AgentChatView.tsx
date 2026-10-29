@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  MessageSquare,
+import { UserRound, Sparkles, MessageSquare,
   ChevronDown,
   Users,
   Terminal,
@@ -12,8 +11,7 @@ import {
   PanelLeftOpen,
   Brain,
   AlertTriangle,
-  ExternalLink,
-} from 'lucide-react';
+  ExternalLink, } from 'lucide-react';
 import { useSessionStore } from '../store/useSessionStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { useSidecarStore } from '../store/useSidecarStore';
@@ -154,7 +152,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
 
     // A DeepSeek turn runs in our own WebView2 and never touches the CLI runner. This guard used
     // to swallow the send silently, which read as "the composer does nothing".
-    if (!isDeepSeek && isRunnerStopped) {
+    if (!isWebEngine && isRunnerStopped) {
       if (!autoRunDefaultProfile) return;
       await startProfile(runnerName);
     }
@@ -175,6 +173,10 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
   };
 
   const isDeepSeek = activeSession?.engine === 'deepseek';
+  /** Both web engines drive a page instead of a CLI, so the runner bar does not apply to either. */
+  const isWebEngine = isDeepSeek || activeSession?.engine === 'qwen';
+  const isQwen = activeSession?.engine === 'qwen';
+  const [qwenMenuOpen, setQwenMenuOpen] = useState(false);
 
   /**
    * Sign-in state for a DeepSeek session.
@@ -316,8 +318,67 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
 
           <span className="opacity-30">|</span>
 
-          {/* A DeepSeek session has no runner, so the profile dropdown would be a lie. */}
-          {isDeepSeek ? (
+          {/* A web-engine session has no runner, so the profile dropdown would be a lie. Qwen gets
+              a plain label: there is no account to pick, and no window to manage. */}
+          {isQwen ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setQwenMenuOpen(open => !open)}
+                className="flex items-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 font-mono text-[11px] text-violet-300 transition hover:bg-violet-500/15"
+                title="Qwen window, sign-in, and answer mode"
+              >
+                <Sparkles className="h-3 w-3" />
+                Qwen
+                <ChevronDown className="h-3 w-3 opacity-70" />
+              </button>
+
+              {qwenMenuOpen ? (
+                <>
+                  <div className="fixed inset-0 z-[70]" onClick={() => setQwenMenuOpen(false)} />
+                  <div className="absolute left-0 top-full z-[71] mt-1 w-64 overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-xl">
+                    <label className="flex items-center justify-between border-b border-surface-border px-3 py-2 text-[11px] text-content-main">
+                      <span>Tools in this chat</span>
+                      <input
+                        type="checkbox"
+                        checked={activeSession?.toolsEnabled !== false}
+                        onChange={event => setToolsEnabled(activeSession.id, event.target.checked)}
+                        className="h-3.5 w-3.5 accent-violet-500"
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQwenMenuOpen(false);
+                        void webviewBridge.invoke('qwen_login', {}).catch(() => {});
+                      }}
+                      className="flex w-full items-center gap-2 border-t border-surface-border px-3 py-2 text-left text-[11px] text-content-main transition-colors hover:bg-surface-hover"
+                    >
+                      <UserRound className="h-3 w-3" />
+                      Sign in to keep your chats
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQwenMenuOpen(false);
+                        void webviewBridge.invoke('qwen_open', {}).catch(() => {});
+                      }}
+                      className="flex w-full items-center gap-2 border-t border-surface-border px-3 py-2 text-left text-[11px] text-content-main transition-colors hover:bg-surface-hover"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      Open the Qwen window
+                    </button>
+
+                    <p className="border-t border-surface-border px-3 py-2 text-[10px] leading-relaxed text-content-dim">
+                      Answers come from chat.qwen.ai. Guest chats are not saved on their side.
+                    </p>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : isDeepSeek ? (
             <div className="relative">
               <button
                 type="button"
@@ -468,7 +529,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
           ) : null}
 
           {/* Runner Dropdown with Multi-Profile Popover */}
-          <div className={isDeepSeek ? 'hidden' : 'relative'}>
+          <div className={isWebEngine ? 'hidden' : 'relative'}>
             <button
               onClick={() => setIsProfilePopoverOpen(!isProfilePopoverOpen)}
               className="text-xs px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-content-main font-mono flex items-center space-x-2 transition shadow-sm"
@@ -745,7 +806,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
               profileName={activeSession?.profile || activeProfileName}
             blockedNotice={
               // A DeepSeek turn never starts a runner, so gating it on one is wrong.
-              isDeepSeek || !isRunnerStopped || autoRunDefaultProfile
+              isWebEngine || !isRunnerStopped || autoRunDefaultProfile
                 ? null
                 : `Runner ${profileLabel(runnerName)} is stopped. Start it to send a message.`
             }

@@ -314,6 +314,18 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
       })
     );
 
+    // The host settles the answer once the turn is over. Streaming is append-only, so without this
+    // a turn that streamed an action object kept it on screen forever.
+    unsubs.push(
+      webviewBridge.on('chat_final', (data: any) => {
+        const sessionStore = useSessionStore.getState();
+        const targetSessionId = data.sessionId || sessionStore.activeSessionId;
+        if (typeof data?.text === 'string') {
+          sessionStore.setAssistantText(targetSessionId, data.text);
+        }
+      })
+    );
+
     // 6. Live Thinking Stream -> Target Session
     unsubs.push(
       webviewBridge.on('session_title', (data: any) => {

@@ -1,11 +1,12 @@
 import { createPortal } from 'react-dom';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { AlertTriangle, ArrowUp, Brain, FileCode, Folder, Paperclip, Quote, Square, GitBranch, X, FileText } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Brain, FileCode, Folder, Paperclip, Quote, Sparkles, Square, GitBranch, X, FileText } from 'lucide-react';
 import { ChatAttachment, SlashCommand, TokenUsage } from '../../types/agent';
 import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
 import { SlashCommandPalette } from './SlashCommandPalette';
 import { ModelSelector } from './ModelSelector';
+import { QwenModeChip, QwenModelChip } from './QwenPickers';
 import { useSessionStore } from '../../store/useSessionStore';
 import { webviewBridge } from '../../services/webviewBridge';
 import { ImageLightbox } from './ImageLightbox';
@@ -36,7 +37,7 @@ interface ChatInputProps {
    * Which engine answers this session. `deepseek` runs chat.deepseek.com in the app's own WebView2,
    * so the model picker, the permission switch and the quota ring do not apply to it.
    */
-  engine?: 'agy' | 'deepseek';
+  engine?: 'agy' | 'deepseek' | 'qwen';
   /** Null until the host has answered; drives the sign-in bar for a DeepSeek session. */
   deepSeekSignedIn?: boolean | null;
   /** Opens the one-time DeepSeek sign-in window. */
@@ -428,6 +429,56 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const turnTokens = lastTurnTokens?.totalTokens || 0;
   const isDeepSeek = engine === 'deepseek';
+  /** Qwen is the same shape as DeepSeek: a web page we drive, not a CLI. */
+  const isQwen = engine === 'qwen';
+  /** One-time hint that a guest account is the weaker way to use Qwen. */
+  // sessionStorage, not localStorage: a guest who dismissed the hint once should not lose it
+  // forever, and being signed out is a state that changes.
+  const [qwenNudgeHidden, setQwenNudgeHidden] = useState(
+    () => sessionStorage.getItem('agents_hub_qwen_nudge') === 'hidden'
+  );
+  /** null until the page answers. The notice only shows for a confirmed guest. */
+  const [qwenSignedIn, setQwenSignedIn] = useState<boolean | null>(null);
+
+  /**
+   * Asks the Qwen page once per session whether anyone is signed in.
+   *
+   * A cold start has to load the page first, so this gets a deadline: without one the row sat on
+   * "checking" forever and the composer said nothing about either state.
+   */
+  useEffect(() => {
+    if (!isQwen) return;
+
+    let alive = true;
+    setQwenSignedIn(null);
+
+    // Silence is not an accusation. A probe that times out hides the row rather than telling a
+    // signed-in user they are a guest, which is what `!signedIn` did.
+    const deadline = window.setTimeout(() => {
+      if (alive) setQwenSignedIn(current => (current === null ? true : current));
+    }, 12000);
+
+    void webviewBridge
+      .invoke('qwen_status')
+      .then((res: any) => {
+        if (!alive) return;
+
+        // Only an explicit `anonymous: true` counts as a guest. `unknown` means the page did not
+        // answer, and the honest thing then is to say nothing.
+        setQwenSignedIn(res?.anonymous === true ? false : true);
+      })
+      .catch(() => {
+        // A page that cannot answer says nothing about the account.
+        if (alive) setQwenSignedIn(true);
+      })
+      .finally(() => window.clearTimeout(deadline));
+
+    return () => {
+      alive = false;
+      window.clearTimeout(deadline);
+    };
+  }, [isQwen]);
+
   /** Files picked from `@` completion. Kept out of the text so they can render as chips. */
   const [mentions, setMentions] = useState<string[]>([]);
 
@@ -546,6 +597,43 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               document.body
             )
           : null}
+
+        {/* A guest account works, but it runs out and forgets. Stated plainly, once, and only for a
+            confirmed guest: the page is asked once rather than assumed. */}
+        {/* Three states, all visible: asking, guest, signed in (nothing to say). */}
+        {isQwen && qwenSignedIn === null && !qwenNudgeHidden ? (
+          <div className="flex items-center gap-2 border-b border-surface-border/60 px-3.5 py-2">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-content-dim" />
+            <p className="text-[11px] text-content-dim">Checking whether you are signed in to Qwen...</p>
+          </div>
+        ) : null}
+
+        {isQwen && qwenSignedIn === false && !qwenNudgeHidden ? (
+          <div className="flex items-center gap-2 border-b border-violet-500/25 bg-violet-500/[0.08] px-3.5 py-2">
+            <p className="flex-1 text-[11px] leading-snug">
+              <span className="font-medium text-content-main">You are chatting as a guest.</span>{' '}
+              <span className="text-content-muted">Sign in for more credits and saved chats.</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => void webviewBridge.invoke('qwen_login', {}).catch(() => {})}
+              className="rounded-md bg-violet-600 px-2 py-1 text-[10.5px] font-medium text-white transition-colors hover:bg-violet-500"
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setQwenNudgeHidden(true);
+                sessionStorage.setItem('agents_hub_qwen_nudge', 'hidden');
+              }}
+              className="rounded p-0.5 text-content-dim transition-colors hover:text-content-main"
+              title="Dismiss"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ) : null}
 
         {/* Quoted text reads as a chip instead of a wall of '>' lines in the box. */}
         {quoteLines.length > 0 ? (
@@ -728,26 +816,34 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             <span className="opacity-30">|</span>
 
-            {isDeepSeek ? (
-              /* No model to pick and no permission policy to set: the engine is the DeepSeek web
-                 chat, which decides both. Showing Gemini here was simply wrong. */
+            {isDeepSeek || isQwen ? (
+              /* No model to pick and no permission policy to set: the engine is a web chat, which
+                 decides both. Showing Gemini here was simply wrong. */
               <>
                 <span
                   className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-accent"
-                  title="Answers come from chat.deepseek.com, signed in as you"
+                  title={isQwen ? 'Answers come from chat.qwen.ai' : 'Answers come from chat.deepseek.com, signed in as you'}
                 >
-                  <Brain className="h-3 w-3" />
-                  DeepSeek
+                  {isQwen ? <Sparkles className="h-3 w-3" /> : <Brain className="h-3 w-3" />}
+                  {isQwen ? 'Qwen' : 'DeepSeek'}
                 </span>
+
+                {/* Both chips portal their menu out of the composer, which clips its children. */}
+                {isQwen ? (
+                  <>
+                    <QwenModelChip />
+                    <QwenModeChip />
+                  </>
+                ) : null}
 
                 <span className="opacity-30">|</span>
 
                 {/* Their two composer chips, driven per session. Same mechanism the page uses:
                     click to flip, state read back from the button. */}
-                {([
+                {(isDeepSeek ? [
                   { key: 'deepThink' as const, label: 'DeepThink', on: deepThink !== false },
                   { key: 'webSearch' as const, label: 'Search', on: webSearch === true },
-                ]).map(chip => (
+                ] : []).map(chip => (
                   <button
                     key={chip.key}
                     type="button"
@@ -770,8 +866,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
                 <span className="opacity-30">|</span>
 
-                {/* Same profile flag as the CLI engine: full access skips the approval card. */}
-                <PermissionModeButton profileName={profileName} engine="deepseek" />
+                {/* Qwen runs the same tool loop as DeepSeek, so the same gate applies: without full
+                    access an action that needs approval is refused and the model is told why. */}
+                <PermissionModeButton profileName={profileName} engine={isQwen ? 'qwen' : 'deepseek'} />
               </>
             ) : (
               <>
@@ -793,7 +890,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
           {/* Right: quota ring, optional token readout, then the single morphing action button */}
           <div className="flex flex-shrink-0 items-center space-x-2.5">
-            {isDeepSeek ? null : <CircularQuotaWidget profileName={profileName} />}
+            {isDeepSeek || isQwen ? null : <CircularQuotaWidget profileName={profileName} />}
 
             {turnTokens > 0 ? (
               <TokenUsageTooltip turn={lastTurnTokens} session={sessionTokens} turns={turnCount} />

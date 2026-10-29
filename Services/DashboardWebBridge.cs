@@ -641,6 +641,146 @@ public sealed partial class DashboardWebBridge : IDisposable
                         SendResponse(requestId, true, new { sent = true, sessionId, engine = "deepseek" });
                         break;
                     }
+
+                    // Qwen: same contract as DeepSeek. Fire and forget, report through chat_token,
+                    // so the transcript needs no special case for a third engine.
+                    if (string.Equals(engine, "qwen", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Read from the payload here: `data` is disposed when the handler returns and
+                        // the task outlives it.
+                        string? qRoot = data.TryGetProperty("workingDirectory", out var qwd) ? qwd.GetString() : null;
+                        bool dataQwenTools = data.TryGetProperty("toolsEnabled", out var qte) && qte.ValueKind == JsonValueKind.False;
+                        bool qSkip = skipPermissions;
+
+                        // The same approval card DeepSeek uses, resolved by the same response action,
+                        // so a Qwen turn can write a file once the user approves it.
+                        Services.Qwen.QwenEngine.Instance.ApprovalRequested = qSkip
+                            ? (_, _, _) => Task.FromResult(true)
+                            : async (callId, action, preview) =>
+                            {
+                                var pending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                                _deepSeekApprovals[callId] = pending;
+
+                                PostEventToUi("deepseek_approval_request", new
+                                {
+                                    sessionId,
+                                    callId,
+                                    action,
+                                    preview,
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+
+                                bool approved = await pending.Task.ConfigureAwait(false);
+                                _deepSeekApprovals.TryRemove(callId, out _);
+                                return approved;
+                            };
+
+                        // The same nodes DeepSeek draws, from the same event names, so a Qwen turn
+                        // shows Ran / Wrote / Explored rows instead of one bare paragraph.
+                        Services.Qwen.QwenEngine.Instance.ToolStarted = (callId, action, path) =>
+                        {
+                            var (label, kind) = Services.DeepSeek.DeepSeekTools.Describe(action);
+
+                            PostEventToUi("tool_start", new
+                            {
+                                sessionId,
+                                callId,
+                                tool = label,
+                                @params = new Dictionary<string, object?>
+                                {
+                                    ["toolKind"] = kind,
+                                    ["path"] = path,
+                                    ["action"] = action,
+                                    ["commandLine"] = action == "run_command" ? path : null,
+                                },
+                                timestamp = DateTime.UtcNow.ToString("O"),
+                            });
+                        };
+
+                        Services.Qwen.QwenEngine.Instance.ToolFinished = (callId, action, success, summary) =>
+                        {
+                            var (label, _) = Services.DeepSeek.DeepSeekTools.Describe(action);
+
+                            PostEventToUi("tool_output", new
+                            {
+                                sessionId,
+                                callId,
+                                tool = label,
+                                success,
+                                result = summary,
+                                error = (string?)null,
+                                durationMs = 0,
+                                timestamp = DateTime.UtcNow.ToString("O"),
+                            });
+                        };
+
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var progress = new Progress<string>(text =>
+                                    PostEventToUi("chat_token", new { sessionId, text, timestamp = DateTime.UtcNow.ToString("O") }));
+
+                                // Qwen renders "Thinking completed" above the answer. Passing it on
+                                // as `thinking` gives the transcript the same reasoning block DeepSeek
+                                // shows, instead of hiding the work behind a spinner.
+                                var thinking = new Progress<string>(text =>
+                                    PostEventToUi("thinking", new { sessionId, text, timestamp = DateTime.UtcNow.ToString("O") }));
+
+                                bool qTools = !dataQwenTools;
+                                var reply = await Services.Qwen.QwenEngine.Instance
+                                    .SendAsync(prompt, qRoot, qTools, qSkip, progress, thinking)
+                                    .ConfigureAwait(false);
+
+                                // Settle the transcript. Streaming appends, so whatever it showed
+                                // mid-turn cannot be taken back; this replaces the answer with the
+                                // text the turn actually produced.
+                                PostEventToUi("chat_final", new
+                                {
+                                    sessionId,
+                                    text = reply.Text,
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+
+                                if (reply.Text.Length == 0)
+                                {
+                                    // Extraction found nothing. Say so with the selector list, rather
+                                    // than leaving a chat that looks like it is still thinking.
+                                    PostEventToUi("session_status", new
+                                    {
+                                        sessionId,
+                                        state = "error",
+                                        error = "Qwen answered but no text could be read from the page.",
+                                        timestamp = DateTime.UtcNow.ToString("O"),
+                                    });
+                                }
+                                else
+                                {
+                                    // Without this the session stayed on "Streaming" forever and the
+                                    // composer refused every later message.
+                                    PostEventToUi("session_status", new
+                                    {
+                                        sessionId,
+                                        state = "idle",
+                                        timestamp = DateTime.UtcNow.ToString("O"),
+                                    });
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                PostEventToUi("session_status", new
+                                {
+                                    sessionId,
+                                    state = "error",
+                                    error = ex.Message,
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+                            }
+                        });
+
+                        SendResponse(requestId, true, new { sent = true, sessionId, engine = "qwen" });
+                        break;
+                    }
 #endif
 
                     await Sidecar.SidecarHostService.Instance.SendChatAsync(sessionId, prompt, model, profile, cwd, effort, skipPermissions, conversationId).ConfigureAwait(false);
@@ -649,6 +789,90 @@ public sealed partial class DashboardWebBridge : IDisposable
                 break;
 
 #if DEEPSEEK_UI
+#if WINDOWS
+            case "qwen_status":
+                {
+                    var status = await Services.Qwen.QwenEngine.Instance.ProbeAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, new
+                    {
+                        signedIn = status == Services.Qwen.QwenStatus.SignedIn,
+                        anonymous = status == Services.Qwen.QwenStatus.Anonymous,
+                        known = status != Services.Qwen.QwenStatus.Unknown,
+                    });
+                }
+                break;
+
+            case "qwen_login":
+                await Services.Qwen.QwenEngine.Instance.ShowLoginWindowAsync().ConfigureAwait(false);
+                SendResponse(requestId, true, new { shown = true });
+                break;
+
+            case "qwen_open":
+                await Services.Qwen.QwenEngine.Instance.ShowWindowAsync().ConfigureAwait(false);
+                SendResponse(requestId, true, new { shown = true });
+                break;
+
+            case "qwen_models":
+                {
+                    var models = await Services.Qwen.QwenEngine.Instance.ListModelsAsync().ConfigureAwait(false);
+                    SendResponse(requestId, true, new { models });
+                }
+                break;
+
+            case "qwen_model":
+                {
+                    string wanted = data.TryGetProperty("model", out var modelProp) ? modelProp.GetString() ?? string.Empty : string.Empty;
+                    bool applied = !string.IsNullOrWhiteSpace(wanted)
+                        && await Services.Qwen.QwenEngine.Instance.SetModelAsync(wanted).ConfigureAwait(false);
+
+                    SendResponse(requestId, true, new { applied, model = wanted });
+                }
+                break;
+
+            case "qwen_mode":
+                {
+                    string mode = data.TryGetProperty("mode", out var modeProp) ? modeProp.GetString() ?? "auto" : "auto";
+                    bool ok = await Services.Qwen.QwenEngine.Instance.SetModeAsync(mode).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { applied = ok, mode });
+                }
+                break;
+
+            case "qwen_stop":
+                await Services.Qwen.QwenEngine.Instance.StopAsync().ConfigureAwait(false);
+                SendResponse(requestId, true, new { stopped = true });
+                break;
+
+            case "qwen_send":
+                {
+                    string qSessionId = data.TryGetProperty("sessionId", out var qs) ? qs.GetString() ?? string.Empty : string.Empty;
+                    string qPrompt = data.TryGetProperty("prompt", out var qp) ? qp.GetString() ?? string.Empty : string.Empty;
+
+                    if (string.IsNullOrWhiteSpace(qPrompt))
+                    {
+                        SendResponse(requestId, false, "Empty prompt");
+                        break;
+                    }
+
+                    // The page is one composer, so the engine serialises turns itself.
+                    var qProgress = new Progress<string>(text =>
+                        PostEventToUi("chat_token", new { sessionId = qSessionId, text, timestamp = DateTime.UtcNow.ToString("O") }));
+
+                    string? qDir = data.TryGetProperty("workingDirectory", out var qw) ? qw.GetString() : null;
+                    var reply = await Services.Qwen.QwenEngine.Instance
+                        .SendAsync(qPrompt, qDir, false, false, qProgress)
+                        .ConfigureAwait(false);
+
+                    SendResponse(requestId, true, new
+                    {
+                        sessionId = qSessionId,
+                        text = reply.Text,
+                        selector = reply.Selector,
+                        empty = reply.Text.Length == 0,
+                    });
+                }
+                break;
+#endif
+
             case "deepseek_status":
                 {
 

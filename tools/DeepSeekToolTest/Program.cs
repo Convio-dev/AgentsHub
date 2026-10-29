@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AgentsHub.Services.DeepSeek;
+using AgentsHub.Services.Qwen;
 
 if (args.Contains("--mcp"))
 {
@@ -10,6 +11,55 @@ if (args.Contains("--mcp"))
     return;
 }
 
+
+if (args.Contains("--guide"))
+{
+    // What the engine primes with: working directory, skills, MCP tools, and the rules that travel
+    // inside the guide itself.
+    string guideRoot = args.SkipWhile(a => a != "--guide").Skip(1).FirstOrDefault() ?? Directory.GetCurrentDirectory();
+
+    var guideSkills = SkillCatalog.Discover(guideRoot);
+    IReadOnlyList<McpToolInfo> guideMcp = Array.Empty<McpToolInfo>();
+    try { guideMcp = McpRegistry.Tools(); } catch (Exception ex) { Console.WriteLine($"mcp unavailable: {ex.Message}"); }
+
+    var guide = QwenTools.Guide(guideRoot, guideSkills, guideMcp);
+
+    Console.WriteLine($"root={guideRoot}");
+    Console.WriteLine($"skills={guideSkills.Count} mcpTools={guideMcp.Count} length={guide.Length}");
+    Console.WriteLine($"has RULES: {guide.Contains("RULES")}");
+    Console.WriteLine($"has SKILLS section: {guide.Contains("SKILLS")}");
+    Console.WriteLine($"has MCP TOOLS section: {guide.Contains("MCP TOOLS")}");
+    return;
+}
+
+if (args.Contains("--parse"))
+{
+    // The exact shape the Qwen page produces: a code block whose fences do not survive innerText.
+    const string bare = """{"action": "write_file", "path": "h.py", "content": "print(\"hello world\")"}""";
+
+    var bareCalls = QwenTools.Extract(bare);
+    Console.WriteLine($"bare: calls={bareCalls.Count} " +
+        $"action={(bareCalls.Count > 0 ? bareCalls[0].GetProperty("action").GetString() : "-")}");
+    Console.WriteLine($"bare strip: '{QwenTools.Strip(bare)}'");
+
+    string prose = "Writing that now.\n" + bare + "\nDone.";
+    var proseCalls = QwenTools.Extract(prose);
+    Console.WriteLine($"prose: calls={proseCalls.Count} strip='{QwenTools.Strip(prose)}'");
+
+    // The rendered shape: prose, then the block's language label on its own line, then the object.
+    string rendered = "I will create the h.py file with the requested print statement.\ntool\n" + bare;
+    var renderedCalls = QwenTools.Extract(rendered);
+    Console.WriteLine($"rendered: calls={renderedCalls.Count} strip='{QwenTools.Strip(rendered)}'");
+
+    // Streaming uses Visible, not Strip. It must hide the same object, or the transcript shows it.
+    Console.WriteLine($"rendered visible: '{QwenTools.Visible(rendered)}'");
+    Console.WriteLine($"mid-stream visible: '{QwenTools.Visible("I will create the h.py file.\ntool\n{\"action\": \"write_fil")}'");
+
+    // Ordinary JSON in an answer must survive both calls untouched.
+    const string harmless = """{"name": "value", "count": 2}""";
+    Console.WriteLine($"harmless: calls={DeepSeekTools.Extract(harmless).Count} strip='{DeepSeekTools.Strip(harmless)}'");
+    return;
+}
 
 var root = Path.Combine(Path.GetTempPath(), "ds-tool-test");
 if (Directory.Exists(root)) Directory.Delete(root, true);

@@ -11,7 +11,7 @@ interface PermissionModeButtonProps {
    * Which engine the copy is written for. The setting is the same profile flag either way, but a
    * DeepSeek turn has no shell policy: it has an approval card for writes and commands.
    */
-  engine?: 'agy' | 'deepseek';
+  engine?: 'agy' | 'deepseek' | 'qwen';
 }
 
 const PANEL_WIDTH = 296;

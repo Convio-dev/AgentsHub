@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Brain, ChevronDown, ChevronRight, File, FileCode, FileText, Filter, Folder, FolderOpen, GitBranch, Loader2, Plus, Settings, Trash2, Zap } from 'lucide-react';
+import { Sparkles, Brain, ChevronDown, ChevronRight, File, FileCode, FileText, Filter, Folder, FolderOpen, GitBranch, Loader2, Plus, Settings, Trash2, Zap } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useSessionStore } from '../../store/useSessionStore';
 import { useProfileStore } from '../../store/useProfileStore';
@@ -119,7 +119,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
     });
   };
 
-  const startSession = (workspaceId: string | null, engine: 'agy' | 'deepseek') => {
+  const startSession = (workspaceId: string | null, engine: 'agy' | 'deepseek' | 'qwen') => {
     setNewSessionMenu(null);
 
     const newId = createSession(activeProfileName, undefined, workspaceId, engine);
@@ -266,6 +266,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
               const isActive = s.sessionId === activeSessionId;
               const isRenaming = renamingId === s.sessionId;
               const isDeepSeek = (s as { engine?: string }).engine === 'deepseek';
+              const isQwen = (s as { engine?: string }).engine === 'qwen';
 
               if (isRenaming) {
                 return (
@@ -315,11 +316,16 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                   }`}
                   title={
                     s.isLocal
-                      ? `${s.goal || s.sessionId}${isDeepSeek ? ' (DeepSeek, runs in this app)' : ''}. Double-click to rename`
+                      ? `${s.goal || s.sessionId}${isQwen ? ' (Qwen, runs in this app)' : isDeepSeek ? ' (DeepSeek, runs in this app)' : ''}. Double-click to rename`
                       : `${s.goal || s.sessionId} — found in the CLI's own history. Not importable yet, so it cannot be opened here.`
                   }
                 >
-                  {isDeepSeek ? (
+                  {isQwen ? (
+                    <Sparkles
+                      className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-violet-400' : 'text-violet-400/70'}`}
+                      aria-label="Qwen chat"
+                    />
+                  ) : isDeepSeek ? (
                     <Brain
                       className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-accent' : 'text-accent/70'}`}
                       aria-label="DeepSeek chat"
@@ -648,6 +654,19 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                   <span className="min-w-0">
                     <span className="block text-[11px] font-medium text-content-main">Use DeepSeek</span>
                     <span className="block text-[10px] text-content-dim">Free, via chat.deepseek.com</span>
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => startSession(newSessionMenu.workspaceId, 'qwen')}
+                  className="flex w-full items-start gap-2 border-t border-surface-border px-3 py-2 text-left transition-colors hover:bg-surface-hover"
+                >
+                  <Sparkles className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-violet-400" />
+                  <span className="min-w-0">
+                    <span className="block text-[11px] font-medium text-content-main">Use Qwen</span>
+                    <span className="block text-[10px] text-content-dim">Free, no account needed</span>
                   </span>
                 </button>
               </div>

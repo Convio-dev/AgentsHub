@@ -191,6 +191,10 @@ public partial class MainForm : Form
                 // The DeepSeek engine owns its own WebView2, and WebView2 has thread affinity, so it
                 // has to be created here on the UI thread rather than on first use from the bridge.
                 Services.DeepSeek.DeepSeekEngine.Instance.Initialize(this);
+
+                // Same reason, same place: the Qwen window is a WebView2 host and must be created
+                // here. Built on first use from the bridge, it hung forever with no message pump.
+                Services.Qwen.QwenEngine.Instance.Initialize(this);
             }
 
             // Automatically start the compiled Bun Sidecar Engine in the background

@@ -126,7 +126,7 @@ interface SessionStoreState {
     profile?: string,
     initialModel?: string,
     workspaceId?: string | null,
-    engine?: 'agy' | 'deepseek'
+    engine?: 'agy' | 'deepseek' | 'qwen'
   ) => string;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => void;
@@ -166,6 +166,13 @@ interface SessionStoreState {
   /** Marks an in-flight turn as user-aborted and settles every running node. */
   markStopped: (sessionId: string) => void;
   appendChatToken: (sessionId: string, text: string) => void;
+  /**
+   * Replaces the last assistant message instead of appending to it.
+   *
+   * The transcript is append-only, so anything streamed once can never be taken back. A turn that
+   * streams a raw action object would keep it forever; this lets the host settle the text at the end.
+   */
+  setAssistantText: (sessionId: string, text: string) => void;
   appendThinkingChunk: (
     sessionId: string,
     text?: string,
@@ -495,7 +502,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     return sessions[activeSessionId];
   },
 
-  createSession: (profile = '', initialModel = '', workspaceId?: string | null, engine?: 'agy' | 'deepseek') => {
+  createSession: (profile = '', initialModel = '', workspaceId?: string | null, engine?: 'agy' | 'deepseek' | 'qwen') => {
     const resolvedProfile = isUnsetProfile(profile) ? '' : profile;
     const id = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const newSession: SessionRecord = {
@@ -957,6 +964,22 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
       }
 
       return state;
+    });
+  },
+
+  setAssistantText: (sessionId: string, text: string) => {
+    set(state => {
+      const target = state.sessions[sessionId];
+      if (!target || target.messages.length === 0) return state;
+
+      const messages = [...target.messages];
+      const lastIndex = messages.length - 1;
+      const lastMsg = messages[lastIndex];
+
+      if (!lastMsg || lastMsg.sender !== 'assistant') return state;
+
+      messages[lastIndex] = { ...lastMsg, markdown: text };
+      return { sessions: { ...state.sessions, [sessionId]: { ...target, messages, updatedAt: Date.now() } } };
     });
   },
 
