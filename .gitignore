@@ -31,7 +31,10 @@ appsettings.Production.json
 
 # Per-profile Antigravity credentials. Each profile folder holds a real Google OAuth
 # token in gemini_credential.json - never commit these.
-Profiles/
+# Anchored to the root: unanchored, this also matched ui/src/components/profiles/ on
+# Windows (git ignores case there) and dropped a React component needed by the build.
+/Profiles/
+gemini_credential.json
 
 # Local tool state
 .freebuff/
