@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Brain, ChevronDown, ChevronRight, File, FileCode, FileText, Filter, Folder, FolderOpen, GitBranch, Loader2, Plus, Settings, SquareTerminal, Trash2, Zap } from 'lucide-react';
+import { Sparkles, Brain, ChevronDown, ChevronRight, File, FileCode, FileText, Filter, Folder, FolderOpen, GitBranch, Loader2, Plus, Settings, SquareTerminal, Terminal, Trash2, Zap } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import { useSessionStore } from '../../store/useSessionStore';
 import { useProfileStore } from '../../store/useProfileStore';
@@ -119,7 +119,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
     });
   };
 
-  const startSession = (workspaceId: string | null, engine: 'agy' | 'deepseek' | 'qwen' | 'vyce') => {
+  const startSession = (workspaceId: string | null, engine: 'agy' | 'deepseek' | 'qwen' | 'vyce' | 'opencode') => {
     setNewSessionMenu(null);
 
     const newId = createSession(activeProfileName, undefined, workspaceId, engine);
@@ -268,6 +268,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
               const isDeepSeek = (s as { engine?: string }).engine === 'deepseek';
               const isQwen = (s as { engine?: string }).engine === 'qwen';
               const isVyce = (s as { engine?: string }).engine === 'vyce';
+              const isOpenCode = (s as { engine?: string }).engine === 'opencode';
 
               if (isRenaming) {
                 return (
@@ -317,7 +318,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                   }`}
                   title={
                     s.isLocal
-                      ? `${s.goal || s.sessionId}${isQwen ? ' (Qwen, runs in this app)' : isDeepSeek ? ' (DeepSeek, runs in this app)' : isVyce ? ' (Vyce Code, runs in a hidden console)' : ''}. Double-click to rename`
+                      ? `${s.goal || s.sessionId}${isQwen ? ' (Qwen, runs in this app)' : isDeepSeek ? ' (DeepSeek, runs in this app)' : isVyce ? ' (Vyce Code, runs in a hidden console)' : isOpenCode ? ' (OpenCode, headless)' : ''}. Double-click to rename`
                       : `${s.goal || s.sessionId} — found in the CLI's own history. Not importable yet, so it cannot be opened here.`
                   }
                 >
@@ -335,6 +336,11 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                     <SquareTerminal
                       className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-emerald-400' : 'text-emerald-400/70'}`}
                       aria-label="Vyce chat"
+                    />
+                  ) : isOpenCode ? (
+                    <Terminal
+                      className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-amber-400' : 'text-amber-400/70'}`}
+                      aria-label="OpenCode chat"
                     />
                   ) : (
                     <Zap className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-sky-400 fill-sky-400' : 'text-sky-500'}`} />
@@ -686,6 +692,19 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                   <span className="min-w-0">
                     <span className="block text-[11px] font-medium text-content-main">Use Vyce</span>
                     <span className="block text-[10px] text-content-dim">Vyce Code, in a hidden console</span>
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => startSession(newSessionMenu.workspaceId, 'opencode')}
+                  className="flex w-full items-start gap-2 border-t border-surface-border px-3 py-2 text-left transition-colors hover:bg-surface-hover"
+                >
+                  <Terminal className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
+                  <span className="min-w-0">
+                    <span className="block text-[11px] font-medium text-content-main">Use OpenCode</span>
+                    <span className="block text-[10px] text-content-dim">Headless, any provider you signed in</span>
                   </span>
                 </button>
               </div>

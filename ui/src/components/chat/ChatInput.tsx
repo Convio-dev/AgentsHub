@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { AlertTriangle, ArrowUp, Brain, FileCode, Folder, Paperclip, Quote, Sparkles, Square, SquareTerminal, GitBranch, X, FileText } from 'lucide-react';
-import { ChatAttachment, SlashCommand, TokenUsage } from '../../types/agent';
+import { AlertTriangle, ArrowUp, Brain, Clock, FileCode, Folder, Paperclip, Pencil, Quote, Sparkles, Square, SquareTerminal, Terminal, GitBranch, X, FileText } from 'lucide-react';
+import { ChatAttachment, QueuedPrompt, SlashCommand, TokenUsage } from '../../types/agent';
 import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
 import { SlashCommandPalette } from './SlashCommandPalette';
@@ -12,6 +12,7 @@ import { webviewBridge } from '../../services/webviewBridge';
 import { ImageLightbox } from './ImageLightbox';
 import { PermissionModeButton } from './PermissionModeButton';
 import { VyceModelChip } from './VyceModelChip';
+import { OpenCodeModelChip } from './OpenCodeModelChip';
 import { TokenUsageTooltip } from './TokenUsageTooltip';
 import { CircularQuotaWidget } from './CircularQuotaWidget';
 
@@ -39,7 +40,7 @@ interface ChatInputProps {
    * `vyce` drives the Vyce Code TUI in a hidden console, so the model picker, the permission switch
    * and the quota ring do not apply to either.
    */
-  engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce';
+  engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce' | 'opencode';
   /** Null until the host has answered; drives the sign-in bar for a DeepSeek session. */
   deepSeekSignedIn?: boolean | null;
   /** Opens the one-time DeepSeek sign-in window. */
@@ -61,6 +62,10 @@ interface ChatInputProps {
   blockedNotice?: string | null;
   /** Starts the runner named in `blockedNotice`. */
   onStartRunner?: () => void;
+  /** Prompts typed while a turn was running, oldest first. */
+  queuedPrompts?: QueuedPrompt[];
+  /** Drops one queued prompt, after it is sent or taken back for editing. */
+  onRemoveQueued?: (id: string) => void;
 }
 
 /**
@@ -96,6 +101,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   profileName,
   blockedNotice,
   onStartRunner,
+  queuedPrompts,
+  onRemoveQueued,
 }) => {
   // Seeded from the session so a tab switch restores what was typed, not an empty box.
   const [prompt, setPrompt] = useState(() => useSessionStore.getState().sessions[sessionId]?.draft ?? '');
@@ -391,7 +398,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const submitPrompt = (raw: string) => {
     const text = raw.trim();
-    if ((!text && attachments.length === 0) || isExecuting) return;
+
+    // No `isExecuting` guard: a send during a turn is queued by the caller rather than dropped.
+    if (!text && attachments.length === 0) return;
 
     if (blockedNotice) {
       setIsNudging(true);
@@ -427,12 +436,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const canSend = (prompt.trim().length > 0 || attachments.length > 0) && !isExecuting;
+  const canQueue = prompt.trim().length > 0 || attachments.length > 0;
+  const canSend = canQueue && !isExecuting;
 
   const turnTokens = lastTurnTokens?.totalTokens || 0;
   const isDeepSeek = engine === 'deepseek';
   /** Qwen is the same shape as DeepSeek: a web page we drive, not a CLI. */
   const isQwen = engine === 'qwen';
+  const isOpenCode = engine === 'opencode';
   /** Vyce is the Vyce Code TUI, driven in a hidden console: no model picker, no policy switch. */
   const isVyce = engine === 'vyce';
   /** One-time hint that a guest account is the weaker way to use Qwen. */
@@ -752,6 +763,48 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         ) : null}
 
+        {/* Prompts typed during a turn wait here, in order, instead of being refused. */}
+        {queuedPrompts && queuedPrompts.length > 0 ? (
+          <div className="max-h-28 overflow-y-auto border-b border-surface-border/70" role="status">
+            {queuedPrompts.map(item => (
+              <div
+                key={item.id}
+                className="flex items-center gap-2 bg-surface-hover/50 px-3.5 py-1.5 text-[11px] text-content-muted"
+              >
+                <Clock className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
+                <span className="flex-1 truncate" title={item.prompt}>
+                  {item.prompt}
+                  {item.attachments?.length
+                    ? ` · ${item.attachments.length} file${item.attachments.length === 1 ? '' : 's'}`
+                    : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Back into the composer to be changed, out of the queue so it cannot also fire.
+                    setPrompt(item.prompt);
+                    setAttachments(item.attachments ?? []);
+                    onRemoveQueued?.(item.id);
+                    textareaRef.current?.focus();
+                  }}
+                  title="Edit this queued prompt"
+                  className="flex-shrink-0 rounded p-1 text-content-dim transition hover:bg-surface-hover hover:text-content-main"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemoveQueued?.(item.id)}
+                  title="Remove this queued prompt"
+                  className="flex-shrink-0 rounded p-1 text-content-dim transition hover:bg-rose-500/10 hover:text-state-danger"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         {/* Input Textarea */}
         <textarea
           ref={textareaRef}
@@ -779,12 +832,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             processFiles(files);
           }}
           placeholder={
-            attachments.length > 0
-              ? 'Add instructions for attached files, or press Enter to send...'
-              : "Send instructions to active agent (e.g. 'Build an express route', '/diff', '/switch-profile')..."
+            isExecuting
+              ? 'Working... type here to queue a follow-up, Enter sends it when this turn finishes'
+              : attachments.length > 0
+                ? 'Add instructions for attached files, or press Enter to send...'
+                : "Send instructions to active agent (e.g. 'Build an express route', '/diff', '/switch-profile')..."
           }
           rows={1}
-          disabled={isExecuting}
           className="w-full px-4 pt-3.5 pb-2 bg-transparent text-xs text-content-main placeholder:text-content-dim focus:outline-none resize-none leading-relaxed font-sans max-h-48"
         />
 
@@ -836,6 +890,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 <span className="opacity-30">|</span>
 
                 <VyceModelChip workingDirectory={workingDirectory} />
+              </>
+            ) : isOpenCode ? (
+              <>
+                <span
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-amber-400"
+                  title="Answers come from the OpenCode CLI, running headless in this workspace"
+                >
+                  <Terminal className="h-3 w-3" />
+                  OpenCode
+                </span>
+
+                <span className="opacity-30">|</span>
+
+                <OpenCodeModelChip sessionId={sessionId} model={activeModel} />
+
+                <span className="opacity-30">|</span>
+
+                {/* Full access is what becomes `--auto`; a headless run cannot answer a prompt. */}
+                <PermissionModeButton profileName={profileName} />
               </>
             ) : isDeepSeek || isQwen ? (
               /* No model to pick and no permission policy to set: the engine is a web chat, which
@@ -911,10 +984,23 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
           {/* Right: quota ring, optional token readout, then the single morphing action button */}
           <div className="flex flex-shrink-0 items-center space-x-2.5">
-            {isDeepSeek || isQwen || isVyce ? null : <CircularQuotaWidget profileName={profileName} />}
+            {isDeepSeek || isQwen || isVyce || isOpenCode ? null : <CircularQuotaWidget profileName={profileName} />}
 
             {turnTokens > 0 ? (
               <TokenUsageTooltip turn={lastTurnTokens} session={sessionTokens} turns={turnCount} />
+            ) : null}
+
+            {/* While a turn runs the round button is Stop, so this is the way to queue with the mouse. */}
+            {isExecuting && canQueue ? (
+              <button
+                type="button"
+                onClick={handleSend}
+                aria-label="Queue prompt"
+                title="Queue this prompt: it sends a few seconds after the running turn finishes"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-500/20 text-accent transition-colors hover:bg-sky-500/35 active:scale-95"
+              >
+                <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
+              </button>
             ) : null}
 
             <button

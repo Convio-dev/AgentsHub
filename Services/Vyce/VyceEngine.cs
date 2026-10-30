@@ -41,16 +41,30 @@ internal sealed class VyceEngine : IDisposable
     /// <summary>Silence long enough to call the answer finished.</summary>
     private const int IdleMs = 2500;
 
+    /// <summary>How long a final read is retried before an empty one is believed.</summary>
+    private const int SettleMs = 4000;
+
+    /// <summary>How long to wait for the TUI to finish the previous turn before typing.</summary>
+    private const int ReadyWaitMs = 8000;
+
+    /// <summary>When a turn with no content earns a screen dump in the log.</summary>
+    private const int StallDumpMs = 10000;
+
     /// <summary>How long a prompt may go unanswered before the console is declared deaf.</summary>
     private const int AcceptTimeoutMs = 45000;
 
     /// <summary>Ceiling for one turn, so a stuck TUI cannot hold the session forever.</summary>
     private const int TurnTimeoutMs = 180000;
 
-    /// <summary>What one read of a session file says about the turn that is running.</summary>
-    private readonly record struct SessionSnapshot(int Messages, string LastAssistant, string Model);
+    /// <summary>
+    /// What one read of a session file says about the turn that is running.
+    ///
+    /// The assistant count, not the text, tells a new answer apart: asking a model to repeat itself
+    /// produces byte-identical text, and comparing text called that turn unfinished.
+    /// </summary>
+    private readonly record struct SessionSnapshot(int Messages, int Assistants, string LastAssistant, string Model);
 
-    private static readonly SessionSnapshot EmptySession = new(0, string.Empty, string.Empty);
+    private static readonly SessionSnapshot EmptySession = new(0, 0, string.Empty, string.Empty);
 
     private readonly SemaphoreSlim _turn = new(1, 1);
     private VyceTty? _tty;
@@ -109,16 +123,28 @@ internal sealed class VyceEngine : IDisposable
 
             Log($"turn start, {prompt.Length} chars, session={before ?? "none"}, messages={baseline.Messages}");
 
+            // The answer reaches the session file before the TUI has finished with the turn. A key
+            // typed during that window is accepted into the box and never submitted, which stalls the
+            // turn until it times out.
+            WaitForIdleComposer();
+
             _tty!.TypeLine(prompt);
 
             // The screen is the confirmation that the CLI took the prompt. The session file is not:
             // a slow model writes nothing until its first token, and calling that a failure turned a
             // perfectly good turn into an error after 45 seconds.
             bool accepted = ConfirmPromptLanded(prompt);
+            Log($"prompt on screen={accepted}");
 
             var started = DateTime.UtcNow;
             var lastChange = started;
             string? file = before;
+
+            // The idle countdown only starts once this turn has written something. A session file that
+            // already holds an answer would otherwise look finished 2.5 s in, and the turn would end on
+            // the previous answer, or on an empty read of a half-written file.
+            bool sawContent = false;
+            bool dumpedStall = false;
 
             while (true)
             {
@@ -144,6 +170,10 @@ internal sealed class VyceEngine : IDisposable
                     reportedText = string.Empty;
                     accepted = true;
                     lastChange = DateTime.UtcNow;
+
+                    // A new chat starts from nothing, so the previous chat's counts and answer must not
+                    // be carried into it: they would hide the new answer instead of recognising it.
+                    baseline = EmptySession;
                 }
 
                 var current = ReadSession(file);
@@ -178,17 +208,39 @@ internal sealed class VyceEngine : IDisposable
                     throw new InvalidOperationException(NotAccepted);
                 }
 
-                if (reportedText.Length > 0 && (DateTime.UtcNow - lastChange).TotalMilliseconds > IdleMs)
+                // A turn that produces nothing for this long is stuck rather than slow, and the screen
+                // is the only way to know why after the fact.
+                if (!sawContent && !dumpedStall && elapsed.TotalMilliseconds > StallDumpMs)
+                {
+                    dumpedStall = true;
+                    Log("no content after " + (int)elapsed.TotalSeconds + "s");
+                    LogScreen();
+                }
+
+                if (current.Assistants > baseline.Assistants) sawContent = true;
+
+                if (sawContent && (DateTime.UtcNow - lastChange).TotalMilliseconds > IdleMs)
                 {
                     break;
                 }
             }
 
-            string answer = ReadSession(file).LastAssistant;
+            // The answer is only this turn's if the transcript grew. A read taken while the CLI is
+            // writing returns nothing, which is not a failure, so it is retried before giving up.
+            var finished = ReadSession(file);
+            var settleUntil = DateTime.UtcNow.AddMilliseconds(SettleMs);
 
-            // If nothing arrived, the CLI never took the prompt. Returning the previous answer would
-            // look like a success and be silently wrong, which is worse than failing.
-            if (!accepted || answer.Length == 0)
+            while (finished.LastAssistant.Length == 0 || IsBaseline(finished, baseline, file, before))
+            {
+                if (DateTime.UtcNow > settleUntil) break;
+
+                await Task.Delay(PollMs, ct).ConfigureAwait(false);
+                finished = ReadSession(file);
+            }
+
+            string answer = IsBaseline(finished, baseline, file, before) ? string.Empty : finished.LastAssistant;
+
+            if (!accepted)
             {
                 LogScreen();
                 throw new InvalidOperationException(NotAccepted);
@@ -198,11 +250,10 @@ internal sealed class VyceEngine : IDisposable
             {
                 LogScreen();
                 throw new InvalidOperationException(
-                    "Vyce ran the turn but wrote nothing to its session file, so the answer could not "
-                    + "be read. Run `vyce` in a terminal to see what it said.");
+                    "Vyce ran the turn but its session file never grew, so the answer could not be "
+                    + "read. Run `vyce` in a terminal to see what it said.");
             }
 
-            var finished = ReadSession(file);
             if (finished.Model.Length > 0) _model = finished.Model;
 
             Log($"turn done, {answer.Length} chars from {file ?? "no file"}");
@@ -267,16 +318,71 @@ internal sealed class VyceEngine : IDisposable
         return false;
     }
 
+    /// <summary>True when the file still holds the answer that was there before this turn.</summary>
+    private static bool IsBaseline(
+        SessionSnapshot current, SessionSnapshot baseline, string? file, string? before)
+    {
+        return string.Equals(file, before, StringComparison.OrdinalIgnoreCase)
+            && current.Assistants <= baseline.Assistants;
+    }
+
+    /// <summary>
+    /// Waits until the composer stops asking to queue, which is how the TUI shows a turn still busy.
+    ///
+    /// The placeholder is the only status the CLI exposes without a notification hook. If it never
+    /// changes, the wait gives up and the turn is typed anyway: the screen being unreadable must not
+    /// stop a turn that would otherwise work.
+    ///
+    ///            shortcut: readiness is recognised by the composer's own wording, so a reworded CLI just makes
+    /// this wait time out; upgrade to an exit-status or hook signal if the TUI ever offers one.
+    /// </summary>
+    private void WaitForIdleComposer()
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(ReadyWaitMs);
+
+        while (DateTime.UtcNow < until)
+        {
+            string screen = _tty?.ReadScreen() ?? string.Empty;
+
+            if (!screen.Contains("queue a follow-up", StringComparison.OrdinalIgnoreCase)) return;
+
+            Thread.Sleep(150);
+        }
+
+        Log("composer still queueing after the wait");
+    }
+
+    /// <summary>
+    /// Looks for the prompt in the rendered screen.
+    ///
+    /// The screen wraps at the terminal width, so a line-based comparison misses a prompt that broke
+    /// across two rows. Removing whitespace from both sides is what makes this independent of where
+    /// the wrap fell.
+    /// </summary>
     private bool PromptOnScreen(string marker)
     {
         try
         {
-            return (_tty?.ReadScreen() ?? string.Empty).Contains(marker, StringComparison.OrdinalIgnoreCase);
+            string screen = _tty?.ReadScreen() ?? string.Empty;
+
+            return Squash(screen).Contains(Squash(marker), StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception)
         {
             return false;
         }
+    }
+
+    private static string Squash(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+
+        foreach (char c in value)
+        {
+            if (!char.IsWhiteSpace(c)) builder.Append(c);
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>
@@ -302,6 +408,7 @@ internal sealed class VyceEngine : IDisposable
     /// </summary>
     public async Task<VyceModelList> ListModelsAsync(string? root, CancellationToken ct = default)
     {
+        // A second attempt covers the menu failing to draw while the TUI was still painting.
         // The console carries one thing at a time. Waiting out a whole answer would leave the menu
         // spinning for minutes, so say what is happening instead.
         if (_turn.CurrentCount == 0) throw new InvalidOperationException(TurnInProgress);
@@ -312,14 +419,24 @@ internal sealed class VyceEngine : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
 
-            await OpenModelPickerAsync(root, ct).ConfigureAwait(false);
+            VyceModelList list = new(Array.Empty<VyceModel>(), string.Empty);
 
-            string screen = _tty!.ReadScreen();
-            _tty.SendEscape();
+            for (int attempt = 1; attempt <= 2; attempt++)
+            {
+                await OpenModelPickerAsync(root, ct).ConfigureAwait(false);
 
-            var list = ParseModelPicker(screen);
+                string screen = _tty!.ReadScreen();
+                _tty.SendEscape();
+                await Task.Delay(200, ct).ConfigureAwait(false);
 
-            Log($"model list: {list.Models.Count} rows, current={list.Current}");
+                list = ParseModelPicker(screen);
+
+                Log($"model list: {list.Models.Count} rows, current={list.Current} (attempt {attempt})");
+
+                if (list.Models.Count > 0) break;
+
+                await Task.Delay(700, ct).ConfigureAwait(false);
+            }
 
             return list;
         }
@@ -636,10 +753,11 @@ internal sealed class VyceEngine : IDisposable
             if (!doc.RootElement.TryGetProperty("conversation", out var conversation)
                 || conversation.ValueKind != JsonValueKind.Array)
             {
-                return new SessionSnapshot(0, string.Empty, model);
+                return new SessionSnapshot(0, 0, string.Empty, model);
             }
 
             int messages = 0;
+            int assistants = 0;
             string last = string.Empty;
 
             foreach (var entry in conversation.EnumerateArray())
@@ -651,17 +769,20 @@ internal sealed class VyceEngine : IDisposable
                 if (!entry.TryGetProperty("role", out var role) || role.ValueKind != JsonValueKind.String) continue;
                 if (!string.Equals(role.GetString(), "assistant", StringComparison.OrdinalIgnoreCase)) continue;
 
+                assistants++;
                 last = ContentOf(entry);
             }
 
-            return new SessionSnapshot(messages, last, model);
+            return new SessionSnapshot(messages, assistants, last, model);
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            Log($"session read: bad json ({ex.Message.Split('.')[0]})");
             return EmptySession;
         }
-        catch (IOException)
+        catch (IOException ex)
         {
+            Log($"session read: {ex.GetType().Name} ({ex.Message.Split('.')[0]})");
             return EmptySession;
         }
     }

@@ -16,7 +16,7 @@ import { useSessionStore } from '../store/useSessionStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { useSidecarStore } from '../store/useSidecarStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
-import { sendPrompt, stopGeneration } from '../services/chatController';
+import { cancelQueuedPrompt, queuePrompt, sendPrompt, stopGeneration } from '../services/chatController';
 import { ChatMessageList } from '../components/chat/ChatMessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { PermissionRequestBar } from '../components/chat/PermissionRequestBar';
@@ -148,7 +148,14 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
    * to say so and keep their text; `autoRunDefaultProfile` opts into starting the default runner.
    */
   const handleSendMessage = async (prompt: string, attachments?: ChatAttachment[]) => {
-    if (!activeSession || isExecuting) return;
+    if (!activeSession) return;
+
+    // A turn is in flight: hold the prompt instead of dropping it. It goes out a few seconds after
+    // the turn settles, through the same dispatch every other prompt uses, so every engine queues.
+    if (isExecuting) {
+      queuePrompt(activeSession.id, prompt, attachments);
+      return;
+    }
 
     // A DeepSeek turn runs in our own WebView2 and never touches the CLI runner. This guard used
     // to swallow the send silently, which read as "the composer does nothing".
@@ -178,8 +185,12 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
    * and Vyce's hidden console. None of them has a runner process, so the runner bar does not apply.
    */
   const isHostEngine =
-    isDeepSeek || activeSession?.engine === 'qwen' || activeSession?.engine === 'vyce';
+    isDeepSeek ||
+    activeSession?.engine === 'qwen' ||
+    activeSession?.engine === 'vyce' ||
+    activeSession?.engine === 'opencode';
   const isQwen = activeSession?.engine === 'qwen';
+  const isOpenCode = activeSession?.engine === 'opencode';
   const [qwenMenuOpen, setQwenMenuOpen] = useState(false);
 
   /**
@@ -818,7 +829,9 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
               onSendMessage={handleSendMessage}
               onStop={handleStopGenerating}
               isExecuting={isExecuting}
-              activeModel={activeSession?.model || defaultModel || undefined}
+              queuedPrompts={activeSession.queuedPrompts}
+              onRemoveQueued={id => cancelQueuedPrompt(activeSession.id, id)}
+              activeModel={isOpenCode ? activeSession.model || undefined : activeSession?.model || defaultModel || undefined}
               reasoningEffort={activeSession?.reasoningEffort}
               lastTurnTokens={activeSession?.lastTurnTokens}
               sessionTokens={activeSession?.tokens}

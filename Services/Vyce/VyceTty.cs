@@ -82,23 +82,19 @@ internal sealed class VyceTty(string logPath) : IDisposable
     /// <param name="pressEnter">False leaves the text in the box, which is how a menu is opened.</param>
     public void TypeLine(string text, bool pressEnter = true)
     {
-        if (_pty is not null)
-        {
-            // `script` hands the child a terminal whose master side is fed by our pipe.
-            _pty.Write(text + (pressEnter ? "\r" : ""));
-            return;
-        }
+        // Text and Enter in one batch raced the CLI's input handling: a warm console saw the Enter
+        // before it had the text, so nothing was submitted and the prompt sat in the composer. The
+        // gap is the difference between "typed and sent" and "typed".
+        TypeText(text);
 
-        // The prompt must stay on one line, so a real newline would submit half a message.
-        string single = SingleLine(text);
+        if (!pressEnter) return;
 
-        WithConsole(consoleInput =>
-        {
-            WriteText(consoleInput, single);
-
-            if (pressEnter) NativeConsole.WriteKey(consoleInput, '\r', VkReturn);
-        });
+        Thread.Sleep(KeyGapMs);
+        PressEnter();
     }
+
+    /// <summary>Breath between a keystroke and the one it belongs with.</summary>
+    private const int KeyGapMs = 150;
 
     /// <summary>Types text with no Enter, for a menu that filters as it is typed into.</summary>
     public void TypeText(string text)

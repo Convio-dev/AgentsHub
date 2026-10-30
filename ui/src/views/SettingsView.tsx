@@ -1121,9 +1121,9 @@ export const SettingsView: React.FC = () => {
                   <div>
                     <div className="text-xs font-semibold text-state-success">2. AI Agents & Network Tools</div>
                     <p className="text-[10.5px] text-content-dim mt-0.5">
-                      Optional. Only the runtimes above are required for the app to run, and only
-                      Antigravity is used in chat today. The rest are detected and can be launched in a
-                      terminal.
+                      Optional. Only the runtimes above are required for the app to run. Antigravity,
+                      DeepSeek, Qwen, Vyce and OpenCode drive chat sessions; the rest are detected and
+                      can be launched in a terminal.
                     </p>
                   </div>
                   <div className="space-y-1.5">

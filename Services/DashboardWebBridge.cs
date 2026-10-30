@@ -662,6 +662,96 @@ public sealed partial class DashboardWebBridge : IDisposable
                         SendResponse(requestId, true, new { started = true, engine = "vyce" });
                         break;
                     }
+
+                    // OpenCode needs none of that: it runs headless, prints one JSON event per line,
+                    // and every event carries the session id that continues the conversation.
+                    if (string.Equals(engine, "opencode", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string openRoot = string.IsNullOrWhiteSpace(cwd)
+                            ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                            : cwd;
+
+                        var openFiles = MaterialiseAttachments(data);
+
+                        // A headless run rejects every permission request it cannot ask about, so the
+                        // profile's full-access switch is what decides whether tools may run at all.
+                        bool openAuto = skipPermissions;
+
+                        // A turn with no `--model` uses the CLI's default, which here is routed through a
+                        // local proxy that rejects an unkeyed call. A free model is what always runs.
+                        string? openModel = string.IsNullOrWhiteSpace(model)
+                            ? await Services.OpenCode.OpenCodeEngine.Instance.DefaultModelAsync().ConfigureAwait(false)
+                            : model;
+
+                        PostEventToUi("session_status", new { sessionId, state = "running", timestamp = DateTime.UtcNow.ToString("O") });
+
+                        var openProgress = new Progress<string>(text =>
+                            PostEventToUi("chat_token", new { sessionId, text, timestamp = DateTime.UtcNow.ToString("O") }));
+
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var turn = await Services.OpenCode.OpenCodeEngine.Instance
+                                    .SendAsync(
+                                        prompt,
+                                        openRoot,
+                                        conversationId,
+                                        openModel,
+                                        openAuto,
+                                        openFiles.Count > 0 ? openFiles : null,
+                                        openProgress,
+                                        tool => PostOpenCodeTool(sessionId, tool))
+                                    .ConfigureAwait(false);
+
+                                // The CLI's own id, stored on the session, so the next turn continues
+                                // this conversation instead of starting another one.
+                                if (turn.SessionId is not null)
+                                {
+                                    PostEventToUi("conversation_started", new
+                                    {
+                                        sessionId,
+                                        conversationId = turn.SessionId,
+                                        timestamp = DateTime.UtcNow.ToString("O"),
+                                    });
+                                }
+
+                                PostEventToUi("chat_final", new
+                                {
+                                    sessionId,
+                                    text = turn.Text,
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+
+                                PostEventToUi("session_status", new
+                                {
+                                    sessionId,
+                                    state = "idle",
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                PostEventToUi("chat_final", new
+                                {
+                                    sessionId,
+                                    text = $"OpenCode could not answer: {ex.Message}",
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+
+                                PostEventToUi("session_status", new
+                                {
+                                    sessionId,
+                                    state = "error",
+                                    error = ex.Message,
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+                            }
+                        });
+
+                        SendResponse(requestId, true, new { started = true, engine = "opencode" });
+                        break;
+                    }
                     if (string.Equals(engine, "deepseek", StringComparison.OrdinalIgnoreCase))
                     {
                         // Fire and forget, exactly like the sidecar path. A DeepSeek turn can run for
@@ -1383,6 +1473,9 @@ public sealed partial class DashboardWebBridge : IDisposable
                     // Vyce cancels with Esc in its hidden console, which is a write to that console's
                     // input buffer and returns immediately.
                     Services.Vyce.VyceEngine.Instance.Stop();
+
+                    // OpenCode is a process per turn; stopping means killing its tree.
+                    Services.OpenCode.OpenCodeEngine.Instance.Stop();
 #endif
                     await Sidecar.SidecarHostService.Instance.AbortTaskAsync(taskId, reason).ConfigureAwait(false);
                     SendResponse(requestId, true, new { aborted = true, taskId });
@@ -3553,14 +3646,96 @@ public sealed partial class DashboardWebBridge : IDisposable
                 }
                 break;
 
+            case "opencode_models":
+                {
+                    // Off the UI thread: this runs the CLI and can take a couple of seconds cold.
+                    try
+                    {
+                        var openModels = await Task.Run(() => Services.OpenCode.OpenCodeEngine.Instance.ListModelsAsync())
+                            .ConfigureAwait(false);
+
+                        // Sent along so the panel can show which model a fresh chat will use.
+                        string? openDefault = await Services.OpenCode.OpenCodeEngine.Instance.DefaultModelAsync()
+                            .ConfigureAwait(false);
+
+                        SendResponse(requestId, true, new { models = openModels, defaultModel = openDefault });
+                    }
+                    catch (Exception ex)
+                    {
+                        SendResponse(requestId, false, $"OpenCode did not list its models: {ex.Message}");
+                    }
+                }
+                break;
+
+            // Who is signed in, and any sign-in waiting for approval. The panel polls this while a
+            // login is open, so the answer is cached and a finished login is what forces a re-read.
+            case "opencode_auth":
+                {
+                    try
+                    {
+                        var status = await Task.Run(() => Services.OpenCode.OpenCodeEngine.Instance.GetStatusAsync())
+                            .ConfigureAwait(false);
+
+                        object? login = status.Login is { } pending
+                            ? new
+                            {
+                                code = pending.Code,
+                                url = pending.Url,
+                                running = pending.Running,
+                                succeeded = pending.Succeeded,
+                            }
+                            : null;
+
+                        SendResponse(requestId, true, new
+                        {
+                            signedIn = status.Auth.SignedIn,
+                            label = status.Auth.Label,
+                            method = status.Auth.Method,
+                            accounts = status.Auth.Accounts,
+                            login,
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        SendResponse(requestId, false, $"OpenCode auth could not be read: {ex.Message}");
+                    }
+                }
+                break;
+
+            // The CLI's own device flow, so the user signs in the way `opencode auth login` does.
+            case "opencode_login":
+                {
+                    try
+                    {
+                        var started = await Task.Run(() => Services.OpenCode.OpenCodeEngine.Instance.BeginLoginAsync())
+                            .ConfigureAwait(false);
+
+                        SendResponse(requestId, true, new { code = started.Code, url = started.Url });
+                    }
+                    catch (Exception ex)
+                    {
+                        SendResponse(requestId, false, $"OpenCode sign-in could not start: {ex.Message}");
+                    }
+                }
+                break;
+
+            case "opencode_login_cancel":
+                {
+                    Services.OpenCode.OpenCodeEngine.Instance.CancelLogin();
+                    SendResponse(requestId, true, new { cancelled = true });
+                }
+                break;
+
             case "vyce_models":
                 {
                     string? modelsCwd = data.TryGetProperty("workingDirectory", out var vcElem) ? vcElem.GetString() : null;
 
                     try
                     {
-                        var list = await Services.Vyce.VyceEngine.Instance
-                            .ListModelsAsync(modelsCwd)
+                        // Off the UI thread: this starts a console and waits for its menu, and the web
+                        // message handler runs on the window's thread.
+                        var list = await Task.Run(() => Services.Vyce.VyceEngine.Instance
+                            .ListModelsAsync(modelsCwd))
                             .ConfigureAwait(false);
 
                         SendResponse(requestId, true, new
@@ -3594,8 +3769,8 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                     try
                     {
-                        bool switched = await Services.Vyce.VyceEngine.Instance
-                            .SetModelAsync(model, modelCwd)
+                        bool switched = await Task.Run(() => Services.Vyce.VyceEngine.Instance
+                            .SetModelAsync(model, modelCwd))
                             .ConfigureAwait(false);
 
                         SendResponse(requestId, true, new { model, switched });
@@ -6536,6 +6711,85 @@ public sealed partial class DashboardWebBridge : IDisposable
     /// The store keeps attachments as data URLs and no path, and a file input needs a path, so the
     /// bytes have to land on disk first. The caller deletes them when the turn ends.
     /// </summary>
+    /// <summary>
+    /// Draws an OpenCode tool call the way the other engines draw theirs.
+    ///
+    /// The CLI reports a tool once it has finished, so the row is opened and settled in the same
+    /// breath. Kinds match the ones the transcript already colours: commands, file work, and a
+    /// plain custom row for anything else.
+    /// </summary>
+    private void PostOpenCodeTool(string sessionId, Services.OpenCode.OpenCodeToolEvent tool)
+    {
+        string name = tool.Tool.ToLowerInvariant();
+
+        string kind = name switch
+        {
+            "bash" or "shell" or "execute" => "command",
+            "write" or "edit" or "patch" or "multiedit" => "file",
+            "read" or "grep" or "glob" or "list" => "file",
+            _ => "custom",
+        };
+
+        string path = string.Empty;
+        string command = string.Empty;
+
+        try
+        {
+            using var input = JsonDocument.Parse(string.IsNullOrWhiteSpace(tool.Input) ? "{}" : tool.Input);
+
+            if (input.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (string key in new[] { "filePath", "path", "filename", "command" })
+                {
+                    if (!input.RootElement.TryGetProperty(key, out var value) || value.ValueKind != JsonValueKind.String) continue;
+
+                    if (key == "command") command = value.GetString() ?? string.Empty;
+                    else if (path.Length == 0) path = value.GetString() ?? string.Empty;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // A tool whose input is not JSON still gets its row; the path is just empty.
+        }
+
+        string label = ToolLabel(name);
+
+        PostEventToUi("tool_start", new
+        {
+            sessionId,
+            callId = tool.CallId,
+            tool = label,
+            @params = new Dictionary<string, object?>
+            {
+                ["toolKind"] = kind,
+                ["path"] = path,
+                ["commandLine"] = command.Length > 0 ? command : null,
+            },
+            timestamp = DateTime.UtcNow.ToString("O"),
+        });
+
+        PostEventToUi("tool_output", new
+        {
+            sessionId,
+            callId = tool.CallId,
+            tool = label,
+            success = tool.Success,
+            result = tool.Output,
+            error = tool.Success ? null : tool.Output,
+            durationMs = 0,
+            timestamp = DateTime.UtcNow.ToString("O"),
+        });
+    }
+
+    /// <summary>A readable label for a tool id: `write` shows as Write, `bash` as Bash.</summary>
+    private static string ToolLabel(string name)
+    {
+        return name.Length == 0
+            ? "Tool"
+            : char.ToUpperInvariant(name[0]) + name[1..];
+    }
+
     private static List<string> MaterialiseAttachments(JsonElement data)
     {
         var files = new List<string>();

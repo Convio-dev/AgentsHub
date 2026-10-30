@@ -122,6 +122,13 @@ export interface ChatMessage {
   forkedFrom?: string;
 }
 
+export interface QueuedPrompt {
+  /** Stable key: the queue holds several, and removing one must not depend on its text. */
+  id: string;
+  prompt: string;
+  attachments?: ChatAttachment[];
+}
+
 export interface SessionRecord {
   id: string;
   title: string;
@@ -146,7 +153,7 @@ export interface SessionRecord {
    * Which engine answers this session. `agy` is the CLI; `deepseek` runs chat.deepseek.com inside
    * the app's own WebView2 and reports through the same events, so nothing downstream branches.
    */
-  engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce';
+  engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce' | 'opencode';
   /** DeepSeek only: false turns the chat answer-only, with no tools and no protocol line. */
   toolsEnabled?: boolean;
   /** Unsent composer text, kept so switching tabs does not discard it. */
@@ -160,6 +167,11 @@ export interface SessionRecord {
    * ran last, so chats shared memory and token counts.
    */
   conversationId?: string;
+  /**
+   * Prompts sent while a turn was still running, oldest first. Each is dispatched once the turn
+   * before it settles, so no text is dropped and nothing races the engine.
+   */
+  queuedPrompts?: QueuedPrompt[];
   quotaPercent?: number;
   /** Accumulated across every completed turn in this session. */
   tokens: TokenUsage;

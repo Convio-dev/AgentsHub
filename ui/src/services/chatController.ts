@@ -27,10 +27,14 @@ function resolveContext(sessionId: string) {
   // The session stores whatever the picker last wrote, which for older sessions can be a display
   // label rather than an id. Resolving against the catalog turns that back into a real id — or into
   // `undefined`, which means "let the engine use its default".
+  // OpenCode's ids are `provider/model` and belong to its own catalogue; resolving them against the
+  // agy list would replace a real id with a guess.
   const model =
-    models.length > 0
-      ? resolveModelId(models, session?.model, session?.reasoningEffort)
-      : session?.model || undefined;
+    session?.engine === 'opencode'
+      ? session?.model || undefined
+      : models.length > 0
+        ? resolveModelId(models, session?.model, session?.reasoningEffort)
+        : session?.model || undefined;
 
   return {
     model,
@@ -104,6 +108,97 @@ export async function sendPrompt(
 ): Promise<void> {
   useSessionStore.getState().addUserPrompt(sessionId, prompt, undefined, attachments);
   await dispatch({ sessionId, prompt, attachments });
+}
+
+/** How long the finished turn is left alone before a queued prompt goes out. */
+const QUEUE_DELAY_MS = 1500;
+
+/** How often the session is checked for having finished. */
+const QUEUE_POLL_MS = 250;
+
+/** One watcher per session; it drains that session's queue in order. */
+const queueTimers = new Map<string, number>();
+
+function isBusy(sessionId: string): boolean {
+  const status = useSessionStore.getState().sessions[sessionId]?.status;
+  return status === 'running' || status === 'thinking' || status === 'tool_executing';
+}
+
+function stopQueueTimer(sessionId: string): void {
+  const timer = queueTimers.get(sessionId);
+  if (timer === undefined) return;
+
+  window.clearInterval(timer);
+  queueTimers.delete(sessionId);
+}
+
+/**
+ * Holds a prompt until the running turn settles, then sends it.
+ *
+ * The store keeps the queue so the composer can show and edit it; the send goes through
+ * `sendPrompt` like every other turn, so no engine needs to know about it. The countdown starts when
+ * the session stops being busy, and a sent prompt's turn becomes busy again before the next one is
+ * considered, which is what keeps them in order instead of firing together.
+ */
+export function queuePrompt(
+  sessionId: string,
+  prompt: string,
+  attachments?: ChatAttachment[]
+): void {
+  useSessionStore.getState().queuePrompt(sessionId, prompt, attachments);
+  ensureQueueWatcher(sessionId);
+}
+
+/** Takes one queued prompt back: the × on its row. */
+export function cancelQueuedPrompt(sessionId: string, id: string): void {
+  useSessionStore.getState().removeQueuedPrompt(sessionId, id);
+
+  const remaining = useSessionStore.getState().sessions[sessionId]?.queuedPrompts?.length ?? 0;
+  if (remaining === 0) stopQueueTimer(sessionId);
+}
+
+function ensureQueueWatcher(sessionId: string): void {
+  if (queueTimers.has(sessionId)) return;
+
+  const watchedFrom = Date.now();
+  let sawBusy = isBusy(sessionId);
+  let idleSince: number | null = null;
+
+  const timer = window.setInterval(() => {
+    const state = useSessionStore.getState();
+    const queued = state.sessions[sessionId]?.queuedPrompts?.[0];
+
+    if (!queued) {
+      stopQueueTimer(sessionId);
+      return;
+    }
+
+    if (isBusy(sessionId)) {
+      sawBusy = true;
+      idleSince = null;
+      return;
+    }
+
+    // A turn that never reported running (a dispatch that failed outright) must not stall the queue.
+    if (!sawBusy) {
+      if (Date.now() - watchedFrom < 5000) return;
+      sawBusy = true;
+    }
+
+    idleSince ??= Date.now();
+    if (Date.now() - idleSince < QUEUE_DELAY_MS) return;
+
+    stopQueueTimer(sessionId);
+    state.removeQueuedPrompt(sessionId, queued.id);
+    void sendPrompt(sessionId, queued.prompt, queued.attachments);
+
+    // The rest wait for this prompt's own turn to finish.
+    if ((useSessionStore.getState().sessions[sessionId]?.queuedPrompts?.length ?? 0) > 0) {
+      ensureQueueWatcher(sessionId);
+    }
+  }, QUEUE_POLL_MS);
+
+  queueTimers.set(sessionId, timer);
 }
 
 /**

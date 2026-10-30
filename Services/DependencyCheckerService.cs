@@ -169,6 +169,7 @@ public static class DependencyCheckerService
         {
             Id = "opencode",
             Name = "OpenCode CLI",
+            ChatSupported = true,
             Description = "Open-source terminal agent with provider switching.",
             Category = "agent",
             InstallKind = "powershell",
@@ -268,27 +269,6 @@ public static class DependencyCheckerService
                 @"~/.local/bin/aider",
                 @"/usr/local/bin/aider",
                 @"/opt/homebrew/bin/aider"
-            ]
-        },
-        new DependencyDefinition
-        {
-            Id = "kimi",
-            Name = "Kimi Code",
-            // No npm or pip package name could be verified, so this entry opens the vendor site
-            // rather than running a command that might not exist. Detection still works.
-            Description = "Moonshot's terminal agent. Install it from the vendor site.",
-            Category = "agent",
-            InstallKind = "browser",
-            SiteUrl = "https://www.kimi.com/",
-            CommandPreview = "kimi",
-            Commands = ["kimi"],
-            FallbackPaths =
-            [
-                @"%APPDATA%\npm\kimi.cmd",
-                @"%APPDATA%\npm\kimi",
-                @"~/.local/bin/kimi",
-                @"/usr/local/bin/kimi",
-                @"/opt/homebrew/bin/kimi"
             ]
         },
         new DependencyDefinition

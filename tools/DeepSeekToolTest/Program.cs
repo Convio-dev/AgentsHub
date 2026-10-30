@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AgentsHub.Services;
 using AgentsHub.Services.DeepSeek;
+using AgentsHub.Services.OpenCode;
 using AgentsHub.Services.Qwen;
 using AgentsHub.Services.Vyce;
 
@@ -181,6 +182,158 @@ if (args.Contains("--vyce"))
         // The CLI lives in its own process tree. Left alone it outlives this probe and locks the
         // session file the next run needs.
         VyceEngine.Instance.Dispose();
+    }
+
+    return;
+}
+
+if (args.Contains("--opencode-models"))
+{
+    // The chip needs the ids `--model` accepts; the CLI prints them itself.
+    try
+    {
+        var openModels = await OpenCodeEngine.Instance.ListModelsAsync(force: true);
+        string? openDefault = await OpenCodeEngine.Instance.DefaultModelAsync();
+
+        Console.WriteLine($"models: {openModels.Count}");
+        foreach (string id in openModels.Take(12)) Console.WriteLine("  " + id);
+
+        Console.WriteLine($"default: {openDefault ?? "-"}");
+
+        Console.WriteLine(openModels.Count > 0
+            && openModels.All(id => id.Contains('/'))
+            && openDefault is not null
+            && openModels.Contains(openDefault)
+            ? "RESULT: PASS - provider/model ids, default from the list"
+            : "RESULT: FAIL - unexpected ids or no default");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"RESULT: FAIL - {ex.GetType().Name}: {ex.Message}");
+    }
+
+    return;
+}
+
+if (args.Contains("--opencode-auth"))
+{
+    // The panel's footer is only as good as this: which account the CLI will actually use.
+    try
+    {
+        var status = await OpenCodeEngine.Instance.GetStatusAsync(force: true);
+
+        Console.WriteLine($"signed in: {status.Auth.SignedIn}, label: {status.Auth.Label ?? "-"}, method: {status.Auth.Method ?? "-"}");
+        Console.WriteLine("accounts: " + string.Join(", ", status.Auth.Accounts));
+
+        Console.WriteLine(status.Auth.SignedIn && status.Auth.Accounts.Count > 0
+            ? "RESULT: PASS - active credential read without its secret"
+            : "RESULT: FAIL - no active Console credential");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"RESULT: FAIL - {ex.GetType().Name}: {ex.Message}");
+    }
+
+    return;
+}
+
+if (args.Contains("--opencode-login"))
+{
+    // Starts the real device flow and cancels it, so the code and page can be checked without a human.
+    try
+    {
+        var login = await OpenCodeEngine.Instance.BeginLoginAsync();
+        var pending = await OpenCodeEngine.Instance.GetStatusAsync(force: true);
+
+        Console.WriteLine($"code: {login.Code}");
+        Console.WriteLine($"url: {login.Url}");
+        Console.WriteLine($"running: {pending.Login?.Running}");
+
+        Console.WriteLine(login.Code.Contains('-') && login.Url.StartsWith("https://") && pending.Login?.Running == true
+            ? "RESULT: PASS - device code and page parsed, CLI waiting"
+            : "RESULT: FAIL - the device flow reported no code or page");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"RESULT: FAIL - {ex.GetType().Name}: {ex.Message}");
+    }
+    finally
+    {
+        OpenCodeEngine.Instance.CancelLogin();
+    }
+
+    return;
+}
+
+if (args.Contains("--opencode"))
+{
+    // End to end: one headless turn, then a second in the same session. No console involved, so the
+    // only things that can fail are the process call and the event parsing.
+    string openRoot = args.SkipWhile(a => a != "--opencode").Skip(1).FirstOrDefault()
+        ?? Directory.GetCurrentDirectory();
+    string? openModel = args.SkipWhile(a => a != "--opencode").Skip(2).FirstOrDefault();
+    string openToken = "PROBE-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+
+    Console.WriteLine($"root={openRoot}");
+    Console.WriteLine($"model={openModel ?? "default"}");
+    Console.WriteLine($"sending prompt... ({openToken})");
+
+    using var openCts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
+    var openChunks = new List<string>();
+    var openTools = new List<OpenCodeToolEvent>();
+
+    try
+    {
+        var turn = await OpenCodeEngine.Instance.SendAsync(
+            $"reply with exactly: {openToken}",
+            openRoot,
+            null,
+            openModel,
+            autoApprove: true,
+            files: null,
+            new Progress<string>(text => { lock (openChunks) openChunks.Add(text); }),
+            tool => { lock (openTools) openTools.Add(tool); },
+            openCts.Token);
+
+        Console.WriteLine($"chunks: {openChunks.Count}");
+        Console.WriteLine($"session: {turn.SessionId}");
+        Console.WriteLine($"tokens: in={turn.TokensIn} out={turn.TokensOut} cost={turn.Cost}");
+        Console.WriteLine($"answer: {turn.Text}");
+        Console.WriteLine(turn.Text.Contains(openToken, StringComparison.OrdinalIgnoreCase)
+            ? "RESULT: PASS - OpenCode answered"
+            : "RESULT: answered, but not with the expected text");
+
+        if (args.Contains("--twice") && turn.SessionId is not null)
+        {
+            var again = await OpenCodeEngine.Instance.SendAsync(
+                "Repeat only the token you were asked to reply with, nothing else.",
+                openRoot,
+                turn.SessionId,
+                openModel,
+                autoApprove: true,
+                files: null,
+                progress: null,
+                onTool: null,
+                openCts.Token);
+
+            Console.WriteLine($"second turn: {again.Text.Trim()}");
+            Console.WriteLine(string.Equals(again.SessionId, turn.SessionId, StringComparison.Ordinal)
+                ? "session kept: PASS"
+                : $"session kept: FAIL ({again.SessionId})");
+        }
+
+        if (openTools.Count > 0)
+        {
+            Console.WriteLine($"tools: {string.Join(", ", openTools.Select(t => t.Tool))}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"RESULT: FAIL - {ex.GetType().Name}: {ex.Message}");
+    }
+    finally
+    {
+        OpenCodeEngine.Instance.Dispose();
     }
 
     return;
@@ -426,5 +579,27 @@ Check(
     "model menu keeps coming-soon rows unpickable",
     menu.Models.Where(m => !m.Available).Select(m => m.Name).SequenceEqual(["deepseek-v4.1", "qwen-3.8"]),
     string.Join(",", menu.Models.Where(m => !m.Available).Select(m => m.Name)));
+
+// --- OpenCode's event shapes, copied from the CLI's own --format json output
+var ocText = OpenCodeEngine.ParseEvent(
+    """{"type":"text","timestamp":1,"sessionID":"ses_a","part":{"type":"text","text":"hello"}}""");
+Check("opencode text event", ocText.Text == "hello" && ocText.SessionId == "ses_a", ocText.Text);
+
+var ocTool = OpenCodeEngine.ParseEvent(
+    """{"type":"tool_use","sessionID":"ses_a","part":{"id":"prt_1","tool":"write","state":{"status":"completed","input":{"filePath":"h.py"},"output":"wrote 1 file"}}}""");
+Check(
+    "opencode tool event",
+    ocTool.Tool?.Tool == "write" && ocTool.Tool.Output.Contains("wrote 1 file") && ocTool.Tool.Success,
+    ocTool.Tool?.Output);
+
+var ocError = OpenCodeEngine.ParseEvent(
+    """{"type":"error","sessionID":"ses_a","error":{"name":"APIError","data":{"message":"This model is not available in your country"}}}""");
+Check("opencode error event", ocError.Error == "This model is not available in your country", ocError.Error);
+
+var ocUsage = OpenCodeEngine.ParseEvent(
+    """{"type":"step_finish","sessionID":"ses_a","part":{"type":"step-finish","reason":"stop","cost":0.002,"tokens":{"input":10,"output":4}}}""");
+Check("opencode usage event", ocUsage.TokensIn == 10 && ocUsage.TokensOut == 4 && Math.Abs(ocUsage.Cost - 0.002) < 1e-9);
+
+Check("opencode ignores junk", OpenCodeEngine.ParseEvent("not json").Type == "");
 
 Console.WriteLine("\nroot: " + root);

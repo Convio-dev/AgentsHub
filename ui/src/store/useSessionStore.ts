@@ -126,7 +126,7 @@ interface SessionStoreState {
     profile?: string,
     initialModel?: string,
     workspaceId?: string | null,
-    engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce'
+    engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce' | 'opencode'
   ) => string;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => void;
@@ -165,6 +165,10 @@ interface SessionStoreState {
   editUserPrompt: (sessionId: string, userMessageId: string, newPrompt: string) => PromptDispatch | null;
   /** Marks an in-flight turn as user-aborted and settles every running node. */
   markStopped: (sessionId: string) => void;
+  /** Appends a prompt that arrived mid-turn; the controller sends them in order. */
+  queuePrompt: (sessionId: string, prompt: string, attachments?: ChatAttachment[]) => void;
+  /** Drops one queued prompt by id, whether it was sent or taken back for editing. */
+  removeQueuedPrompt: (sessionId: string, id: string) => void;
   appendChatToken: (sessionId: string, text: string) => void;
   /**
    * Replaces the last assistant message instead of appending to it.
@@ -316,7 +320,18 @@ function loadPersistedSessions(): { sessions: Record<string, SessionRecord>; act
 
 function persistState(sessions: Record<string, SessionRecord>, activeId: string) {
   try {
-    localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(sessions));
+    // A queued prompt has no watcher after a reload, so persisting it would leave a row that never
+    // sends and carries its attachments in storage for nothing. It lives as long as the window does.
+    const persistable = Object.fromEntries(
+      Object.entries(sessions).map(([id, session]) => {
+        if (!session.queuedPrompts) return [id, session];
+
+        const { queuedPrompts: _queued, ...rest } = session;
+        return [id, rest];
+      })
+    );
+
+    localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(persistable));
     localStorage.setItem(STORAGE_KEY_ACTIVE, activeId);
   } catch (err) {
     console.warn('[SessionStore] Could not persist sessions:', err);
@@ -502,7 +517,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     return sessions[activeSessionId];
   },
 
-  createSession: (profile = '', initialModel = '', workspaceId?: string | null, engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce') => {
+  createSession: (profile = '', initialModel = '', workspaceId?: string | null, engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce' | 'opencode') => {
     const resolvedProfile = isUnsetProfile(profile) ? '' : profile;
     const id = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const newSession: SessionRecord = {
@@ -900,6 +915,34 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     });
 
     return { prompt: text, assistantMsgId };
+  },
+
+  queuePrompt: (sessionId, prompt, attachments) => {
+    set(state => {
+      const target = state.sessions[sessionId];
+      if (!target) return state;
+
+      const entry = { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, prompt, attachments };
+      const queuedPrompts = [...(target.queuedPrompts ?? []), entry];
+      const nextSessions = { ...state.sessions, [sessionId]: { ...target, queuedPrompts } };
+      persistState(nextSessions, state.activeSessionId);
+      return { sessions: nextSessions };
+    });
+  },
+
+  removeQueuedPrompt: (sessionId, id) => {
+    set(state => {
+      const target = state.sessions[sessionId];
+      if (!target?.queuedPrompts?.some(entry => entry.id === id)) return state;
+
+      const queuedPrompts = target.queuedPrompts.filter(entry => entry.id !== id);
+      const nextSessions = {
+        ...state.sessions,
+        [sessionId]: { ...target, queuedPrompts: queuedPrompts.length > 0 ? queuedPrompts : undefined },
+      };
+      persistState(nextSessions, state.activeSessionId);
+      return { sessions: nextSessions };
+    });
   },
 
   markStopped: sessionId => {
