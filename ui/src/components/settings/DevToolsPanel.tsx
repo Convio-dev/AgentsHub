@@ -15,10 +15,10 @@ import {
   Save,
   X,
 } from 'lucide-react';
-import { useDevToolsStore, DevToolItem } from '../store/useDevToolsStore';
-import { Button } from '../components/common/Button';
+import { useDevToolsStore, DevToolItem } from '../../store/useDevToolsStore';
+import { Button } from '../common/Button';
 
-export const DevToolsView: React.FC = () => {
+export const DevToolsPanel: React.FC = () => {
   const {
     tools,
     isLoading,
@@ -86,8 +86,7 @@ export const DevToolsView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 bg-[var(--bg-app,#090D16)] text-[var(--text-main,#F1F5F9)] select-none font-sans">
-      <div className="max-w-6xl mx-auto space-y-5 w-full">
+    <div className="max-w-4xl space-y-5">
         {/* Feedback message banner */}
         {feedbackMessage && (
           <div className="px-4 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-accent text-xs font-mono flex items-center justify-between">
@@ -344,7 +343,6 @@ export const DevToolsView: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
     </div>
   );
 };

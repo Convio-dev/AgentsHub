@@ -90,10 +90,14 @@ public partial class MainForm : Form
             StartHubAction = () => { _cliManager.Start(CliType.Hub); return Task.CompletedTask; },
             CheckHubAliveAction = () => Task.FromResult(_cliManager.GetInfo(CliType.Hub).State == CliState.Running)
         };
-        var lanProxyEnabled = StartupHelper.GetPreference("LanProxyEnabled", true);
+        // Off unless the user turned it on: nothing listens on a LAN interface by default.
+        var lanProxyEnabled = StartupHelper.GetPreference("LanProxyEnabled", false);
         if (lanProxyEnabled)
         {
-            _lanProxyService.Start(savedLanPort, savedEnginePort);
+            _lanProxyService.Start(
+                savedLanPort,
+                savedEnginePort,
+                Services.LanProxyService.ReadSelectedDirectPorts(savedEnginePort));
         }
 
         try
@@ -171,6 +175,15 @@ public partial class MainForm : Form
             _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 "app.agentshub.local",
                 webAssetsPath,
+                CoreWebView2HostResourceAccessKind.Allow
+            );
+
+            // Wallpapers live outside the build output, so a new build cannot wipe the user's image.
+            var themeImagePath = DashboardWebBridge.ThemeImageFolder;
+            Directory.CreateDirectory(themeImagePath);
+            _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                "theme.agentshub.local",
+                themeImagePath,
                 CoreWebView2HostResourceAccessKind.Allow
             );
 

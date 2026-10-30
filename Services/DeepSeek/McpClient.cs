@@ -352,6 +352,8 @@ internal static class McpRegistry
             candidates.Add(Path.Combine(_profileHome, ".gemini", "antigravity-cli", "mcp_config.json"));
             candidates.Add(Path.Combine(_profileHome, ".gemini", "mcp_config.json"));
         }
+        // The shared folder wins: a server registered in the app is written to `~/.agents/mcp.json`.
+        candidates.Add(Path.Combine(home, ".agents", "mcp.json"));
         candidates.Add(Path.Combine(home, ".gemini", "config", "mcp_config.json"));
 
         foreach (var dir in new[] { "antigravity-cli", "antigravity-ide", "antigravity" })
@@ -373,7 +375,10 @@ internal static class McpRegistry
                     if (configs.Any(c => string.Equals(c.Name, entry.Name, StringComparison.OrdinalIgnoreCase))) continue;
 
                     string command = entry.Value.TryGetProperty("command", out var cmd) ? cmd.GetString() ?? string.Empty : string.Empty;
-                    string? url = entry.Value.TryGetProperty("serverUrl", out var u) ? u.GetString() : null;
+                    // `serverUrl` is the Antigravity spelling; `url` is what `~/.agents/mcp.json` uses.
+                    string? url = entry.Value.TryGetProperty("serverUrl", out var u) ? u.GetString()
+                        : entry.Value.TryGetProperty("url", out var u2) ? u2.GetString()
+                        : null;
 
                     var args = new List<string>();
                     if (entry.Value.TryGetProperty("args", out var argsProp) && argsProp.ValueKind == JsonValueKind.Array)

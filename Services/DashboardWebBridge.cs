@@ -52,11 +52,9 @@ public sealed partial class DashboardWebBridge : IDisposable
     private CoreWebView2? _coreWebView;
     private CliWebviewForm? _cliWebviewForm;
     private readonly System.Windows.Forms.Timer _streamFlushTimer;
-    private readonly System.Windows.Forms.Timer _metricsTimer;
 #else
     private readonly object? _mainForm;
     private readonly System.Threading.Timer _streamFlushTimer;
-    private readonly System.Threading.Timer _metricsTimer;
 #endif
 
     private readonly CliManagerService _cliManager;
@@ -106,15 +104,12 @@ public sealed partial class DashboardWebBridge : IDisposable
         _streamFlushTimer = new System.Windows.Forms.Timer { Interval = 20 };
         _streamFlushTimer.Tick += OnStreamFlushTimerTick;
         _streamFlushTimer.Start();
-
-        // Metrics timer (CPU / RAM updates every 2.5s)
-        _metricsTimer = new System.Windows.Forms.Timer { Interval = 2500 };
-        _metricsTimer.Tick += OnMetricsTimerTick;
-        _metricsTimer.Start();
 #else
         _streamFlushTimer = new System.Threading.Timer(_ => OnStreamFlushTimerTick(null, EventArgs.Empty), null, 20, 20);
-        _metricsTimer = new System.Threading.Timer(_ => OnMetricsTimerTick(null, EventArgs.Empty), null, 2500, 2500);
 #endif
+
+        // No metrics timer on purpose: hardware readings are sampled only when the Settings panel
+        // asks for them, so an idle window costs nothing.
 
         HookBackendEvents();
     }
@@ -484,19 +479,6 @@ public sealed partial class DashboardWebBridge : IDisposable
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static partial bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
 
-    private void OnMetricsTimerTick(object? sender, EventArgs e)
-    {
-#if WINDOWS
-        if (_coreWebView == null && WebMessageBroadcast == null) return;
-#else
-        if (WebMessageBroadcast == null) return;
-#endif
-
-        // Sampling lives entirely inside GetSystemTelemetryDto, which owns the CPU counter.
-        // Reading the counter here as well would re-read the delta back-to-back and pin it at 100%.
-        PostEventToUi("hardware_metrics", GetSystemTelemetryDto());
-    }
-
     private static object GetSystemTelemetryDto()
     {
         // Sampling runs on NetworkTelemetryService's own thread; this read is cached and cheap.
@@ -545,6 +527,13 @@ public sealed partial class DashboardWebBridge : IDisposable
         await HandleIncomingJsonAsync(e.WebMessageAsJson);
     }
 #endif
+
+    /// <summary>
+    /// Where the wallpaper is copied. MainForm maps this folder to https://theme.agentshub.local, so
+    /// the page reads it like any other asset instead of carrying a base64 payload in storage.
+    /// </summary>
+    internal static string ThemeImageFolder { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AgentsHub", "theme");
 
     public async Task HandleIncomingJsonAsync(string rawJson)
     {
@@ -1545,7 +1534,14 @@ public sealed partial class DashboardWebBridge : IDisposable
                 break;
 
             case "get_system_telemetry":
+                // One sample, on request. This is the only place hardware is read.
                 SendResponse(requestId, true, GetSystemTelemetryDto());
+                break;
+
+            case "release_system_telemetry":
+                // The panel closed, so the network sampler stops instead of ticking in the background.
+                NetworkTelemetryService.Stop();
+                SendResponse(requestId, true, new { stopped = true });
                 break;
 
             case "check_for_updates":
@@ -1601,7 +1597,63 @@ public sealed partial class DashboardWebBridge : IDisposable
                     var servers = await McpSkillsService.Instance.GetMcpServersAsync().ConfigureAwait(false);
                     var activeWs = AiConfigService.Instance.GetActiveWorkspace();
                     var skills = await McpSkillsService.Instance.GetAgentSkillsAsync(activeWs?.WorkingDirectory).ConfigureAwait(false);
-                    SendResponse(requestId, true, new { servers, skills });
+                    var folders = new
+                    {
+                        mcp = await McpSkillsService.Instance.GetSourcesAsync("mcp").ConfigureAwait(false),
+                        skills = await McpSkillsService.Instance.GetSourcesAsync("skills").ConfigureAwait(false),
+                    };
+                    SendResponse(requestId, true, new { servers, skills, folders });
+                }
+                break;
+
+            case "add_mcp_folder":
+                {
+                    // A path may be passed straight in; otherwise the native picker runs so the user
+                    // never has to type a Windows path.
+                    string kind = data.TryGetProperty("kind", out var akProp) ? akProp.GetString() ?? "mcp" : "mcp";
+                    string? folder = data.TryGetProperty("path", out var apProp) ? apProp.GetString() : null;
+
+                    if (string.IsNullOrWhiteSpace(folder))
+                    {
+#if WINDOWS
+                        if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
+                        {
+                            f.Invoke(() =>
+                            {
+                                using var fbd = new FolderBrowserDialog
+                                {
+                                    Description = kind == "skills" ? "Select a skills folder" : "Select an MCP folder"
+                                };
+                                if (fbd.ShowDialog(f) == DialogResult.OK) folder = fbd.SelectedPath;
+                            });
+                        }
+#endif
+                    }
+
+                    if (string.IsNullOrWhiteSpace(folder))
+                    {
+                        SendResponse(requestId, false, "Selection cancelled");
+                        break;
+                    }
+
+                    var list = await McpSkillsService.Instance.AddSourceAsync(kind, folder).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { folders = list });
+                }
+                break;
+
+            case "remove_mcp_folder":
+                {
+                    string kind = data.TryGetProperty("kind", out var rkProp) ? rkProp.GetString() ?? "mcp" : "mcp";
+                    string? folder = data.TryGetProperty("path", out var rpProp) ? rpProp.GetString() : null;
+
+                    if (string.IsNullOrWhiteSpace(folder))
+                    {
+                        SendResponse(requestId, false, "Folder path is required");
+                        break;
+                    }
+
+                    var list = await McpSkillsService.Instance.RemoveSourceAsync(kind, folder).ConfigureAwait(false);
+                    SendResponse(requestId, true, new { folders = list });
                 }
                 break;
 
@@ -1899,20 +1951,22 @@ public sealed partial class DashboardWebBridge : IDisposable
 
             case "open_mcp_config":
                 {
-                    // The servers the UI lists come from the CLI's own config, so that is the file to
-                    // open — the AgentsHub copy is only a fallback.
-                    var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                    var candidates = new[]
+                    // `~/.agents/mcp.json` is where this app registers servers now, so it is the file
+                    // to open. It is created when missing, so the button always has something to show.
+                    var configPath = McpSkillsService.AgentsMcpConfigPath;
+                    if (!File.Exists(configPath))
                     {
-                        Path.Combine(userHome, ".gemini", "config", "mcp_config.json"),
-                        Path.Combine(userHome, ".gemini", "antigravity", "mcp_config.json")
-                    };
-
-                    string? configPath = candidates.FirstOrDefault(File.Exists);
-                    if (configPath == null)
-                    {
-                        SendResponse(requestId, false, "No MCP config file found to open.");
-                        break;
+                        try
+                        {
+                            var folder = Path.GetDirectoryName(configPath);
+                            if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder);
+                            File.WriteAllText(configPath, "{\n  \"mcpServers\": {}\n}\n");
+                        }
+                        catch (Exception ex)
+                        {
+                            SendResponse(requestId, false, $"Could not create {configPath}: {ex.Message}");
+                            break;
+                        }
                     }
 
                     try
@@ -2647,6 +2701,64 @@ public sealed partial class DashboardWebBridge : IDisposable
                     else
                     {
                         SendResponse(requestId, false, "Repository path is required or does not exist");
+                    }
+                }
+                break;
+
+            // Copies the picture into a folder MainForm maps to https://theme.agentshub.local, so the
+            // page can paint it as a background without a data URL in browser storage.
+            case "browse_theme_image":
+                {
+                    string? chosenPath = null;
+#if WINDOWS
+                    if (_mainForm is Form f && f.IsHandleCreated && !f.IsDisposed)
+                    {
+                        f.Invoke(() =>
+                        {
+                            using var ofd = new OpenFileDialog
+                            {
+                                Title = "Choose a background image",
+                                Filter = "Images (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp|All files (*.*)|*.*",
+                                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures)
+                            };
+                            if (ofd.ShowDialog(f) == DialogResult.OK)
+                            {
+                                chosenPath = ofd.FileName;
+                            }
+                        });
+                    }
+#endif
+
+                    if (string.IsNullOrWhiteSpace(chosenPath) || !File.Exists(chosenPath))
+                    {
+                        SendResponse(requestId, false, "Selection cancelled");
+                        break;
+                    }
+
+                    try
+                    {
+                        string dir = ThemeImageFolder;
+                        Directory.CreateDirectory(dir);
+
+                        // One wallpaper at a time. Clearing the old files also busts the webview's
+                        // cache of the previous image, which a reused filename would keep showing.
+                        foreach (string stale in Directory.GetFiles(dir, "background.*"))
+                        {
+                            try { File.Delete(stale); } catch (IOException) { }
+                        }
+
+                        string name = "background" + Path.GetExtension(chosenPath).ToLowerInvariant();
+                        File.Copy(chosenPath, Path.Combine(dir, name), overwrite: true);
+
+                        SendResponse(requestId, true, new
+                        {
+                            url = $"https://theme.agentshub.local/{name}?v={DateTime.UtcNow.Ticks}",
+                            name = Path.GetFileName(chosenPath),
+                        });
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        SendResponse(requestId, false, $"Could not copy the image: {ex.Message}");
                     }
                 }
                 break;
@@ -4152,7 +4264,10 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         var savedEnginePort = StartupHelper.GetIntPreference("EnginePort", HubProcessService.DefaultHubPort);
                         var savedLanPort = StartupHelper.GetIntPreference("LanPort", 9191);
-                        _lanProxyService.Start(savedLanPort, savedEnginePort);
+                        _lanProxyService.Start(
+                            savedLanPort,
+                            savedEnginePort,
+                            LanProxyService.ReadSelectedDirectPorts(savedEnginePort));
                         StartupHelper.SetPreference("LanProxyEnabled", true);
                     }
                     else
@@ -4175,6 +4290,46 @@ public sealed partial class DashboardWebBridge : IDisposable
                 else
                 {
                     SendResponse(requestId, false, "LAN Proxy service not initialized");
+                }
+                break;
+
+            case "set_lan_forwarders":
+                {
+                    if (_lanProxyService == null)
+                    {
+                        SendResponse(requestId, false, "LAN Proxy service not initialized");
+                        break;
+                    }
+
+                    var chosen = new List<int>();
+                    if (data.TryGetProperty("ports", out var portsProp) && portsProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var entry in portsProp.EnumerateArray())
+                        {
+                            if (entry.ValueKind == JsonValueKind.Number && entry.TryGetInt32(out var port) && port is > 0 and <= 65535)
+                                chosen.Add(port);
+                        }
+                    }
+
+                    LanProxyService.SaveSelectedDirectPorts(chosen);
+
+                    // A running proxy keeps its old sockets until it is rebuilt, so the change only
+                    // takes effect after a restart; the response carries the sockets that came up.
+                    if (_lanProxyService.IsRunning)
+                    {
+                        var savedEnginePort = StartupHelper.GetIntPreference("EnginePort", HubProcessService.DefaultHubPort);
+                        var savedLanPort = StartupHelper.GetIntPreference("LanPort", 9191);
+                        _lanProxyService.Stop();
+                        _lanProxyService.Start(
+                            savedLanPort,
+                            savedEnginePort,
+                            LanProxyService.ReadSelectedDirectPorts(savedEnginePort));
+                    }
+
+                    SendResponse(requestId, true, new
+                    {
+                        lan = BuildLanStateDto(GetRequiredLanPorts())
+                    });
                 }
                 break;
 
@@ -6202,9 +6357,18 @@ public sealed partial class DashboardWebBridge : IDisposable
             gatewayPort = proxy?.ListenPort ?? StartupHelper.GetIntPreference("LanPort", 9191),
             targetPort = proxy?.TargetPort ?? _cliManager.HubService.Port,
             running = proxy?.IsRunning ?? false,
-            enabled = StartupHelper.GetPreference("LanProxyEnabled", true),
+            enabled = StartupHelper.GetPreference("LanProxyEnabled", false),
             bindError = proxy?.LastBindError ?? "",
             requiredPorts,
+            selectedPorts = LanProxyService.ReadSelectedDirectPorts(proxy?.TargetPort ?? _cliManager.HubService.Port),
+            availableForwarders = LanProxyService
+                .DefaultDirectPorts(proxy?.TargetPort ?? _cliManager.HubService.Port)
+                .Select(port => new
+                {
+                    port,
+                    label = LanProxyService.LabelForPort(port, proxy?.TargetPort ?? _cliManager.HubService.Port)
+                })
+                .ToArray(),
             forwarders = forwarders.Select(f => new
             {
                 port = f.Port,
@@ -7109,11 +7273,8 @@ public sealed partial class DashboardWebBridge : IDisposable
     {
 #if WINDOWS
         _streamFlushTimer.Stop();
-        _metricsTimer.Stop();
 #endif
         _streamFlushTimer.Dispose();
-        _metricsTimer.Dispose();
-        // NetworkTelemetryService owns its own process-wide sampler and outlives this bridge.
         _promptEnhanceCts?.Dispose();
     }
 }

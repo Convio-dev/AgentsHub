@@ -3,28 +3,18 @@ import { createPortal } from 'react-dom';
 import {
   MessageSquare,
   LayoutDashboard,
-  Terminal,
   GitFork,
   Users,
   Cpu,
-  Wrench,
-  Wifi,
   Sliders,
-  Zap,
-  UserCheck,
+  Cat,
   PanelLeftClose,
 } from 'lucide-react';
 import { ActiveView } from '../../types/agent';
 import { useSidecarStore } from '../../store/useSidecarStore';
-import { useProfileStore } from '../../store/useProfileStore';
 
 export const PrimaryRail: React.FC = () => {
   const { activeView, setActiveView, toggleRail } = useSidecarStore();
-  const { activeProfileName, profiles } = useProfileStore();
-
-  const activeProfile = profiles.find(
-    p => p.name.toLowerCase() === activeProfileName.toLowerCase()
-  );
 
   /**
    * The rail lives inside a width-animated, overflow-hidden wrapper, so a tooltip anchored inside it
@@ -35,12 +25,9 @@ export const PrimaryRail: React.FC = () => {
   const navItems: Array<{ id: ActiveView; label: string; icon: React.ReactNode }> = [
     { id: 'chat', label: 'AI Agent Workspace (Chat IDE)', icon: <MessageSquare className="w-5 h-5" /> },
     { id: 'dashboard', label: 'Dashboard & Running Ports', icon: <LayoutDashboard className="w-5 h-5" /> },
-    { id: 'terminals', label: 'Interactive Terminals (ConPTY)', icon: <Terminal className="w-5 h-5" /> },
     { id: 'repositories', label: 'Visual Git & Repositories', icon: <GitFork className="w-5 h-5" /> },
     { id: 'profiles', label: 'AccountsHub', icon: <Users className="w-5 h-5" /> },
     { id: 'mcpskills', label: 'Model Context Protocol (MCP) & Skills', icon: <Cpu className="w-5 h-5" /> },
-    { id: 'devtools', label: 'AI Dev Tools & Runtimes', icon: <Wrench className="w-5 h-5" /> },
-    { id: 'lan', label: 'LAN Remote & Broadcast', icon: <Wifi className="w-5 h-5" /> },
     { id: 'settings', label: 'Settings & Telemetry', icon: <Sliders className="w-5 h-5" /> },
   ];
 
@@ -51,13 +38,13 @@ export const PrimaryRail: React.FC = () => {
     >
       {/* Top Group: Brand Badge & Nav Items */}
       <div className="flex flex-col items-center space-y-3 w-full">
-        {/* Bolt Logo Badge */}
+        {/* Brand Badge */}
         <button
           onClick={() => setActiveView('chat')}
           className="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center text-white shadow-lg shadow-sky-500/20 cursor-pointer mb-1 transition hover:brightness-110 active:scale-95"
           title="Agents Hub v2.0 - Chat IDE"
         >
-          <Zap className="w-4 h-4 fill-white" />
+          <Cat className="w-5 h-5" />
         </button>
 
         {/* Primary View Switcher Buttons */}
@@ -91,8 +78,8 @@ export const PrimaryRail: React.FC = () => {
 
       </div>
 
-      {/* Bottom: collapse the rail, then the profile avatar. The rail is the one panel a user hides
-          when they want the full width back without losing the sessions list. */}
+      {/* Bottom: the rail's own collapse control. The rail is the one panel a user hides when they
+          want the full width back without losing the sessions list. */}
       <div className="flex flex-col items-center space-y-2">
         <button
           type="button"
@@ -102,19 +89,6 @@ export const PrimaryRail: React.FC = () => {
           aria-label="Hide the navigation rail"
         >
           <PanelLeftClose className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => setActiveView('profiles')}
-          className="relative w-9 h-9 rounded-xl bg-surface-card border border-surface-border hover:border-sky-500 flex items-center justify-center text-content-muted hover:text-sky-400 transition group"
-          title={`Active Profile: ${activeProfileName} (${activeProfile?.isRunning ? 'Running' : 'Idle'})`}
-        >
-          <UserCheck className="w-4 h-4" />
-          <span
-            className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-sidebar ${
-              activeProfile?.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
-            }`}
-          />
         </button>
       </div>
 

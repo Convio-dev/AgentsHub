@@ -1,9 +1,9 @@
 /**
- * Sidecar Health, Hardware Telemetry, and Active View Store
+ * Sidecar health, the active view and the current Settings section
  */
 
 import { create } from 'zustand';
-import { SidecarHealth, HardwareTelemetry, ActiveView } from '../types/agent';
+import { SidecarHealth, ActiveView } from '../types/agent';
 import { webviewBridge } from '../services/webviewBridge';
 import { useSessionStore } from './useSessionStore';
 import { useProfileStore } from './useProfileStore';
@@ -16,8 +16,12 @@ let conversationRulesFlushed = false;
 
 interface SidecarStoreState {
   health: SidecarHealth;
-  telemetry: HardwareTelemetry;
   activeView: ActiveView;
+  /**
+   * Which Settings section to show. Living here instead of inside SettingsView is what lets the
+   * guide open Settings straight on the dependency list.
+   */
+  settingsCategory: string;
   isSidebarCollapsed: boolean;
   /** The icon rail, collapsed independently of the secondary panel. */
   isRailCollapsed: boolean;
@@ -25,8 +29,8 @@ interface SidecarStoreState {
 
   // Actions
   setHealth: (health: Partial<SidecarHealth>) => void;
-  setTelemetry: (telemetry: Partial<HardwareTelemetry>) => void;
   setActiveView: (view: ActiveView) => void;
+  setSettingsCategory: (category: string) => void;
   toggleSidebar: () => void;
   toggleRail: () => void;
   setRailCollapsed: (collapsed: boolean) => void;
@@ -46,25 +50,16 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
     activeSessions: 0,
     version: 'v2.0.0',
   },
-  // Zeroed until the host reports real numbers: a plausible-looking placeholder reads as fact.
-  telemetry: {
-    netKbps: 0,
-    netMbps: 0,
-    ramMb: 0,
-    totalRamMb: 0,
-    memoryUsedGb: 0,
-    memoryTotalGb: 0,
-    hubMemMb: 0,
-  },
   activeView: (function (): ActiveView {
     try {
       const v = localStorage.getItem('agents_hub_active_view') as ActiveView;
-      if (['chat', 'dashboard', 'terminals', 'repositories', 'profiles', 'mcpskills', 'devtools', 'lan', 'settings'].includes(v)) {
+      if (['chat', 'dashboard', 'repositories', 'profiles', 'mcpskills', 'settings'].includes(v)) {
         return v;
       }
     } catch {}
     return 'chat';
   })(),
+  settingsCategory: 'appearance',
   isSidebarCollapsed: (function (): boolean {
     try {
       return localStorage.getItem('agents_hub_sidebar_collapsed') === 'true';
@@ -92,17 +87,14 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
       isBridgeConnected: healthUpdate.isOnline !== undefined ? healthUpdate.isOnline : state.isBridgeConnected,
     })),
 
-  setTelemetry: telemetryUpdate =>
-    set(state => ({
-      telemetry: { ...state.telemetry, ...telemetryUpdate },
-    })),
-
   setActiveView: view => {
     try {
       localStorage.setItem('agents_hub_active_view', view);
     } catch {}
     set({ activeView: view });
   },
+
+  setSettingsCategory: category => set({ settingsCategory: category }),
 
   toggleSidebar: () => {
     const next = !get().isSidebarCollapsed;
@@ -184,19 +176,6 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
         }
       }
 
-      // Also fetch system telemetry
-      const tel = await webviewBridge.invoke('get_system_telemetry');
-      if (tel) {
-        get().setTelemetry({
-          netKbps: tel.netKbps || 0,
-          netMbps: tel.netMbps || 0,
-          ramMb: tel.ramMb || 0,
-          totalRamMb: tel.totalRamMb || 16384,
-          memoryUsedGb: tel.memoryUsedGb || 0,
-          memoryTotalGb: tel.memoryTotalGb || 16,
-          hubMemMb: tel.hubMemMb || 0,
-        });
-      }
     } catch (err) {
       console.warn('[SidecarStore] Hydrate initial state error:', err);
     }
@@ -227,21 +206,6 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
         });
       })
     );
-
-    // 2. Hardware Metrics
-    const onMetrics = (data: any) => {
-      get().setTelemetry({
-        netKbps: data.netKbps || 0,
-        netMbps: data.netMbps || 0,
-        ramMb: data.ramMb || 0,
-        totalRamMb: data.totalRamMb || 16384,
-        memoryUsedGb: data.memoryUsedGb || 0,
-        memoryTotalGb: data.memoryTotalGb || 16,
-        hubMemMb: data.hubMemMb || 0,
-      });
-    };
-    unsubs.push(webviewBridge.on('hardware_metrics', onMetrics));
-    unsubs.push(webviewBridge.on('system_telemetry', onMetrics));
 
     // 3. Workspaces updates from C#
     unsubs.push(

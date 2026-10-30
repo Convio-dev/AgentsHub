@@ -4,14 +4,14 @@ import { PrimaryRail } from './components/layout/PrimaryRail';
 import { SecondarySidebar } from './components/layout/SecondarySidebar';
 import { AgentChatView } from './views/AgentChatView';
 import { DashboardView } from './views/DashboardView';
-import { TerminalsView } from './views/TerminalsView';
 import { RepositoriesView } from './views/RepositoriesView';
 import { ProfilesView } from './views/ProfilesView';
 import { McpSkillsView } from './views/McpSkillsView';
-import { DevToolsView } from './views/DevToolsView';
-import { LanView } from './views/LanView';
 import { SettingsView } from './views/SettingsView';
 import { ModalRoot, ModalType } from './components/modals/ModalRoot';
+import { UserGuideModal } from './components/guide/UserGuideModal';
+import { useGuideStore } from './store/useGuideStore';
+import { useLanStore } from './store/useLanStore';
 import { useSidecarStore } from './store/useSidecarStore';
 import { useProfileStore } from './store/useProfileStore';
 import { useWorkspaceStore } from './store/useWorkspaceStore';
@@ -24,6 +24,21 @@ export const App: React.FC = () => {
   const { initTheme } = useThemeStore();
 
   const [activeModal, setActiveModal] = useState<ModalType>(null);
+
+  // F1 has to work from every view, so the listener lives on the window here rather than inside a
+  // single page — that is why the old guide only opened while Settings was open.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'F1') return;
+      event.preventDefault();
+      const guide = useGuideStore.getState();
+      if (guide.isOpen) guide.close();
+      else guide.open();
+    };
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     // 0. Initialize theme variables and contrast
@@ -38,8 +53,16 @@ export const App: React.FC = () => {
       loadBackendSessions();
     });
 
+    // 3. LAN state is shared by Settings and the Dashboard, which hides its LAN bits while off.
+    const detachLan = useLanStore.getState().attachListeners();
+    void useLanStore.getState().load();
+
+    // 4. A fresh install gets the guide once; it marks itself seen when closed.
+    useGuideStore.getState().openOnFirstRun();
+
     return () => {
       cleanup();
+      detachLan();
     };
   }, [initBridgeListeners, loadProfiles, loadWorkspaces, loadWorkspaceFiles, loadBackendSessions]);
 
@@ -49,18 +72,12 @@ export const App: React.FC = () => {
         return <AgentChatView onOpenGitModal={() => setActiveModal('git_diff')} />;
       case 'dashboard':
         return <DashboardView />;
-      case 'terminals':
-        return <TerminalsView />;
       case 'repositories':
         return <RepositoriesView />;
       case 'profiles':
         return <ProfilesView onOpenAddProfile={() => setActiveModal('add_profile')} />;
       case 'mcpskills':
         return <McpSkillsView />;
-      case 'devtools':
-        return <DevToolsView />;
-      case 'lan':
-        return <LanView />;
       case 'settings':
         return <SettingsView />;
       default:
@@ -110,6 +127,9 @@ export const App: React.FC = () => {
 
       {/* 3. MODAL REGISTRY (Workspace Settings, Add Profile, Git Diff, MCP Skills) */}
       <ModalRoot activeModal={activeModal} onClose={() => setActiveModal(null)} />
+
+      {/* 4. USER GUIDE (first run, F1, Settings → About) */}
+      <UserGuideModal />
     </div>
   );
 };

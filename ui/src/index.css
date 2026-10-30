@@ -14,8 +14,14 @@
  * without duplicating any of this in JavaScript.
  */
 
+/*
+ * Anchored to the root element on purpose. The theme store also stamps data-theme on body, and an
+ * unscoped `[data-theme]` selector matched body too: body then carried the stylesheet's default
+ * values, which shadowed every inline variable the store wrote on html for everything inside it.
+ * That is why the accent only ever moved the few spots that read the variable directly.
+ */
 :root,
-[data-theme='dark'] {
+:root[data-theme='dark'] {
   --bg-app: #0b0f17;
   --bg-sidebar: #0f172a;
   --bg-header: #0b0f17;
@@ -47,6 +53,13 @@
   --accent-sky: #38bdf8;
   --accent-cyan: #38bdf8;
   --accent-sky-bg: rgba(2, 132, 199, 0.15);
+
+  /* RGB triplets behind the Tailwind sky scale, rewritten by the theme store per accent. */
+  --accent-300-rgb: 125 211 252;
+  --accent-400-rgb: 56 189 248;
+  --accent-500-rgb: 14 165 233;
+  --accent-600-rgb: 2 132 199;
+  --accent-700-rgb: 3 105 161;
   --accent-green: #10b981;
   --accent-green-hover: #059669;
   --accent-green-bg: rgba(16, 185, 129, 0.15);
@@ -82,7 +95,7 @@
   color-scheme: dark;
 }
 
-[data-theme='light'] {
+:root[data-theme='light'] {
   --bg-app: #f6f7f9;
   --bg-sidebar: #ffffff;
   --bg-header: #ffffff;
@@ -141,6 +154,39 @@ body {
   overflow: hidden;
   user-select: none;
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Wallpaper layer.
+ *
+ * Two fixed layers behind the app: the image itself, then a scrim so text keeps its contrast over a
+ * busy photo. The theme store makes the surface tokens translucent while a wallpaper is set, and
+ * clears data-theme-bg when it is removed, so this costs nothing in the normal case.
+ */
+body[data-theme-bg='image']::before,
+body[data-theme-bg='image']::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+body[data-theme-bg='image']::before {
+  background-image: var(--theme-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+body[data-theme-bg='image']::after {
+  background: var(--theme-scrim);
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+  height: 100%;
 }
 
 /* Custom scrollbars */

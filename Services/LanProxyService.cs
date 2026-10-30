@@ -51,6 +51,40 @@ public partial class LanProxyService : IDisposable
     public Func<Task>? StartHubAction { get; set; }
     public Func<Task<bool>>? CheckHubAliveAction { get; set; }
 
+    /// <summary>The ports offered for direct LAN exposure, before the user picks which ones run.</summary>
+    public static int[] DefaultDirectPorts(int targetPort) => [targetPort, 9229, 9339];
+
+    public static string LabelForPort(int port, int targetPort) => port switch
+    {
+        9229 => "Claude Code",
+        9339 => "Antigravity",
+        _ => port == targetPort ? "Hub" : $"Port {port}"
+    };
+
+    private const string DirectPortsPref = "LanDirectPorts";
+
+    /// <summary>
+    /// Which ports to expose, as the user left them. `none` is stored for an empty selection, so a
+    /// deliberate "expose nothing" is not confused with "never configured".
+    /// </summary>
+    public static int[] ReadSelectedDirectPorts(int targetPort)
+    {
+        var raw = StartupHelper.GetStringPreference(DirectPortsPref, string.Empty);
+        if (string.IsNullOrWhiteSpace(raw)) return DefaultDirectPorts(targetPort);
+        if (string.Equals(raw, "none", StringComparison.OrdinalIgnoreCase)) return [];
+
+        return [.. raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(value => int.TryParse(value, out var port) ? port : 0)
+            .Where(port => port is > 0 and <= 65535)
+            .Distinct()];
+    }
+
+    public static void SaveSelectedDirectPorts(IEnumerable<int> ports)
+    {
+        var list = ports.Where(p => p is > 0 and <= 65535).Distinct().OrderBy(p => p).ToArray();
+        StartupHelper.SetStringPreference(DirectPortsPref, list.Length == 0 ? "none" : string.Join(",", list));
+    }
+
     public event Action<bool>? StateChanged;
     public event Action<string>? LogMessage;
     public event Action<string>? RemoteClientConnected;
@@ -65,7 +99,7 @@ public partial class LanProxyService : IDisposable
         }
     }
 
-    public bool Start(int listenPort = 9191, int targetPort = 9119)
+    public bool Start(int listenPort = 9191, int targetPort = 9119, IReadOnlyList<int>? directPorts = null)
     {
         lock (_lock)
         {
@@ -88,13 +122,20 @@ public partial class LanProxyService : IDisposable
                 LogMessage?.Invoke($"LAN Proxy active on 0.0.0.0:{listenPort} -> 127.0.0.1:{targetPort}");
                 _forwarders.Add(new LanForwarderInfo(listenPort, "Gateway", "0.0.0.0 (all interfaces)", true, ""));
 
-                // Bind secondary listeners on LAN IP for direct port forwarding without port remapping
+                // Only the ports the user chose are bound; an empty selection exposes nothing but
+                // the gateway, which is what the gateway port alone is for.
+                var wantedPorts = (directPorts ?? DefaultDirectPorts(targetPort))
+                    .Where(port => port is > 0 and <= 65535)
+                    .Distinct()
+                    .ToArray();
+
                 var lanIpStr = NetworkHelper.GetLocalIPv4();
                 if (IPAddress.TryParse(lanIpStr, out var lanIp) && !IPAddress.IsLoopback(lanIp))
                 {
-                    BindDirectForwarder(lanIp, targetPort, targetPort, "Hub");
-                    BindDirectForwarder(lanIp, 9229, 9229, "Claude Code");
-                    BindDirectForwarder(lanIp, 9339, 9339, "Antigravity");
+                    foreach (var port in wantedPorts)
+                    {
+                        BindDirectForwarder(lanIp, port, port, LabelForPort(port, targetPort));
+                    }
                 }
                 else
                 {

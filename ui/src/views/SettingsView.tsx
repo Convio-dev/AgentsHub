@@ -7,6 +7,8 @@ import {
   Volume2,
   Share2,
   ShieldCheck,
+  Wifi,
+  Wrench,
   Terminal,
   Info,
   Search,
@@ -73,6 +75,10 @@ import { profileLabel } from '../lib/profileName';
 import { webviewBridge } from '../services/webviewBridge';
 import { useSessionStore } from '../store/useSessionStore';
 import { useSidecarStore } from '../store/useSidecarStore';
+import { useGuideStore } from '../store/useGuideStore';
+import { LanSettings } from '../components/settings/LanSettings';
+import { TelemetryPanel } from '../components/settings/TelemetryPanel';
+import { DevToolsPanel } from '../components/settings/DevToolsPanel';
 import { sendPrompt } from '../services/chatController';
 import { Button } from '../components/common/Button';
 
@@ -217,9 +223,46 @@ export const SettingsView: React.FC = () => {
     };
   }, [noteInstallLine, finishInstall]);
 
-  const { theme, accentColor, themeIntensity, setTheme, setAccentColor, setThemeIntensity } = useThemeStore();
+  const {
+    theme,
+    accentColor,
+    themeIntensity,
+    backgroundImage,
+    backgroundDim,
+    setTheme,
+    setAccentColor,
+    setThemeIntensity,
+    setBackgroundImage,
+    setBackgroundDim,
+  } = useThemeStore();
 
-  const [activeCategory, setActiveCategory] = useState<string>('appearance');
+  const [wallpaperError, setWallpaperError] = useState<string | null>(null);
+
+  /** Asks the host for an image; it copies the file somewhere the webview can read and returns a URL. */
+  const chooseImage = async () => {
+    setWallpaperError(null);
+    try {
+      const res: any = await webviewBridge.invoke('browse_theme_image', {});
+      if (res?.url) setBackgroundImage(String(res.url));
+    } catch (err) {
+      // Closing the picker is reported as a failed action, so only a real error is worth showing.
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/cancel/i.test(message)) setWallpaperError(message);
+    }
+  };
+
+  const wallpaperName = (url: string) => {
+    try {
+      return decodeURIComponent(url.split('/').pop() || url);
+    } catch {
+      return url;
+    }
+  };
+
+  // The section lives in the shared store so the guide can land directly on the dependency list.
+  const activeCategory = useSidecarStore(state => state.settingsCategory);
+  const setActiveCategory = useSidecarStore(state => state.setSettingsCategory);
+  const openGuide = useGuideStore(state => state.open);
   // Shows what the host actually stored, so a UI/host disagreement is visible instead of guessed.
   const [prefDebug, setPrefDebug] = useState<string | null>(null);
 
@@ -324,21 +367,6 @@ export const SettingsView: React.FC = () => {
   const [newAutoCron, setNewAutoCron] = useState('*/30 * * * *');
   const [newAutoPrompt, setNewAutoPrompt] = useState('');
 
-  // Guide Tour Modal state
-  const [showGuideTourModal, setShowGuideTourModal] = useState(false);
-  const [tourSlide, setTourSlide] = useState(0);
-
-  // F1 Shortcut Listener for Quick-Start Guide
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'F1') {
-        e.preventDefault();
-        setShowGuideTourModal(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   // Live ticking timer for Discord Live Profile Card Simulator
   const [elapsedSeconds, setElapsedSeconds] = useState(872); // 00:14:32 initial
@@ -385,6 +413,8 @@ export const SettingsView: React.FC = () => {
     { id: 'engines', label: 'AI Engines & Runtimes', icon: Cpu },
     { id: 'audio', label: 'Audio & Soundpack', icon: Volume2 },
     { id: 'integrations', label: 'Webhooks & Discord', icon: Share2 },
+    { id: 'devtools', label: 'AI Dev Tools', icon: Wrench },
+    { id: 'lan', label: 'Remote Access', icon: Wifi },
     { id: 'security', label: 'Security & Health', icon: ShieldCheck },
     { id: 'logs', label: 'Live Logs', icon: Terminal },
     { id: 'about', label: 'About & Updates', icon: Info },
@@ -610,6 +640,49 @@ export const SettingsView: React.FC = () => {
                       className="w-full accent-sky-500 cursor-pointer"
                     />
                   </div>
+                </div>
+
+                {/* Wallpaper */}
+                <div className="space-y-3 pt-3 border-t border-[var(--border-subtle,#1E293B)]">
+                  <div>
+                    <label className="text-xs font-semibold text-[var(--text-muted,#94A3B8)]">Background image:</label>
+                    <p className="text-[11px] text-[var(--text-dim,#64748B)] mt-0.5">
+                      A picture sits behind the chrome. Panels turn translucent so it stays visible, and the dim slider keeps text readable.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="secondary" size="xs" onClick={() => void chooseImage()}>
+                      {backgroundImage ? 'Replace image' : 'Choose image'}
+                    </Button>
+                    {backgroundImage ? (
+                      <Button variant="secondary" size="xs" onClick={() => setBackgroundImage('')}>
+                        Remove
+                      </Button>
+                    ) : null}
+                    <span className="max-w-[240px] truncate font-mono text-[11px] text-[var(--text-dim,#64748B)]">
+                      {backgroundImage ? wallpaperName(backgroundImage) : 'None'}
+                    </span>
+                  </div>
+
+                  {backgroundImage ? (
+                    <div className="max-w-sm space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-medium text-[var(--text-muted,#94A3B8)]">Image dim:</span>
+                        <span className="font-mono font-bold text-accent">{backgroundDim}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={90}
+                        value={backgroundDim}
+                        onChange={e => setBackgroundDim(Number(e.target.value))}
+                        className="w-full accent-sky-500 cursor-pointer"
+                      />
+                    </div>
+                  ) : null}
+
+                  {wallpaperError ? <p className="text-[11px] text-state-danger">{wallpaperError}</p> : null}
                 </div>
               </div>
             </div>
@@ -1884,6 +1957,10 @@ export const SettingsView: React.FC = () => {
           {/* ======================================================== */}
           {/* 7. SECURITY & HEALTH */}
           {/* ======================================================== */}
+          {activeCategory === 'devtools' && <DevToolsPanel />}
+
+          {activeCategory === 'lan' && <LanSettings />}
+
           {activeCategory === 'security' && (
             <div className="max-w-3xl space-y-6">
               {/* Diagnostics Doctor */}
@@ -2040,6 +2117,8 @@ export const SettingsView: React.FC = () => {
           {/* ======================================================== */}
           {activeCategory === 'logs' && (
             <div className="max-w-4xl space-y-4">
+              <TelemetryPanel />
+
               <div className="p-5 rounded-xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] space-y-4">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
@@ -2248,7 +2327,7 @@ export const SettingsView: React.FC = () => {
                         User Guide & Quick-Start Tour
                       </div>
                       <div className="text-[11px] text-[var(--text-dim,#64748B)] mt-0.5">
-                        Step-by-step walkthrough, Antigravity profiles, Standalone Terminals & shortcuts (F1)
+                        How the app works, the chat engines, runtime installation and shortcuts (F1, any view)
                       </div>
                     </div>
                   </div>
@@ -2256,7 +2335,7 @@ export const SettingsView: React.FC = () => {
                     variant="primary"
                     size="xs"
                     leftIcon={<HelpCircle className="w-3.5 h-3.5" />}
-                    onClick={() => setShowGuideTourModal(true)}
+                    onClick={openGuide}
                   >
                     Open User Guide
                   </Button>
@@ -2269,7 +2348,7 @@ export const SettingsView: React.FC = () => {
                       icon: HelpCircle,
                       label: 'User Guide',
                       value: 'Launch Interactive Guide (F1)',
-                      action: () => setShowGuideTourModal(true),
+                      action: openGuide,
                     },
                     {
                       icon: Terminal,
@@ -2909,254 +2988,6 @@ export const SettingsView: React.FC = () => {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* MODAL 5: QUICK-START TOUR & INTERACTIVE USER GUIDE (F1) */}
-      {/* ======================================================== */}
-      {showGuideTourModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in">
-          <div className="w-full max-w-2xl rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            {/* Modal Header */}
-            <div className="p-5 border-b border-[var(--border-subtle,#1E293B)] flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold shadow-lg shadow-emerald-500/20">
-                  <HelpCircle className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">AgentsHub User Guide & Tour</h3>
-                  <p className="text-xs text-[var(--text-dim,#64748B)]">Press F1 anytime to launch or close this guide</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-sky-500/10 text-accent border border-sky-500/20">
-                  Slide {tourSlide + 1} of 5
-                </span>
-                <button
-                  onClick={() => setShowGuideTourModal(false)}
-                  className="p-1 rounded-lg text-[var(--text-dim,#64748B)] hover:text-white hover:bg-[var(--bg-input,#0D1322)] transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Slide Navigation Tabs */}
-            <div className="flex items-center px-5 pt-3 gap-1.5 border-b border-[var(--border-subtle,#1E293B)] overflow-x-auto text-xs">
-              {[
-                'Overview & AI Agents',
-                'Profiles & Isolation',
-                'Virtual Terminals',
-                'Pocket Commander',
-                'Shortcuts & Tips',
-              ].map((label, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setTourSlide(idx)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                    tourSlide === idx
-                      ? 'bg-sky-500/20 text-accent border border-sky-500/30'
-                      : 'text-[var(--text-dim,#64748B)] hover:text-white'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Slide Content Body */}
-            <div className="p-6 overflow-y-auto space-y-4 flex-1">
-              {tourSlide === 0 && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">🚀</span>
-                    <div>
-                      <h4 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">Welcome to AgentsHub Workstation</h4>
-                      <p className="text-xs text-[var(--text-dim,#64748B)]">The unified mission-control for local AI developer agents</p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-[var(--text-muted,#94A3B8)] leading-relaxed">
-                    AgentsHub lets you orchestrate Hub, Claude Code, and Google Antigravity (agy) seamlessly under one roof. Each agent runs inside an isolated real terminal with its own credentials and full ConPTY support.
-                  </p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-                    <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-1">
-                      <div className="text-xs font-bold text-accent">Hub Engine</div>
-                      <div className="text-[11px] text-[var(--text-dim,#64748B)]">Self-orchestrating task execution with real-time feedback loops.</div>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-1">
-                      <div className="text-xs font-bold text-state-success">Antigravity (agy)</div>
-                      <div className="text-[11px] text-[var(--text-dim,#64748B)]">Google DeepMind-powered agentic pair programmer.</div>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-1">
-                      <div className="text-xs font-bold text-indigo-400">Claude Code</div>
-                      <div className="text-[11px] text-[var(--text-dim,#64748B)]">Anthropic agentic CLI for deep architectural refactoring.</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {tourSlide === 1 && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">🛡️</span>
-                    <div>
-                      <h4 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">Runner Profiles & State Isolation</h4>
-                      <p className="text-xs text-[var(--text-dim,#64748B)]">Never leak keys or mix agent contexts across projects</p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-[var(--text-muted,#94A3B8)] leading-relaxed">
-                    Every runner profile retains its own API keys, workspace directories, and custom model instructions. The Workspace Rule Isolation feature ensures that agent prompt rules from one project never bleed into another.
-                  </p>
-
-                  <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-emerald-500/20 space-y-2">
-                    <div className="text-xs font-bold text-state-success flex items-center gap-2">
-                      <Check className="w-4 h-4" />
-                      Persistent Process Keep-Alive
-                    </div>
-                    <div className="text-xs text-[var(--text-dim,#64748B)]">
-                      When you start a runner profile, it remains active in the background ready for multiple turns. Prompts stream tokens instantly without rebooting the agent process.
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {tourSlide === 2 && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">⚡</span>
-                    <div>
-                      <h4 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">Native ConPTY Virtual Terminals</h4>
-                      <p className="text-xs text-[var(--text-dim,#64748B)]">High-throughput Windows Pseudo Console with ANSI 24-bit color</p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-[var(--text-muted,#94A3B8)] leading-relaxed">
-                    Instead of emulated shells, AgentsHub hooks directly into the Windows ConPTY API. You can launch standalone floating terminal windows, resize them on the fly, or embed them directly into the multi-pane grid.
-                  </p>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
-                      <div className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">Embedded Dual Panes</div>
-                      <div className="text-[11px] text-[var(--text-dim,#64748B)] mt-1">Chat on one side, terminal execution logs on the other.</div>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
-                      <div className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">Floating Standalone Terminals</div>
-                      <div className="text-[11px] text-[var(--text-dim,#64748B)] mt-1">Detach agent sessions to secondary monitors.</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {tourSlide === 3 && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">📱</span>
-                    <div>
-                      <h4 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">Pocket Commander & Remote LAN</h4>
-                      <p className="text-xs text-[var(--text-dim,#64748B)]">Monitor and control running agents from your smartphone</p>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-[var(--text-muted,#94A3B8)] leading-relaxed">
-                    Take your AI workforce anywhere on your local WiFi. Pocket Commander bridges AgentsHub to Telegram and Discord bots with single-use pairing PINs.
-                  </p>
-
-                  <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-sky-500/20 space-y-2">
-                    <div className="text-xs font-bold text-accent">Supported Commands</div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs font-mono">
-                      <span className="text-content-muted">/run [profile]</span>
-                      <span className="text-content-muted">/prompt [text]</span>
-                      <span className="text-content-muted">/screen (JPEG)</span>
-                      <span className="text-content-muted">/active [agent]</span>
-                      <span className="text-content-muted">/diff (Git stats)</span>
-                      <span className="text-state-danger">/stop (SIGINT)</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {tourSlide === 4 && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">⌨️</span>
-                    <div>
-                      <h4 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">Essential Shortcuts & Pro Tips</h4>
-                      <p className="text-xs text-[var(--text-dim,#64748B)]">Speed up your workflow with these keyboard bindings</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                    {[
-                      { key: 'F1', desc: 'Open / Close this interactive guide' },
-                      { key: 'Ctrl + Alt + H', desc: 'Toggle AgentsHub window / slide-down HUD' },
-                      { key: 'Ctrl + Enter', desc: 'Send prompt to active agent session' },
-                      { key: 'Ctrl + C', desc: 'Send interrupt signal (SIGINT) to agent' },
-                      { key: 'Ctrl + /', desc: 'Toggle secondary sidebar and explorer' },
-                      { key: 'Esc', desc: 'Close any active modal or overlay' },
-                    ].map((sc, i) => (
-                      <div key={i} className="p-3 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-between">
-                        <span className="text-xs text-[var(--text-dim,#64748B)]">{sc.desc}</span>
-                        <kbd className="px-2 py-0.5 rounded bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] text-xs font-mono text-accent font-bold">
-                          {sc.key}
-                        </kbd>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer with Carousel Controls */}
-            <div className="p-5 border-t border-[var(--border-subtle,#1E293B)] flex items-center justify-between bg-[var(--bg-input,#0D1322)]/50">
-              {/* Carousel Dots */}
-              <div className="flex items-center gap-1.5">
-                {[0, 1, 2, 3, 4].map(idx => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setTourSlide(idx)}
-                    className={`h-2 rounded-full transition-all ${
-                      tourSlide === idx ? 'w-6 bg-sky-400' : 'w-2 bg-slate-600 hover:bg-slate-400'
-                    }`}
-                  />
-                ))}
-              </div>
-
-              {/* Prev / Next / Finish Buttons */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="xs"
-                  disabled={tourSlide === 0}
-                  onClick={() => setTourSlide(s => Math.max(0, s - 1))}
-                >
-                  ← Prev
-                </Button>
-
-                {tourSlide < 4 ? (
-                  <Button
-                    variant="primary"
-                    size="xs"
-                    onClick={() => setTourSlide(s => Math.min(4, s + 1))}
-                  >
-                    Next →
-                  </Button>
-                ) : (
-                  <Button
-                    variant="primary"
-                    size="xs"
-                    onClick={() => setShowGuideTourModal(false)}
-                  >
-                    Get Started!
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

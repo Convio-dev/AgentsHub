@@ -29,7 +29,7 @@ public static class NetworkTelemetryService
     /// <summary>Current combined network throughput in kilobytes per second.</summary>
     public static double NetworkKiloBytesPerSec => Volatile.Read(ref _kiloBytesPerSec);
 
-    /// <summary>Starts the background sampler on first use. Safe to call repeatedly.</summary>
+    /// <summary>Starts the sampler. Called when a telemetry reading is requested. Safe to call repeatedly.</summary>
     public static void EnsureStarted()
     {
         if (_sampler != null) return;
@@ -37,6 +37,28 @@ public static class NetworkTelemetryService
         lock (SampleLock)
         {
             _sampler ??= new System.Threading.Timer(_ => Sample(), null, 0, SampleIntervalMs);
+        }
+    }
+
+    /// <summary>
+    /// Stops the sampler and drops the delta baseline. Called when nothing is displaying the
+    /// reading, so an idle app does not keep reading network counters.
+    /// </summary>
+    public static void Stop()
+    {
+        lock (SampleLock)
+        {
+            _sampler?.Dispose();
+            _sampler = null;
+            Volatile.Write(ref _kiloBytesPerSec, 0);
+#if WINDOWS
+            DisposeAll(_counters);
+            _counters = [];
+            _countersRefreshUtc = DateTime.MinValue;
+#else
+            _lastTotalBytes = 0;
+            _lastSampleUtc = DateTime.UtcNow;
+#endif
         }
     }
 

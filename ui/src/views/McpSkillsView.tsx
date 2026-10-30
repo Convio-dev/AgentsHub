@@ -23,9 +23,10 @@ import {
   Clock,
   Trash2,
   FolderDot,
+  CornerDownRight,
 } from 'lucide-react';
 import { Button } from '../components/common/Button';
-import { useMcpStore, McpServer, McpTransport } from '../store/useMcpStore';
+import { useMcpStore, McpServer, McpTransport, McpFolder, FolderKind } from '../store/useMcpStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { webviewBridge } from '../services/webviewBridge';
@@ -213,7 +214,7 @@ const RegisterModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     setIsSaving(false);
 
     if (ok) onClose();
-    else setError('The host could not write this server into the CLI config.');
+    else setError('The host could not write this server into ~/.agents/mcp.json.');
   };
 
   const field = 'w-full rounded-lg border border-surface-border bg-surface-deep px-3 py-1.5 font-mono text-xs text-content-main outline-none focus:border-sky-500';
@@ -225,7 +226,7 @@ const RegisterModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <div>
             <h3 className="text-sm font-bold text-content-main">Register MCP server</h3>
             <p className="mt-1 text-[11px] text-content-muted">
-              Written to the CLI's <span className="font-mono">mcp_config.json</span>.
+              Saved to <span className="font-mono">~/.agents/mcp.json</span>, the folder other agents read.
             </p>
           </div>
           <button type="button" onClick={onClose} className="text-content-dim hover:text-content-main">
@@ -416,6 +417,123 @@ const NewSkillModal: React.FC<{ onClose: () => void; workspaceLabel: string }> =
   );
 };
 
+/**
+ * The folders discovery walks. `~/.agents` is the default and stays first; every other folder sits
+ * under it, indented, so it is clear which one is the shared location and which are inherited.
+ */
+const FolderPanel: React.FC<{
+  kind: FolderKind;
+  folders: McpFolder[];
+  counts: Record<string, number>;
+  onAdd: () => void;
+  onRemove: (path: string) => void;
+  onOpen: (path: string) => void;
+}> = ({ kind, folders, counts, onAdd, onRemove, onOpen }) => {
+  const unit = kind === 'mcp' ? 'server' : 'skill';
+  const [expanded, setExpanded] = useState(true);
+  const primary = folders.filter(folder => folder.isPrimary);
+  const others = folders.filter(folder => !folder.isPrimary);
+
+  const row = (folder: McpFolder, isSub: boolean) => {
+    const count = counts[folder.label] ?? 0;
+
+    return (
+      <div
+        key={`${folder.kind}:${folder.path}`}
+        className={`flex items-center gap-2 py-1.5 pr-3 ${isSub ? 'pl-8' : 'pl-3'}`}
+      >
+        {isSub ? (
+          <CornerDownRight className="h-3 w-3 flex-shrink-0 text-content-dim/60" />
+        ) : (
+          <FolderTree className="h-3 w-3 flex-shrink-0 text-accent" />
+        )}
+
+        <span
+          className={`truncate font-mono text-[11px] ${folder.exists ? 'text-content-main' : 'text-content-dim'}`}
+          title={folder.path}
+        >
+          {folder.label}
+        </span>
+
+        {folder.isPrimary ? (
+          <span className="flex-shrink-0 rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase text-accent">
+            Default
+          </span>
+        ) : null}
+
+        {!folder.exists ? (
+          <span className="flex-shrink-0 rounded border border-surface-border bg-surface-deep px-1.5 py-0.5 font-mono text-[9px] text-content-dim">
+            not found
+          </span>
+        ) : null}
+
+        <span className="ml-auto flex-shrink-0 font-mono text-[10px] text-content-dim">
+          {count} {unit}
+          {count === 1 ? '' : 's'}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onOpen(folder.path)}
+          disabled={!folder.exists}
+          title="Show this folder"
+          className="rounded p-0.5 text-content-dim transition-colors hover:bg-surface-hover hover:text-content-main disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          <FolderOpen className="h-3.5 w-3.5" />
+        </button>
+
+        {folder.isDefault ? null : (
+          <button
+            type="button"
+            onClick={() => onRemove(folder.path)}
+            title="Stop scanning this folder"
+            className="rounded p-0.5 text-content-dim transition-colors hover:bg-rose-500/10 hover:text-state-danger"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="rounded-xl border border-surface-border bg-surface-card">
+      <div className="flex items-center justify-between gap-2 border-b border-surface-border px-3 py-1.5">
+        <button
+          type="button"
+          onClick={() => setExpanded(open => !open)}
+          className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-content-dim transition-colors hover:text-content-main"
+        >
+          <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? '' : '-rotate-90'}`} />
+          Folders scanned
+          <span className="opacity-70">({folders.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex flex-shrink-0 items-center gap-1 rounded-md border border-surface-border bg-surface-deep px-2 py-0.5 font-mono text-[10px] text-content-muted transition-colors hover:border-sky-500/50 hover:text-accent"
+        >
+          <Plus className="h-3 w-3" />
+          Add folder
+        </button>
+      </div>
+
+      {expanded ? (
+        <div className="divide-y divide-surface-border/50">
+          {primary.map(folder => row(folder, false))}
+          {others.map(folder => row(folder, true))}
+        </div>
+      ) : null}
+
+      <p className="border-t border-surface-border/60 px-3 py-1.5 font-mono text-[10px] text-content-dim">
+        New {kind === 'mcp' ? 'servers are' : 'skills are'} written to{' '}
+        <span className="text-content-muted">{kind === 'mcp' ? '~/.agents/mcp.json' : '~/.agents/skills'}</span>.
+      </p>
+    </div>
+  );
+};
+
 const ServerCard: React.FC<{ server: McpServer; onAuthenticate: (server: McpServer) => void }> = ({
   server,
   onAuthenticate,
@@ -478,6 +596,15 @@ const ServerCard: React.FC<{ server: McpServer; onAuthenticate: (server: McpServ
         ) : server.command ? (
           <span className="truncate opacity-80" title={server.command}>
             {server.command}
+          </span>
+        ) : null}
+        {server.source ? (
+          <span
+            className="ml-auto flex flex-shrink-0 items-center gap-1 opacity-80"
+            title={`Found in ${server.source}`}
+          >
+            <FolderTree className="h-2.5 w-2.5" />
+            <span className="max-w-[9rem] truncate">{server.source}</span>
           </span>
         ) : null}
       </div>
@@ -543,8 +670,21 @@ const ServerCard: React.FC<{ server: McpServer; onAuthenticate: (server: McpServ
 };
 
 export const McpSkillsView: React.FC = () => {
-  const { servers, skills, isLoading, hasLoaded, error, load, toggleSkill, pendingSkill, lastSyncedAt, revealSkill } =
-    useMcpStore();
+  const {
+    servers,
+    skills,
+    isLoading,
+    hasLoaded,
+    error,
+    load,
+    toggleSkill,
+    pendingSkill,
+    lastSyncedAt,
+    revealSkill,
+    folders,
+    addFolder,
+    removeFolder,
+  } = useMcpStore();
   const [authTarget, setAuthTarget] = useState<McpServer | null>(null);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [installRequest, setInstallRequest] = useState<{ command: string; scope: 'global' | 'workspace' } | null>(null);
@@ -604,6 +744,16 @@ export const McpSkillsView: React.FC = () => {
   }, [skills]);
 
   const authRequired = servers.filter(server => server.requiresAuth && server.authStatus !== 'Authenticated').length;
+
+  // Counts per folder come from the discovered items, not from what the host guessed on disk.
+  const countsFor = (kind: FolderKind): Record<string, number> => {
+    const map: Record<string, number> = {};
+    const sources = kind === 'mcp' ? servers.map(server => server.source) : skills.map(skill => skill.source);
+    for (const source of sources) {
+      if (source) map[source] = (map[source] ?? 0) + 1;
+    }
+    return map;
+  };
 
   return (
     <div className="flex-1 select-none overflow-y-auto bg-surface-deep p-6 font-sans text-content-main">
@@ -686,6 +836,15 @@ export const McpSkillsView: React.FC = () => {
 
       {activeTab === 'mcp' ? (
       <section className="mt-5 space-y-3">
+        <FolderPanel
+          kind="mcp"
+          folders={folders.mcp}
+          counts={countsFor('mcp')}
+          onAdd={() => void addFolder('mcp')}
+          onRemove={path => void removeFolder('mcp', path)}
+          onOpen={path => void revealSkill(path)}
+        />
+
         <div className="flex items-center justify-between gap-3">
           <button
             type="button"
@@ -701,7 +860,7 @@ export const McpSkillsView: React.FC = () => {
           <button
             type="button"
             onClick={() => void webviewBridge.invoke('open_mcp_config').catch(() => {})}
-            title="Open the CLI's mcp_config.json in your editor"
+            title="Open ~/.agents/mcp.json in your editor"
             className="flex items-center gap-1.5 rounded-md border border-surface-border bg-surface-deep px-2 py-0.5 font-mono text-[10px] text-content-muted transition-colors hover:border-sky-500/50 hover:text-accent"
           >
             <FileJson className="h-3 w-3" />
@@ -717,7 +876,7 @@ export const McpSkillsView: React.FC = () => {
           </div>
         ) : servers.length === 0 ? (
           <p className="rounded-xl border border-dashed border-surface-border bg-surface-card px-4 py-8 text-center font-mono text-[11px] text-content-dim">
-            No MCP servers found in the CLI configuration.
+            No MCP servers in any scanned folder. Add one to ~/.agents/mcp.json, or register it above.
           </p>
         ) : (
           <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
@@ -731,6 +890,15 @@ export const McpSkillsView: React.FC = () => {
 
       {activeTab === 'skills' ? (
       <section className="mt-5 space-y-3">
+        <FolderPanel
+          kind="skills"
+          folders={folders.skills}
+          counts={countsFor('skills')}
+          onAdd={() => void addFolder('skills')}
+          onRemove={path => void removeFolder('skills', path)}
+          onOpen={path => void revealSkill(path)}
+        />
+
         <button
           type="button"
           onClick={() => toggleSection('skills')}
@@ -825,6 +993,10 @@ export const McpSkillsView: React.FC = () => {
                                 title={`Owned by workspace ${skill.workspaceName}`}
                               >
                                 {skill.workspaceName}
+                              </span>
+                            ) : skill.source ? (
+                              <span className="truncate text-content-dim" title={`Found in ${skill.source}`}>
+                                {skill.source}
                               </span>
                             ) : null}
                           </div>

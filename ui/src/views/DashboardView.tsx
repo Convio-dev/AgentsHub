@@ -26,17 +26,36 @@ import {
   Compass,
 } from 'lucide-react';
 import { useSidecarStore } from '../store/useSidecarStore';
+import { useGuideStore } from '../store/useGuideStore';
+import { useLanStore } from '../store/useLanStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { useSessionStore } from '../store/useSessionStore';
 import { webviewBridge } from '../services/webviewBridge';
 import { Button } from '../components/common/Button';
 
 export const DashboardView: React.FC = () => {
-  const { health, telemetry, setActiveView } = useSidecarStore();
+  const { health, setActiveView, setSettingsCategory } = useSidecarStore();
   const { profiles, activeProfileName, startProfile, switchActiveProfile } = useProfileStore();
   const { sessions } = useSessionStore();
 
-  const [showQuickstart, setShowQuickstart] = useState(true);
+  const openGuide = useGuideStore(state => state.open);
+  // LAN is off by default, so any LAN element on this page has to disappear with it.
+  const { running: lanRunning, lanIp, gatewayPort } = useLanStore();
+  // Dismissed once, gone for good: a checklist that returns on every launch is noise, not help.
+  const [showQuickstart, setShowQuickstart] = useState(() => {
+    try {
+      return localStorage.getItem('agents_hub_quickstart_dismissed') !== '1';
+    } catch {
+      return true;
+    }
+  });
+
+  const dismissQuickstart = () => {
+    try {
+      localStorage.setItem('agents_hub_quickstart_dismissed', '1');
+    } catch {}
+    setShowQuickstart(false);
+  };
   const [selectedPort, setSelectedPort] = useState<string>('9119');
   const [isLanMode, setIsLanMode] = useState<boolean>(false);
   const [showEmail, setShowEmail] = useState<boolean>(false);
@@ -44,21 +63,19 @@ export const DashboardView: React.FC = () => {
   const [maskPaths, setMaskPaths] = useState<boolean>(true);
   const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
 
-  // Sparkline history data for RAM
-  const [ramHistory, setRamHistory] = useState<number[]>([45, 48, 50, 52, 51, 55, 57]);
-
-  useEffect(() => {
-    if (telemetry.memoryUsedGb && telemetry.memoryTotalGb) {
-      const pct = Math.round((telemetry.memoryUsedGb / telemetry.memoryTotalGb) * 100);
-      setRamHistory(prev => [...prev.slice(-15), pct]);
-    }
-  }, [telemetry.memoryUsedGb, telemetry.memoryTotalGb]);
-
   const activeProfile = profiles.find(p => p.name === activeProfileName) || profiles[0];
 
-  const currentUrl = isLanMode
-    ? `http://192.168.1.100:${selectedPort}/`
-    : `http://127.0.0.1:${selectedPort}/`;
+  const currentUrl =
+    isLanMode && lanRunning
+      ? `http://${lanIp}:${gatewayPort}/`
+      : `http://127.0.0.1:${selectedPort}/`;
+
+  // Turning LAN off must not leave the page pointing at a LAN URL that no longer answers.
+  useEffect(() => {
+    if (lanRunning) return;
+    setIsLanMode(false);
+    setSelectedPort(current => (current === String(gatewayPort) ? '9119' : current));
+  }, [lanRunning, gatewayPort]);
 
   const copyUrl = () => {
     navigator.clipboard.writeText(currentUrl);
@@ -86,23 +103,6 @@ export const DashboardView: React.FC = () => {
   };
 
   // Sparkline SVG path generator
-  const getSparklinePath = () => {
-    if (ramHistory.length === 0) return { area: '', line: '' };
-    const width = 240;
-    const height = 48;
-    const min = 20;
-    const max = 100;
-    const points = ramHistory.map((val, idx) => {
-      const x = (idx / (ramHistory.length - 1 || 1)) * width;
-      const y = height - ((val - min) / (max - min)) * height;
-      return `${x},${y}`;
-    });
-    const line = `M ${points.join(' L ')}`;
-    const area = `${line} L ${width},${height} L 0,${height} Z`;
-    return { area, line };
-  };
-
-  const sparkline = getSparklinePath();
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6 font-sans bg-[var(--bg-app,#090D16)] text-[var(--text-main,#F1F5F9)] select-none">
@@ -117,12 +117,12 @@ export const DashboardView: React.FC = () => {
               <h3 className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">New to AgentsHub? Complete these 4 steps</h3>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="secondary" size="xs" onClick={() => setActiveView('profiles')}>
+              <Button variant="secondary" size="xs" onClick={openGuide}>
                 <Compass className="w-3.5 h-3.5 mr-1 text-accent" />
                 Launch Tour (F1)
               </Button>
               <button
-                onClick={() => setShowQuickstart(false)}
+                onClick={dismissQuickstart}
                 className="p-1 text-[var(--text-dim,#64748B)] hover:text-[var(--text-main,#F1F5F9)] transition-colors"
                 title="Dismiss Guide"
               >
@@ -168,7 +168,14 @@ export const DashboardView: React.FC = () => {
                 </div>
                 <p className="text-[11px] text-[var(--text-dim,#64748B)] leading-relaxed">Check Git, Node, Python & runtime health.</p>
               </div>
-              <Button variant="secondary" size="xs" onClick={() => setActiveView('devtools')}>
+              <Button
+                variant="secondary"
+                size="xs"
+                onClick={() => {
+                  setSettingsCategory('devtools');
+                  setActiveView('settings');
+                }}
+              >
                 Check Tools
               </Button>
             </div>
@@ -210,20 +217,22 @@ export const DashboardView: React.FC = () => {
             >
               <option value="9229">Claude Code: 9229</option>
               <option value="9339">Antigravity CLI: 9339</option>
-              <option value="9191">LAN Proxy: 9191</option>
+              {lanRunning ? <option value={String(gatewayPort)}>LAN Proxy: {gatewayPort}</option> : null}
             </select>
           </div>
 
           <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-xs font-mono">
             <span className="text-[var(--text-main,#F1F5F9)] truncate">{currentUrl}</span>
             <div className="flex items-center gap-1.5 flex-shrink-0">
-              <button
-                onClick={() => setIsLanMode(!isLanMode)}
-                className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-accent transition-colors"
-                title="Switch between Local (127.0.0.1) and LAN URL"
-              >
-                <RotateCw className="w-3.5 h-3.5" />
-              </button>
+              {lanRunning ? (
+                <button
+                  onClick={() => setIsLanMode(!isLanMode)}
+                  className={`p-1.5 rounded transition-colors ${isLanMode ? 'text-accent' : 'text-[var(--text-dim,#64748B)] hover:text-accent'}`}
+                  title="Switch between Local (127.0.0.1) and LAN URL"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                </button>
+              ) : null}
               <button
                 onClick={copyUrl}
                 className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-accent transition-colors"
@@ -246,7 +255,7 @@ export const DashboardView: React.FC = () => {
             {[
               { label: 'Claude Gateway', port: '9229', active: false },
               { label: 'Antigravity CLI', port: '9339', active: false },
-              { label: 'LAN Proxy', port: '9191', active: true },
+              ...(lanRunning ? [{ label: 'LAN Proxy', port: String(gatewayPort), active: true }] : []),
             ].map(chip => (
               <span
                 key={chip.port}
@@ -272,7 +281,9 @@ export const DashboardView: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-main,#F1F5F9)]">Standalone Terminals</h3>
-                <p className="text-[11px] text-[var(--text-dim,#64748B)]">Open in a separate dedicated full-screen window</p>
+                <p className="text-[11px] text-[var(--text-dim,#64748B)]">
+                  Their own full-screen window, one tab per CLI and Antigravity profile
+                </p>
               </div>
             </div>
             <select
@@ -288,26 +299,20 @@ export const DashboardView: React.FC = () => {
             </select>
           </div>
 
-          {/* Profile Summary & Pop Out (Triggers open_standalone_terminals) */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-xs">
-            <span className="text-[var(--text-main,#F1F5F9)] font-medium">Antigravity Profile: {activeProfile?.name || 'None'}</span>
-            <Button variant="secondary" size="xs" onClick={launchStandaloneCli}>
-              <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-              Pop Out
-            </Button>
-          </div>
-
-          {/* Antigravity App Row */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-xs">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-semibold text-[var(--text-main,#F1F5F9)]">Antigravity App</span>
-              <span className="text-[11px] text-[var(--text-dim,#64748B)]">(shares profile: {activeProfile?.name})</span>
+          {/* Profile row. The window it opens is the only place the embedded CLI lives now, so the
+              line under it says what that window is instead of leaving the button unexplained. */}
+          <div className="space-y-1.5 p-3 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-xs">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[var(--text-main,#F1F5F9)] font-medium">Antigravity Profile: {activeProfile?.name || 'None'}</span>
+              <Button variant="secondary" size="xs" onClick={launchStandaloneCli}>
+                <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                Pop Out
+              </Button>
             </div>
-            <Button variant="primary" size="xs" onClick={() => launchTool('antigravity_app')}>
-              <Play className="w-3 h-3 mr-1 fill-current" />
-              Open App
-            </Button>
+            <p className="text-[10.5px] leading-relaxed text-[var(--text-dim,#64748B)]">
+              Opens a separate terminal window running the real ConPTY sessions. It keeps running when you close
+              this page, and every tab stays bound to its own CLI and profile.
+            </p>
           </div>
 
           {/* Account Email Reveal */}
@@ -385,72 +390,6 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        {/* CARD 4: SYSTEM & HARDWARE TELEMETRY */}
-        <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-state-success">
-                <Activity className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-main,#F1F5F9)]">System & Hardware Telemetry</h3>
-                <p className="text-[11px] text-[var(--text-dim,#64748B)]">Real-time resource utilization & AI model workload</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-mono bg-emerald-500/10 text-state-success border border-emerald-500/30 font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Live: 2s</span>
-            </div>
-          </div>
-
-          {/* RAM Tile */}
-          <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 text-[var(--text-main,#F1F5F9)] font-semibold">
-                <HardDrive className="w-4 h-4 text-accent" />
-                <span>Memory (RAM)</span>
-              </div>
-              <span className="font-mono font-bold text-[var(--text-main,#F1F5F9)]">
-                {telemetry.memoryUsedGb || 15.8} GB ({Math.round(((telemetry.memoryUsedGb || 15.8) / (telemetry.memoryTotalGb || 31.9)) * 100)}%)
-              </span>
-            </div>
-
-            {/* Sparkline Curve */}
-            <div className="h-12 w-full overflow-hidden">
-              <svg className="w-full h-full" viewBox="0 0 240 48" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="ramGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
-                  </linearGradient>
-                </defs>
-                <path d={sparkline.area} fill="url(#ramGrad)" />
-                <path d={sparkline.line} stroke="#06b6d4" strokeWidth="2" fill="none" />
-              </svg>
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] font-mono text-[var(--text-dim,#64748B)] pt-1">
-              <span>Total: {telemetry.memoryTotalGb || 31.9} GB</span>
-              <span>Avail: {Math.max(0, (telemetry.memoryTotalGb || 31.9) - (telemetry.memoryUsedGb || 15.8)).toFixed(1)} GB</span>
-            </div>
-          </div>
-
-          {/* Bottom Chips */}
-          <div className="grid grid-cols-3 gap-2.5 text-xs font-mono">
-            <div className="p-2.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
-              <div className="text-[10px] text-[var(--text-dim,#64748B)]">Agents Hub</div>
-              <div className="font-bold text-[var(--text-main,#F1F5F9)] mt-0.5">{telemetry.hubMemMb || 136} MB</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
-              <div className="text-[10px] text-[var(--text-dim,#64748B)]">Network</div>
-              <div className="font-bold text-state-success mt-0.5">{telemetry.netKbps || 6} KB/s</div>
-            </div>
-            <div className="p-2.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
-              <div className="text-[10px] text-[var(--text-dim,#64748B)]">Status</div>
-              <div className="font-bold text-state-success mt-0.5">Active</div>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* CARD 5: PROGRAMS & QUICK SHORTCUTS */}

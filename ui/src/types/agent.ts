@@ -313,12 +313,9 @@ export interface HardwareTelemetry {
 export type ActiveView =
   | 'chat'
   | 'dashboard'
-  | 'terminals'
   | 'repositories'
   | 'profiles'
   | 'mcpskills'
-  | 'devtools'
-  | 'lan'
   | 'settings';
 
 export interface ProjectWorkspace {

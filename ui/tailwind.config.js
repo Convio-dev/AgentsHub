@@ -25,6 +25,19 @@ export default {
           700: '#0369A1',
           DEFAULT: '#38BDF8',
         },
+        /**
+         * The sky scale is the app's accent. Components reach for sky-500/400 for selected rows,
+         * focus rings, and active tabs; pointing the scale at the theme variables makes every one of
+         * those follow the chosen colour instead of staying Tailwind blue. Values are RGB triplets so
+         * opacity modifiers such as `bg-sky-500/15` keep working.
+         */
+        sky: {
+          300: 'rgb(var(--accent-300-rgb) / <alpha-value>)',
+          400: 'rgb(var(--accent-400-rgb) / <alpha-value>)',
+          500: 'rgb(var(--accent-500-rgb) / <alpha-value>)',
+          600: 'rgb(var(--accent-600-rgb) / <alpha-value>)',
+          700: 'rgb(var(--accent-700-rgb) / <alpha-value>)',
+        },
         surface: {
           deep: 'var(--bg-app)',
           sidebar: 'var(--bg-sidebar)',

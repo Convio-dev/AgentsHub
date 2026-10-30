@@ -1,8 +1,9 @@
-#nullable enable
+﻿#nullable enable
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
@@ -29,6 +30,25 @@ public sealed class McpServerItem
     public string AuthStatus { get; set; } = "NotRequired"; // Authenticated, TokenExpired, NeedsAuth, NotRequired
     public string AuthDetails { get; set; } = string.Empty;
     public string? AuthKeyName { get; set; }
+    /// <summary>Folder this server was found in, shortened to `~/...` for display.</summary>
+    public string Source { get; set; } = string.Empty;
+    /// <summary>Config file the entry lives in, so an edit can be written back to the same place.</summary>
+    [JsonIgnore]
+    public string SourceFile { get; set; } = string.Empty;
+}
+
+/// <summary>One folder the app scans, either a built-in location or one the user added.</summary>
+public sealed class McpSourceItem
+{
+    public string Path { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    /// <summary>`mcp` for config folders, `skills` for skill folders.</summary>
+    public string Kind { get; set; } = "mcp";
+    /// <summary>True for the built-in primary location (`~/.agents`).</summary>
+    public bool IsPrimary { get; set; }
+    public bool IsDefault { get; set; }
+    public bool Exists { get; set; }
+    public int ItemCount { get; set; }
 }
 
 public sealed class AgentSkillItem
@@ -44,6 +64,8 @@ public sealed class AgentSkillItem
     public int TokenFootprintApprox { get; set; }
     public bool IsEnabled { get; set; } = true;
     public string? Content { get; set; }
+    /// <summary>Folder this skill was found in, shortened to `~/...` for display.</summary>
+    public string Source { get; set; } = string.Empty;
 }
 
 public sealed class McpSkillsService
@@ -62,12 +84,208 @@ public sealed class McpSkillsService
         "mcp_servers.json"
     );
 
+    private static string UserHome => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// <summary>
+    /// `~/.agents` — the shared folder, primary for both servers and skills. New servers are written to
+    /// `~/.agents/mcp.json` and new skills to `~/.agents/skills`, so other agents read them too.
+    /// </summary>
+    public static string AgentsRoot => Path.Combine(UserHome, ".agents");
+
+    public static string AgentsMcpConfigPath => Path.Combine(AgentsRoot, "mcp.json");
+
+    private static string RootsFilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "AgentsHub",
+        "mcp_roots.json");
+
+    /// <summary>Folder names an MCP config may use inside a scanned folder, in lookup order.</summary>
+    private static readonly string[] McpConfigFileNames = ["mcp.json", "mcp", "mcp_config.json", ".mcp.json"];
+
+    public sealed class CustomRoots
+    {
+        public List<string> Mcp { get; set; } = [];
+        public List<string> Skills { get; set; } = [];
+    }
+
+    private async Task<CustomRoots> ReadCustomRootsAsync()
+    {
+        try
+        {
+            if (!File.Exists(RootsFilePath)) return new CustomRoots();
+            var json = await File.ReadAllTextAsync(RootsFilePath).ConfigureAwait(false);
+            return JsonSerializer.Deserialize<CustomRoots>(json, JsonOpts) ?? new CustomRoots();
+        }
+        catch
+        {
+            return new CustomRoots();
+        }
+    }
+
+    private async Task WriteCustomRootsAsync(CustomRoots roots)
+    {
+        var dir = Path.GetDirectoryName(RootsFilePath);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+        await File.WriteAllTextAsync(RootsFilePath, JsonSerializer.Serialize(roots, JsonOpts)).ConfigureAwait(false);
+    }
+
+    /// <summary>`~/x` under the profile so labels stay short and do not leak the user name.</summary>
+    public static string Shorten(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        var home = UserHome;
+        return !string.IsNullOrEmpty(home) && path.StartsWith(home, StringComparison.OrdinalIgnoreCase)
+            ? "~" + path[home.Length..].Replace('\\', '/')
+            : path.Replace('\\', '/');
+    }
+
+    /// <summary>
+    /// Every folder scanned for one kind of thing, primary first and user-added last.
+    /// `~/mcp` is only listed when it exists — it is not a convention, just a folder people have.
+    /// </summary>
+    public async Task<List<McpSourceItem>> GetSourcesAsync(string kind)
+    {
+        bool wantSkills = string.Equals(kind, "skills", StringComparison.OrdinalIgnoreCase);
+        var sources = new List<McpSourceItem>();
+
+        if (wantSkills)
+        {
+            sources.Add(MakeSource(Path.Combine(AgentsRoot, "skills"), "skills", true, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".mcp", "skills"), "skills", false, true));
+            if (Directory.Exists(Path.Combine(UserHome, "mcp")))
+                sources.Add(MakeSource(Path.Combine(UserHome, "mcp", "skills"), "skills", false, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".claude", "skills"), "skills", false, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".gemini", "skills"), "skills", false, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".gemini", "antigravity", "skills"), "skills", false, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".gemini", "antigravity-cli", "skills"), "skills", false, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".gemini", "antigravity", "builtin", "skills"), "skills", false, true));
+        }
+        else
+        {
+            sources.Add(MakeSource(AgentsRoot, "mcp", true, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".mcp"), "mcp", false, true));
+            if (Directory.Exists(Path.Combine(UserHome, "mcp")))
+                sources.Add(MakeSource(Path.Combine(UserHome, "mcp"), "mcp", false, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".gemini", "config"), "mcp", false, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".gemini", "antigravity-cli"), "mcp", false, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".gemini", "antigravity-ide"), "mcp", false, true));
+            sources.Add(MakeSource(Path.Combine(UserHome, ".gemini", "antigravity"), "mcp", false, true));
+        }
+
+        var custom = await ReadCustomRootsAsync().ConfigureAwait(false);
+        foreach (var raw in wantSkills ? custom.Skills : custom.Mcp)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+
+            // A folder that already has a `skills` subfolder means the user picked the parent.
+            var path = raw.Trim();
+            if (wantSkills)
+            {
+                var nested = Path.Combine(path, "skills");
+                if (Directory.Exists(nested) && Directory.GetDirectories(nested).Length > 0) path = nested;
+            }
+
+            if (sources.Any(s => string.Equals(s.Path, path, StringComparison.OrdinalIgnoreCase))) continue;
+            sources.Add(MakeSource(path, wantSkills ? "skills" : "mcp", false, false));
+        }
+
+        return sources;
+    }
+
+    private static McpSourceItem MakeSource(string path, string kind, bool isPrimary, bool isDefault) => new()
+    {
+        Path = path,
+        Label = Shorten(path),
+        Kind = kind,
+        IsPrimary = isPrimary,
+        IsDefault = isDefault,
+        Exists = Directory.Exists(path),
+        ItemCount = Directory.Exists(path)
+            ? (kind == "skills"
+                ? Directory.GetDirectories(path).Count(d => File.Exists(Path.Combine(d, "SKILL.md")) || File.Exists(Path.Combine(d, "SKILL.md.disabled")))
+                : Directory.GetFiles(path).Count(f => McpConfigFileNames.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)))
+            : 0
+    };
+
+    /// <summary>Adds a folder to the scan list. Returns the full list for the given kind.</summary>
+    public async Task<List<McpSourceItem>> AddSourceAsync(string kind, string path)
+    {
+        bool wantSkills = string.Equals(kind, "skills", StringComparison.OrdinalIgnoreCase);
+        var full = System.IO.Path.GetFullPath(path.Trim());
+
+        var roots = await ReadCustomRootsAsync().ConfigureAwait(false);
+        var list = wantSkills ? roots.Skills : roots.Mcp;
+        if (!list.Any(p => string.Equals(p, full, StringComparison.OrdinalIgnoreCase)))
+        {
+            list.Add(full);
+            await WriteCustomRootsAsync(roots).ConfigureAwait(false);
+        }
+
+        return await GetSourcesAsync(kind).ConfigureAwait(false);
+    }
+
+    /// <summary>Stops scanning a folder the user added. Built-in folders are never removed.</summary>
+    public async Task<List<McpSourceItem>> RemoveSourceAsync(string kind, string path)
+    {
+        bool wantSkills = string.Equals(kind, "skills", StringComparison.OrdinalIgnoreCase);
+        var roots = await ReadCustomRootsAsync().ConfigureAwait(false);
+        var list = wantSkills ? roots.Skills : roots.Mcp;
+        list.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+        await WriteCustomRootsAsync(roots).ConfigureAwait(false);
+        return await GetSourcesAsync(kind).ConfigureAwait(false);
+    }
+
     public async Task<List<McpServerItem>> GetMcpServersAsync()
     {
         var list = new List<McpServerItem>();
         var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        // 1. Read stored custom servers from AgentsHub config
+        // 1. Every MCP folder in scan order: ~/.agents first (the shared default), then the folders
+        // other agents use, then anything the user added.
+        var sources = await GetSourcesAsync("mcp").ConfigureAwait(false);
+
+        foreach (var source in sources)
+        {
+            if (!source.Exists) continue;
+
+            foreach (var configName in McpConfigFileNames)
+            {
+                var configPath = Path.Combine(source.Path, configName);
+                if (!File.Exists(configPath)) continue;
+
+                foreach (var parsed in await ParseMcpConfigAsync(configPath, source.Label).ConfigureAwait(false))
+                {
+                    if (seenNames.Add(parsed.Name)) list.Add(parsed);
+                }
+            }
+
+            // Tool folders left behind without a config entry (the Antigravity CLI caches them here).
+            if (!source.Path.Contains(".gemini", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var toolRoot = Path.Combine(source.Path, "mcp");
+            if (!Directory.Exists(toolRoot)) continue;
+
+            foreach (var serverDir in Directory.GetDirectories(toolRoot))
+            {
+                var dirName = Path.GetFileName(serverDir);
+                if (!seenNames.Add(dirName)) continue;
+
+                var toolFiles = Directory.GetFiles(serverDir, "*.json");
+                list.Add(new McpServerItem
+                {
+                    Id = "dir_" + dirName.ToLowerInvariant(),
+                    Name = dirName,
+                    Command = "builtin",
+                    Scope = "Antigravity",
+                    IsEnabled = true,
+                    Source = source.Label,
+                    Description = $"MCP server with {toolFiles.Length} cached tool definition(s)",
+                    ToolCount = toolFiles.Length
+                });
+            }
+        }
+
+        // 2. Servers this app stored before the switch to ~/.agents, kept so they do not vanish.
         if (File.Exists(ConfigFilePath))
         {
             try
@@ -78,196 +296,25 @@ public sealed class McpSkillsService
                 {
                     foreach (var s in stored)
                     {
-                        if (seenNames.Add(s.Name)) list.Add(s);
+                        if (!seenNames.Add(s.Name)) continue;
+                        s.Source = "AgentsHub (legacy)";
+                        list.Add(s);
                     }
                 }
             }
             catch { }
         }
 
-        // 2. Discover Antigravity MCP servers (~/.gemini/antigravity-ide, ~/.gemini/antigravity, ~/.gemini/config)
+        // 3. Claude Desktop keeps its servers in one file rather than a folder.
         try
         {
-            var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var candidateAgyDirs = new[]
+            var claudeCfg = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Claude", "claude_desktop_config.json");
+
+            foreach (var parsed in await ParseMcpConfigAsync(claudeCfg, "Claude Desktop").ConfigureAwait(false))
             {
-                Path.Combine(userHome, ".gemini", "config"),
-                Path.Combine(userHome, ".gemini", "antigravity-cli"),
-                Path.Combine(userHome, ".gemini", "antigravity-ide"),
-                Path.Combine(userHome, ".gemini", "antigravity")
-            };
-
-            foreach (var agyDir in candidateAgyDirs)
-            {
-                if (!Directory.Exists(agyDir)) continue;
-                var agyMcpDir = Path.Combine(agyDir, "mcp");
-                var mcpConfigPath = Path.Combine(agyDir, "mcp_config.json");
-
-                // Read defined commands, args, and env from mcp_config.json
-                if (File.Exists(mcpConfigPath))
-                {
-                    try
-                    {
-                        var cfgJson = await File.ReadAllTextAsync(mcpConfigPath).ConfigureAwait(false);
-                        using var doc = JsonDocument.Parse(cfgJson);
-                        if (doc.RootElement.TryGetProperty("mcpServers", out var serversProp) && serversProp.ValueKind == JsonValueKind.Object)
-                        {
-                            foreach (var sProp in serversProp.EnumerateObject())
-                            {
-                                var sName = sProp.Name;
-                                if (seenNames.Add(sName))
-                                {
-                                    // HTTP servers declare `serverUrl` instead of a command; treating those as
-                                    // `npx` (the old behaviour) reported a transport that does not exist.
-                                    var serverUrl = sProp.Value.TryGetProperty("serverUrl", out var uProp)
-                                        ? uProp.GetString()
-                                        : null;
-                                    var isRemote = !string.IsNullOrWhiteSpace(serverUrl);
-
-                                    var cmd = sProp.Value.TryGetProperty("command", out var cProp)
-                                        ? cProp.GetString() ?? string.Empty
-                                        : (isRemote ? string.Empty : "npx");
-                                    var args = new List<string>();
-                                    if (sProp.Value.TryGetProperty("args", out var aProp) && aProp.ValueKind == JsonValueKind.Array)
-                                    {
-                                        foreach (var a in aProp.EnumerateArray()) args.Add(a.GetString() ?? "");
-                                    }
-
-                                    var envDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                                    if (sProp.Value.TryGetProperty("env", out var eProp) && eProp.ValueKind == JsonValueKind.Object)
-                                    {
-                                        foreach (var envEntry in eProp.EnumerateObject())
-                                        {
-                                            envDict[envEntry.Name] = envEntry.Value.GetString() ?? "";
-                                        }
-                                    }
-
-                                    int toolCount = 0;
-                                    var tools = new List<string>();
-                                    foreach (var cand in candidateAgyDirs)
-                                    {
-                                        var toolDir = Path.Combine(cand, "mcp", sName);
-                                        if (!Directory.Exists(toolDir)) continue;
-
-                                        var names = Directory.GetFiles(toolDir, "*.json")
-                                            .Select(Path.GetFileNameWithoutExtension)
-                                            .Where(n => !string.IsNullOrWhiteSpace(n))
-                                            .Select(n => n!)
-                                            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-                                            .ToList();
-
-                                        if (names.Count > toolCount)
-                                        {
-                                            toolCount = names.Count;
-                                            tools = names;
-                                        }
-                                    }
-
-                                    list.Add(new McpServerItem
-                                    {
-                                        Id = "agy_" + sName.ToLowerInvariant(),
-                                        Transport = isRemote ? "sse" : "stdio",
-                                        ServerUrl = serverUrl,
-                                        Name = sName,
-                                        Command = cmd,
-                                        Args = args,
-                                        Env = envDict,
-                                        Scope = "Antigravity",
-                                        IsEnabled = true,
-                                        Description = BuildServerDescription(isRemote, serverUrl, cmd, toolCount),
-                                        ToolCount = toolCount,
-                                        Tools = tools
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    catch { }
-                }
-
-                // Fallback for any tool folder not yet in mcp_config.json
-                if (Directory.Exists(agyMcpDir))
-                {
-                    foreach (var serverDir in Directory.GetDirectories(agyMcpDir))
-                    {
-                        var dirName = Path.GetFileName(serverDir);
-                        if (seenNames.Add(dirName))
-                        {
-                            var toolFiles = Directory.GetFiles(serverDir, "*.json");
-                            list.Add(new McpServerItem
-                            {
-                                Id = "agy_" + dirName.ToLowerInvariant(),
-                                Name = dirName,
-                                Command = "builtin",
-                                Scope = "Antigravity",
-                                IsEnabled = true,
-                                Description = $"Antigravity MCP server with {toolFiles.Length} tool definition(s)",
-                                ToolCount = toolFiles.Length
-                            });
-                        }
-                        else
-                        {
-                            var existing = list.FirstOrDefault(x => string.Equals(x.Name, dirName, StringComparison.OrdinalIgnoreCase));
-                            if (existing != null && existing.ToolCount == 0)
-                            {
-                                existing.ToolCount = Directory.GetFiles(serverDir, "*.json").Length;
-                                if (existing.ToolCount > 0)
-                                {
-                                    existing.Description = $"Antigravity MCP server with {existing.ToolCount} tool definition(s)";
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        catch { }
-
-        // 3. Discover Claude Code desktop config (~/AppData/Roaming/Claude/claude_desktop_config.json)
-        try
-        {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var claudeCfg = Path.Combine(appData, "Claude", "claude_desktop_config.json");
-            if (File.Exists(claudeCfg))
-            {
-                var json = await File.ReadAllTextAsync(claudeCfg).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("mcpServers", out var mcpProp) && mcpProp.ValueKind == JsonValueKind.Object)
-                {
-                    foreach (var prop in mcpProp.EnumerateObject())
-                    {
-                        if (seenNames.Add(prop.Name))
-                        {
-                            var cmd = prop.Value.TryGetProperty("command", out var cProp) ? cProp.GetString() ?? "" : "";
-                            var args = new List<string>();
-                            if (prop.Value.TryGetProperty("args", out var aProp) && aProp.ValueKind == JsonValueKind.Array)
-                            {
-                                foreach (var a in aProp.EnumerateArray()) args.Add(a.GetString() ?? "");
-                            }
-
-                            var envDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                            if (prop.Value.TryGetProperty("env", out var eProp) && eProp.ValueKind == JsonValueKind.Object)
-                            {
-                                foreach (var envEntry in eProp.EnumerateObject())
-                                {
-                                    envDict[envEntry.Name] = envEntry.Value.GetString() ?? "";
-                                }
-                            }
-
-                            list.Add(new McpServerItem
-                            {
-                                Id = "claude_" + prop.Name.ToLowerInvariant(),
-                                Name = prop.Name,
-                                Command = cmd,
-                                Args = args,
-                                Env = envDict,
-                                Scope = "ClaudeCode",
-                                IsEnabled = true,
-                                Description = "Configured in Claude Desktop configuration"
-                            });
-                        }
-                    }
-                }
+                if (seenNames.Add(parsed.Name)) list.Add(parsed);
             }
         }
         catch { }
@@ -281,26 +328,189 @@ public sealed class McpSkillsService
         return list;
     }
 
-    public async Task<bool> SaveMcpServerAsync(McpServerItem server)
+    /// <summary>Reads one config file's `mcpServers` block into server items.</summary>
+    private static async Task<List<McpServerItem>> ParseMcpConfigAsync(string configPath, string label)
     {
-        var servers = await GetMcpServersAsync().ConfigureAwait(false);
-        var idx = servers.FindIndex(s => string.Equals(s.Id, server.Id, StringComparison.OrdinalIgnoreCase) ||
-                                         string.Equals(s.Name, server.Name, StringComparison.OrdinalIgnoreCase));
-        if (idx >= 0)
+        var items = new List<McpServerItem>();
+        if (!File.Exists(configPath)) return items;
+
+        JsonDocument doc;
+        try
         {
-            servers[idx] = server;
+            doc = JsonDocument.Parse(await File.ReadAllTextAsync(configPath).ConfigureAwait(false));
+        }
+        catch
+        {
+            return items;
+        }
+
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return items;
+            if (!doc.RootElement.TryGetProperty("mcpServers", out var servers) || servers.ValueKind != JsonValueKind.Object)
+                return items;
+
+            foreach (var prop in servers.EnumerateObject())
+            {
+                var name = prop.Name;
+                var url = FirstString(prop.Value, "serverUrl", "url", "httpUrl");
+                var isRemote = !string.IsNullOrWhiteSpace(url);
+                var command = FirstString(prop.Value, "command") ?? (isRemote ? string.Empty : "npx");
+                var (toolCount, tools) = CountCachedTools(name, configPath);
+
+                items.Add(new McpServerItem
+                {
+                    Id = "mcp_" + name.ToLowerInvariant(),
+                    Name = name,
+                    Transport = isRemote ? "sse" : "stdio",
+                    ServerUrl = url,
+                    Command = command,
+                    Args = StringArray(prop.Value, "args"),
+                    Env = StringMap(prop.Value, "env"),
+                    Scope = label.Contains(".gemini", StringComparison.OrdinalIgnoreCase) ? "Antigravity" : "Global",
+                    IsEnabled = true,
+                    Source = label,
+                    SourceFile = configPath,
+                    Description = BuildServerDescription(isRemote, url, command, toolCount),
+                    ToolCount = toolCount,
+                    Tools = tools
+                });
+            }
+        }
+
+        return items;
+    }
+
+    private static string? FirstString(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String)
+            {
+                var value = prop.GetString();
+                if (!string.IsNullOrWhiteSpace(value)) return value;
+            }
+        }
+        return null;
+    }
+
+    private static List<string> StringArray(JsonElement element, string name)
+    {
+        var values = new List<string>();
+        if (element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in prop.EnumerateArray()) values.Add(item.GetString() ?? string.Empty);
+        }
+        return values;
+    }
+
+    private static Dictionary<string, string> StringMap(JsonElement element, string name)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (element.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var entry in prop.EnumerateObject()) values[entry.Name] = entry.Value.GetString() ?? string.Empty;
+        }
+        return values;
+    }
+
+    /// <summary>Tool definitions the CLI cached for a server, which is what "connected" means.</summary>
+    private static (int Count, List<string> Tools) CountCachedTools(string name, string configPath)
+    {
+        var configDir = Path.GetDirectoryName(configPath) ?? string.Empty;
+        var candidates = new List<string> { Path.Combine(configDir, "mcp", name) };
+
+        var geminiRoot = Path.Combine(UserHome, ".gemini");
+        if (Directory.Exists(geminiRoot) && configPath.StartsWith(geminiRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            candidates.AddRange(Directory.GetDirectories(geminiRoot).Select(d => Path.Combine(d, "mcp", name)));
+        }
+
+        int best = 0;
+        var bestTools = new List<string>();
+
+        foreach (var dir in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!Directory.Exists(dir)) continue;
+
+            var names = Directory.GetFiles(dir, "*.json")
+                .Select(Path.GetFileNameWithoutExtension)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => n!)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (names.Count > best)
+            {
+                best = names.Count;
+                bestTools = names;
+            }
+        }
+
+        return (best, bestTools);
+    }
+
+    /// <summary>Throws on malformed JSON rather than returning an empty object, so a save never truncates a config.</summary>
+    private static async Task<JsonObject> ReadJsonObjectAsync(string path)
+    {
+        var text = await File.ReadAllTextAsync(path).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(text)) return new JsonObject();
+
+        return JsonNode.Parse(text) as JsonObject
+            ?? throw new InvalidDataException($"{Shorten(path)} does not contain a JSON object.");
+    }
+
+    private static async Task WriteJsonObjectAsync(string path, JsonObject root)
+    {
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+        await File.WriteAllTextAsync(path, root.ToJsonString(JsonOpts)).ConfigureAwait(false);
+    }
+
+    private static JsonObject BuildConfigEntry(McpServerItem server)
+    {
+        var entry = new JsonObject();
+
+        if (string.Equals(server.Transport, "sse", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(server.ServerUrl))
+        {
+            entry["type"] = "http";
+            entry["url"] = server.ServerUrl!.Trim();
         }
         else
         {
-            servers.Add(server);
+            entry["command"] = string.IsNullOrWhiteSpace(server.Command) ? "npx" : server.Command.Trim();
+            if (server.Args.Count > 0) entry["args"] = new JsonArray(server.Args.Select(a => JsonValue.Create(a)).ToArray());
         }
+
+        var env = new JsonObject();
+        foreach (var kvp in server.Env)
+        {
+            if (!string.IsNullOrWhiteSpace(kvp.Value)) env[kvp.Key] = kvp.Value;
+        }
+        if (env.Count > 0) entry["env"] = env;
+
+        return entry;
+    }
+
+    /// <summary>
+    /// Registers a server in `~/.agents/mcp.json` in the standard `mcpServers` shape, merged into
+    /// whatever is already there. That file is the shared default, so other agents read it too.
+    /// </summary>
+    public async Task<bool> SaveMcpServerAsync(McpServerItem server)
+    {
+        if (string.IsNullOrWhiteSpace(server.Name)) return false;
 
         try
         {
-            var dir = Path.GetDirectoryName(ConfigFilePath);
-            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
-            var json = JsonSerializer.Serialize(servers, JsonOpts);
-            await File.WriteAllTextAsync(ConfigFilePath, json).ConfigureAwait(false);
+            var root = File.Exists(AgentsMcpConfigPath)
+                ? await ReadJsonObjectAsync(AgentsMcpConfigPath).ConfigureAwait(false)
+                : new JsonObject();
+
+            var servers = root["mcpServers"] as JsonObject ?? new JsonObject();
+            servers[server.Name.Trim()] = BuildConfigEntry(server);
+            root["mcpServers"] = servers;
+
+            await WriteJsonObjectAsync(AgentsMcpConfigPath, root).ConfigureAwait(false);
             return true;
         }
         catch
@@ -309,21 +519,58 @@ public sealed class McpSkillsService
         }
     }
 
+    /// <summary>
+    /// Removes a server from the file that actually defines it. Deleting only from our own store left
+    /// the server listed, because discovery kept reading it back out of the config file.
+    /// </summary>
     public async Task<bool> DeleteMcpServerAsync(string id)
     {
+        if (string.IsNullOrWhiteSpace(id)) return false;
+
         var servers = await GetMcpServersAsync().ConfigureAwait(false);
-        var removed = servers.RemoveAll(s => string.Equals(s.Id, id, StringComparison.OrdinalIgnoreCase));
-        if (removed > 0)
+        var target = servers.FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.OrdinalIgnoreCase))
+                     ?? servers.FirstOrDefault(s => string.Equals(s.Name, id, StringComparison.OrdinalIgnoreCase));
+        if (target == null) return false;
+
+        bool removed = await RemoveServerFromFileAsync(target.SourceFile, target.Name).ConfigureAwait(false);
+
+        // The legacy store keeps its own copy of servers added before the switch to ~/.agents.
+        try
         {
-            try
+            if (File.Exists(ConfigFilePath))
             {
-                var json = JsonSerializer.Serialize(servers, JsonOpts);
-                await File.WriteAllTextAsync(ConfigFilePath, json).ConfigureAwait(false);
-                return true;
+                var stored = JsonSerializer.Deserialize<List<McpServerItem>>(
+                    await File.ReadAllTextAsync(ConfigFilePath).ConfigureAwait(false), JsonOpts) ?? [];
+                if (stored.RemoveAll(s => string.Equals(s.Name, target.Name, StringComparison.OrdinalIgnoreCase)) > 0)
+                {
+                    await File.WriteAllTextAsync(ConfigFilePath, JsonSerializer.Serialize(stored, JsonOpts)).ConfigureAwait(false);
+                    removed = true;
+                }
             }
-            catch { }
         }
-        return false;
+        catch { }
+
+        return removed;
+    }
+
+    private static async Task<bool> RemoveServerFromFileAsync(string? configPath, string name)
+    {
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath)) return false;
+
+        try
+        {
+            var root = await ReadJsonObjectAsync(configPath).ConfigureAwait(false);
+            if (root["mcpServers"] is not JsonObject servers || !servers.ContainsKey(name)) return false;
+
+            servers.Remove(name);
+            root["mcpServers"] = servers;
+            await WriteJsonObjectAsync(configPath, root).ConfigureAwait(false);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public async Task<List<AgentSkillItem>> GetAgentSkillsAsync(string? workspaceDir = null)
@@ -364,11 +611,13 @@ public sealed class McpSkillsService
 
         searchRoots.Add((Path.Combine(AppContext.BaseDirectory, ".agents", "skills"), "Workspace", activeWs?.Id, activeWs?.Name));
 
-        // 2. Global roots: skills installed for the user, whichever agent put them there.
-        var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        searchRoots.Add((Path.Combine(userHome, ".gemini", "antigravity", "builtin", "skills"), "Global", null, null));
-        searchRoots.Add((Path.Combine(userHome, ".agents", "skills"), "Global", null, null));
-        searchRoots.Add((Path.Combine(userHome, ".gemini", "antigravity-cli", "skills"), "Global", null, null));
+        // 2. Global roots: `~/.agents/skills` first, then every folder agents install into, including
+        // the ones the user added. A project copy still wins because it was scanned first.
+        foreach (var source in await GetSourcesAsync("skills").ConfigureAwait(false))
+        {
+            if (!searchRoots.Any(sr => string.Equals(sr.Root, source.Path, StringComparison.OrdinalIgnoreCase)))
+                searchRoots.Add((source.Path, "Global", null, null));
+        }
 
         foreach (var (root, scope, wsId, wsName) in searchRoots)
         {
@@ -435,7 +684,8 @@ public sealed class McpSkillsService
                     WorkspaceId = wsId,
                     WorkspaceName = wsName,
                     TokenFootprintApprox = Math.Max(1, fullContent.Length / 4),
-                    IsEnabled = isEnabled
+                    IsEnabled = isEnabled,
+                    Source = Shorten(root)
                 });
             }
         }
@@ -527,8 +777,7 @@ public sealed class McpSkillsService
 
         if (isGlobal)
         {
-            skillsRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agents", "skills");
+            skillsRoot = Path.Combine(AgentsRoot, "skills");
         }
         else
         {
@@ -859,62 +1108,47 @@ public sealed class McpSkillsService
 
         bool updatedAny = false;
 
-        // 1. Update ~/.gemini/antigravity/mcp_config.json if it exists
-        try
-        {
-            var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var mcpConfigPath = Path.Combine(userHome, ".gemini", "antigravity", "mcp_config.json");
-            if (File.Exists(mcpConfigPath))
-            {
-                var json = await File.ReadAllTextAsync(mcpConfigPath).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(json);
-                var rootDict = JsonSerializer.Deserialize<Dictionary<string, object>>(json, JsonOpts);
-                if (rootDict != null && rootDict.TryGetValue("mcpServers", out var serversObj))
-                {
-                    var serversJson = JsonSerializer.Serialize(serversObj, JsonOpts);
-                    var serversDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(serversJson, JsonOpts);
-                    if (serversDict != null)
-                    {
-                        foreach (var kvp in serversDict)
-                        {
-                            if (string.Equals(kvp.Key, serverName, StringComparison.OrdinalIgnoreCase))
-                            {
-                                var srvObj = JsonSerializer.Deserialize<Dictionary<string, object>>(kvp.Value.GetRawText(), JsonOpts) ?? [];
-                                Dictionary<string, string> envDict = [];
-                                if (srvObj.TryGetValue("env", out var existingEnv))
-                                {
-                                    envDict = JsonSerializer.Deserialize<Dictionary<string, string>>(JsonSerializer.Serialize(existingEnv), JsonOpts) ?? [];
-                                }
-                                envDict[keyName] = keyValue.Trim();
-                                srvObj["env"] = envDict;
-                                serversDict[kvp.Key] = JsonSerializer.SerializeToElement(srvObj, JsonOpts);
-                                rootDict["mcpServers"] = serversDict;
-                                await File.WriteAllTextAsync(mcpConfigPath, JsonSerializer.Serialize(rootDict, JsonOpts)).ConfigureAwait(false);
-                                updatedAny = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        catch { }
-
-        // 2. Also update AgentsHub custom mcp_servers.json if configured there
+        // Written into the file the server was discovered in, so a credential never creates a second
+        // copy of the server in ~/.agents/mcp.json.
         try
         {
             var servers = await GetMcpServersAsync().ConfigureAwait(false);
             var target = servers.Find(s => string.Equals(s.Name, serverName, StringComparison.OrdinalIgnoreCase));
-            if (target != null)
+            if (target != null &&
+                await SetEnvInFileAsync(target.SourceFile, target.Name, keyName, keyValue).ConfigureAwait(false))
             {
-                target.Env[keyName] = keyValue.Trim();
-                await SaveMcpServerAsync(target).ConfigureAwait(false);
                 updatedAny = true;
             }
         }
         catch { }
 
         return updatedAny;
+    }
+
+    /// <summary>Sets or clears one env key on a server entry in the file that defines it.</summary>
+    private static async Task<bool> SetEnvInFileAsync(string? configPath, string serverName, string keyName, string keyValue)
+    {
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath)) return false;
+
+        try
+        {
+            var root = await ReadJsonObjectAsync(configPath).ConfigureAwait(false);
+            if (root["mcpServers"] is not JsonObject servers || servers[serverName] is not JsonObject entry) return false;
+
+            var env = entry["env"] as JsonObject ?? new JsonObject();
+            if (string.IsNullOrWhiteSpace(keyValue)) env.Remove(keyName);
+            else env[keyName] = keyValue.Trim();
+
+            if (env.Count == 0) entry.Remove("env");
+            else entry["env"] = env;
+
+            await WriteJsonObjectAsync(configPath, root).ConfigureAwait(false);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public async Task<object> TestMcpAuthAsync(string serverName, string keyValue)

@@ -20,6 +20,8 @@ export interface McpServer {
   authStatus: McpAuthStatus;
   authDetails: string;
   authKeyName?: string | null;
+  /** Folder this server came from, as `~/...`. */
+  source?: string;
 }
 
 export interface NewMcpServer {
@@ -42,7 +44,22 @@ export interface AgentSkill {
   workspaceName?: string | null;
   isEnabled: boolean;
   tokenFootprintApprox: number;
+  /** Folder the skill was found in, as `~/...`. */
+  source?: string;
 }
+
+/** One folder the host scans, built in or added by the user. */
+export interface McpFolder {
+  path: string;
+  label: string;
+  kind: 'mcp' | 'skills';
+  isPrimary: boolean;
+  isDefault: boolean;
+  exists: boolean;
+  itemCount: number;
+}
+
+export type FolderKind = 'mcp' | 'skills';
 
 interface McpState {
   servers: McpServer[];
@@ -57,14 +74,35 @@ interface McpState {
   pendingAuth: string | null;
   /** Epoch ms of the last completed scan, so the header can show that a sync actually ran. */
   lastSyncedAt: number | null;
+  /** Scanned folders per kind, primary first. */
+  folders: Record<FolderKind, McpFolder[]>;
 
   load: (force?: boolean) => Promise<void>;
+  addFolder: (kind: FolderKind) => Promise<void>;
+  removeFolder: (kind: FolderKind, path: string) => Promise<void>;
   saveServer: (draft: NewMcpServer) => Promise<boolean>;
   deleteServer: (id: string) => Promise<boolean>;
   revealSkill: (path: string) => Promise<void>;
   toggleSkill: (directoryPath: string, enabled: boolean) => Promise<boolean>;
   saveAuth: (serverName: string, keyName: string, keyValue: string) => Promise<boolean>;
   revokeAuth: (server: McpServer) => Promise<boolean>;
+}
+
+function normaliseFolders(raw: unknown): McpFolder[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
+    .map(entry => ({
+      path: String(entry.path ?? ''),
+      label: String(entry.label ?? entry.path ?? ''),
+      kind: (entry.kind === 'skills' ? 'skills' : 'mcp') as FolderKind,
+      isPrimary: entry.isPrimary === true,
+      isDefault: entry.isDefault === true,
+      exists: entry.exists === true,
+      itemCount: typeof entry.itemCount === 'number' ? entry.itemCount : 0,
+    }))
+    .filter(folder => folder.path.length > 0);
 }
 
 function normaliseServers(raw: unknown): McpServer[] {
@@ -87,6 +125,7 @@ function normaliseServers(raw: unknown): McpServer[] {
       authStatus: (entry.authStatus as McpAuthStatus) ?? 'NotRequired',
       authDetails: String(entry.authDetails ?? ''),
       authKeyName: typeof entry.authKeyName === 'string' ? entry.authKeyName : null,
+      source: typeof entry.source === 'string' ? entry.source : '',
     }))
     .filter(server => server.name.length > 0);
 }
@@ -106,6 +145,7 @@ function normaliseSkills(raw: unknown): AgentSkill[] {
       workspaceName: typeof entry.workspaceName === 'string' ? entry.workspaceName : null,
       isEnabled: entry.isEnabled !== false,
       tokenFootprintApprox: typeof entry.tokenFootprintApprox === 'number' ? entry.tokenFootprintApprox : 0,
+      source: typeof entry.source === 'string' ? entry.source : '',
     }))
     .filter(skill => skill.name.length > 0);
 }
@@ -125,6 +165,7 @@ export const useMcpStore = create<McpState>((set, get) => ({
   pendingSkill: null,
   pendingAuth: null,
   lastSyncedAt: null,
+  folders: { mcp: [], skills: [] },
 
   load: async (force = false) => {
     // A click on Sync must always re-scan: the guard only prevents two overlapping scans.
@@ -136,6 +177,10 @@ export const useMcpStore = create<McpState>((set, get) => ({
       set({
         servers: normaliseServers(payload?.servers),
         skills: normaliseSkills(payload?.skills),
+        folders: {
+          mcp: normaliseFolders(payload?.folders?.mcp),
+          skills: normaliseFolders(payload?.folders?.skills),
+        },
         isLoading: false,
         hasLoaded: true,
         error: null,
@@ -147,6 +192,32 @@ export const useMcpStore = create<McpState>((set, get) => ({
         hasLoaded: true,
         error: err instanceof Error ? err.message : 'Discovery failed',
       });
+    }
+  },
+
+  addFolder: async kind => {
+    try {
+      const payload: any = await webviewBridge.invoke('add_mcp_folder', { kind });
+      if (Array.isArray(payload?.folders)) {
+        set(state => ({ folders: { ...state.folders, [kind]: normaliseFolders(payload.folders) }, error: null }));
+      }
+      // A new folder changes what discovery finds, so the lists are re-read rather than patched.
+      await get().load(true);
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Could not add that folder.' });
+    }
+  },
+
+  removeFolder: async (kind, path) => {
+    if (!path) return;
+    try {
+      const payload: any = await webviewBridge.invoke('remove_mcp_folder', { kind, path });
+      if (Array.isArray(payload?.folders)) {
+        set(state => ({ folders: { ...state.folders, [kind]: normaliseFolders(payload.folders) }, error: null }));
+      }
+      await get().load(true);
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Could not remove that folder.' });
     }
   },
 
