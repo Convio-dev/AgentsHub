@@ -155,11 +155,7 @@ public sealed class DeepSeekEngine
     private Task ShowWindowAsync(bool autoPark) => UiAsync(async () =>
     {
         Log($"show window autoPark={autoPark}");
-
-        // Self-heal: an engine whose control is gone (an earlier failed switch) should still open a
-        // sign-in window rather than refusing until the app restarts.
-        if (_web is null) await RebuildWebAsync();
-        else await EnsureWebViewAsync();
+        await EnsureWebViewAsync();
 
         if (_host is not { } host) return true;
 
@@ -245,62 +241,54 @@ public sealed class DeepSeekEngine
         if (!DeepSeekAccounts.Switch(id)) return false;
 
         Log($"switch account -> {id} ({ProfileDir})");
-        _primedChats.Clear();
-        await RebuildWebAsync();
+        ReleaseWeb();
+
+        await EnsureWebViewAsync();
         return true;
     });
+
+    /// <summary>
+    /// Removes an account. The browser is released before the profile folder is deleted: a live
+    /// WebView2 keeps files like BrowserMetrics-*.pma open, and deleting under it fails with access
+    /// denied. Only the active account has a browser attached, so removing any other one leaves the
+    /// open page, and a turn in flight, alone.
+    /// </summary>
+    public async Task<bool> RemoveAccountAsync(string id)
+    {
+        bool active = string.Equals(id, DeepSeekAccounts.ActiveId, StringComparison.Ordinal);
+
+        if (active)
+        {
+            await UiAsync(() =>
+            {
+                ReleaseWeb();
+                return Task.FromResult(true);
+            }).ConfigureAwait(false);
+        }
+
+        bool removed = DeepSeekAccounts.Remove(id);
+        if (removed && active) await SwitchAccountAsync(DeepSeekAccounts.ActiveId).ConfigureAwait(false);
+        return removed;
+    }
 
     /// <summary>Signs out by deleting the profile, which is where the session actually lives.</summary>
     public Task SignOutAsync() => UiAsync(async () =>
     {
         Log("sign out");
-        _primedChats.Clear();
-        await RebuildWebAsync(wipeProfile: true);
-        return true;
-    });
+        ReleaseWeb();
 
-    /// <summary>
-    /// Replaces the WebView2 with a fresh one against the current profile folder.
-    ///
-    /// The user data folder is fixed when the CoreWebView2 environment is created and Dispose cannot
-    /// be undone, so switching accounts means a new control rather than a reload. Disposing without
-    /// recreating it left `_web` null, which is why every action after a switch failed with "the
-    /// DeepSeek window was disposed".
-    /// </summary>
-    private async Task RebuildWebAsync(bool wipeProfile = false)
-    {
-        if (_host is not { } host)
+        try
         {
-            throw new InvalidOperationException("DeepSeek engine was not initialized on the UI thread.");
+            if (Directory.Exists(ProfileDir)) Directory.Delete(ProfileDir, recursive: true);
         }
-
-        if (_web is { } old)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            host.Controls.Remove(old);
-            old.Dispose();
-            _web = null;
+            // A locked file keeps the profile; the next sign-in still works.
         }
-
-        _navigationStarted = false;
-        IsSignedIn = false;
-
-        if (wipeProfile)
-        {
-            try
-            {
-                if (Directory.Exists(ProfileDir)) Directory.Delete(ProfileDir, recursive: true);
-            }
-            catch (IOException)
-            {
-                // A locked file keeps the profile; the next sign-in still works.
-            }
-        }
-
-        _web = new WebView2 { Dock = DockStyle.Fill };
-        host.Controls.Add(_web);
 
         await EnsureWebViewAsync();
-    }
+        return true;
+    });
 
     public async Task<bool> EnsureReadyAsync(CancellationToken ct = default)
     {
@@ -969,9 +957,45 @@ public sealed class DeepSeekEngine
         return tcs.Task;
     }
 
+    /// <summary>
+    /// Drops the current control so EnsureWebViewAsync builds the next one against the active
+    /// profile. Everything cached is per-profile: the page, the navigation flag, the primed
+    /// conversations. Keeping any of it would leak one account's session into the next.
+    /// </summary>
+    private void ReleaseWeb()
+    {
+        var old = _web;
+        _web = null;
+        _navigationStarted = false;
+        _primedChats.Clear();
+        IsSignedIn = false;
+
+        if (old is null) return;
+
+        // Take it out of the host's layout before disposal: a disposed child that stays in the
+        // Controls collection still occupies a slot in a 1280x900 window we rebuild repeatedly.
+        _host?.Controls.Remove(old);
+        old.Dispose();
+    }
+
     private async Task EnsureWebViewAsync()
     {
-        if (_web == null) throw new InvalidOperationException("The DeepSeek window was disposed.");
+        // A disposed control is recoverable: switching accounts and signing out dispose it on
+        // purpose and rely on this method to build a fresh one against the current profile. Only a
+        // missing host window means the engine was never initialized or has shut down.
+        if (_host == null || _shuttingDown)
+        {
+            throw new InvalidOperationException("The DeepSeek engine was not initialized on the UI thread.");
+        }
+
+        if (_web == null)
+        {
+            _web = new WebView2 { Dock = DockStyle.Fill };
+            _host.Controls.Add(_web);
+
+            // A brand-new control has never navigated, whatever the old one had done.
+            _navigationStarted = false;
+        }
 
         if (_web.CoreWebView2 == null)
         {

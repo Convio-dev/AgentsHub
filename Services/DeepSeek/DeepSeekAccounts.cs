@@ -103,7 +103,7 @@ internal static class DeepSeekAccounts
             string dir = ProfileDir(id);
             if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // A locked profile survives; the account is gone from the picker either way.
         }

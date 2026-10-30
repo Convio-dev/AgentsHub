@@ -549,13 +549,14 @@ public sealed partial class DashboardWebBridge : IDisposable
     public async Task HandleIncomingJsonAsync(string rawJson)
     {
         string? requestId = null;
+        string action = string.Empty;
 
         try
         {
             using var doc = JsonDocument.Parse(rawJson);
             var root = doc.RootElement;
 
-            var action = root.TryGetProperty("action", out var actElem) ? actElem.GetString() : string.Empty;
+            action = root.TryGetProperty("action", out var actElem) ? actElem.GetString() ?? string.Empty : string.Empty;
             requestId = root.TryGetProperty("requestId", out var reqElem) ? reqElem.GetString() : null;
 
             await HandleActionAsync(action, root, requestId);
@@ -564,7 +565,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             // Answer under the caller's request id. Answering with none left its promise pending, so
             // any failing action surfaced as a 25 second timeout instead of the actual reason.
-            SendResponse(requestId, false, ex.Message);
+            SendResponse(requestId, false, $"{action}: {ex.Message}");
         }
     }
 
@@ -1181,12 +1182,9 @@ public sealed partial class DashboardWebBridge : IDisposable
             case "deepseek_remove_account":
                 {
                     string id = data.TryGetProperty("id", out var idElem2) ? idElem2.GetString() ?? string.Empty : string.Empty;
-                    bool removed = Services.DeepSeek.DeepSeekAccounts.Remove(id);
-                    if (removed)
-                    {
-                        await Services.DeepSeek.DeepSeekEngine.Instance
-                            .SwitchAccountAsync(Services.DeepSeek.DeepSeekAccounts.ActiveId).ConfigureAwait(false);
-                    }
+                    bool removed = await Services.DeepSeek.DeepSeekEngine.Instance
+                        .RemoveAccountAsync(id)
+                        .ConfigureAwait(false);
                     SendResponse(requestId, true, new { removed });
                 }
                 break;
