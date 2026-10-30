@@ -293,24 +293,6 @@ public static class DependencyCheckerService
                 @"/opt/homebrew/bin/agy"
             ]
         },
-        new DependencyDefinition
-        {
-            Id = "warp",
-            Name = "Cloudflare WARP",
-            Description = "Used to rotate the public IP when resetting provider quota.",
-            Category = "utility",
-            InstallKind = "browser",
-            SiteUrl = "https://one.one.one.one/",
-            CommandPreview = "warp-cli status",
-            Commands = ["warp-cli"],
-            FallbackPaths =
-            [
-                @"%ProgramFiles%\Cloudflare\Cloudflare WARP\warp-cli.exe",
-                @"%ProgramFiles%\Cloudflare\Cloudflare WARP\Cloudflare WARP.exe",
-                @"%ProgramFiles(x86)%\Cloudflare\Cloudflare WARP\Cloudflare WARP.exe"
-            ],
-            GuiExecutableNames = ["Cloudflare WARP.exe"]
-        }
     ];
 
     public static DependencyDefinition? Find(string? id)
@@ -466,8 +448,8 @@ public static class DependencyCheckerService
 
     /// <summary>
     /// Resolves one fallback template. A single "*" directory segment is expanded against the
-    /// filesystem (highest version first), which is how Proton's versioned install folder is
-    /// found: %ProgramFiles%\Proton\VPN\v*\ProtonVPN.Client.exe
+    /// filesystem, highest version first, for tools that install into a versioned folder such as
+    /// %ProgramFiles%\Vendor\App\v*\App.exe
     /// </summary>
     private static string? ResolveFallback(string template)
     {

@@ -81,8 +81,6 @@ public sealed partial class DashboardWebBridge : IDisposable
     private const int FirewallCacheMs = 20000;
 
     // Smart Cooldown rate limiter for VPN quota reset (backend guard)
-    private static DateTime _lastQuotaResetTime = DateTime.MinValue;
-    private static readonly Lock _quotaResetLock = new();
 
     // Cached so payload parsing does not allocate a new options instance on every message.
     private static readonly JsonSerializerOptions CaseInsensitiveJsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -91,7 +89,6 @@ public sealed partial class DashboardWebBridge : IDisposable
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true
     };
-    private readonly ProtonVpnService _protonVpnService;
 
 #if WINDOWS
     public DashboardWebBridge(Form? mainForm, CliManagerService cliManager, LanProxyService? lanProxyService, OpenCodeWatcherService? openCodeWatcher = null)
@@ -103,7 +100,6 @@ public sealed partial class DashboardWebBridge : IDisposable
         _cliManager = cliManager;
         _lanProxyService = lanProxyService;
         _openCodeWatcher = openCodeWatcher;
-        _protonVpnService = new ProtonVpnService(_openCodeWatcher);
 
 #if WINDOWS
         // Initialize debounced terminal stream timer (flushes every 20ms)
@@ -552,19 +548,23 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     public async Task HandleIncomingJsonAsync(string rawJson)
     {
+        string? requestId = null;
+
         try
         {
             using var doc = JsonDocument.Parse(rawJson);
             var root = doc.RootElement;
 
             var action = root.TryGetProperty("action", out var actElem) ? actElem.GetString() : string.Empty;
-            var requestId = root.TryGetProperty("requestId", out var reqElem) ? reqElem.GetString() : null;
+            requestId = root.TryGetProperty("requestId", out var reqElem) ? reqElem.GetString() : null;
 
             await HandleActionAsync(action, root, requestId);
         }
         catch (Exception ex)
         {
-            SendResponse(null, false, ex.Message);
+            // Answer under the caller's request id. Answering with none left its promise pending, so
+            // any failing action surfaced as a 25 second timeout instead of the actual reason.
+            SendResponse(requestId, false, ex.Message);
         }
     }
 
@@ -1166,6 +1166,15 @@ public sealed partial class DashboardWebBridge : IDisposable
                     string id = data.TryGetProperty("id", out var idElem) ? idElem.GetString() ?? string.Empty : string.Empty;
                     bool switched = await Services.DeepSeek.DeepSeekEngine.Instance.SwitchAccountAsync(id).ConfigureAwait(false);
                     SendResponse(requestId, true, new { switched });
+                }
+                break;
+
+            case "deepseek_rename_account":
+                {
+                    string id = data.TryGetProperty("id", out var idElem3) ? idElem3.GetString() ?? string.Empty : string.Empty;
+                    string label = data.TryGetProperty("label", out var labelElem) ? labelElem.GetString() ?? string.Empty : string.Empty;
+                    bool renamed = Services.DeepSeek.DeepSeekAccounts.Rename(id, label);
+                    SendResponse(requestId, true, new { renamed });
                 }
                 break;
 
@@ -5487,14 +5496,6 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         StartupHelper.SetPreference("HideMainOnCliOpen", hideMainEl.GetBoolean());
                     }
-                    if (stProp.TryGetProperty("enableOpenCodeQuota", out var opencodeEl))
-                    {
-                        StartupHelper.SetPreference("EnableOpenCodeQuota", opencodeEl.GetBoolean());
-                    }
-                    if (stProp.TryGetProperty("enableProtonVpnProvider", out var protonEl))
-                    {
-                        StartupHelper.SetPreference("EnableProtonVpnProvider", protonEl.GetBoolean());
-                    }
                     if (stProp.TryGetProperty("enableHardwareMonitor", out var hwEl))
                     {
                         StartupHelper.SetPreference("EnableHardwareMonitor", hwEl.GetBoolean());
@@ -5623,34 +5624,6 @@ public sealed partial class DashboardWebBridge : IDisposable
                 else
                 {
                     SendResponse(requestId, false, "OpenCode watcher service not initialized");
-                }
-                break;
-
-            case "reset_opencode_quota":
-            case "rotate_warp_ip":
-            case "rotate_vpn_ip":
-            case "ResetOpenCodeQuota":
-                {
-                    string provider = data.TryGetProperty("provider", out var provProp) ? provProp.GetString() ?? "warp" : "warp";
-                    await ResetOpenCodeQuotaAsync(requestId, provider);
-                }
-                break;
-
-            case "disconnect_vpn":
-            case "DisconnectVpn":
-                await DisconnectVpnAsync(requestId);
-                break;
-
-            case "ensure_proton_vpn_running":
-            case "launch_proton_vpn":
-                {
-                    bool isRunning = ProtonVpnService.IsClientRunning();
-                    bool launched = false;
-                    if (!isRunning)
-                    {
-                        launched = await _protonVpnService.LaunchClientAsync();
-                    }
-                    SendResponse(requestId, true, new { isRunning = true, launched });
                 }
                 break;
 
@@ -6142,8 +6115,6 @@ public sealed partial class DashboardWebBridge : IDisposable
                 maskShortcutPaths = StartupHelper.GetPreference("MaskShortcutPaths", false),
                 embedShellsInTerminalWorkspace = StartupHelper.GetPreference("EmbedShellsInTerminalWorkspace", false),
                 hideMainOnCliOpen = StartupHelper.GetPreference("HideMainOnCliOpen", false),
-                enableOpenCodeQuota = StartupHelper.GetPreference("EnableOpenCodeQuota", false),
-                enableProtonVpnProvider = StartupHelper.GetPreference("EnableProtonVpnProvider", false),
                 enableHardwareMonitor = StartupHelper.GetPreference("EnableHardwareMonitor", false),
                 enableArchitectureGraph = StartupHelper.GetPreference("EnableArchitectureGraph", false),
                 theme = StartupHelper.GetStringPreference("Theme", "dark"),
@@ -7119,395 +7090,6 @@ public sealed partial class DashboardWebBridge : IDisposable
             return await _openCodeWatcher.RefreshAsync();
         }
         return new OpenCodeStateDto();
-    }
-
-    public async Task<object> ResetOpenCodeQuotaAsync(string? requestId = null, string provider = "warp")
-    {
-        bool isProton = provider.Equals("proton", StringComparison.OrdinalIgnoreCase) || provider.Equals("protonvpn", StringComparison.OrdinalIgnoreCase);
-        double cooldownTarget = isProton ? 60.0 : 12.0;
-        string logTag = isProton ? "ProtonVPN" : "WARP";
-        string providerName = isProton ? "ProtonVPN" : "CloudflareWARP";
-
-        // Provider-specific backend cooldown guard
-        lock (_quotaResetLock)
-        {
-            var elapsed = (DateTime.UtcNow - _lastQuotaResetTime).TotalSeconds;
-            if (elapsed < cooldownTarget)
-            {
-                int remaining = (int)Math.Ceiling(cooldownTarget - elapsed);
-                var cooldownResult = new
-                {
-                    success = false,
-                    provider = providerName,
-                    message = $"{providerName} cooldown active. Please wait {remaining}s before switching servers.",
-                    cooldownRemaining = remaining,
-                    cooldownSeconds = remaining
-                };
-                if (requestId != null) SendResponse(requestId, false, cooldownResult);
-                return cooldownResult;
-            }
-            _lastQuotaResetTime = DateTime.UtcNow;
-        }
-
-        string baseDir = AppContext.BaseDirectory;
-        string scriptPath = Path.Combine(baseDir, "scripts", "fixquota-command.js");
-        if (!File.Exists(scriptPath))
-        {
-            var fallback = Path.Combine(Directory.GetCurrentDirectory(), "scripts", "fixquota-command.js");
-            if (File.Exists(fallback)) scriptPath = fallback;
-            else
-            {
-                var legacy = Path.Combine(baseDir, "dist", "fixquota-command.js");
-                if (File.Exists(legacy)) scriptPath = legacy;
-            }
-        }
-
-        bool nodeExecuted = false;
-        string outputJson = string.Empty;
-        var outputLines = new List<string>();
-
-        if (File.Exists(scriptPath))
-        {
-            try
-            {
-                using var proc = new Process();
-                proc.StartInfo = new ProcessStartInfo
-                {
-                    FileName = "node.exe",
-                    Arguments = $"\"{scriptPath}\" --provider={(isProton ? "proton" : "warp")}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    StandardOutputEncoding = Encoding.UTF8,
-                    StandardErrorEncoding = Encoding.UTF8
-                };
-
-                proc.OutputDataReceived += (_, e) =>
-                {
-                    if (e.Data != null)
-                    {
-                        outputLines.Add(e.Data);
-                        PostEventToUi("terminal_data", new { cli = "QuotaReset", data = e.Data + "\r\n" });
-                        PostEventToUi("quota_reset_progress", new { line = e.Data });
-                        EmitLog(logTag, "info", e.Data);
-                    }
-                };
-                proc.ErrorDataReceived += (_, e) =>
-                {
-                    if (e.Data != null)
-                    {
-                        outputLines.Add(e.Data);
-                        PostEventToUi("terminal_data", new { cli = "QuotaReset", data = e.Data + "\r\n" });
-                        EmitLog(logTag, "warn", e.Data);
-                    }
-                };
-
-                proc.Start();
-                proc.BeginOutputReadLine();
-                proc.BeginErrorReadLine();
-
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(22));
-                try
-                {
-                    await proc.WaitForExitAsync(cts.Token);
-                    nodeExecuted = true;
-                    outputJson = string.Join(Environment.NewLine, outputLines);
-                }
-                catch (OperationCanceledException)
-                {
-                    try { proc.Kill(true); } catch { }
-                    nodeExecuted = false;
-                }
-            }
-            catch
-            {
-                nodeExecuted = false;
-            }
-        }
-
-        // If node was executed, try parsing clean JSON output
-        if (nodeExecuted && !string.IsNullOrWhiteSpace(outputJson))
-        {
-            try
-            {
-                int start = outputJson.IndexOf('{');
-                int end = outputJson.LastIndexOf('}');
-                if (start >= 0 && end > start)
-                {
-                    var jsonBlock = outputJson.Substring(start, end - start + 1);
-                    using var doc = JsonDocument.Parse(jsonBlock);
-                    var root = doc.RootElement;
-                    bool success = root.TryGetProperty("success", out var sProp) && sProp.GetBoolean();
-                    string oldIp = root.TryGetProperty("oldIp", out var oiProp) ? oiProp.GetString() ?? "unknown" : "unknown";
-                    string newIp = root.TryGetProperty("newIp", out var niProp) ? niProp.GetString() ?? "unknown" : "unknown";
-
-                    string oldIpv4 = "unknown";
-                    string oldIpv6 = "Not assigned";
-                    if (root.TryGetProperty("old", out var oldProp))
-                    {
-                        if (oldProp.TryGetProperty("ipv4", out var o4)) oldIpv4 = o4.GetString() ?? "unknown";
-                        if (oldProp.TryGetProperty("ipv6", out var o6)) oldIpv6 = o6.GetString() ?? "Not assigned";
-                    }
-                    else if (root.TryGetProperty("oldIpv4", out var o4p))
-                    {
-                        oldIpv4 = o4p.GetString() ?? "unknown";
-                    }
-                    else
-                    {
-                        oldIpv4 = oldIp;
-                    }
-
-                    string newIpv4 = "unknown";
-                    string newIpv6 = "Not assigned";
-                    if (root.TryGetProperty("new", out var newProp))
-                    {
-                        if (newProp.TryGetProperty("ipv4", out var n4)) newIpv4 = n4.GetString() ?? "unknown";
-                        if (newProp.TryGetProperty("ipv6", out var n6)) newIpv6 = n6.GetString() ?? "Not assigned";
-                    }
-                    else if (root.TryGetProperty("newIpv4", out var n4p))
-                    {
-                        newIpv4 = n4p.GetString() ?? "unknown";
-                    }
-                    else
-                    {
-                        newIpv4 = newIp;
-                    }
-
-                    bool dnsFlushed = root.TryGetProperty("dnsFlushed", out var dfProp) && dfProp.GetBoolean();
-                    bool sidecarSynced = root.TryGetProperty("sidecarSynced", out var ssProp) && ssProp.GetBoolean();
-                    string message = root.TryGetProperty("message", out var mProp) ? mProp.GetString() ?? string.Empty : string.Empty;
-                    string countryCode = root.TryGetProperty("countryCode", out var ccProp) ? ccProp.GetString() ?? string.Empty : string.Empty;
-                    string country = root.TryGetProperty("country", out var cProp) ? cProp.GetString() ?? string.Empty : string.Empty;
-                    string countryEmoji = root.TryGetProperty("countryEmoji", out var ceProp) ? ceProp.GetString() ?? string.Empty : string.Empty;
-                    string city = root.TryGetProperty("city", out var ctProp) ? ctProp.GetString() ?? string.Empty : string.Empty;
-                    int cooldownSeconds = root.TryGetProperty("cooldownSeconds", out var cdProp) ? cdProp.GetInt32() : (int)cooldownTarget;
-
-                    if (string.IsNullOrWhiteSpace(countryEmoji) && !string.IsNullOrWhiteSpace(countryCode))
-                    {
-                        countryEmoji = NetworkHelper.CountryCodeToEmoji(countryCode);
-                    }
-
-                    if (success && _openCodeWatcher != null)
-                    {
-                        _ = _openCodeWatcher.RefreshAsync();
-                    }
-
-                    var resultObj = new
-                    {
-                        success,
-                        provider = providerName,
-                        cooldownSeconds,
-                        old = new { ipv4 = oldIpv4, ipv6 = oldIpv6, country },
-                        @new = new { ipv4 = newIpv4, ipv6 = newIpv6, country, flag = countryCode },
-                        oldIp = oldIpv4 != "unknown" ? oldIpv4 : oldIp,
-                        newIp = newIpv4 != "unknown" ? newIpv4 : newIp,
-                        oldIpv4,
-                        oldIpv6,
-                        newIpv4,
-                        newIpv6,
-                        dnsFlushed,
-                        sidecarSynced,
-                        message,
-                        ip = newIpv4 != "unknown" ? newIpv4 : (newIp != "unknown" ? newIp : null),
-                        ipv4 = newIpv4,
-                        ipv6 = newIpv6,
-                        countryCode,
-                        country,
-                        countryEmoji,
-                        city
-                    };
-
-                    EmitLog(logTag, success ? "info" : "error", !string.IsNullOrWhiteSpace(message) ? message : $"{providerName} rotated successfully");
-                    if (requestId != null) SendResponse(requestId, success, resultObj);
-                    return resultObj;
-                }
-            }
-            catch { }
-        }
-
-        // Fallback execution if node script fails
-        if (isProton)
-        {
-            var pRes = await _protonVpnService.RotateServerAsync(msg => EmitLog("ProtonVPN", "info", msg));
-            var pFresh = await NetworkHelper.FetchPublicIpDetailsAsync();
-
-            var pObj = new
-            {
-                success = pRes.Success,
-                provider = "ProtonVPN",
-                cooldownSeconds = 60,
-                old = new { ipv4 = pRes.Old.Ipv4 ?? "unknown", ipv6 = pRes.Old.Ipv6 ?? "Not assigned" },
-                @new = new { ipv4 = pRes.New.Ipv4 ?? pFresh.Ip, ipv6 = pRes.New.Ipv6 ?? pFresh.Ipv6 ?? "Not assigned", country = pRes.Country, flag = pRes.CountryCode },
-                oldIp = pRes.OldIp,
-                newIp = pRes.NewIp,
-                oldIpv4 = pRes.Old.Ipv4 ?? "unknown",
-                oldIpv6 = pRes.Old.Ipv6 ?? "Not assigned",
-                newIpv4 = pRes.New.Ipv4 ?? pFresh.Ip,
-                newIpv6 = pRes.New.Ipv6 ?? pFresh.Ipv6 ?? "Not assigned",
-                dnsFlushed = true,
-                sidecarSynced = _openCodeWatcher?.IsOnline ?? false,
-                message = pRes.Message,
-                ip = pRes.NewIp,
-                ipv4 = pRes.New.Ipv4 ?? pFresh.Ip,
-                ipv6 = pRes.New.Ipv6 ?? pFresh.Ipv6 ?? "Not assigned",
-                countryCode = pRes.CountryCode,
-                country = pRes.Country,
-                countryEmoji = pRes.CountryEmoji,
-                city = pRes.City
-            };
-
-            EmitLog("ProtonVPN", pRes.Success ? "info" : "error", pRes.Message);
-            if (requestId != null) SendResponse(requestId, pRes.Success, pObj);
-            return pObj;
-        }
-
-        var (fallbackSuccess, rotateMsg, oldIps, newIps) = await NetworkHelper.RotateWarpDualStackAsync();
-        var freshIpDetails = await NetworkHelper.FetchPublicIpDetailsAsync();
-
-        if (fallbackSuccess && _openCodeWatcher != null)
-        {
-            _ = _openCodeWatcher.RefreshAsync();
-        }
-
-        var fallbackResult = new
-        {
-            success = fallbackSuccess,
-            provider = "CloudflareWARP",
-            cooldownSeconds = 12,
-            old = new { ipv4 = oldIps.Ipv4 ?? "unknown", ipv6 = oldIps.Ipv6 ?? "Not assigned" },
-            @new = new { ipv4 = newIps.Ipv4 ?? freshIpDetails.Ip, ipv6 = newIps.Ipv6 ?? freshIpDetails.Ipv6 ?? "Not assigned", country = freshIpDetails.Country, flag = freshIpDetails.CountryCode },
-            oldIp = oldIps.Ipv4 ?? "unknown",
-            newIp = newIps.Ipv4 ?? freshIpDetails.Ip,
-            oldIpv4 = oldIps.Ipv4 ?? "unknown",
-            oldIpv6 = oldIps.Ipv6 ?? "Not assigned",
-            newIpv4 = newIps.Ipv4 ?? freshIpDetails.Ip,
-            newIpv6 = newIps.Ipv6 ?? freshIpDetails.Ipv6 ?? "Not assigned",
-            dnsFlushed = false,
-            sidecarSynced = _openCodeWatcher?.IsOnline ?? false,
-            message = rotateMsg,
-            ip = freshIpDetails.Ip,
-            ipv4 = freshIpDetails.Ipv4 ?? freshIpDetails.Ip,
-            ipv6 = freshIpDetails.Ipv6 ?? "Not assigned",
-            countryCode = freshIpDetails.CountryCode,
-            country = freshIpDetails.Country,
-            countryEmoji = freshIpDetails.CountryEmoji,
-            city = freshIpDetails.City
-        };
-
-        EmitLog("WARP", fallbackSuccess ? "info" : "error", rotateMsg);
-        if (requestId != null) SendResponse(requestId, fallbackSuccess, fallbackResult);
-        return fallbackResult;
-    }
-
-    public async Task<object> DisconnectVpnAsync(string? requestId = null)
-    {
-        EmitLog("System", "info", "Disconnecting active VPN tunnels (WARP / Proton)...");
-
-        string baseDir = AppContext.BaseDirectory;
-        string scriptPath = Path.Combine(baseDir, "scripts", "fixquota-command.js");
-        if (!File.Exists(scriptPath))
-        {
-            var fallback = Path.Combine(Directory.GetCurrentDirectory(), "scripts", "fixquota-command.js");
-            if (File.Exists(fallback)) scriptPath = fallback;
-            else
-            {
-                var legacy = Path.Combine(baseDir, "dist", "fixquota-command.js");
-                if (File.Exists(legacy)) scriptPath = legacy;
-            }
-        }
-
-        bool nodeExecuted = false;
-        string outputJson = string.Empty;
-
-        if (File.Exists(scriptPath))
-        {
-            try
-            {
-                using var proc = new Process();
-                proc.StartInfo = new ProcessStartInfo
-                {
-                    FileName = "node.exe",
-                    Arguments = $"\"{scriptPath}\" --disconnect",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    StandardOutputEncoding = Encoding.UTF8
-                };
-                proc.Start();
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                var readTask = proc.StandardOutput.ReadToEndAsync();
-                await Task.WhenAll(readTask, proc.WaitForExitAsync(cts.Token));
-                outputJson = await readTask;
-                nodeExecuted = true;
-            }
-            catch { }
-        }
-
-        if (nodeExecuted && !string.IsNullOrWhiteSpace(outputJson))
-        {
-            try
-            {
-                int start = outputJson.IndexOf('{');
-                int end = outputJson.LastIndexOf('}');
-                if (start >= 0 && end > start)
-                {
-                    var jsonBlock = outputJson.Substring(start, end - start + 1);
-                    using var doc = JsonDocument.Parse(jsonBlock);
-                    var root = doc.RootElement;
-                    bool success = root.TryGetProperty("success", out var sProp) && sProp.GetBoolean();
-                    var directIp = root.TryGetProperty("newIp", out var niProp) ? niProp.GetString() : "unknown";
-                    var country = root.TryGetProperty("country", out var cProp) ? cProp.GetString() : "Direct ISP";
-
-                    var res = new
-                    {
-                        success,
-                        provider = "Direct",
-                        message = $"Disconnected from VPN. Network returned to direct ISP connection ({directIp}).",
-                        newIp = directIp,
-                        country,
-                        countryEmoji = root.TryGetProperty("countryEmoji", out var ceProp) ? ceProp.GetString() : "🌐",
-                        countryCode = root.TryGetProperty("countryCode", out var ccProp) ? ccProp.GetString() : "",
-                        ipv4 = root.TryGetProperty("newIpv4", out var n4) ? n4.GetString() : directIp,
-                        ipv6 = root.TryGetProperty("newIpv6", out var n6) ? n6.GetString() : "Not assigned"
-                    };
-
-                    EmitLog("System", "info", res.message);
-                    if (requestId != null) SendResponse(requestId, true, res);
-                    return res;
-                }
-            }
-            catch { }
-        }
-
-        // Native fallback disconnect
-        await ProtonVpnService.DisconnectAsync();
-        await NetworkHelper.DisconnectWarpAsync();
-        await NetworkHelper.FlushDnsAsync();
-        var freshDetails = await NetworkHelper.FetchPublicIpDetailsAsync();
-
-        if (_openCodeWatcher != null)
-        {
-            _ = _openCodeWatcher.RefreshAsync();
-        }
-
-        var fallbackDisconnect = new
-        {
-            success = true,
-            provider = "Direct",
-            message = $"VPN disconnected. Direct network restored to {freshDetails.Ip} ({freshDetails.Country}).",
-            newIp = freshDetails.Ip,
-            country = freshDetails.Country,
-            countryEmoji = freshDetails.CountryEmoji,
-            countryCode = freshDetails.CountryCode,
-            ipv4 = freshDetails.Ipv4 ?? freshDetails.Ip,
-            ipv6 = freshDetails.Ipv6 ?? "Not assigned"
-        };
-
-        EmitLog("System", "info", fallbackDisconnect.message);
-        if (requestId != null) SendResponse(requestId, true, fallbackDisconnect);
-        return fallbackDisconnect;
     }
 
     private object[] GetProfilesWithEmail()

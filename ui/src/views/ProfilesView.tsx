@@ -87,7 +87,6 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const [editingWorkspace, setEditingWorkspace] = useState<Partial<ProjectWorkspace> | null>(null);
 
-  const [isRotatingIp, setIsRotatingIp] = useState(false);
 
   useEffect(() => {
     loadWorkspaces();
@@ -112,14 +111,6 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
     } catch {
       // Default fallback
     }
-  };
-
-  const handleRotateIp = async () => {
-    setIsRotatingIp(true);
-    try {
-      await webviewBridge.invoke('rotate_ip_address');
-    } catch {}
-    setTimeout(() => setIsRotatingIp(false), 800);
   };
 
   const toggleEmailVisibility = (name: string) => {

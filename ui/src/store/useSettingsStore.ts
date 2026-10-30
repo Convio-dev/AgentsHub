@@ -29,8 +29,6 @@ export interface AppSettings {
   maskShortcutPaths: boolean;
   embedShellsInTerminalWorkspace: boolean;
   hideMainOnCliOpen: boolean;
-  enableOpenCodeQuota: boolean;
-  enableProtonVpnProvider: boolean;
   enableHardwareMonitor: boolean;
 }
 
@@ -357,8 +355,6 @@ const defaultSettings: AppSettings = {
   maskShortcutPaths: true,
   embedShellsInTerminalWorkspace: true,
   hideMainOnCliOpen: false,
-  enableOpenCodeQuota: false,
-  enableProtonVpnProvider: false,
   enableHardwareMonitor: false,
 };
 

@@ -155,7 +155,12 @@ public sealed class DeepSeekEngine
     private Task ShowWindowAsync(bool autoPark) => UiAsync(async () =>
     {
         Log($"show window autoPark={autoPark}");
-        await EnsureWebViewAsync();
+
+        // Self-heal: an engine whose control is gone (an earlier failed switch) should still open a
+        // sign-in window rather than refusing until the app restarts.
+        if (_web is null) await RebuildWebAsync();
+        else await EnsureWebViewAsync();
+
         if (_host is not { } host) return true;
 
         // A window that was closed once must be able to come back, so show it explicitly.
@@ -240,34 +245,62 @@ public sealed class DeepSeekEngine
         if (!DeepSeekAccounts.Switch(id)) return false;
 
         Log($"switch account -> {id} ({ProfileDir})");
-        _web?.Dispose();
-        _web = null;
-        _navigationStarted = false;
         _primedChats.Clear();
-        IsSignedIn = false;
-
-        await EnsureWebViewAsync();
+        await RebuildWebAsync();
         return true;
     });
 
     /// <summary>Signs out by deleting the profile, which is where the session actually lives.</summary>
-    public Task SignOutAsync() => UiAsync(() =>
+    public Task SignOutAsync() => UiAsync(async () =>
     {
-        _web?.Dispose();
-        _web = null;
+        Log("sign out");
+        _primedChats.Clear();
+        await RebuildWebAsync(wipeProfile: true);
+        return true;
+    });
+
+    /// <summary>
+    /// Replaces the WebView2 with a fresh one against the current profile folder.
+    ///
+    /// The user data folder is fixed when the CoreWebView2 environment is created and Dispose cannot
+    /// be undone, so switching accounts means a new control rather than a reload. Disposing without
+    /// recreating it left `_web` null, which is why every action after a switch failed with "the
+    /// DeepSeek window was disposed".
+    /// </summary>
+    private async Task RebuildWebAsync(bool wipeProfile = false)
+    {
+        if (_host is not { } host)
+        {
+            throw new InvalidOperationException("DeepSeek engine was not initialized on the UI thread.");
+        }
+
+        if (_web is { } old)
+        {
+            host.Controls.Remove(old);
+            old.Dispose();
+            _web = null;
+        }
+
         _navigationStarted = false;
         IsSignedIn = false;
 
-        try
+        if (wipeProfile)
         {
-            if (Directory.Exists(ProfileDir)) Directory.Delete(ProfileDir, recursive: true);
+            try
+            {
+                if (Directory.Exists(ProfileDir)) Directory.Delete(ProfileDir, recursive: true);
+            }
+            catch (IOException)
+            {
+                // A locked file keeps the profile; the next sign-in still works.
+            }
         }
-        catch (IOException)
-        {
-            // A locked file keeps the profile; the next sign-in still works.
-        }
-        return Task.FromResult(true);
-    });
+
+        _web = new WebView2 { Dock = DockStyle.Fill };
+        host.Controls.Add(_web);
+
+        await EnsureWebViewAsync();
+    }
 
     public async Task<bool> EnsureReadyAsync(CancellationToken ct = default)
     {

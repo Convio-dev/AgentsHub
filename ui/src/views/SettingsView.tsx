@@ -875,39 +875,6 @@ export const SettingsView: React.FC = () => {
                     </p>
                   </div>
 
-                  {/* OpenCode Quota & Dependent Settings */}
-                  <div className="p-3.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] space-y-3">
-                    <label className="flex items-center gap-3 cursor-pointer text-xs font-semibold text-[var(--text-main,#F1F5F9)]">
-                      <input
-                        type="checkbox"
-                        checked={settings.enableOpenCodeQuota}
-                        onChange={e => updateSetting('enableOpenCodeQuota', e.target.checked)}
-                        className="w-4 h-4 rounded accent-sky-500"
-                      />
-                      <span>Enable OpenCode Quota & IP Card</span>
-                    </label>
-                    <p className="text-[11px] text-[var(--text-dim,#64748B)] pl-7">
-                      Show dual-stack IP rotation, Cloudflare WARP reset, and active sessions on Dashboard.
-                    </p>
-
-                    {settings.enableOpenCodeQuota && (
-                      <div className="ml-7 pl-3 border-l-2 border-sky-500/40 space-y-1">
-                        <label className="flex items-center gap-3 cursor-pointer text-xs text-[var(--text-main,#F1F5F9)]">
-                          <input
-                            type="checkbox"
-                            checked={settings.enableProtonVpnProvider}
-                            onChange={e => updateSetting('enableProtonVpnProvider', e.target.checked)}
-                            className="w-4 h-4 rounded accent-sky-500"
-                          />
-                          <span>Enable Proton VPN Provider (Secondary / Experimental)</span>
-                        </label>
-                        <p className="text-[11px] text-[var(--text-dim,#64748B)] pl-7">
-                          Show Proton VPN switcher inside OpenCode Quota card for manual geo-routing.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
                   <label className="flex items-center gap-3 cursor-pointer text-xs text-[var(--text-main,#F1F5F9)]">
                     <input
                       type="checkbox"

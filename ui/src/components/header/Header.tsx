@@ -71,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({ onOpenWorkspaceModal }) => {
         <div id="sidecar-status-container" className="relative group/sidecar flex items-center">
           <button
             type="button"
-            className="w-7 h-7 rounded-lg bg-surface-card border border-surface-border flex items-center justify-center transition-all duration-200 hover:border-sky-500/50 hover:bg-surface-card/80 focus:outline-none shadow-sm cursor-pointer"
+            className="flex cursor-pointer items-center justify-center bg-transparent p-1 focus:outline-none"
             aria-label="Sidecar Engine Status"
           >
             <div className="relative flex items-center justify-center">
@@ -79,8 +79,8 @@ export const Header: React.FC<HeaderProps> = ({ onOpenWorkspaceModal }) => {
                 <span className="absolute inline-flex h-3 w-3 rounded-full bg-emerald-400 opacity-60 animate-ping" />
               )}
               <span
-                className={`relative inline-flex rounded-full h-2 w-2 shadow-sm ${
-                  health.isOnline ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-rose-500 shadow-rose-500/50'
+                className={`relative inline-flex h-2 w-2 rounded-full ${
+                  health.isOnline ? 'bg-emerald-500' : 'bg-rose-500'
                 }`}
               />
             </div>

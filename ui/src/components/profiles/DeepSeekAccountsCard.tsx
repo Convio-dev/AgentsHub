@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Brain, Check, Loader2, LogIn, Plus, Trash2 } from 'lucide-react';
+import { Brain, Check, Loader2, LogIn, Pencil, Plus, Trash2 } from 'lucide-react';
 import { webviewBridge } from '../../services/webviewBridge';
 
 interface Account {
@@ -20,6 +20,8 @@ export const DeepSeekAccountsCard: React.FC = () => {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +55,20 @@ export const DeepSeekAccountsCard: React.FC = () => {
     } finally {
       setBusy(null);
     }
+  };
+
+  /**
+   * Saves on blur, so Enter and clicking away both do the right thing without a second path. An
+   * unchanged or emptied name is simply dropped.
+   */
+  const commitRename = async (account: Account) => {
+    const next = draft.trim();
+    setEditingId(null);
+    if (!next || next === account.label) return;
+
+    await run(`rename-${account.id}`, async () => {
+      await webviewBridge.invoke('deepseek_rename_account', { id: account.id, label: next });
+    });
   };
 
   return (
@@ -101,15 +117,53 @@ export const DeepSeekAccountsCard: React.FC = () => {
                   <span
                     className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${isActive ? 'bg-accent' : 'bg-surface-strong'}`}
                   />
-                  <span className="truncate text-xs font-medium text-content-main">{account.label}</span>
+                  {editingId === account.id ? (
+                    <input
+                      autoFocus
+                      value={draft}
+                      maxLength={40}
+                      onChange={e => setDraft(e.target.value)}
+                      onBlur={() => void commitRename(account)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        } else if (e.key === 'Escape') {
+                          setDraft(account.label);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      aria-label={`Name for ${account.label}`}
+                      className="w-full min-w-0 rounded border border-sky-500/50 bg-surface-deep px-1.5 py-0.5 text-xs text-content-main focus:border-sky-500 focus:outline-none"
+                    />
+                  ) : (
+                    <span className="truncate text-xs font-medium text-content-main">{account.label}</span>
+                  )}
                 </span>
 
-                {isActive ? (
-                  <span className="flex flex-shrink-0 items-center gap-1 font-mono text-[9.5px] uppercase tracking-wide text-accent">
-                    <Check className="h-3 w-3" />
-                    active
-                  </span>
-                ) : null}
+                <span className="flex flex-shrink-0 items-center gap-1.5">
+                  {isActive ? (
+                    <span className="flex items-center gap-1 font-mono text-[9.5px] uppercase tracking-wide text-accent">
+                      <Check className="h-3 w-3" />
+                      active
+                    </span>
+                  ) : null}
+
+                  {editingId === account.id ? null : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraft(account.label);
+                        setEditingId(account.id);
+                      }}
+                      title="Rename this account"
+                      aria-label={`Rename ${account.label}`}
+                      className="rounded p-0.5 text-content-muted transition-colors hover:text-content-main"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
               </div>
 
               <p className="mt-1 font-mono text-[10px] text-content-dim">

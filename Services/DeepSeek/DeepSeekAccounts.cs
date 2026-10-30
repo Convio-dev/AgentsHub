@@ -56,6 +56,25 @@ internal static class DeepSeekAccounts
         return account;
     }
 
+    /// <summary>
+    /// Renames an account. The id is untouched because it is the profile folder name; the label is
+    /// only what the picker shows.
+    /// </summary>
+    public static bool Rename(string id, string label)
+    {
+        Ensure();
+
+        int index = _accounts!.FindIndex(a => a.Id == id);
+        if (index < 0) return false;
+
+        string next = label.Trim();
+        if (next.Length == 0) return false;
+
+        _accounts[index] = _accounts[index] with { Label = next };
+        Save();
+        return true;
+    }
+
     public static bool Switch(string id)
     {
         Ensure();

@@ -194,11 +194,12 @@ listed. `ShowInTaskbar` is never toggled — that toggle was what left `WS_EX_AP
 
 ### CLI catalogue (`Services/DependencyCheckerService.cs`)
 
-Current ids: `aider, antigravity, claude, codex, crush, git, node, opencode, python, qwen-code, vyce,
-warp`.
+Current ids: `aider, antigravity, claude, codex, crush, git, node, opencode, python, qwen-code, vyce`.
 
 `ChatSupported` is set for **antigravity**, **opencode** and, on Windows only, for **vyce**.
 
+- Removed **Cloudflare WARP** with the IP rotation feature it served; the whole quota-reset path,
+  `ProtonVpnService` and `scripts/fixquota-command.js` are gone with it.
 - Removed **Hub** and **Proton** — from the catalogue *and* from a hardcoded fallback list in
   `useSettingsStore` that was seeding the panel with stale rows and invented versions. That list is
   now empty.
@@ -432,7 +433,6 @@ Logs: `%TEMP%\agentshub-{deepseek,qwen,vyce,opencode,permissions,spawns}.log`
   sessions. The app reads the current one on open; it does not store a copy per chat.
 - **Log bundles** currently land in `%TEMP%`. Desktop or Documents would be easier to find.
 - **UI tests**: adopt Vitest, or keep relying on the C# harness?
-- **`warp`** sits in the agent group and therefore gets a `Run` button that opens `warp-cli`.
 
 ---
 
