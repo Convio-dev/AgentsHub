@@ -84,6 +84,9 @@ public sealed class DeepSeekEngine
     /// Serialises turns. There is one page, so two sessions sending at once would type into the same
     /// composer and then poll each other's chat ids, mixing two conversations into one reply.
     /// </summary>
+    /// <summary>The turn in flight, so Stop can reach it.</summary>
+    private CancellationTokenSource? _turnCts;
+
     private readonly SemaphoreSlim _turnLock = new(1, 1);
 
     /// <summary>True while a turn holds the page, so the host can show a queued state.</summary>
@@ -356,12 +359,38 @@ public sealed class DeepSeekEngine
         await _turnLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return await SendLockedAsync(prompt, chatId, root, progress, tools, onChatId, toolsAllowed, attachments, deepThink, webSearch, ct)
-                .ConfigureAwait(false);
+            // A DeepSeek turn can prime, run several tool rounds and take minutes. Until now nothing
+            // could stop it: the Stop button had no path into this engine at all.
+            using var turn = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _turnCts = turn;
+
+            try
+            {
+                return await SendLockedAsync(prompt, chatId, root, progress, tools, onChatId, toolsAllowed, attachments, deepThink, webSearch, turn.Token)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                _turnCts = null;
+            }
         }
         finally
         {
             _turnLock.Release();
+        }
+    }
+
+    /// <summary>Cancels the turn in flight, if there is one. Safe to call from any thread.</summary>
+    public void Stop()
+    {
+        try
+        {
+            _turnCts?.Cancel();
+            Log("stop requested");
+        }
+        catch (ObjectDisposedException)
+        {
+            // The turn finished between the check and the cancel; nothing to stop.
         }
     }
 

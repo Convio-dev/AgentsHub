@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { AlertTriangle, ArrowUp, Brain, FileCode, Folder, Paperclip, Quote, Sparkles, Square, GitBranch, X, FileText } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Brain, FileCode, Folder, Paperclip, Quote, Sparkles, Square, SquareTerminal, GitBranch, X, FileText } from 'lucide-react';
 import { ChatAttachment, SlashCommand, TokenUsage } from '../../types/agent';
 import { useSlashCommandStore } from '../../store/useSlashCommandStore';
 import { rankByQuery } from '../../lib/fuzzy';
@@ -11,6 +11,7 @@ import { useSessionStore } from '../../store/useSessionStore';
 import { webviewBridge } from '../../services/webviewBridge';
 import { ImageLightbox } from './ImageLightbox';
 import { PermissionModeButton } from './PermissionModeButton';
+import { VyceModelChip } from './VyceModelChip';
 import { TokenUsageTooltip } from './TokenUsageTooltip';
 import { CircularQuotaWidget } from './CircularQuotaWidget';
 
@@ -35,9 +36,10 @@ interface ChatInputProps {
   workingDirectory?: string;
   /**
    * Which engine answers this session. `deepseek` runs chat.deepseek.com in the app's own WebView2,
-   * so the model picker, the permission switch and the quota ring do not apply to it.
+   * `vyce` drives the Vyce Code TUI in a hidden console, so the model picker, the permission switch
+   * and the quota ring do not apply to either.
    */
-  engine?: 'agy' | 'deepseek' | 'qwen';
+  engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce';
   /** Null until the host has answered; drives the sign-in bar for a DeepSeek session. */
   deepSeekSignedIn?: boolean | null;
   /** Opens the one-time DeepSeek sign-in window. */
@@ -431,6 +433,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const isDeepSeek = engine === 'deepseek';
   /** Qwen is the same shape as DeepSeek: a web page we drive, not a CLI. */
   const isQwen = engine === 'qwen';
+  /** Vyce is the Vyce Code TUI, driven in a hidden console: no model picker, no policy switch. */
+  const isVyce = engine === 'vyce';
   /** One-time hint that a guest account is the weaker way to use Qwen. */
   // sessionStorage, not localStorage: a guest who dismissed the hint once should not lose it
   // forever, and being signed out is a state that changes.
@@ -816,7 +820,24 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             <span className="opacity-30">|</span>
 
-            {isDeepSeek || isQwen ? (
+            {isVyce ? (
+              /* The model list, the picker and the switch all live in the CLI's own menu; the chip
+                 drives that menu rather than pretending to own the list. Mode and permissions stay
+                 where they are, inside the TUI, so there is no control for them here. */
+              <>
+                <span
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-emerald-400"
+                  title="Answers come from Vyce Code, running in a hidden console"
+                >
+                  <SquareTerminal className="h-3 w-3" />
+                  Vyce
+                </span>
+
+                <span className="opacity-30">|</span>
+
+                <VyceModelChip workingDirectory={workingDirectory} />
+              </>
+            ) : isDeepSeek || isQwen ? (
               /* No model to pick and no permission policy to set: the engine is a web chat, which
                  decides both. Showing Gemini here was simply wrong. */
               <>
@@ -890,7 +911,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
           {/* Right: quota ring, optional token readout, then the single morphing action button */}
           <div className="flex flex-shrink-0 items-center space-x-2.5">
-            {isDeepSeek || isQwen ? null : <CircularQuotaWidget profileName={profileName} />}
+            {isDeepSeek || isQwen || isVyce ? null : <CircularQuotaWidget profileName={profileName} />}
 
             {turnTokens > 0 ? (
               <TokenUsageTooltip turn={lastTurnTokens} session={sessionTokens} turns={turnCount} />

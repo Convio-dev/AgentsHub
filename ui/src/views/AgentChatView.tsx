@@ -152,7 +152,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
 
     // A DeepSeek turn runs in our own WebView2 and never touches the CLI runner. This guard used
     // to swallow the send silently, which read as "the composer does nothing".
-    if (!isWebEngine && isRunnerStopped) {
+    if (!isHostEngine && isRunnerStopped) {
       if (!autoRunDefaultProfile) return;
       await startProfile(runnerName);
     }
@@ -173,8 +173,12 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
   };
 
   const isDeepSeek = activeSession?.engine === 'deepseek';
-  /** Both web engines drive a page instead of a CLI, so the runner bar does not apply to either. */
-  const isWebEngine = isDeepSeek || activeSession?.engine === 'qwen';
+  /**
+   * The engines that run inside the host instead of the sidecar's CLI process: the two page engines
+   * and Vyce's hidden console. None of them has a runner process, so the runner bar does not apply.
+   */
+  const isHostEngine =
+    isDeepSeek || activeSession?.engine === 'qwen' || activeSession?.engine === 'vyce';
   const isQwen = activeSession?.engine === 'qwen';
   const [qwenMenuOpen, setQwenMenuOpen] = useState(false);
 
@@ -529,7 +533,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
           ) : null}
 
           {/* Runner Dropdown with Multi-Profile Popover */}
-          <div className={isWebEngine ? 'hidden' : 'relative'}>
+          <div className={isHostEngine ? 'hidden' : 'relative'}>
             <button
               onClick={() => setIsProfilePopoverOpen(!isProfilePopoverOpen)}
               className="text-xs px-2.5 py-1 rounded-lg bg-surface-card border border-surface-border hover:border-sky-500 text-content-main font-mono flex items-center space-x-2 transition shadow-sm"
@@ -806,7 +810,7 @@ export const AgentChatView: React.FC<AgentChatViewProps> = ({ onOpenGitModal }) 
               profileName={activeSession?.profile || activeProfileName}
             blockedNotice={
               // A DeepSeek turn never starts a runner, so gating it on one is wrong.
-              isWebEngine || !isRunnerStopped || autoRunDefaultProfile
+              isHostEngine || !isRunnerStopped || autoRunDefaultProfile
                 ? null
                 : `Runner ${profileLabel(runnerName)} is stopped. Start it to send a message.`
             }

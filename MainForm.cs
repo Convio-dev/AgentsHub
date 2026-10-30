@@ -754,6 +754,9 @@ public partial class MainForm : Form
         UnregisterHudHotkey();
         try { ClaudeOpenRouterProxyService.Instance.Stop(); } catch { }
         try { DiscordRpcService.Instance.Dispose(); } catch { }
+        // The Vyce TUI is a separate process tree in its own hidden console. Without this it keeps
+        // running after the app closes, holding the session file the next launch wants.
+        try { Services.Vyce.VyceEngine.Instance.Dispose(); } catch { }
 
         Application.Exit();
     }

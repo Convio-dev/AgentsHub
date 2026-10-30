@@ -126,7 +126,7 @@ interface SessionStoreState {
     profile?: string,
     initialModel?: string,
     workspaceId?: string | null,
-    engine?: 'agy' | 'deepseek' | 'qwen'
+    engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce'
   ) => string;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => void;
@@ -502,7 +502,7 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
     return sessions[activeSessionId];
   },
 
-  createSession: (profile = '', initialModel = '', workspaceId?: string | null, engine?: 'agy' | 'deepseek' | 'qwen') => {
+  createSession: (profile = '', initialModel = '', workspaceId?: string | null, engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce') => {
     const resolvedProfile = isUnsetProfile(profile) ? '' : profile;
     const id = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const newSession: SessionRecord = {

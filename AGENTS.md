@@ -65,3 +65,21 @@ When requested or when `/pcheck` is sent, read the installed skill file directly
 4. **Slash Command `/pcheck`:**
     - Whenever `/pcheck` is triggered, run `bun run tools/pcheck.ts` (or `.\pcheck.cmd` on Windows / `./pcheck.sh` on Unix) to verify script pairings, multi-targeting, path portability, and command extension handling.
       <!-- pcheck:end -->
+
+<!-- ponytail:start -->
+
+## ponytail
+
+Active on every coding task: the smallest change that fully solves it. Read these installed skill files directly:
+
+- Core, always on: `ponytail`: `.agents/skills/ponytail/SKILL.md`
+- Review a diff: `ponytail-review`: `.agents/skills/ponytail-review/SKILL.md`
+- Audit the whole repo: `ponytail-audit`: `.agents/skills/ponytail-audit/SKILL.md`
+- Collect deferred shortcuts: `ponytail-debt`: `.agents/skills/ponytail-debt/SKILL.md`
+- Benchmark scoreboard: `ponytail-gain`: `.agents/skills/ponytail-gain/SKILL.md`
+- Command reference: `ponytail-help`: `.agents/skills/ponytail-help/SKILL.md`
+
+Levels: `/ponytail lite|full|ultra|off`, default full, and it stays on until "stop ponytail" or "normal mode". Never trade away validation at trust boundaries, data-loss handling, security, or accessibility. End each reply with what was skipped or not checked, and any risk the user must know.
+
+Source: `github.com/DietrichGebert/ponytail` (MIT). Update by re-downloading `skills/<name>/SKILL.md` from that repo into the paths above.
+<!-- ponytail:end -->

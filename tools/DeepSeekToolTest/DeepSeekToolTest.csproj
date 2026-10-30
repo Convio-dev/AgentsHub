@@ -14,5 +14,10 @@
     <Compile Include="..\..\Services\DeepSeek\McpClient.cs" />
     <Compile Include="..\..\Services\Qwen\QwenTools.cs" />
     <Compile Include="..\..\Services\LogBundleService.cs" />
+    <Compile Include="..\..\Services\Platform\PlatformHelper.cs" />
+    <Compile Include="..\..\Services\ConPty\NativePty.cs" />
+    <Compile Include="..\..\Services\ConPty\ConPtySession.cs" />
+    <Compile Include="..\..\Services\Vyce\VyceEngine.cs" />
+    <Compile Include="..\..\Services\Vyce\VyceTty.cs" />
   </ItemGroup>
 </Project>

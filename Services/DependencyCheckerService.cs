@@ -190,8 +190,11 @@ public static class DependencyCheckerService
         {
             Id = "vyce",
             Name = "Vyce Code",
-            Description = "Terminal agent with free tiers. Sign up on their site, then pick a model with /model.",
+            Description = "Terminal agent with free tiers. Answers in the chat too, through a hidden console.",
             Category = "agent",
+            // Chat needs a real console to type into, which only the Windows host can build. The Unix
+            // route (a `script` terminal) is written but has never been run, so it is not claimed.
+            ChatSupported = OperatingSystem.IsWindows(),
             InstallKind = "powershell",
             SiteUrl = "https://www.vyce-code.com/",
             InstallCommand = "npm i -g vyce-code",

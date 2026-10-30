@@ -527,6 +527,8 @@ public sealed class QwenEngine : IDisposable
         bool skipPermissions = false,
         IProgress<string>? progress = null,
         IProgress<string>? thinking = null,
+        string? conversationId = null,
+        Action<string>? onChatId = null,
         CancellationToken ct = default)
     {
         await _turnLock.WaitAsync(ct).ConfigureAwait(false);
@@ -536,10 +538,18 @@ public sealed class QwenEngine : IDisposable
 
         try
         {
+            // Resume the session's own conversation. Without this a reopened chat started from
+            // nothing, because the page keeps whichever conversation ran last.
+            if (!string.IsNullOrWhiteSpace(conversationId))
+            {
+                await EnsureOnChatAsync(conversationId!).ConfigureAwait(false);
+            }
+
             if (!toolsEnabled || string.IsNullOrWhiteSpace(root))
             {
                 var plain = await SendOnceAsync(prompt, progress, thinking, ct).ConfigureAwait(false);
                 _lastError = null;
+                await ReportChatIdAsync(onChatId).ConfigureAwait(false);
                 return plain;
             }
 
@@ -547,6 +557,7 @@ public sealed class QwenEngine : IDisposable
                 .ConfigureAwait(false);
 
             _lastError = null;
+            await ReportChatIdAsync(onChatId).ConfigureAwait(false);
             return reply;
         }
         catch (Exception ex)
@@ -731,6 +742,50 @@ public sealed class QwenEngine : IDisposable
         return lastLine.Length is > 0 and <= 3 && int.TryParse(lastLine, out _)
             ? text[..lineStart]
             : text;
+    }
+
+    /// <summary>Qwen puts the conversation id in the path: /c/&lt;id&gt;.</summary>
+    private static string? ChatIdFromPath(string path)
+    {
+        var parts = path.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 && string.Equals(parts[0], "c", StringComparison.OrdinalIgnoreCase)
+            ? parts[1]
+            : null;
+    }
+
+    /// <summary>
+    /// Reopens a session's own conversation.
+    ///
+    /// The page keeps whichever chat ran last, so without this a reopened session continued somebody
+    /// else's conversation — the same fault DeepSeek had when it used --continue.
+    /// </summary>
+    private async Task EnsureOnChatAsync(string conversationId)
+    {
+        string target = $"/c/{conversationId}";
+        string path = await CurrentPagePathAsync().ConfigureAwait(false);
+
+        if (string.Equals(path, target, StringComparison.OrdinalIgnoreCase)) return;
+
+        await UiAsync(async () =>
+        {
+            await EnsureWebViewAsync().ConfigureAwait(true);
+            _web!.CoreWebView2.Navigate($"https://chat.qwen.ai{target}");
+            return true;
+        }).ConfigureAwait(false);
+
+        // The page renders the conversation before it accepts a message; typing sooner lands in a
+        // composer that is about to be replaced.
+        await Task.Delay(2500).ConfigureAwait(false);
+        Log($"opened conversation {conversationId}");
+    }
+
+    /// <summary>Tells the host which conversation this turn landed in, so the session can keep it.</summary>
+    private async Task ReportChatIdAsync(Action<string>? onChatId)
+    {
+        if (onChatId is null) return;
+
+        string path = await CurrentPagePathAsync().ConfigureAwait(false);
+        if (ChatIdFromPath(path) is { Length: > 0 } id) onChatId(id);
     }
 
     /// <summary>

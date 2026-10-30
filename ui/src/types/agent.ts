@@ -146,7 +146,7 @@ export interface SessionRecord {
    * Which engine answers this session. `agy` is the CLI; `deepseek` runs chat.deepseek.com inside
    * the app's own WebView2 and reports through the same events, so nothing downstream branches.
    */
-  engine?: 'agy' | 'deepseek' | 'qwen';
+  engine?: 'agy' | 'deepseek' | 'qwen' | 'vyce';
   /** DeepSeek only: false turns the chat answer-only, with no tools and no protocol line. */
   toolsEnabled?: boolean;
   /** Unsent composer text, kept so switching tabs does not discard it. */

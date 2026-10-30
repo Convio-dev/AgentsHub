@@ -2,6 +2,11 @@ using System.Text.Json;
 using AgentsHub.Services;
 using AgentsHub.Services.DeepSeek;
 using AgentsHub.Services.Qwen;
+using AgentsHub.Services.Vyce;
+
+// Touched once before any mode runs. .NET opens stdout lazily, and a write first made while this
+// process is attached to the Vyce console goes to that console instead of the caller's pipe.
+Console.Out.Flush();
 
 if (args.Contains("--mcp"))
 {
@@ -12,6 +17,231 @@ if (args.Contains("--mcp"))
     return;
 }
 
+
+if (args.Contains("--screen"))
+{
+    // Scripted drive-and-look: opens the CLI, runs a list of steps, prints the screen. The only way
+    // to learn what a TUI menu offers without a human watching it.
+    var screenArgs = args.SkipWhile(a => a != "--screen").Skip(1).ToArray();
+    string script = screenArgs.FirstOrDefault() ?? string.Empty;
+
+    // Console output is captured before the first attach: .NET opens stdout lazily, and a write
+    // made after attaching to another console goes to that console instead of the caller's pipe.
+    Console.WriteLine("--- driving ---");
+    Console.Out.Flush();
+
+    using var tty = new VyceTty(Path.Combine(Path.GetTempPath(), "agentshub-vyce.log"));
+    tty.Start(Directory.GetCurrentDirectory(), 6000, "cmd.exe /c vyce");
+
+    foreach (string step in script.Split('|', StringSplitOptions.RemoveEmptyEntries))
+    {
+        if (step.StartsWith("wait:", StringComparison.Ordinal))
+        {
+            await Task.Delay(int.Parse(step[5..]));
+        }
+        else if (step.StartsWith("type:", StringComparison.Ordinal))
+        {
+            tty.TypeText(step[5..]);
+            await Task.Delay(400);
+        }
+        else if (step.StartsWith("ctrl:", StringComparison.Ordinal))
+        {
+            tty.PressControl(step[5]);
+            await Task.Delay(400);
+        }
+        else if (step == "shot")
+        {
+            Console.WriteLine("--- shot ---");
+            Console.WriteLine(tty.ReadScreen());
+            Console.Out.Flush();
+        }
+        else
+        {
+            switch (step)
+            {
+                case "enter": tty.PressEnter(); break;
+                case "up": tty.PressArrowUp(); break;
+                case "down": tty.PressArrowDown(); break;
+                case "esc": tty.SendEscape(); break;
+            }
+
+            await Task.Delay(500);
+        }
+    }
+
+    Console.WriteLine("--- screen ---");
+    Console.WriteLine(tty.ReadScreen());
+    return;
+}
+
+if (args.Contains("--inject"))
+{
+    // Isolates the console injector from the Vyce TUI: a plain shell either receives the line or it
+    // does not, and the screen says which.
+    using var tty = new VyceTty(Path.Combine(Path.GetTempPath(), "agentshub-vyce.log"));
+    var injectArgs = args.SkipWhile(a => a != "--inject").Skip(1).ToArray();
+    string command = injectArgs.FirstOrDefault() ?? "cmd.exe /k";
+    int delay = injectArgs.Length > 1 && int.TryParse(injectArgs[1], out var parsed) ? parsed : 2500;
+    string typed = injectArgs.Length > 2 ? injectArgs[2] : "echo INJECT-OK";
+
+    tty.Start(Directory.GetCurrentDirectory(), delay, command);
+    Console.WriteLine("--- before ---");
+    Console.WriteLine(tty.ReadScreen());
+
+    // "noenter" leaves the text in the box so a slash command opens its menu instead of running.
+    bool pressEnter = !injectArgs.Contains("noenter");
+
+    if (typed == "ctrl+p")
+    {
+        tty.PressControl('p');
+    }
+    else
+    {
+        tty.TypeLine(typed, pressEnter);
+    }
+
+    await Task.Delay(2000);
+
+    Console.WriteLine("--- after ---");
+    Console.WriteLine(tty.ReadScreen());
+    return;
+}
+
+if (args.Contains("--tty"))
+{
+    // Temporary probe: shows what a Node CLI sees inside this app's pseudo-console.
+    string probe = args.SkipWhile(a => a != "--tty").Skip(1).FirstOrDefault()
+        ?? "node -e \"console.log('IN='+process.stdin.isTTY+' OUT='+process.stdout.isTTY+' RAW='+(typeof process.stdin.setRawMode)+' COLS='+process.stdout.columns)\"";
+
+    var pty = new AgentsHub.Services.ConPty.ConPtySession();
+    var seen = new System.Text.StringBuilder();
+    pty.OutputDataReceived += text => { lock (seen) seen.Append(text); };
+
+    Console.WriteLine($"probe: {probe}");
+    Console.WriteLine($"started: {pty.Start(probe, Directory.GetCurrentDirectory(), 120, 40)}");
+    await Task.Delay(5000);
+    lock (seen) Console.WriteLine("--- child output ---\n" + seen);
+    pty.Stop();
+    return;
+}
+
+if (args.Contains("--vyce"))
+{
+    // End-to-end: spawn the CLI in a hidden pseudo-console, send one prompt, read the answer back
+    // out of its own session file. This is the only way to know the adapter works rather than compiles.
+    string vyceRoot = args.SkipWhile(a => a != "--vyce").Skip(1).FirstOrDefault()
+        ?? Directory.GetCurrentDirectory();
+
+    // A unique token per run: a repeated prompt is indistinguishable from the restored transcript,
+    // so a probe that asks the same thing every time cannot tell an answer from the history.
+    string token = "PROBE-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+
+    Console.WriteLine($"root={vyceRoot}");
+    Console.WriteLine($"sending prompt, this can take a while on a cold start... ({token})");
+
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+    var chunks = new List<string>();
+
+    try
+    {
+        var vyceReply = await VyceEngine.Instance.SendAsync(
+            $"reply with exactly: {token}",
+            vyceRoot,
+            new Progress<string>(text => { lock (chunks) chunks.Add(text); }),
+            cts.Token);
+
+        Console.WriteLine($"streamed chunks: {chunks.Count}");
+        Console.WriteLine($"model: {vyceReply.Model}");
+        Console.WriteLine($"session: {vyceReply.SessionFile}");
+        Console.WriteLine($"answer: {vyceReply.Text}");
+        Console.WriteLine(vyceReply.Text.Contains(token, StringComparison.OrdinalIgnoreCase)
+            ? "RESULT: PASS - the CLI answered through the console"
+            : "RESULT: answered, but not with the expected text");
+
+        // A second turn proves the console survived: a re-spawn would have started a new chat and
+        // lost the first message.
+        if (args.Contains("--twice"))
+        {
+            var second = await VyceEngine.Instance.SendAsync(
+                "Repeat only the token you were asked to reply with, nothing else.",
+                vyceRoot,
+                new Progress<string>(_ => { }),
+                cts.Token);
+
+            Console.WriteLine($"second turn: {second.Text.Trim()}");
+            Console.WriteLine($"same console: {VyceEngine.Instance.IsRunning}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"RESULT: FAIL - {ex.GetType().Name}: {ex.Message}");
+    }
+    finally
+    {
+        // The CLI lives in its own process tree. Left alone it outlives this probe and locks the
+        // session file the next run needs.
+        VyceEngine.Instance.Dispose();
+    }
+
+    return;
+}
+
+if (args.Contains("--models"))
+{
+    // Live: what the CLI's own menu offers, and optionally a switch to prove the picker drive works.
+    string modelRoot = args.SkipWhile(a => a != "--models").Skip(1).FirstOrDefault() ?? Directory.GetCurrentDirectory();
+    string? switchTo = args.SkipWhile(a => a != "--models").Skip(2).FirstOrDefault();
+
+    try
+    {
+        // Before any console exists: the chip names the model on mount, and that call must be a
+        // file read, not a five-second cold start.
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        string cheap = VyceEngine.Instance.CurrentModel();
+        watch.Stop();
+        Console.WriteLine($"label from disk: '{cheap}' in {watch.ElapsedMilliseconds} ms, console running={VyceEngine.Instance.IsRunning}");
+
+        var list = await VyceEngine.Instance.ListModelsAsync(modelRoot);
+
+        Console.WriteLine($"current: {list.Current}");
+        foreach (var row in list.Models)
+        {
+            Console.WriteLine($"  {(row.Available ? " " : "x")} {row.Name,-20} {row.Note}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(switchTo))
+        {
+            bool changed = await VyceEngine.Instance.SetModelAsync(switchTo, modelRoot);
+            var after = await VyceEngine.Instance.ListModelsAsync(modelRoot);
+            Console.WriteLine($"switch to {switchTo}: {(changed ? "PASS" : "FAIL")}, current now {after.Current}");
+
+            // A marker can move without the engine changing what answers. One turn proves the switch
+            // reached the thing that does the work.
+            if (args.Contains("--ask"))
+            {
+                var modelCheck = await VyceEngine.Instance.SendAsync(
+                    "reply with exactly: MODEL-CHECK",
+                    modelRoot,
+                    new Progress<string>(_ => { }));
+
+                Console.WriteLine($"answer model: {modelCheck.Model}, reply: {modelCheck.Text.Trim()}");
+                Console.WriteLine(string.Equals(modelCheck.Model, switchTo, StringComparison.OrdinalIgnoreCase)
+                    ? "RESULT: PASS - answers now come from the selected model"
+                    : $"RESULT: FAIL - answered with {modelCheck.Model}");
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"RESULT: FAIL - {ex.GetType().Name}: {ex.Message}");
+    }
+    finally
+    {
+        VyceEngine.Instance.Dispose();
+    }
+
+    return;
+}
 
 if (args.Contains("--redact"))
 {
@@ -171,5 +401,30 @@ Check("drops a tool block", !closed.Contains("action") && closed.Contains("Sure"
 
 var code = DeepSeekTools.Visible("Try://n```python\nprint(1)\n```\n");
 Check("keeps ordinary code", code.Contains("print(1)"), code.Replace("\n", "\\n"));
+
+// --- the model menu is scraped from a screen, so the scraper gets a real one as a fixture
+const string modelMenu = """
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀   Select model                                                           esc            ▀    ▀
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  > type to search                                                                       ▀
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                                                                                ▀
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    agnes-3.0-flash                                       [UNLIMITED]  512k     ▀
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    gpt-6-luna                                            [UNLIMITED]  250k   ▀  ▀ ▀
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  • glm-5.3-flash                               [SLOW] [UNLIMITED]  500k  ✓      ▀
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  Coming soon
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  ○ deepseek-v4.1         Careful reasoning for tests and tricky logic
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  ○ qwen-3.8              Strong code generation with a huge window
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  A fast all-rounder for everyday coding                                               ▀
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  type to search · ↑↓ move · enter select · esc close                             ▀
+    """;
+
+var menu = VyceEngine.ParseModelPicker(modelMenu);
+Check("model menu lists every row", menu.Models.Count == 5, $"rows={menu.Models.Count}");
+Check("model menu marks the current one", menu.Current == "glm-5.3-flash", menu.Current);
+Check(
+    "model menu keeps coming-soon rows unpickable",
+    menu.Models.Where(m => !m.Available).Select(m => m.Name).SequenceEqual(["deepseek-v4.1", "qwen-3.8"]),
+    string.Join(",", menu.Models.Where(m => !m.Available).Select(m => m.Name)));
 
 Console.WriteLine("\nroot: " + root);

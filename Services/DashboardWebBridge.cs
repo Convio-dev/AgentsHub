@@ -604,6 +604,64 @@ public sealed partial class DashboardWebBridge : IDisposable
                     // A DeepSeek session never touches agy: its turn runs in our own WebView2 and
                     // reports through the same events, so the chat UI needs no special case.
                     string? engine = data.TryGetProperty("engine", out var enElem) ? enElem.GetString() : null;
+
+                    // Vyce has no headless mode, so its turn runs in a hidden pseudo-console and the
+                    // answer is read from the CLI's own session file. Nothing here opens a window.
+                    if (string.Equals(engine, "vyce", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string vyceRoot = string.IsNullOrWhiteSpace(cwd)
+                            ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                            : cwd;
+
+                        PostEventToUi("session_status", new { sessionId, state = "running", timestamp = DateTime.UtcNow.ToString("O") });
+
+                        var vyceProgress = new Progress<string>(text =>
+                            PostEventToUi("chat_token", new { sessionId, text, timestamp = DateTime.UtcNow.ToString("O") }));
+
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var reply = await Services.Vyce.VyceEngine.Instance
+                                    .SendAsync(prompt, vyceRoot, vyceProgress)
+                                    .ConfigureAwait(false);
+
+                                PostEventToUi("chat_final", new
+                                {
+                                    sessionId,
+                                    text = reply.Text,
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+
+                                PostEventToUi("session_status", new
+                                {
+                                    sessionId,
+                                    state = "idle",
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                PostEventToUi("chat_final", new
+                                {
+                                    sessionId,
+                                    text = $"Vyce could not answer: {ex.Message}",
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+
+                                PostEventToUi("session_status", new
+                                {
+                                    sessionId,
+                                    state = "error",
+                                    error = ex.Message,
+                                    timestamp = DateTime.UtcNow.ToString("O"),
+                                });
+                            }
+                        });
+
+                        SendResponse(requestId, true, new { started = true, engine = "vyce" });
+                        break;
+                    }
                     if (string.Equals(engine, "deepseek", StringComparison.OrdinalIgnoreCase))
                     {
                         // Fire and forget, exactly like the sidecar path. A DeepSeek turn can run for
@@ -729,7 +787,20 @@ public sealed partial class DashboardWebBridge : IDisposable
 
                                 bool qTools = !dataQwenTools;
                                 var reply = await Services.Qwen.QwenEngine.Instance
-                                    .SendAsync(prompt, qRoot, qTools, qSkip, progress, thinking)
+                                    .SendAsync(
+                                        prompt,
+                                        qRoot,
+                                        qTools,
+                                        qSkip,
+                                        progress,
+                                        thinking,
+                                        conversationId,
+                                        id => PostEventToUi("conversation_started", new
+                                        {
+                                            sessionId,
+                                            conversationId = id,
+                                            timestamp = DateTime.UtcNow.ToString("O"),
+                                        }))
                                     .ConfigureAwait(false);
 
                                 // Settle the transcript. Streaming appends, so whatever it showed
@@ -1298,6 +1369,21 @@ public sealed partial class DashboardWebBridge : IDisposable
                     }
 
                     string? reason = data.TryGetProperty("reason", out var rElem) ? rElem.GetString() : null;
+
+#if DEEPSEEK_UI
+                    // The Stop button is one button for every engine, and it has always spoken to the
+                    // sidecar. The web engines run inside this process, so they are stopped here as
+                    // well; each call is a no-op when that engine has no turn in flight.
+                    Services.DeepSeek.DeepSeekEngine.Instance.Stop();
+
+                    // Qwen's stop has to click its page on the UI thread, so it is fired and forgotten
+                    // rather than awaited: the abort response should not wait on a click.
+                    _ = Services.Qwen.QwenEngine.Instance.StopAsync();
+
+                    // Vyce cancels with Esc in its hidden console, which is a write to that console's
+                    // input buffer and returns immediately.
+                    Services.Vyce.VyceEngine.Instance.Stop();
+#endif
                     await Sidecar.SidecarHostService.Instance.AbortTaskAsync(taskId, reason).ConfigureAwait(false);
                     SendResponse(requestId, true, new { aborted = true, taskId });
                 }
@@ -3445,6 +3531,79 @@ public sealed partial class DashboardWebBridge : IDisposable
                         catch (Exception) { opened = false; }
                     }
                     SendResponse(requestId, true, new { opened });
+                }
+                break;
+
+            case "vyce_stop":
+                {
+                    Services.Vyce.VyceEngine.Instance.Stop();
+                    SendResponse(requestId, true, new { stopped = true });
+                }
+                break;
+
+            // Vyce keeps its model list inside its own TUI, so both of these drive that menu. The
+            // names come back from the CLI, never from a copy here.
+            case "vyce_model_current":
+                {
+                    // A label, not a menu: this must never start a console.
+                    SendResponse(requestId, true, new
+                    {
+                        model = Services.Vyce.VyceEngine.Instance.CurrentModel(),
+                    });
+                }
+                break;
+
+            case "vyce_models":
+                {
+                    string? modelsCwd = data.TryGetProperty("workingDirectory", out var vcElem) ? vcElem.GetString() : null;
+
+                    try
+                    {
+                        var list = await Services.Vyce.VyceEngine.Instance
+                            .ListModelsAsync(modelsCwd)
+                            .ConfigureAwait(false);
+
+                        SendResponse(requestId, true, new
+                        {
+                            current = list.Current,
+                            models = list.Models.Select(row => new
+                            {
+                                name = row.Name,
+                                note = row.Note,
+                                available = row.Available,
+                            }),
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        SendResponse(requestId, false, $"Vyce did not answer its model menu: {ex.Message}");
+                    }
+                }
+                break;
+
+            case "vyce_model":
+                {
+                    string model = data.TryGetProperty("model", out var vmElem) ? vmElem.GetString() ?? string.Empty : string.Empty;
+                    string? modelCwd = data.TryGetProperty("workingDirectory", out var mcElem) ? mcElem.GetString() : null;
+
+                    if (model.Length == 0)
+                    {
+                        SendResponse(requestId, false, "model is required");
+                        break;
+                    }
+
+                    try
+                    {
+                        bool switched = await Services.Vyce.VyceEngine.Instance
+                            .SetModelAsync(model, modelCwd)
+                            .ConfigureAwait(false);
+
+                        SendResponse(requestId, true, new { model, switched });
+                    }
+                    catch (Exception ex)
+                    {
+                        SendResponse(requestId, false, $"Could not switch Vyce's model: {ex.Message}");
+                    }
                 }
                 break;
 
