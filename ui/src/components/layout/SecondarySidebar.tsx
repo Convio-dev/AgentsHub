@@ -640,73 +640,92 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
               <div className="fixed inset-0 z-[70]" onClick={() => setNewSessionMenu(null)} />
               <div
                 style={{ top: newSessionMenu.top, left: newSessionMenu.left }}
-                className="fixed z-[71] w-52 overflow-hidden rounded-lg border border-surface-border bg-surface-card shadow-xl"
+                className="fixed z-[71] w-[352px] rounded-xl border border-surface-border bg-surface-card p-1.5 shadow-xl"
                 role="menu"
               >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => startSession(newSessionMenu.workspaceId, 'agy')}
-                  className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-hover"
-                >
-                  <Zap className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-sky-400" />
-                  <span className="min-w-0">
-                    <span className="block text-[11px] font-medium text-content-main">Use Antigravity</span>
-                    <span className="block text-[10px] text-content-dim">The CLI, with tools and skills</span>
-                  </span>
-                </button>
+                {/* Two columns so the list grows by adding cells, not by growing taller. Each cell is
+                    half as wide, so the subtitles are short and clip rather than wrap. */}
+                <div className="grid grid-cols-2 gap-1">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title="Antigravity: the CLI, with tools and skills"
+                    onClick={() => startSession(newSessionMenu.workspaceId, 'agy')}
+                    className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
+                  >
+                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-sky-500/[0.12] text-sky-400">
+                      <Zap className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] font-medium text-content-main">Use Antigravity</span>
+                      <span className="block truncate text-[9.5px] text-content-dim">CLI, tools and skills</span>
+                    </span>
+                  </button>
 
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => startSession(newSessionMenu.workspaceId, 'deepseek')}
-                  className="flex w-full items-start gap-2 border-t border-surface-border px-3 py-2 text-left transition-colors hover:bg-surface-hover"
-                >
-                  <Brain className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-accent" />
-                  <span className="min-w-0">
-                    <span className="block text-[11px] font-medium text-content-main">Use DeepSeek</span>
-                    <span className="block text-[10px] text-content-dim">Free, via chat.deepseek.com</span>
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title="DeepSeek: free, via chat.deepseek.com"
+                    onClick={() => startSession(newSessionMenu.workspaceId, 'deepseek')}
+                    className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
+                  >
+                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+                      <Brain className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] font-medium text-content-main">Use DeepSeek</span>
+                      <span className="block truncate text-[9.5px] text-content-dim">Free web chat</span>
+                    </span>
+                  </button>
 
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => startSession(newSessionMenu.workspaceId, 'qwen')}
-                  className="flex w-full items-start gap-2 border-t border-surface-border px-3 py-2 text-left transition-colors hover:bg-surface-hover"
-                >
-                  <Sparkles className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-violet-400" />
-                  <span className="min-w-0">
-                    <span className="block text-[11px] font-medium text-content-main">Use Qwen</span>
-                    <span className="block text-[10px] text-content-dim">Free, no account needed</span>
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title="Qwen: free, no account needed"
+                    onClick={() => startSession(newSessionMenu.workspaceId, 'qwen')}
+                    className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
+                  >
+                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-violet-500/[0.12] text-violet-400">
+                      <Sparkles className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] font-medium text-content-main">Use Qwen</span>
+                      <span className="block truncate text-[9.5px] text-content-dim">Free, no account</span>
+                    </span>
+                  </button>
 
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => startSession(newSessionMenu.workspaceId, 'vyce')}
-                  className="flex w-full items-start gap-2 border-t border-surface-border px-3 py-2 text-left transition-colors hover:bg-surface-hover"
-                >
-                  <SquareTerminal className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-emerald-400" />
-                  <span className="min-w-0">
-                    <span className="block text-[11px] font-medium text-content-main">Use Vyce</span>
-                    <span className="block text-[10px] text-content-dim">Vyce Code, in a hidden console</span>
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title="Vyce: Vyce Code, in a hidden console"
+                    onClick={() => startSession(newSessionMenu.workspaceId, 'vyce')}
+                    className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
+                  >
+                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-emerald-500/[0.12] text-emerald-400">
+                      <SquareTerminal className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] font-medium text-content-main">Use Vyce</span>
+                      <span className="block truncate text-[9.5px] text-content-dim">Hidden console</span>
+                    </span>
+                  </button>
 
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => startSession(newSessionMenu.workspaceId, 'opencode')}
-                  className="flex w-full items-start gap-2 border-t border-surface-border px-3 py-2 text-left transition-colors hover:bg-surface-hover"
-                >
-                  <Terminal className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-400" />
-                  <span className="min-w-0">
-                    <span className="block text-[11px] font-medium text-content-main">Use OpenCode</span>
-                    <span className="block text-[10px] text-content-dim">Headless, any provider you signed in</span>
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title="OpenCode: headless, any provider you signed in"
+                    onClick={() => startSession(newSessionMenu.workspaceId, 'opencode')}
+                    className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
+                  >
+                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-amber-500/[0.12] text-amber-400">
+                      <Terminal className="h-3 w-3" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11px] font-medium text-content-main">Use OpenCode</span>
+                      <span className="block truncate text-[9.5px] text-content-dim">Headless, signed in</span>
+                    </span>
+                  </button>
+                </div>
               </div>
             </>,
             document.body

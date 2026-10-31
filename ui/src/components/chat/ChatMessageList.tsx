@@ -172,16 +172,9 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
           Send a prompt to run the agent in this workspace. Steps stream into a timeline above the
           reply, and every command can be expanded to its full output.
         </p>
-        <div className="grid w-full max-w-md grid-cols-1 gap-2 text-left font-mono text-[11px] sm:grid-cols-2">
-          <div className="rounded-lg border border-surface-border/70 bg-surface-card/40 p-2.5 text-content-muted">
-            <span className="mb-0.5 block font-semibold text-accent">/help</span>
-            <span className="text-[10.5px] text-content-dim">List the active engine's commands</span>
-          </div>
-          <div className="rounded-lg border border-surface-border/70 bg-surface-card/40 p-2.5 text-content-muted">
-            <span className="mb-0.5 block font-semibold text-accent">/exec</span>
-            <span className="text-[10.5px] text-content-dim">Run a shell command as a tool step</span>
-          </div>
-        </div>
+        <p className="max-w-sm font-mono text-[11px] leading-relaxed text-content-dim">
+          Type <span className="text-accent">/help</span> for the active engine's commands.
+        </p>
       </div>
     );
   }
@@ -308,9 +301,6 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
                   >
                     {profileLabel(message.profile)}
                   </span>
-                  {message.turn && message.turn > 1 ? (
-                    <span className="font-mono text-[10px] text-content-dim">turn {message.turn}</span>
-                  ) : null}
                 </div>
 
                 <div className="flex items-center gap-2">

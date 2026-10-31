@@ -1,6 +1,7 @@
 /**
  * AI Dev Tools Store
- * Manages desktop development tools, paths, IDE detection, and executable launcher triggers.
+ * Manages desktop development tools, paths, IDE detection, executable launching, and which of them
+ * appear as quick shortcuts on the dashboard.
  */
 
 import { create } from 'zustand';
@@ -17,6 +18,10 @@ export interface DevToolItem {
   enabled?: boolean;
   arguments?: string;
   workingDirectory?: string;
+  /** Whether this tool is one of the dashboard's quick shortcuts. */
+  showOnDashboard?: boolean;
+  /** Inline image for the shortcut card, as a data URL. Empty falls back to a glyph. */
+  iconDataUrl?: string;
   health?: {
     state?: string;
     text?: string;
@@ -29,6 +34,8 @@ export interface DevToolItem {
 
 interface DevToolsStoreState {
   tools: DevToolItem[];
+  /** Whether the dashboard shows its shortcuts card at all. Shown by default. */
+  shortcutsVisible: boolean;
   isLoading: boolean;
   expandedToolId: string | null;
   feedbackMessage: string | null;
@@ -37,6 +44,11 @@ interface DevToolsStoreState {
   loadTools: () => Promise<void>;
   launchTool: (id: string) => Promise<void>;
   toggleTool: (id: string, enabled: boolean) => Promise<void>;
+  setShortcutsVisible: (visible: boolean) => Promise<void>;
+  updateTool: (
+    id: string,
+    patch: Partial<Pick<DevToolItem, 'name' | 'iconDataUrl' | 'showOnDashboard'>>
+  ) => Promise<void>;
   recheckPaths: () => Promise<void>;
   findInstalledTools: () => Promise<void>;
   browseToolTarget: (id: string, name: string) => Promise<string | null>;
@@ -82,12 +94,46 @@ function mapTool(raw: any): DevToolItem {
     enabled: raw.isEnabled !== false,
     arguments: raw.arguments || '',
     workingDirectory: raw.workingDirectory || '',
+    showOnDashboard: raw.showOnDashboard === true,
+    iconDataUrl: typeof raw.iconDataUrl === 'string' ? raw.iconDataUrl : '',
     health,
   };
 }
 
+/**
+ * The shape the host's DevToolItem expects.
+ *
+ * Writing the UI model straight back lost fields: the switch is called `enabled` here and
+ * `isEnabled` on the host, so toggling one row quietly re-enabled a disabled tool, and the
+ * dashboard flags would be dropped the same way. Everything the host stores is mapped here.
+ */
+function toPayload(tool: DevToolItem) {
+  return {
+    id: tool.id,
+    name: tool.name,
+    description: tool.description || '',
+    target: tool.target,
+    arguments: tool.arguments || '',
+    workingDirectory: tool.workingDirectory || '',
+    isIde: tool.isIde ?? null,
+    isEnabled: tool.enabled !== false,
+    showOnDashboard: Boolean(tool.showOnDashboard),
+    iconDataUrl: tool.iconDataUrl || '',
+  };
+}
+
+/** Persists the whole list, since the host patches the array as one value. */
+async function persistTools(tools: DevToolItem[]): Promise<void> {
+  try {
+    await webviewBridge.invoke('save_ai_config', { config: { devTools: tools.map(toPayload) } });
+  } catch {
+    // The row keeps the state it was given; the next load corrects it if the write failed.
+  }
+}
+
 export const useDevToolsStore = create<DevToolsStoreState>((set, get) => ({
   tools: [],
+  shortcutsVisible: true,
   isLoading: false,
   expandedToolId: null,
   feedbackMessage: null,
@@ -100,7 +146,11 @@ export const useDevToolsStore = create<DevToolsStoreState>((set, get) => ({
       set({ isLoading: true });
       const res = await webviewBridge.invoke('get_dev_tools', {});
       if (res && Array.isArray(res.devTools)) {
-        set({ tools: res.devTools.map(mapTool), isLoading: false });
+        set({
+          tools: res.devTools.map(mapTool),
+          shortcutsVisible: res.shortcutsVisible !== false,
+          isLoading: false,
+        });
       } else {
         set({ isLoading: false });
       }
@@ -116,23 +166,30 @@ export const useDevToolsStore = create<DevToolsStoreState>((set, get) => ({
   },
 
   findInstalledTools: async () => {
+    // The host scans, then reports what it found that is not configured yet. The list itself is
+    // re-read afterwards, so the panel shows the same state the config holds.
     try {
       set({ isLoading: true });
-      const res = await webviewBridge.invoke('find_installed_dev_tools', {});
-      if (res && Array.isArray(res.devTools)) {
-        set({ tools: res.devTools.map(mapTool), isLoading: false, feedbackMessage: 'Found installed developer tools.' });
-      } else {
-        await get().loadTools();
-      }
+      const res: any = await webviewBridge.invoke('detect_ai_clients', {});
+      const found = Array.isArray(res?.found) ? res.found.length : 0;
+      await get().loadTools();
+      set({
+        isLoading: false,
+        feedbackMessage:
+          found > 0
+            ? `Found ${found} installed tool${found === 1 ? '' : 's'}.`
+            : 'No new installed tools were found.',
+      });
     } catch {
       await get().loadTools();
+      set({ isLoading: false });
     }
     setTimeout(() => set({ feedbackMessage: null }), 3500);
   },
 
   launchTool: async (id: string) => {
     try {
-      await webviewBridge.invoke('launch_dev_tool', { id });
+      await webviewBridge.invoke('launch_tool', { toolId: id });
       set({ feedbackMessage: 'Tool launch initiated.' });
     } catch (err: any) {
       set({ feedbackMessage: `Launch failed: ${err.message || err}` });
@@ -143,30 +200,43 @@ export const useDevToolsStore = create<DevToolsStoreState>((set, get) => ({
   toggleTool: async (id: string, enabled: boolean) => {
     const next = get().tools.map(t => (t.id === id ? { ...t, enabled } : t));
     set({ tools: next });
+    await persistTools(next);
+  },
+
+  setShortcutsVisible: async (visible: boolean) => {
+    set({ shortcutsVisible: visible });
     try {
-      await webviewBridge.invoke('save_ai_config', { config: { devTools: next } });
-    } catch {}
+      await webviewBridge.invoke('save_ai_config', { config: { shortcutsVisible: visible } });
+    } catch {
+      // Reverting would hide the toggle's own state; the next load reports the truth.
+    }
+  },
+
+  updateTool: async (id, patch) => {
+    const next = get().tools.map(t => (t.id === id ? { ...t, ...patch } : t));
+    set({ tools: next });
+    await persistTools(next);
   },
 
   browseToolTarget: async (id: string, name: string) => {
     try {
-      const res = await webviewBridge.invoke('browse_for_file', {
-        title: `Select Executable for ${name}`,
-        filter: 'Executables (*.exe)|*.exe|All Files (*.*)|*.*',
+      const res: any = await webviewBridge.invoke('browse_tool_target', {
+        toolId: id,
+        toolName: name,
       });
-      if (res && res.filePath) {
-        return res.filePath as string;
+      if (res && typeof res.path === 'string' && res.path.length > 0) {
+        return res.path as string;
       }
     } catch {}
     return null;
   },
 
   updateToolTarget: async (id: string, target: string) => {
-    const next = get().tools.map(t => (t.id === id ? { ...t, target, subtitle: target, state: 'ready' as const } : t));
+    const next = get().tools.map(t =>
+      t.id === id ? { ...t, target, subtitle: target, state: 'ready' as const } : t
+    );
     set({ tools: next, feedbackMessage: 'Target updated.' });
-    try {
-      await webviewBridge.invoke('save_ai_config', { config: { devTools: next } });
-    } catch {}
+    await persistTools(next);
     setTimeout(() => set({ feedbackMessage: null }), 3000);
   },
 
@@ -179,21 +249,19 @@ export const useDevToolsStore = create<DevToolsStoreState>((set, get) => ({
       state: 'ready',
       isIde: Boolean(isIde),
       enabled: true,
+      showOnDashboard: false,
+      iconDataUrl: '',
     };
     const next = [...get().tools, newTool];
     set({ tools: next, feedbackMessage: `${name} added.` });
-    try {
-      await webviewBridge.invoke('save_ai_config', { config: { devTools: next } });
-    } catch {}
+    await persistTools(next);
     setTimeout(() => set({ feedbackMessage: null }), 3000);
   },
 
   removeTool: async (id: string) => {
     const next = get().tools.filter(t => t.id !== id);
     set({ tools: next, feedbackMessage: 'Tool removed.' });
-    try {
-      await webviewBridge.invoke('save_ai_config', { config: { devTools: next } });
-    } catch {}
+    await persistTools(next);
     setTimeout(() => set({ feedbackMessage: null }), 3000);
   },
 }));

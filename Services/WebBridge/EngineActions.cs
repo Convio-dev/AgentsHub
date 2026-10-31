@@ -531,12 +531,15 @@ public sealed partial class DashboardWebBridge : IDisposable
     {
         string name = tool.Tool.ToLowerInvariant();
 
+        // The store classifies by `toolKind`, so these have to be the store's own words: a write is
+        // an edit row, a grep is a search row, and only a genuine read is a read.
         string kind = name switch
         {
             "bash" or "shell" or "execute" => "command",
-            "write" or "edit" or "patch" or "multiedit" => "file",
-            "read" or "grep" or "glob" or "list" => "file",
-            _ => "custom",
+            "write" or "edit" or "patch" or "multiedit" or "create" => "write",
+            "grep" or "glob" or "search" or "find" => "search",
+            "read" or "list" or "view" or "cat" => "read",
+            _ => "other",
         };
 
         string path = string.Empty;

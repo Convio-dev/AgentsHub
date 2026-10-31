@@ -118,6 +118,8 @@ internal sealed class OpenCodeEngine : IDisposable
         IReadOnlyList<string>? files,
         IProgress<string>? progress,
         Action<OpenCodeToolEvent>? onTool,
+        /// <summary>Reasoning parts, reported separately so they never land in the answer.</summary>
+        Action<string>? onThinking = null,
         CancellationToken ct = default)
     {
         await _turn.WaitAsync(ct).ConfigureAwait(false);
@@ -201,8 +203,17 @@ internal sealed class OpenCodeEngine : IDisposable
 
                     if (parsed.Text.Length > 0)
                     {
-                        text.Append(parsed.Text);
-                        progress?.Report(parsed.Text);
+                        // Reasoning is not the answer. It goes to its own sink so the transcript can
+                        // draw a Thought row, and so the reply stays exactly what the model said.
+                        if (parsed.Type is "reasoning" or "thinking")
+                        {
+                            onThinking?.Invoke(parsed.Text);
+                        }
+                        else
+                        {
+                            text.Append(parsed.Text);
+                            progress?.Report(parsed.Text);
+                        }
                     }
 
                     if (parsed.Tool is not null) onTool?.Invoke(parsed.Tool);
@@ -309,6 +320,17 @@ internal sealed class OpenCodeEngine : IDisposable
                         Type = type,
                         SessionId = sessionId,
                         Tool = ReadTool(part),
+                    };
+
+                case "reasoning":
+                case "thinking":
+                    // Reported through `Text`, tagged by `Type`, so the loop can route it without a
+                    // second field on the event record.
+                    return OpenCodeEvent.Empty with
+                    {
+                        Type = type,
+                        SessionId = sessionId,
+                        Text = StringOf(part, "text"),
                     };
 
                 case "step_finish":

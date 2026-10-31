@@ -90,22 +90,32 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
 
   useEffect(() => {
     loadWorkspaces();
-    loadClaudeGatewayConfig();
   }, [loadWorkspaces]);
+
+  // Read once on mount. This used to hang off the workspaces effect, so every render re-asked the
+  // bridge, and an action the bridge does not implement filled the log with a warning each time.
+  useEffect(() => {
+    void loadClaudeGatewayConfig();
+  }, []);
 
   const loadClaudeGatewayConfig = async () => {
     try {
-      const res = await webviewBridge.invoke('get_claude_gateway_state');
+      // The bridge answers `get_claude_gateway_config`; the base url and keys live on the active
+      // provider, not at the top level.
+      const res = await webviewBridge.invoke('get_claude_gateway_config');
       if (res) {
         if (res.selectedGatewayId) setGatewayProvider(res.selectedGatewayId);
-        if (res.baseUrl) setGatewayBaseUrl(res.baseUrl);
-        if (Array.isArray(res.apiKeys) && res.apiKeys.length > 0) {
-          setApiKeys(res.apiKeys);
-        } else if (res.apiKey) {
-          setApiKeys([res.apiKey]);
+
+        const provider = res.activeProvider;
+        if (provider?.baseUrl) setGatewayBaseUrl(provider.baseUrl);
+        if (Array.isArray(provider?.apiKeys) && provider.apiKeys.length > 0) {
+          setApiKeys(provider.apiKeys);
+        } else if (provider?.apiKey) {
+          setApiKeys([provider.apiKey]);
         }
-        if (res.isInjectionEnabled !== undefined) {
-          setIsInjectionEnabled(Boolean(res.isInjectionEnabled));
+
+        if (res.injectionEnabled !== undefined) {
+          setIsInjectionEnabled(Boolean(res.injectionEnabled));
         }
       }
     } catch {

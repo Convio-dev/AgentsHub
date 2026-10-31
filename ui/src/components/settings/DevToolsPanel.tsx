@@ -34,9 +34,14 @@ export const DevToolsPanel: React.FC = () => {
     addTool,
     removeTool,
     setExpandedToolId,
+    shortcutsVisible,
+    setShortcutsVisible,
+    updateTool,
+    setFeedbackMessage,
   } = useDevToolsStore();
 
   const [editTargetPath, setEditTargetPath] = useState('');
+  const [editName, setEditName] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newToolName, setNewToolName] = useState('');
   const [newToolTarget, setNewToolTarget] = useState('');
@@ -54,7 +59,31 @@ export const DevToolsPanel: React.FC = () => {
     } else {
       setExpandedToolId(tool.id);
       setEditTargetPath(tool.target);
+      setEditName(tool.name);
     }
+  };
+
+  /**
+   * Reads a picked image into the tool as a data URL. The cap is there because this value is stored
+   * in the config file and shown in a 32px tile, so a full screenshot would bloat the config for no
+   * visible gain.
+   */
+  const handlePickIcon = (tool: DevToolItem, file: File | undefined) => {
+    if (!file) return;
+
+    if (file.size > 96_000) {
+      setFeedbackMessage('That image is too large for a shortcut icon (96 KB maximum).');
+      setTimeout(() => setFeedbackMessage(null), 4000);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        void updateTool(tool.id, { iconDataUrl: reader.result });
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleBrowseTarget = async (id: string, name: string) => {
@@ -116,6 +145,30 @@ export const DevToolsPanel: React.FC = () => {
               <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-sky-500/10 text-accent border border-sky-500/30">
                 {readyCount} of {tools.length} ready
               </span>
+
+              {/* Governs the dashboard card, so the two pages cannot disagree about it. */}
+              <label
+                className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-xs text-[var(--text-dim,#64748B)] cursor-pointer"
+                title="Show the Programs & Quick Shortcuts card on the dashboard"
+              >
+                <span>Show on dashboard</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={shortcutsVisible}
+                  aria-label="Show shortcuts on the dashboard"
+                  onClick={() => void setShortcutsVisible(!shortcutsVisible)}
+                  className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
+                    shortcutsVisible ? 'bg-sky-600' : 'bg-slate-700'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                      shortcutsVisible ? 'left-4.5' : 'left-0.5'
+                    }`}
+                  />
+                </button>
+              </label>
 
               <button
                 type="button"
@@ -230,6 +283,60 @@ export const DevToolsPanel: React.FC = () => {
                   {/* Inline Edit Drawer */}
                   {isExpanded && (
                     <div className="p-4 bg-[var(--bg-card,#0F172A)] border-t border-[var(--border-subtle,#1E293B)] space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] text-[var(--text-dim,#64748B)] mb-1">Shortcut name</label>
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={e => setEditName(e.target.value)}
+                            placeholder={tool.name}
+                            className="w-full px-3 py-1.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-xs text-[var(--text-main,#F1F5F9)] focus:outline-none focus:border-sky-500"
+                          />
+                        </div>
+
+                        <div>
+                          <span className="block text-[11px] text-[var(--text-dim,#64748B)] mb-1">Shortcut image</span>
+                          <div className="flex items-center gap-2">
+                            <span className="w-8 h-8 flex-shrink-0 rounded-lg overflow-hidden bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-center">
+                              {tool.iconDataUrl ? (
+                                <img src={tool.iconDataUrl} alt="" className="w-full h-full object-contain" />
+                              ) : (
+                                <Wrench className="w-3.5 h-3.5 text-[var(--text-dim,#64748B)]" />
+                              )}
+                            </span>
+                            <label className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] hover:border-sky-500 text-[11px] text-[var(--text-dim,#64748B)] hover:text-[var(--text-main,#F1F5F9)] cursor-pointer transition">
+                              Choose image
+                              <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                                className="hidden"
+                                onChange={e => handlePickIcon(tool, e.target.files?.[0])}
+                              />
+                            </label>
+                            {tool.iconDataUrl ? (
+                              <button
+                                type="button"
+                                onClick={() => void updateTool(tool.id, { iconDataUrl: '' })}
+                                className="text-[11px] text-[var(--text-dim,#64748B)] hover:text-red-400 transition"
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      <label className="flex items-center gap-2 text-xs text-[var(--text-main,#F1F5F9)] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(tool.showOnDashboard)}
+                          onChange={e => void updateTool(tool.id, { showOnDashboard: e.target.checked })}
+                          className="w-4 h-4 rounded accent-sky-500"
+                        />
+                        <span>Show as a shortcut on the dashboard</span>
+                      </label>
+
                       <div className="text-xs font-bold text-[var(--text-main,#F1F5F9)]">Edit Executable Target Path</div>
                       <div className="flex items-center gap-2">
                         <input
@@ -251,7 +358,12 @@ export const DevToolsPanel: React.FC = () => {
                         <Button
                           variant="primary"
                           size="xs"
-                          onClick={() => handleSaveEdit(tool.id)}
+                          onClick={async () => {
+                            if (editName.trim() && editName.trim() !== tool.name) {
+                              await updateTool(tool.id, { name: editName.trim() });
+                            }
+                            await handleSaveEdit(tool.id);
+                          }}
                         >
                           <Save className="w-3.5 h-3.5 mr-1" />
                           Save

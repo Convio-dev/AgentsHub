@@ -112,6 +112,12 @@ public sealed class AntigravityProfileService : IDisposable
     public event Action<string>? LogMessage;
 
     private readonly Dictionary<string, string> _lastCapturedSignatures = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Fingerprint of the live session as it stood at the last successful export, per profile.
+    /// Reading it is what lets a rewrite of identical credentials cost nothing.
+    /// </summary>
+    private readonly Dictionary<string, string> _lastExportedSignatures = new(StringComparer.OrdinalIgnoreCase);
     private readonly bool _isInitialized = false;
 
     public AntigravityProfileService()
@@ -607,6 +613,19 @@ public sealed class AntigravityProfileService : IDisposable
                 // log used to say "exported" either way, which read like a duplicate was created
                 // every time the live session was captured into an existing profile.
                 bool profileExisted = Directory.Exists(targetDir);
+
+                // Same credentials as the last export: nothing to write and nothing worth logging.
+                // The CLI rewrites these files far more often than it changes them, and every write
+                // used to land a full export plus a "Refreshed credentials" line, which is what made
+                // an idle chat log the same sentence every few seconds.
+                string liveSignature = ComputeLiveSessionSignature();
+
+                if (profileExisted
+                    && _lastExportedSignatures.TryGetValue(profileName, out var lastSignature)
+                    && string.Equals(lastSignature, liveSignature, StringComparison.Ordinal))
+                {
+                    return true;
+                }
                 Directory.CreateDirectory(targetDir);
 
                 // Isolation Guard: ensure live credential matches target profile's expected identity!
@@ -738,6 +757,8 @@ public sealed class AntigravityProfileService : IDisposable
                 {
                     ProfileSessionCaptured?.Invoke(capturedProfile, capturedEmail ?? string.Empty);
                 }
+
+                _lastExportedSignatures[profileName] = liveSignature;
 
                 return true;
             }
@@ -1831,6 +1852,50 @@ public sealed class AntigravityProfileService : IDisposable
     private void Log(string msg)
     {
         LogMessage?.Invoke(msg);
+    }
+
+    /// <summary>
+    /// A fingerprint of the live session: the credential secret plus the two files it lands in.
+    ///
+    /// Hashing the content, not the timestamps, is the point. The CLI touches these files on every
+    /// cache write, so a stamp would keep changing while the credentials stay identical and the
+    /// export would keep running. The same content always produces the same signature.
+    /// </summary>
+    private string ComputeLiveSessionSignature()
+    {
+        var builder = new System.Text.StringBuilder();
+
+        builder.Append(Hash(ReadWindowsCredential()));
+        builder.Append('|').Append(Hash(ReadText(ResolveOAuthCredsPath(GeminiDir))));
+        builder.Append('|').Append(Hash(ReadText(ResolveGoogleAccountsPath(GeminiDir))));
+
+        return builder.ToString();
+
+        static string Hash(string? text)
+        {
+            if (string.IsNullOrEmpty(text)) return "-";
+
+            byte[] digest = System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(text));
+
+            return System.Convert.ToHexString(digest, 0, 8);
+        }
+
+        static string? ReadText(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                return reader.ReadToEnd();
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 
     private string ComputeSessionSignature(string targetDir, string email)

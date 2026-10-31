@@ -61,6 +61,16 @@ public sealed partial class DashboardWebBridge : IDisposable
             var vyceProgress = new Progress<string>(text =>
                 PostEventToUi("chat_token", new { sessionId, text, timestamp = DateTime.UtcNow.ToString("O") }));
 
+            // Vyce publishes no event stream: its TUI draws reasoning and tool calls on a screen the
+            // app never reads, so "the turn is under way" is the only signal available. The row is
+            // live while it runs and is pruned on settle if nothing streamed into it.
+            PostEventToUi("thinking", new
+            {
+                sessionId,
+                text = string.Empty,
+                timestamp = DateTime.UtcNow.ToString("O"),
+            });
+
             _ = Task.Run(async () =>
             {
                 try
@@ -73,6 +83,14 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         sessionId,
                         text = reply.Text,
+                        timestamp = DateTime.UtcNow.ToString("O"),
+                    });
+
+                    PostEventToUi("thinking", new
+                    {
+                        sessionId,
+                        text = string.Empty,
+                        state = "done",
                         timestamp = DateTime.UtcNow.ToString("O"),
                     });
 
@@ -89,6 +107,15 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         sessionId,
                         text = $"Vyce could not answer: {ex.Message}",
+                        timestamp = DateTime.UtcNow.ToString("O"),
+                    });
+
+                    // A failed turn must not leave a Thought row spinning.
+                    PostEventToUi("thinking", new
+                    {
+                        sessionId,
+                        text = string.Empty,
+                        state = "done",
                         timestamp = DateTime.UtcNow.ToString("O"),
                     });
 
@@ -131,6 +158,11 @@ public sealed partial class DashboardWebBridge : IDisposable
             var openProgress = new Progress<string>(text =>
                 PostEventToUi("chat_token", new { sessionId, text, timestamp = DateTime.UtcNow.ToString("O") }));
 
+            // Reasoning parts are not the answer. Passing them as `thinking` is what gives the turn
+            // a Thought row instead of either hiding the work or pasting it into the reply.
+            IProgress<string> openThinking = new Progress<string>(text =>
+                PostEventToUi("thinking", new { sessionId, text, timestamp = DateTime.UtcNow.ToString("O") }));
+
             _ = Task.Run(async () =>
             {
                 try
@@ -144,8 +176,19 @@ public sealed partial class DashboardWebBridge : IDisposable
                             openAuto,
                             openFiles.Count > 0 ? openFiles : null,
                             openProgress,
-                            tool => PostOpenCodeTool(sessionId, tool))
+                            tool => PostOpenCodeTool(sessionId, tool),
+                            text => openThinking.Report(text))
                         .ConfigureAwait(false);
+
+                    // Close the Thought row. A step that streamed no reasoning is pruned by the
+                    // store on settle, so the transcript never keeps an empty one.
+                    PostEventToUi("thinking", new
+                    {
+                        sessionId,
+                        text = string.Empty,
+                        state = "done",
+                        timestamp = DateTime.UtcNow.ToString("O"),
+                    });
 
                     // The CLI's own id, stored on the session, so the next turn continues
                     // this conversation instead of starting another one.
@@ -179,6 +222,15 @@ public sealed partial class DashboardWebBridge : IDisposable
                     {
                         sessionId,
                         text = $"OpenCode could not answer: {ex.Message}",
+                        timestamp = DateTime.UtcNow.ToString("O"),
+                    });
+
+                    // A failed turn must not leave a Thought row spinning.
+                    PostEventToUi("thinking", new
+                    {
+                        sessionId,
+                        text = string.Empty,
+                        state = "done",
                         timestamp = DateTime.UtcNow.ToString("O"),
                     });
 

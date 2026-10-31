@@ -293,6 +293,7 @@ if (args.Contains("--opencode"))
             files: null,
             new Progress<string>(text => { lock (openChunks) openChunks.Add(text); }),
             tool => { lock (openTools) openTools.Add(tool); },
+            onThinking: null,
             openCts.Token);
 
         Console.WriteLine($"chunks: {openChunks.Count}");
@@ -314,6 +315,7 @@ if (args.Contains("--opencode"))
                 files: null,
                 progress: null,
                 onTool: null,
+                onThinking: null,
                 openCts.Token);
 
             Console.WriteLine($"second turn: {again.Text.Trim()}");

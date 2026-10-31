@@ -15,8 +15,6 @@ import {
   EyeOff,
   Shield,
   Plus,
-  Lock,
-  Unlock,
   Check,
   Zap,
   Folder,
@@ -24,10 +22,12 @@ import {
   Server,
   X,
   Compass,
+  Wrench,
 } from 'lucide-react';
 import { useSidecarStore } from '../store/useSidecarStore';
 import { useGuideStore } from '../store/useGuideStore';
 import { useLanStore } from '../store/useLanStore';
+import { useDevToolsStore } from '../store/useDevToolsStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { useSessionStore } from '../store/useSessionStore';
 import { webviewBridge } from '../services/webviewBridge';
@@ -41,6 +41,8 @@ export const DashboardView: React.FC = () => {
   const openGuide = useGuideStore(state => state.open);
   // LAN is off by default, so any LAN element on this page has to disappear with it.
   const { running: lanRunning, lanIp, gatewayPort } = useLanStore();
+  // The shortcut card is the AI Dev Tools list, filtered to the tools marked for the dashboard.
+  const { tools: devTools, shortcutsVisible, loadTools: loadDevTools, launchTool, updateTool } = useDevToolsStore();
   // Dismissed once, gone for good: a checklist that returns on every launch is noise, not help.
   const [showQuickstart, setShowQuickstart] = useState(() => {
     try {
@@ -59,8 +61,14 @@ export const DashboardView: React.FC = () => {
   const [selectedPort, setSelectedPort] = useState<string>('9119');
   const [isLanMode, setIsLanMode] = useState<boolean>(false);
   const [showEmail, setShowEmail] = useState<boolean>(false);
-  const [shortcutsLocked, setShortcutsLocked] = useState<boolean>(true);
   const [maskPaths, setMaskPaths] = useState<boolean>(true);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+
+  useEffect(() => {
+    void loadDevTools();
+  }, [loadDevTools]);
+
+  const dashboardShortcuts = devTools.filter(tool => tool.showOnDashboard && tool.enabled !== false);
   const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
 
   const activeProfile = profiles.find(p => p.name === activeProfileName) || profiles[0];
@@ -96,10 +104,6 @@ export const DashboardView: React.FC = () => {
   // Fixed: Calls C# 'open_system_shell' with shell name and asAdmin boolean
   const launchShell = (shell: 'cmd' | 'powershell', asAdmin: boolean) => {
     webviewBridge.invoke('open_system_shell', { shell, asAdmin });
-  };
-
-  const launchTool = (toolId: string) => {
-    webviewBridge.invoke('launch_tool', { toolId });
   };
 
   // Sparkline SVG path generator
@@ -196,9 +200,14 @@ export const DashboardView: React.FC = () => {
         </div>
       )}
 
-      {/* Grid of Main Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* CARD 1: WEB APP HOSTS & RUNNING PORTS */}
+      {/* Grid of Main Cards. Two columns only while both cards exist, so hiding the LAN card does
+          not leave an empty column beside a half-width one. */}
+      <div className={`grid grid-cols-1 gap-5 ${lanRunning ? 'md:grid-cols-2' : ''}`}>
+        {/* CARD 1: WEB APP HOSTS & RUNNING PORTS
+            Only while LAN access is on. With it off nothing is bound, so the card would advertise
+            ports that are not reachable from another device, which is the state Remote Access says
+            is "No ports are bound". */}
+        {lanRunning ? (
         <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
@@ -271,6 +280,7 @@ export const DashboardView: React.FC = () => {
             ))}
           </div>
         </div>
+        ) : null}
 
         {/* CARD 2: STANDALONE TERMINALS */}
         <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
@@ -392,7 +402,10 @@ export const DashboardView: React.FC = () => {
 
       </div>
 
-      {/* CARD 5: PROGRAMS & QUICK SHORTCUTS */}
+      {/* CARD 5: PROGRAMS & QUICK SHORTCUTS
+          Built from the AI Dev Tools list, so a tool appears here because it is configured rather
+          than because it is hardcoded. Hidden when that list is switched off in Settings. */}
+      {shortcutsVisible ? (
       <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -406,11 +419,14 @@ export const DashboardView: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShortcutsLocked(!shortcutsLocked)}
-              className="p-1.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-[var(--text-dim,#64748B)] hover:text-[var(--text-main,#F1F5F9)] transition-colors"
-              title={shortcutsLocked ? 'Unlock shortcuts' : 'Lock shortcuts'}
+              onClick={() => {
+                setActiveView('settings');
+                setSettingsCategory('devtools');
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-[11px] text-[var(--text-dim,#64748B)] hover:text-[var(--text-main,#F1F5F9)] hover:border-sky-500 transition-colors"
+              title="Rename shortcuts, set an image, or hide this card in Settings → AI Dev Tools"
             >
-              {shortcutsLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5 text-state-warning" />}
+              Manage
             </button>
             <button
               onClick={() => setMaskPaths(!maskPaths)}
@@ -419,63 +435,93 @@ export const DashboardView: React.FC = () => {
             >
               {maskPaths ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             </button>
-            <Button variant="primary" size="xs">
+            <Button variant="primary" size="xs" onClick={() => setIsPickerOpen(open => !open)}>
               <Plus className="w-3 h-3 mr-1" />
               Add Shortcut
             </Button>
           </div>
         </div>
 
+        {isPickerOpen ? (
+          <div className="rounded-xl border border-sky-500/30 bg-sky-500/[0.06] p-3 space-y-2">
+            <p className="text-[11px] text-[var(--text-dim,#64748B)]">
+              Pick the tools that belong on this card. The rest stay only in Settings.
+            </p>
+            {devTools.length === 0 ? (
+              <p className="text-[11px] text-[var(--text-dim,#64748B)]">
+                No dev tools yet. Add one in Settings → AI Dev Tools.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {devTools.map(tool => (
+                  <button
+                    key={tool.id}
+                    type="button"
+                    aria-pressed={Boolean(tool.showOnDashboard)}
+                    onClick={() => void updateTool(tool.id, { showOnDashboard: !tool.showOnDashboard })}
+                    className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-[11px] cursor-pointer transition-colors ${
+                      tool.showOnDashboard
+                        ? 'border-sky-500/50 bg-sky-500/10 text-[var(--text-main,#F1F5F9)]'
+                        : 'border-[var(--border-subtle,#1E293B)] text-[var(--text-dim,#64748B)] hover:text-[var(--text-main,#F1F5F9)]'
+                    }`}
+                  >
+                    <span
+                      className={`flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded border ${
+                        tool.showOnDashboard
+                          ? 'border-sky-500 bg-sky-500 text-slate-950'
+                          : 'border-[var(--border-subtle,#1E293B)]'
+                      }`}
+                    >
+                      {tool.showOnDashboard ? <Check className="h-2.5 w-2.5" /> : null}
+                    </span>
+                    <span className="truncate">{tool.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+
         {/* Shortcuts Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {[
-            {
-              name: 'Antigravity IDE',
-              path: 'C:\\Users\\Gaming\\AppData\\Local\\Programs\\Antigravity\\Antigravity.exe',
-              icon: Zap,
-              color: 'text-accent',
-              id: 'antigravity_ide',
-            },
-            {
-              name: 'Claude Desktop',
-              path: 'C:\\Users\\Gaming\\AppData\\Local\\Anthropic\\Claude\\Claude.exe',
-              icon: Globe,
-              color: 'text-state-warning',
-              id: 'claude_desktop',
-            },
-            {
-              name: 'Antigravity App',
-              path: 'C:\\Users\\Gaming\\AppData\\Local\\Programs\\AntigravityApp\\app.exe',
-              icon: Terminal,
-              color: 'text-state-success',
-              id: 'antigravity_app',
-            },
-          ].map(sc => {
-            const Icon = sc.icon;
-            return (
+        {dashboardShortcuts.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-[var(--border-subtle,#1E293B)] p-5 text-center">
+            <p className="text-xs text-[var(--text-main,#F1F5F9)]">No shortcuts on the dashboard yet.</p>
+            <p className="mt-1 text-[11px] text-[var(--text-dim,#64748B)]">
+              Use Add Shortcut to pick from your AI dev tools.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {dashboardShortcuts.map(tool => (
               <div
-                key={sc.name}
-                className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-between group hover:border-sky-500/50 transition-all shadow-xs"
+                key={tool.id}
+                className="p-3.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-between gap-2 group hover:border-sky-500/50 transition-all shadow-xs"
               >
                 <div className="flex items-center gap-3 overflow-hidden">
-                  <div className={`w-8 h-8 rounded-lg bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-center ${sc.color}`}>
-                    <Icon className="w-4 h-4" />
+                  <div className="w-8 h-8 flex-shrink-0 rounded-lg bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] flex items-center justify-center text-accent overflow-hidden">
+                    {tool.iconDataUrl ? (
+                      <img src={tool.iconDataUrl} alt="" className="w-full h-full object-contain" />
+                    ) : (
+                      <Wrench className="w-4 h-4" />
+                    )}
                   </div>
                   <div className="truncate">
-                    <div className="text-xs font-semibold text-[var(--text-main,#F1F5F9)]">{sc.name}</div>
+                    <div className="text-xs font-semibold text-[var(--text-main,#F1F5F9)] truncate">{tool.name}</div>
                     <div className="text-[10px] text-[var(--text-dim,#64748B)] font-mono truncate">
-                      {maskPaths ? '**' : sc.path}
+                      {maskPaths ? '**' : tool.target}
                     </div>
                   </div>
                 </div>
-                <Button variant="secondary" size="xs" onClick={() => launchTool(sc.id)}>
+                <Button variant="secondary" size="xs" onClick={() => void launchTool(tool.id)}>
                   Launch
                 </Button>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      ) : null}
 
       {/* CARD 6: CORE ENGINE & CLI CONTROLLERS */}
       <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">

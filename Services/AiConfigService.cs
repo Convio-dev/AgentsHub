@@ -98,6 +98,20 @@ public class DevToolItem
 
     [JsonPropertyName("isEnabled")]
     public bool IsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether this tool is one of the dashboard's quick shortcuts. Off by default so a tool the
+    /// user adds for the settings list does not silently appear on the dashboard.
+    /// </summary>
+    [JsonPropertyName("showOnDashboard")]
+    public bool ShowOnDashboard { get; set; } = false;
+
+    /// <summary>
+    /// Small image for the shortcut card, stored inline as a data URL. Empty means the card falls
+    /// back to a glyph, which keeps the config readable for anyone who never picks an image.
+    /// </summary>
+    [JsonPropertyName("iconDataUrl")]
+    public string IconDataUrl { get; set; } = "";
 }
 
 public class ClaudeGatewayProvider
@@ -202,6 +216,17 @@ public class AiConfig
     public string? SelectedProviderId { get; set; }
     public string? SelectedModel { get; set; }
     public List<DashboardShortcut> Shortcuts { get; set; } = [];
+
+    /// <summary>Whether the dashboard shows its Programs & Quick Shortcuts card at all.</summary>
+    [JsonPropertyName("shortcutsVisible")]
+    public bool ShortcutsVisible { get; set; } = true;
+
+    /// <summary>
+    /// Set once the first-run selection has been made, so a user who deliberately removes every
+    /// shortcut does not get three back on the next launch.
+    /// </summary>
+    [JsonPropertyName("shortcutsSeeded")]
+    public bool ShortcutsSeeded { get; set; } = false;
     public List<CliWorkspaceConfig> CliWorkspaces { get; set; } = [];
 
     [JsonPropertyName("workspaces")]
@@ -295,6 +320,39 @@ public class AiConfigService
             }
 
             EnsureDefaults();
+        }
+    }
+
+    /// <summary>
+    /// Chooses the dashboard shortcuts on first run: up to three tools that are switched on and
+    /// whose executable actually resolves on this machine, so a fresh install shows what is really
+    /// there instead of a fixed list. Runs once; afterwards the selection belongs to the user.
+    /// </summary>
+    public void EnsureDashboardShortcuts()
+    {
+        lock (_lock)
+        {
+            if (_config.ShortcutsSeeded) return;
+
+            var candidates = (_config.DevTools ?? [])
+                .Where(tool => tool.IsEnabled && !string.IsNullOrWhiteSpace(tool.Target))
+                .Select(tool => new { Tool = tool, Health = DevToolTargets.Check(tool.Target) })
+                .Where(candidate => candidate.Health.Launchable)
+                .Take(3)
+                .ToList();
+
+            // Nothing installed yet. Leave the flag unset so a tool added later still gets picked,
+            // and skip the write: this runs on every tools read.
+            if (candidates.Count == 0) return;
+
+            _config.ShortcutsSeeded = true;
+
+            foreach (var candidate in candidates)
+            {
+                candidate.Tool.ShowOnDashboard = true;
+            }
+
+            SaveConfig(_config);
         }
     }
 

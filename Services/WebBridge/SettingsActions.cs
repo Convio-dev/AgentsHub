@@ -769,9 +769,17 @@ public sealed partial class DashboardWebBridge : IDisposable
 
     private Task HandleGetDevToolsAsync(string? requestId)
     {
+        // First run picks the dashboard shortcuts from what is actually installed on this machine.
+        // Idempotent: it marks itself done, so a user who clears the shortcuts keeps them cleared.
+        AiConfigService.Instance.EnsureDashboardShortcuts();
+
         // Local reads only: File.Exists per tool. Cheap enough to call whenever the view
         // opens, so the path health on screen is never stale.
-        SendResponse(requestId, true, new { devTools = BuildDevToolDtos() });
+        SendResponse(requestId, true, new
+        {
+            devTools = BuildDevToolDtos(),
+            shortcutsVisible = AiConfigService.Instance.CurrentConfig.ShortcutsVisible
+        });
 
         return Task.CompletedTask;
     }
@@ -1493,6 +1501,8 @@ public sealed partial class DashboardWebBridge : IDisposable
                 arguments = d.Arguments,
                 workingDirectory = d.WorkingDirectory,
                 isEnabled = d.IsEnabled,
+                showOnDashboard = d.ShowOnDashboard,
+                iconDataUrl = d.IconDataUrl,
                 health = new
                 {
                     state = health.State.ToString().ToLowerInvariant(),

@@ -291,7 +291,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         aria-expanded={isOpen}
         data-testid="model-selector-trigger"
         title={`Model: ${activeLabel}${activeEffortLabel ? ` · effort ${activeEffortLabel}` : ''}`}
-        className="flex max-w-[240px] items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 font-mono text-[11px] text-content-muted transition-colors hover:border-surface-border hover:bg-surface-hover hover:text-content-main disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex max-w-[240px] items-center gap-1.5 rounded-md border border-surface-border/70 bg-surface-card/50 px-2 py-1 font-mono text-[11px] text-content-muted transition-colors hover:border-surface-border hover:bg-surface-hover hover:text-content-main focus-visible:border-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
         <Sparkles className="h-3 w-3 flex-shrink-0 text-accent" />
         <span className="truncate">{shortLabel(activeLabel)}</span>

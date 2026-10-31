@@ -140,7 +140,7 @@ export const VyceModelChip: React.FC<VyceModelChipProps> = ({ workingDirectory }
         onClick={toggle}
         aria-haspopup="listbox"
         aria-expanded={anchor !== null}
-        className="flex max-w-[240px] items-center gap-1.5 rounded-lg border border-transparent px-1.5 py-1 font-mono text-[11px] text-content-muted transition-colors hover:border-surface-border hover:bg-surface-hover hover:text-content-main"
+        className="flex max-w-[240px] items-center gap-1.5 rounded-md border border-surface-border/70 bg-surface-card/50 px-2 py-1 font-mono text-[11px] text-content-muted transition-colors hover:border-surface-border hover:bg-surface-hover hover:text-content-main focus-visible:border-accent focus-visible:outline-none"
       >
         <Cpu className="h-3 w-3 flex-shrink-0 text-emerald-400" />
         <span className="truncate">{label}</span>
