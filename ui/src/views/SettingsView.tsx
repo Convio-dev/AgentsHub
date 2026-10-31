@@ -2169,20 +2169,25 @@ export const SettingsView: React.FC = () => {
                 {/* Console view */}
                 <div
                   ref={logConsoleRef}
-                  className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] font-mono text-xs text-content-muted h-80 overflow-y-auto space-y-1"
+                  className="p-2.5 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] font-mono text-[11px] text-content-muted h-80 overflow-y-auto select-text"
                 >
+                  {/* Fixed columns: a wrapped source name used to push the message onto separate
+                      lines and make two adjacent entries look like four. */}
                   {filteredLogs.map(l => (
-                    <div key={l.id} className="flex items-start gap-2 leading-relaxed">
-                      <span className="text-[var(--text-dim,#64748B)]">{l.timestamp}</span>
+                    <div
+                      key={l.id}
+                      className="grid grid-cols-[58px_40px_132px_1fr] items-baseline gap-2 rounded px-1 py-[3px] leading-relaxed hover:bg-white/[0.03]"
+                    >
+                      <span className="tabular-nums text-[10px] text-[var(--text-dim,#64748B)]">{l.timestamp}</span>
                       <span
-                        className={`font-bold uppercase text-[10px] px-1 py-0.2 rounded ${
+                        className={`text-center text-[9px] font-bold uppercase tracking-wide rounded ${
                           l.level === 'error' ? 'text-state-danger bg-rose-500/10' : l.level === 'warn' ? 'text-state-warning bg-amber-500/10' : 'text-state-success bg-emerald-500/10'
                         }`}
                       >
                         {l.level}
                       </span>
-                      <span className="text-accent font-medium">[{l.source}]</span>
-                      <span className="text-content-main">{l.message}</span>
+                      <span className="truncate text-accent" title={l.source}>{l.source}</span>
+                      <span className="break-words text-content-main">{l.message}</span>
                     </div>
                   ))}
 

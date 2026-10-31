@@ -603,6 +603,10 @@ public sealed class AntigravityProfileService : IDisposable
                 }
 
                 string targetDir = Path.Combine(ProfilesBaseDir, profileName);
+                // Whether this run creates the profile or overwrites one that is already there. The
+                // log used to say "exported" either way, which read like a duplicate was created
+                // every time the live session was captured into an existing profile.
+                bool profileExisted = Directory.Exists(targetDir);
                 Directory.CreateDirectory(targetDir);
 
                 // Isolation Guard: ensure live credential matches target profile's expected identity!
@@ -710,7 +714,10 @@ public sealed class AntigravityProfileService : IDisposable
                 meta.LastExportUtc = DateTime.UtcNow;
                 SaveProfileMetadata(profileName, meta);
 
-                Log($"Session successfully exported to profile '{profileName}' ({(!string.IsNullOrWhiteSpace(email) ? email : "tokens secured")}).");
+                string identity = !string.IsNullOrWhiteSpace(email) ? email : "tokens secured";
+                Log(profileExisted
+                    ? $"Refreshed credentials of existing profile '{profileName}' ({identity})."
+                    : $"Created profile '{profileName}' from the current session ({identity}).");
                 ProfileSaved?.Invoke(profileName);
 
                 string? capturedProfile = null;

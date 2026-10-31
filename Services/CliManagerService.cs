@@ -84,10 +84,9 @@ public class CliManagerService : IDisposable
             LogMessage?.Invoke("Antigravity Profile", msg);
         };
 
-        _profileService.ProfileSaved += (name) =>
-        {
-            LogMessage?.Invoke("Antigravity Profile", $"Saved credentials for profile '{name}'.");
-        };
+        // ProfileSaved fires for every metadata write, including toggles and allow-rules, so a
+        // "Saved credentials" line from here appeared after unrelated changes and, right after an
+        // export, repeated the export's own message. Each caller already logs what it changed.
 
         _cliStates["Hub"] = new CliItemInfo
         {
