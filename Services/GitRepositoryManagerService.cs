@@ -747,7 +747,8 @@ public sealed class GitRepositoryManagerService
             return (false, outText, false, "");
         }
 
-        SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created", "modern", 60);
+        // Theme and volume are left to the saved config; passing them here overrode the user's choice.
+        SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created");
 
         if (!pushToRemote)
         {

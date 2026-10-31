@@ -97,7 +97,7 @@ public partial class MainForm : Form
             _lanProxyService.Start(
                 savedLanPort,
                 savedEnginePort,
-                Services.LanProxyService.ReadSelectedDirectPorts(savedEnginePort));
+                Services.LanProxyService.ReadSelectedDirectPorts());
         }
 
         try

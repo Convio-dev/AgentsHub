@@ -55,8 +55,10 @@ export const useLanStore = create<LanState>((set, get) => ({
   gatewayPort: 9191,
   bindError: '',
   forwarders: [],
-  available: [{ port: 9119, label: 'Hub' }, { port: 9229, label: 'Claude Code' }, { port: 9339, label: 'Antigravity' }],
-  selected: [9119, 9339],
+  // Mirrors LanProxyService.DefaultDirectPorts(). The dashboard is reachable through the gateway
+  // port, so it is not offered here as its own entry.
+  available: [{ port: 9229, label: 'Claude Code' }, { port: 9339, label: 'Antigravity' }],
+  selected: [9339],
   hasLoaded: false,
   isBusy: false,
   error: null,

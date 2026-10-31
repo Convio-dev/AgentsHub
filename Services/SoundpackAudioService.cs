@@ -134,6 +134,10 @@ public sealed class SoundpackAudioService
 
     private static void PlayVocalCue(string eventName)
     {
+        // Speech synthesis here goes through Windows SAPI, which only exists on Windows. The other
+        // themes are synthesized in-process, so they work everywhere.
+        if (!OperatingSystem.IsWindows()) return;
+
         try
         {
             string speech = eventName switch

@@ -99,7 +99,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         var snapshot = await WorkspaceSnapshotService.Instance.CreateSnapshotAsync(wsId, title ?? "Manual Snapshot", trigger ?? "Manual").ConfigureAwait(false);
         if (snapshot != null)
         {
-            SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created", "modern", 50);
+            SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created");
             SendResponse(requestId, true, new { success = true, snapshot });
         }
         else
@@ -118,7 +118,7 @@ public sealed partial class DashboardWebBridge : IDisposable
             var (success, restoredCount) = await WorkspaceSnapshotService.Instance.RollbackSnapshotAsync(snapshotId, wsId).ConfigureAwait(false);
             if (success)
             {
-                SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created", "modern", 60);
+                SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created");
                 SendResponse(requestId, true, new { success = true, restoredCount });
             }
             else

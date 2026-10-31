@@ -158,11 +158,11 @@ public sealed class ScheduledAutomationService : IDisposable
 
                 if (proc.ExitCode == 0)
                 {
-                    SoundpackAudioService.Instance.PlaySoundEvent("task_done", "modern", 50);
+                    SoundpackAudioService.Instance.PlaySoundEvent("task_done");
                 }
                 else
                 {
-                    SoundpackAudioService.Instance.PlaySoundEvent("task_failed", "modern", 70);
+                    SoundpackAudioService.Instance.PlaySoundEvent("task_failed");
                 }
 
                 lock (_lock)

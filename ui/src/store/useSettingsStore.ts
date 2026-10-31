@@ -366,14 +366,6 @@ const defaultDependencies: DependencyItem[] = [];
 // Deliberately empty: the panel shows nothing until a real scan returns.
 const defaultDiagnostics: DiagnosticItem[] = [];
 
-const defaultLogs: LogEntry[] = [
-  { id: '1', timestamp: '[00:00:01]', level: 'info', source: 'System', message: 'Agents Hub Core Host started (net10.0-windows)' },
-  { id: '2', timestamp: '[00:00:02]', level: 'info', source: 'System', message: 'Virtual host mapped: https://app.agentshub.local' },
-  { id: '3', timestamp: '[00:00:02]', level: 'info', source: 'CLIs', message: 'Bun sidecar engine listening on port 9119' },
-  { id: '4', timestamp: '[00:00:03]', level: 'info', source: 'System', message: 'Discord RPC service initialized (App ID: 1562567704941174834)' },
-  { id: '5', timestamp: '[00:00:03]', level: 'info', source: 'System', message: 'UI SPA loaded with React 19 + TypeScript + Vite' },
-];
-
 // Module-level so the debounce survives re-renders.
 let autoSaveTimer: number | null = null;
 
@@ -445,7 +437,9 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
   securityGatekeeperEnabled: true,
   securityAuditResults: null,
 
-  logs: defaultLogs,
+  // Starts empty and fills from real events: the host's live_log_entry stream plus the front-end
+  // capture in services/uiLogger.ts.
+  logs: [],
   logsFilter: 'all',
   logsSearch: '',
   autoScroll: true,
@@ -589,6 +583,14 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
           soundpackEnabled: res.isEnabled ?? res.IsEnabled ?? false,
           soundpackTheme: res.theme || res.Theme || 'modern',
           soundpackVolume: res.volume ?? res.Volume ?? 70,
+          // The host stores each trigger as its own flat flag, so they have to be mapped back
+          // individually. Reading only the three fields above is what made the checkboxes reset.
+          soundpackEvents: {
+            taskDone: res.notifyTaskDone ?? res.NotifyTaskDone ?? true,
+            approval: res.notifyApproval ?? res.NotifyApproval ?? true,
+            checkpoint: res.notifyCheckpoint ?? res.NotifyCheckpoint ?? true,
+            error: res.notifyError ?? res.NotifyError ?? true,
+          },
         });
       }
     } catch {}
@@ -596,11 +598,15 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
 
   saveSoundpackConfig: async (overrides = {}) => {
     const { soundpackEnabled, soundpackTheme, soundpackVolume, soundpackEvents } = get();
+    const events = overrides.soundpackEvents ?? soundpackEvents;
     const cfg = {
       isEnabled: overrides.soundpackEnabled ?? soundpackEnabled,
       theme: overrides.soundpackTheme ?? soundpackTheme,
       volume: overrides.soundpackVolume ?? soundpackVolume,
-      events: overrides.soundpackEvents ?? soundpackEvents,
+      notifyTaskDone: events.taskDone,
+      notifyApproval: events.approval,
+      notifyCheckpoint: events.checkpoint,
+      notifyError: events.error,
     };
     try {
       await webviewBridge.invoke('save_soundpack_config', { config: cfg });
@@ -608,7 +614,7 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
         soundpackEnabled: cfg.isEnabled,
         soundpackTheme: cfg.theme,
         soundpackVolume: cfg.volume,
-        soundpackEvents: cfg.events,
+        soundpackEvents: events,
       });
     } catch (err) {
       console.warn('Failed to save soundpack config:', err);
@@ -843,9 +849,13 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
   clearLogs: () => set({ logs: [] }),
 
   addLogEntry: entry => {
-    set(state => ({
-      logs: [...state.logs, { ...entry, id: Math.random().toString(36).substring(7) }],
-    }));
+    set(state => {
+      const next = [...state.logs, { ...entry, id: Math.random().toString(36).substring(7) }];
+      // An append-only console is a leak in a session that runs for hours; the oldest lines go
+      // first and the file on disk keeps the full history.
+      if (next.length > 500) next.splice(0, next.length - 500);
+      return { logs: next };
+    });
   },
 
   refreshDiscordRpc: async () => {

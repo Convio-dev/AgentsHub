@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import {
   Palette,
   Sliders,
   Cpu,
   Boxes,
-  Volume2,
   Share2,
   ShieldCheck,
   Wifi,
@@ -84,6 +83,9 @@ import { Button } from '../components/common/Button';
 
 export const SettingsView: React.FC = () => {
   const { autoRunDefaultProfile, defaultProfileName, setAutoRunDefaultProfile } = useProfileStore();
+  // The log console is the only scroll container on this page. Auto-Scroll used to flip a label
+  // without touching it, so new lines landed below the fold.
+  const logConsoleRef = useRef<HTMLDivElement | null>(null);
 
   const {
     settings,
@@ -411,7 +413,6 @@ export const SettingsView: React.FC = () => {
     { id: 'appearance', label: 'Appearance & Theme', icon: Palette },
     { id: 'general', label: 'General & System', icon: Sliders },
     { id: 'engines', label: 'AI Engines & Runtimes', icon: Cpu },
-    { id: 'audio', label: 'Audio & Soundpack', icon: Volume2 },
     { id: 'integrations', label: 'Webhooks & Discord', icon: Share2 },
     { id: 'devtools', label: 'AI Dev Tools', icon: Wrench },
     { id: 'lan', label: 'Remote Access', icon: Wifi },
@@ -466,6 +467,14 @@ export const SettingsView: React.FC = () => {
     }
     return true;
   });
+
+  // Follow the tail of the log console while Auto-Scroll is on. Running here instead of on every
+  // log write keeps the scroll tied to what is actually rendered.
+  useEffect(() => {
+    if (!autoScroll) return;
+    const el = logConsoleRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [filteredLogs, autoScroll]);
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg-app,#090D16)] text-[var(--text-main,#F1F5F9)] select-none">
@@ -966,6 +975,107 @@ export const SettingsView: React.FC = () => {
                   </Button>
                 </div>
               </div>
+
+              {/* Soundpack is one preference, not a page of its own, so it belongs with the
+                  other system toggles. It saves as you change it. */}
+              <div className="p-5 rounded-xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">SOUNDPACK & AUDIO CHIMES</h3>
+                  <p className="text-xs text-[var(--text-dim,#64748B)] mt-0.5">
+                    Cues for agent events, checkpoints, and approvals. Silent until you switch it on.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[var(--text-main,#F1F5F9)]">
+                    <input
+                      type="checkbox"
+                      checked={soundpackEnabled}
+                      onChange={e => saveSoundpackConfig({ soundpackEnabled: e.target.checked })}
+                      className="w-4 h-4 rounded accent-sky-500"
+                    />
+                    <span>Audio: {soundpackEnabled ? 'On' : 'Off'}</span>
+                  </label>
+
+                  <Button variant="secondary" size="xs" leftIcon={<Play className="w-3 h-3" />} onClick={() => playSoundEvent('task_done')}>
+                    Test Audio
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
+                  <div>
+                    <label className="text-xs font-semibold text-[var(--text-muted,#94A3B8)] block mb-1">Soundpack Theme:</label>
+                    <select
+                      value={soundpackTheme}
+                      onChange={e => saveSoundpackConfig({ soundpackTheme: e.target.value as any })}
+                      className="w-full px-2.5 py-1.5 rounded bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] text-xs text-[var(--text-main,#F1F5F9)]"
+                    >
+                      <option value="modern">Modern Synthesizer (Clean Chimes)</option>
+                      <option value="arcade">Arcade 8-Bit (Retro Chiptune)</option>
+                      <option value="scifi">Sci-Fi Ambient (Subtle Sonar)</option>
+                      <option value="vocal">Vocal Synthesis (Speech Cue)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-semibold text-[var(--text-muted,#94A3B8)]">Master Volume:</span>
+                      <span className="font-mono text-accent font-bold">{soundpackVolume}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={soundpackVolume}
+                      onChange={e => saveSoundpackConfig({ soundpackVolume: Number(e.target.value) })}
+                      className="w-full accent-sky-500 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-[var(--text-muted,#94A3B8)]">Trigger audio on:</div>
+                  <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--text-main,#F1F5F9)]">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={soundpackEvents.taskDone}
+                        onChange={e => saveSoundpackConfig({ soundpackEvents: { ...soundpackEvents, taskDone: e.target.checked } })}
+                        className="w-4 h-4 rounded accent-sky-500"
+                      />
+                      <span>Task completed</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={soundpackEvents.approval}
+                        onChange={e => saveSoundpackConfig({ soundpackEvents: { ...soundpackEvents, approval: e.target.checked } })}
+                        className="w-4 h-4 rounded accent-sky-500"
+                      />
+                      <span>Approval needed</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={soundpackEvents.checkpoint}
+                        onChange={e => saveSoundpackConfig({ soundpackEvents: { ...soundpackEvents, checkpoint: e.target.checked } })}
+                        className="w-4 h-4 rounded accent-sky-500"
+                      />
+                      <span>Checkpoint created</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={soundpackEvents.error}
+                        onChange={e => saveSoundpackConfig({ soundpackEvents: { ...soundpackEvents, error: e.target.checked } })}
+                        className="w-4 h-4 rounded accent-sky-500"
+                      />
+                      <span>Task failed</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -1320,117 +1430,6 @@ export const SettingsView: React.FC = () => {
             </div>
           )}
 
-
-          {/* ======================================================== */}
-          {/* 5. AUDIO & SOUNDPACK */}
-          {/* ======================================================== */}
-          {activeCategory === 'audio' && (
-            <div className="max-w-3xl space-y-6">
-              <div className="p-5 rounded-xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] space-y-5">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">ACOUSTIC SOUNDPACK ENGINE & AUDIO CHIMES</h3>
-                    <p className="text-xs text-[var(--text-dim,#64748B)]">
-                      Synthesized auditory cues for agent events, checkpoints, and approvals (Turned Off by default)
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[var(--text-main,#F1F5F9)]">
-                      <input
-                        type="checkbox"
-                        checked={soundpackEnabled}
-                        onChange={e => saveSoundpackConfig({ soundpackEnabled: e.target.checked })}
-                        className="w-4 h-4 rounded accent-sky-500"
-                      />
-                      <span>Audio: {soundpackEnabled ? 'On' : 'Off'}</span>
-                    </label>
-
-                    <Button variant="secondary" size="xs" leftIcon={<Play className="w-3 h-3" />} onClick={() => playSoundEvent('task_done')}>
-                      Test Audio
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)]">
-                  <div>
-                    <label className="text-xs font-semibold text-[var(--text-muted,#94A3B8)] block mb-1">Soundpack Theme:</label>
-                    <select
-                      value={soundpackTheme}
-                      onChange={e => saveSoundpackConfig({ soundpackTheme: e.target.value as any })}
-                      className="w-full px-2.5 py-1.5 rounded bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] text-xs text-[var(--text-main,#F1F5F9)]"
-                    >
-                      <option value="modern">Modern Synthesizer (Clean Chimes)</option>
-                      <option value="arcade">Arcade 8-Bit (Retro Chiptune)</option>
-                      <option value="scifi">Sci-Fi Ambient (Subtle Sonar)</option>
-                      <option value="vocal">Vocal Synthesis (Speech Cue)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-semibold text-[var(--text-muted,#94A3B8)]">Master Volume:</span>
-                      <span className="font-mono text-accent font-bold">{soundpackVolume}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={soundpackVolume}
-                      onChange={e => saveSoundpackConfig({ soundpackVolume: Number(e.target.value) })}
-                      className="w-full accent-sky-500 cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                {/* Event triggers */}
-                <div className="space-y-2 pt-2">
-                  <div className="text-xs font-semibold text-[var(--text-muted,#94A3B8)]">Trigger Audio Feedback On:</div>
-                  <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--text-main,#F1F5F9)]">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={soundpackEvents.taskDone}
-                        onChange={e => saveSoundpackConfig({ soundpackEvents: { ...soundpackEvents, taskDone: e.target.checked } })}
-                        className="w-4 h-4 rounded accent-sky-500"
-                      />
-                      <span>Task Completed</span>
-                    </label>
-
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={soundpackEvents.approval}
-                        onChange={e => saveSoundpackConfig({ soundpackEvents: { ...soundpackEvents, approval: e.target.checked } })}
-                        className="w-4 h-4 rounded accent-sky-500"
-                      />
-                      <span>Approval Needed</span>
-                    </label>
-
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={soundpackEvents.checkpoint}
-                        onChange={e => saveSoundpackConfig({ soundpackEvents: { ...soundpackEvents, checkpoint: e.target.checked } })}
-                        className="w-4 h-4 rounded accent-sky-500"
-                      />
-                      <span>Checkpoint Created</span>
-                    </label>
-
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={soundpackEvents.error}
-                        onChange={e => saveSoundpackConfig({ soundpackEvents: { ...soundpackEvents, error: e.target.checked } })}
-                        className="w-4 h-4 rounded accent-sky-500"
-                      />
-                      <span>Task Failed / Error</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* ======================================================== */}
           {/* 6. WEBHOOKS & DISCORD */}
@@ -2168,7 +2167,10 @@ export const SettingsView: React.FC = () => {
                 </div>
 
                 {/* Console view */}
-                <div className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] font-mono text-xs text-content-muted h-80 overflow-y-auto space-y-1">
+                <div
+                  ref={logConsoleRef}
+                  className="p-4 rounded-xl bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] font-mono text-xs text-content-muted h-80 overflow-y-auto space-y-1"
+                >
                   {filteredLogs.map(l => (
                     <div key={l.id} className="flex items-start gap-2 leading-relaxed">
                       <span className="text-[var(--text-dim,#64748B)]">{l.timestamp}</span>

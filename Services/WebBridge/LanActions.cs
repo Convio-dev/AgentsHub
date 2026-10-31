@@ -40,7 +40,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 _lanProxyService.Start(
                     savedLanPort,
                     savedEnginePort,
-                    LanProxyService.ReadSelectedDirectPorts(savedEnginePort));
+                    LanProxyService.ReadSelectedDirectPorts());
                 StartupHelper.SetPreference("LanProxyEnabled", true);
             }
             else
@@ -99,7 +99,7 @@ public sealed partial class DashboardWebBridge : IDisposable
                 _lanProxyService.Start(
                     savedLanPort,
                     savedEnginePort,
-                    LanProxyService.ReadSelectedDirectPorts(savedEnginePort));
+                    LanProxyService.ReadSelectedDirectPorts());
             }
 
             SendResponse(requestId, true, new
@@ -289,13 +289,13 @@ public sealed partial class DashboardWebBridge : IDisposable
             enabled = StartupHelper.GetPreference("LanProxyEnabled", false),
             bindError = proxy?.LastBindError ?? "",
             requiredPorts,
-            selectedPorts = LanProxyService.ReadSelectedDirectPorts(proxy?.TargetPort ?? _cliManager.HubService.Port),
+            selectedPorts = LanProxyService.ReadSelectedDirectPorts(),
             availableForwarders = LanProxyService
-                .DefaultDirectPorts(proxy?.TargetPort ?? _cliManager.HubService.Port)
+                .DefaultDirectPorts()
                 .Select(port => new
                 {
                     port,
-                    label = LanProxyService.LabelForPort(port, proxy?.TargetPort ?? _cliManager.HubService.Port)
+                    label = LanProxyService.LabelForPort(port)
                 })
                 .ToArray(),
             forwarders = forwarders.Select(f => new

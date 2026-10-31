@@ -10,6 +10,7 @@ import { useProfileStore } from './useProfileStore';
 import { useWorkspaceStore } from './useWorkspaceStore';
 import { useRepositoriesStore } from './useRepositoriesStore';
 import { revokeRule } from '../lib/permissionRules';
+import { logUi } from '../services/uiLogger';
 
 /** One flush per page load: conversation grants from the previous run are revoked exactly once. */
 let conversationRulesFlushed = false;
@@ -361,6 +362,12 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
           data.pid
         );
 
+        // The engine reports its own failures here, so the console gets the reason even when the
+        // user is looking at another page.
+        if (data.state === 'error' && data.error) {
+          logUi('error', 'Chat', String(data.error));
+        }
+
         // A "run once" grant was written only so this turn could retry, and the turn is over now.
         const state = data.state || 'idle';
         if (state === 'idle' || state === 'completed' || state === 'error') {
@@ -379,6 +386,8 @@ export const useSidecarStore = create<SidecarStoreState>((set, get) => ({
         const sessionStore = useSessionStore.getState();
         const targetSessionId = data.sessionId || sessionStore.activeSessionId;
         if (!targetSessionId) return;
+
+        logUi('warn', 'Chat', `Permission denied for ${data.tool ?? 'tool'}: ${data.message}`);
 
         sessionStore.addPermissionDenial({
           sessionId: targetSessionId,

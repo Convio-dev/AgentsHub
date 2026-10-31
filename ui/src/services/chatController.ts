@@ -12,6 +12,7 @@ import { useProfileStore } from '../store/useProfileStore';
 import { ChatAttachment } from '../types/agent';
 import { profileForDispatch } from '../lib/profileName';
 import { resolveModelId, useModelStore } from '../store/useModelStore';
+import { logUi } from './uiLogger';
 
 interface DispatchTarget {
   /** Files the user attached; carried as data URLs because the store keeps no path. */
@@ -97,6 +98,8 @@ async function dispatch({ sessionId, prompt, attachments }: DispatchTarget): Pro
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to dispatch chat prompt';
     useSessionStore.getState().updateSessionStatus(sessionId, 'error', message);
+    // A refused send only ever reached the transcript; Live Logs is where failures are looked for.
+    logUi('error', 'Chat', `send_chat failed: ${message}`);
   }
 }
 

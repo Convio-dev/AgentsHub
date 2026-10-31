@@ -51,14 +51,18 @@ public partial class LanProxyService : IDisposable
     public Func<Task>? StartHubAction { get; set; }
     public Func<Task<bool>>? CheckHubAliveAction { get; set; }
 
-    /// <summary>The ports offered for direct LAN exposure, before the user picks which ones run.</summary>
-    public static int[] DefaultDirectPorts(int targetPort) => [targetPort, 9229, 9339];
+    /// <summary>
+    /// The ports offered for direct LAN exposure, before the user picks which ones run. The dashboard
+    /// is not in this list: it is reached through the gateway port, which proxies to it already, so
+    /// exposing the engine port a second time only duplicated the dashboard on an odd URL.
+    /// </summary>
+    public static int[] DefaultDirectPorts() => [9229, 9339];
 
-    public static string LabelForPort(int port, int targetPort) => port switch
+    public static string LabelForPort(int port) => port switch
     {
         9229 => "Claude Code",
         9339 => "Antigravity",
-        _ => port == targetPort ? "Hub" : $"Port {port}"
+        _ => $"Port {port}"
     };
 
     private const string DirectPortsPref = "LanDirectPorts";
@@ -67,15 +71,18 @@ public partial class LanProxyService : IDisposable
     /// Which ports to expose, as the user left them. `none` is stored for an empty selection, so a
     /// deliberate "expose nothing" is not confused with "never configured".
     /// </summary>
-    public static int[] ReadSelectedDirectPorts(int targetPort)
+    public static int[] ReadSelectedDirectPorts()
     {
         var raw = StartupHelper.GetStringPreference(DirectPortsPref, string.Empty);
-        if (string.IsNullOrWhiteSpace(raw)) return DefaultDirectPorts(targetPort);
+        if (string.IsNullOrWhiteSpace(raw)) return DefaultDirectPorts();
         if (string.Equals(raw, "none", StringComparison.OrdinalIgnoreCase)) return [];
 
+        var offered = DefaultDirectPorts();
         return [.. raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(value => int.TryParse(value, out var port) ? port : 0)
-            .Where(port => port is > 0 and <= 65535)
+            // A selection saved before the port list changed can name a port that is no longer
+            // offered; binding it would silently expose something the UI no longer shows.
+            .Where(port => offered.Contains(port))
             .Distinct()];
     }
 
@@ -124,7 +131,7 @@ public partial class LanProxyService : IDisposable
 
                 // Only the ports the user chose are bound; an empty selection exposes nothing but
                 // the gateway, which is what the gateway port alone is for.
-                var wantedPorts = (directPorts ?? DefaultDirectPorts(targetPort))
+                var wantedPorts = (directPorts ?? DefaultDirectPorts())
                     .Where(port => port is > 0 and <= 65535)
                     .Distinct()
                     .ToArray();
@@ -134,7 +141,7 @@ public partial class LanProxyService : IDisposable
                 {
                     foreach (var port in wantedPorts)
                     {
-                        BindDirectForwarder(lanIp, port, port, LabelForPort(port, targetPort));
+                        BindDirectForwarder(lanIp, port, port, LabelForPort(port));
                     }
                 }
                 else

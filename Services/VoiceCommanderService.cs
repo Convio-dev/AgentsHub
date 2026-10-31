@@ -20,7 +20,7 @@ public sealed class VoiceCommanderService
         var cleanCommand = transcribedText.Trim();
         cliManager.SendInput(targetSession, cleanCommand + "\r\n");
 
-        SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created", "modern", 60);
+        SoundpackAudioService.Instance.PlaySoundEvent("checkpoint_created");
         return Task.FromResult(true);
     }
 }

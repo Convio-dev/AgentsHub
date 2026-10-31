@@ -35,7 +35,7 @@ public sealed class SystemDoctorService
             await CheckCommandAsync("agy", "Antigravity CLI (agy)", "agy --version", "Agents", "https://github.com/google-deepmind/antigravity").ConfigureAwait(false),
             await CheckCommandAsync("claude", "Claude Code CLI (claude)", "claude --version", "Agents", "https://claude.ai/code").ConfigureAwait(false),
             CheckPortAvailability(9191, "LAN Proxy Port 9191"),
-            CheckPortAvailability(9119, "Hub Engine Port 9119")
+            CheckPortAvailability(9119, "Agents Engine Port 9119")
         ];
     }
 
@@ -43,6 +43,9 @@ public sealed class SystemDoctorService
     {
         if (string.Equals(issueId, "firewall", StringComparison.OrdinalIgnoreCase))
         {
+            // netsh is a Windows command; offering the fix elsewhere would just fail in silence.
+            if (!Platform.PlatformHelper.IsWindows) return false;
+
             try
             {
                 var psi = new ProcessStartInfo("cmd.exe", "/c netsh advfirewall firewall add rule name=\"Agents Hub LAN Dashboard\" dir=in action=allow protocol=TCP localport=9191")
@@ -86,8 +89,12 @@ public sealed class SystemDoctorService
     {
         try
         {
-            var parts = testCmd.Split(' ', 2);
-            var psi = new ProcessStartInfo("cmd.exe", $"/c {testCmd}")
+            // cmd.exe only exists on Windows; anywhere else the checks all reported "not found"
+            // even with the tool installed.
+            var shell = Platform.PlatformHelper.GetDefaultShell();
+            var psi = new ProcessStartInfo(
+                Platform.PlatformHelper.IsWindows ? shell : "/bin/sh",
+                Platform.PlatformHelper.IsWindows ? $"/c {testCmd}" : $"-c \"{testCmd}\"")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -98,8 +105,32 @@ public sealed class SystemDoctorService
             using var proc = Process.Start(psi);
             if (proc != null)
             {
-                var output = await proc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-                await proc.WaitForExitAsync().ConfigureAwait(false);
+                // stderr is redirected but never read, and a CLI that stops to ask a question never
+                // exits: without both of these the scan spun forever. Both streams are drained and
+                // the wait is bounded.
+                var errTask = proc.StandardError.ReadToEndAsync();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                string output;
+                try
+                {
+                    output = await proc.StandardOutput.ReadToEndAsync(timeout.Token).ConfigureAwait(false);
+                    await proc.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { proc.Kill(entireProcessTree: true); } catch { }
+                    return new DiagnosticCheckItem
+                    {
+                        Id = id,
+                        Title = title,
+                        Category = category,
+                        Status = "Warning",
+                        Details = "Did not answer --version within 8 seconds. It may be waiting for input."
+                    };
+                }
+
+                _ = await errTask.ConfigureAwait(false);
+
                 if (proc.ExitCode == 0)
                 {
                     return new DiagnosticCheckItem
@@ -129,6 +160,18 @@ public sealed class SystemDoctorService
 
     private static DiagnosticCheckItem CheckInnoSetup()
     {
+        if (!Platform.PlatformHelper.IsWindows)
+        {
+            return new DiagnosticCheckItem
+            {
+                Id = "inno",
+                Title = "Inno Setup 6 Compiler",
+                Category = "Runtime",
+                Status = "Pass",
+                Details = "Windows-only installer tool, so nothing to check on this platform."
+            };
+        }
+
         var iscc64 = @"C:\Program Files (x86)\Inno Setup 6\ISCC.exe";
         var iscc32 = @"C:\Program Files\Inno Setup 6\ISCC.exe";
 
@@ -158,6 +201,18 @@ public sealed class SystemDoctorService
 
     private static async Task<DiagnosticCheckItem> CheckFirewallRuleAsync()
     {
+        if (!Platform.PlatformHelper.IsWindows)
+        {
+            return new DiagnosticCheckItem
+            {
+                Id = "firewall",
+                Title = "Firewall LAN Inbound Rule",
+                Category = "Network",
+                Status = "Pass",
+                Details = "No Windows Firewall here; the LAN proxy binds without an inbound rule."
+            };
+        }
+
         try
         {
             var psi = new ProcessStartInfo("cmd.exe", "/c netsh advfirewall firewall show rule name=\"Agents Hub LAN Dashboard\"")

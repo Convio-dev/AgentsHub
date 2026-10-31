@@ -16,6 +16,9 @@ import { useSidecarStore } from './store/useSidecarStore';
 import { useProfileStore } from './store/useProfileStore';
 import { useWorkspaceStore } from './store/useWorkspaceStore';
 import { useThemeStore } from './store/useThemeStore';
+import { useSettingsStore } from './store/useSettingsStore';
+import { webviewBridge } from './services/webviewBridge';
+import { installUiLogging } from './services/uiLogger';
 
 export const App: React.FC = () => {
   const { activeView, isSidebarCollapsed, isRailCollapsed, initBridgeListeners } = useSidecarStore();
@@ -43,6 +46,21 @@ export const App: React.FC = () => {
   useEffect(() => {
     // 0. Initialize theme variables and contrast
     initTheme();
+
+    // 0b. Live Logs. The host reports what it does; the front-end capture covers throws, rejected
+    // promises and console errors that never leave the WebView. Both feed the same list.
+    const detachUiLogging = installUiLogging();
+    const detachHostLogs = webviewBridge.on('live_log_entry', (payload: any) => {
+      if (!payload) return;
+      const level = payload.level === 'error' || payload.level === 'warn' ? payload.level : 'info';
+      useSettingsStore.getState().addLogEntry({
+        timestamp: `[${payload.timestamp ?? new Date().toTimeString().slice(0, 8)}]`,
+        level,
+        source: payload.source ?? payload.tag ?? 'Host',
+        message: payload.message ?? payload.text ?? '',
+      });
+    });
+
     // 1. Initialize bi-directional backend event subscriptions
     const cleanup = initBridgeListeners();
 
@@ -63,6 +81,8 @@ export const App: React.FC = () => {
     return () => {
       cleanup();
       detachLan();
+      detachHostLogs();
+      detachUiLogging();
     };
   }, [initBridgeListeners, loadProfiles, loadWorkspaces, loadWorkspaceFiles, loadBackendSessions]);
 

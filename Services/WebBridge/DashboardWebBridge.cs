@@ -111,7 +111,42 @@ public sealed partial class DashboardWebBridge : IDisposable
         // No metrics timer on purpose: hardware readings are sampled only when the Settings panel
         // asks for them, so an idle window costs nothing.
 
+        // The sidecar's stdout is the only place its crashes and stack traces appear, and nothing
+        // else forwards them to the dashboard, so the log console subscribes here.
+        _cliManager.HubService.LogMessage += OnSidecarLog;
+
+        // Per-CLI lifecycle lines (spawn failures, profile problems, refused launches) were only
+        // visible in the HUD. Everything the manager reports now lands in Live Logs too.
+        _cliManager.LogMessage += OnCliManagerLog;
+
         HookBackendEvents();
+    }
+
+    /// <summary>
+    /// A plain status string carries no level, so one is inferred from the wording. The manager
+    /// writes "could not", "failed" and "Warning:" for the cases worth chasing.
+    /// </summary>
+    private void OnCliManagerLog(string source, string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return;
+
+        string level = message.Contains("error", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("fail", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("could not", StringComparison.OrdinalIgnoreCase)
+            ? "error"
+            : message.Contains("warn", StringComparison.OrdinalIgnoreCase)
+              || message.Contains("notice", StringComparison.OrdinalIgnoreCase)
+              ? "warn"
+              : "info";
+
+        EmitLog(source, level, message);
+    }
+
+    /// <summary>Sidecar output, tagged by severity so a stack trace on stderr is not shown as info.</summary>
+    private void OnSidecarLog(string line)
+    {
+        bool isError = line.Contains("[stderr]", StringComparison.OrdinalIgnoreCase);
+        EmitLog("Sidecar", isError ? "error" : "info", line);
     }
 
 #if WINDOWS
@@ -493,6 +528,7 @@ public sealed partial class DashboardWebBridge : IDisposable
         {
             // Answer under the caller's request id. Answering with none left its promise pending, so
             // any failing action surfaced as a 25 second timeout instead of the actual reason.
+            EmitLog("Bridge", "error", $"{action} failed: {ex.Message}");
             SendResponse(requestId, false, $"{action}: {ex.Message}");
         }
     }
@@ -1559,6 +1595,9 @@ public sealed partial class DashboardWebBridge : IDisposable
                 break;
 
             default:
+                // A name the host does not own is a wiring bug on the page side, and it is silent
+                // otherwise: the promise resolves with success=false and the control just does nothing.
+                EmitLog("Bridge", "warn", $"Unknown action: {action}");
                 SendResponse(requestId, false, $"Unknown action: {action}");
                 break;
         }
@@ -1722,9 +1761,9 @@ public sealed partial class DashboardWebBridge : IDisposable
         PostEventToUi("live_log_entry", new
         {
             timestamp = DateTime.Now.ToString("HH:mm:ss"),
-            tag = source,
+            source,
             level,
-            text = $"[{source}] {message}"
+            message
         });
     }
 
@@ -1744,10 +1783,10 @@ public sealed partial class DashboardWebBridge : IDisposable
         catch { }
     }
 
-    // Static because it reads no instance state, which is also why CA1822 flagged it.
-
     public void Dispose()
     {
+        _cliManager.HubService.LogMessage -= OnSidecarLog;
+        _cliManager.LogMessage -= OnCliManagerLog;
 #if WINDOWS
         _streamFlushTimer.Stop();
 #endif
