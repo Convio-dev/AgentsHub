@@ -6,6 +6,7 @@ import { useProfileStore } from '../../store/useProfileStore';
 import { createPortal } from 'react-dom';
 import { useSidecarStore } from '../../store/useSidecarStore';
 import { webviewBridge } from '../../services/webviewBridge';
+import { engineIcons } from '../../lib/toolIcons';
 import { BackendSessionItem, WorkspaceFileItem } from '../../types/agent';
 
 interface SecondarySidebarProps {
@@ -653,9 +654,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                     onClick={() => startSession(newSessionMenu.workspaceId, 'agy')}
                     className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
                   >
-                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-sky-500/[0.12] text-sky-400">
-                      <Zap className="h-3 w-3" />
-                    </span>
+                    <img src={engineIcons.agy} alt="" className="mt-0.5 h-5 w-5 flex-shrink-0 object-contain" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[11px] font-medium text-content-main">Use Antigravity</span>
                       <span className="block truncate text-[9.5px] text-content-dim">CLI, tools and skills</span>
@@ -669,9 +668,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                     onClick={() => startSession(newSessionMenu.workspaceId, 'deepseek')}
                     className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
                   >
-                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
-                      <Brain className="h-3 w-3" />
-                    </span>
+                    <img src={engineIcons.deepseek} alt="" className="mt-0.5 h-5 w-5 flex-shrink-0 object-contain" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[11px] font-medium text-content-main">Use DeepSeek</span>
                       <span className="block truncate text-[9.5px] text-content-dim">Free web chat</span>
@@ -685,9 +682,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                     onClick={() => startSession(newSessionMenu.workspaceId, 'qwen')}
                     className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
                   >
-                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-violet-500/[0.12] text-violet-400">
-                      <Sparkles className="h-3 w-3" />
-                    </span>
+                    <img src={engineIcons.qwen} alt="" className="mt-0.5 h-5 w-5 flex-shrink-0 object-contain" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[11px] font-medium text-content-main">Use Qwen</span>
                       <span className="block truncate text-[9.5px] text-content-dim">Free, no account</span>
@@ -701,9 +696,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                     onClick={() => startSession(newSessionMenu.workspaceId, 'vyce')}
                     className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
                   >
-                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-emerald-500/[0.12] text-emerald-400">
-                      <SquareTerminal className="h-3 w-3" />
-                    </span>
+                    <img src={engineIcons.vyce} alt="" className="mt-0.5 h-5 w-5 flex-shrink-0 object-contain" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[11px] font-medium text-content-main">Use Vyce</span>
                       <span className="block truncate text-[9.5px] text-content-dim">Hidden console</span>
@@ -717,9 +710,7 @@ export const SecondarySidebar: React.FC<SecondarySidebarProps> = ({ onOpenWorksp
                     onClick={() => startSession(newSessionMenu.workspaceId, 'opencode')}
                     className="flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none"
                   >
-                    <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-amber-500/[0.12] text-amber-400">
-                      <Terminal className="h-3 w-3" />
-                    </span>
+                    <img src={engineIcons.opencode} alt="" className="mt-0.5 h-5 w-5 flex-shrink-0 object-contain" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[11px] font-medium text-content-main">Use OpenCode</span>
                       <span className="block truncate text-[9.5px] text-content-dim">Headless, signed in</span>

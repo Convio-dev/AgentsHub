@@ -1,5 +1,5 @@
 import React from 'react';
-import appMascot from '../../assets/app.png';
+import { brandLogo } from '../../lib/toolIcons';
 
 interface MascotStatusProps {
   isRunning?: boolean;
@@ -20,7 +20,7 @@ export const MascotStatus: React.FC<MascotStatusProps> = ({
     >
       <div className="relative w-7 h-7 rounded-lg overflow-hidden bg-surface-card border border-surface-border/80 flex items-center justify-center p-0.5 shadow-sm group-hover:border-sky-500/50 transition-colors">
         <img
-          src={appMascot}
+          src={brandLogo}
           alt="Agents Hub Mascot"
           className="w-full h-full object-contain filter group-hover:brightness-110 transition"
         />

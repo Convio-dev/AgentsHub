@@ -27,6 +27,7 @@ import {
 import { useProfileStore } from '../store/useProfileStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { webviewBridge } from '../services/webviewBridge';
+import { actionIcons, sticker } from '../lib/toolIcons';
 import { ProjectWorkspace } from '../types/agent';
 import { quotaPillClass } from '../lib/quota';
 import { QuotaPopover } from '../components/common/QuotaPopover';
@@ -373,7 +374,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
               onClick={handleOpenCreateProfile}
               className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-medium flex items-center space-x-1.5 transition shadow-sm"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <img src={actionIcons.add} alt="" className="h-3.5 w-3.5 object-contain" />
               <span>New Profile</span>
             </button>
           </div>
@@ -517,7 +518,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                           className="p-1.5 rounded border border-rose-500/30 bg-rose-500/10 text-state-danger hover:bg-rose-500/20"
                           title="Remove key"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <img src={actionIcons.trash} alt="" className="h-3.5 w-3.5 object-contain" />
                         </button>
                       </div>
                     );
@@ -553,7 +554,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                     disabled={isFetchingModels}
                     className="px-3 py-1.5 bg-surface-deep border border-surface-border hover:border-slate-500 text-content-main rounded-lg flex items-center gap-1.5 text-xs"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isFetchingModels ? 'animate-spin' : ''}`} />
+                    <img src={actionIcons.refresh} alt="" className={`h-3.5 w-3.5 object-contain ${isFetchingModels ? 'animate-spin' : ''}`} />
                     <span>Fetch Free Models</span>
                   </button>
 
@@ -599,7 +600,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                 onClick={handleOpenNewWorkspace}
                 className="px-3 py-1 bg-surface-deep border border-surface-border hover:border-cyan-500 text-accent rounded-lg text-xs font-medium flex items-center gap-1"
               >
-                <Plus className="w-3 h-3" />
+                <img src={actionIcons.add} alt="" className="h-3 w-3 object-contain" />
                 <span>New Workspace</span>
               </button>
 
@@ -680,7 +681,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                                 className="p-1 rounded text-content-dim hover:text-content-main hover:bg-slate-800"
                                 title="Open in File Explorer"
                               >
-                                <ExternalLink className="w-3.5 h-3.5" />
+                                <img src={actionIcons.external} alt="" className="h-3.5 w-3.5 object-contain" />
                               </button>
                             )}
                           </div>
@@ -771,7 +772,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                               : 'bg-slate-800 text-content-muted border-surface-border'
                           }`}
                         >
-                          <Users className="w-5 h-5" />
+                          <img src={sticker.sparkle} alt="" className="h-6 w-6 object-contain" />
                         </div>
                         <div className="min-w-0">
                           <h4 className="text-sm font-bold text-content-main font-mono truncate">{p.name}</h4>
@@ -923,7 +924,7 @@ export const ProfilesView: React.FC<ProfilesViewProps> = () => {
                         className="p-1.5 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-state-danger rounded-lg text-xs transition"
                         title="Delete Profile"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <img src={actionIcons.trash} alt="" className="h-3.5 w-3.5 object-contain" />
                       </button>
                     )}
                   </div>

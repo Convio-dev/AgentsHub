@@ -11,7 +11,7 @@ import { AgentTimeline } from './timeline/AgentTimeline';
 import { AssistantMessageActions, UserMessageActions } from './MessageActions';
 import { profileLabel } from '../../lib/profileName';
 import { editAndResend, regenerateResponse, stopGeneration } from '../../services/chatController';
-import appMascot from '../../assets/app.png';
+import { mascot } from '../../lib/toolIcons';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -165,7 +165,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-8 text-center select-none">
         <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-surface-border bg-surface-card p-2">
-          <img src={appMascot} alt="" className="h-full w-full object-contain" />
+          <img src={mascot.terminal} alt="" className="h-full w-full object-contain" />
         </div>
         <h3 className="mb-1 text-base font-semibold text-content-main">Agents Hub Workspace</h3>
         <p className="mb-6 max-w-sm text-xs leading-relaxed text-content-muted">
@@ -293,7 +293,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({ messages, isGe
             <div className="w-full text-content-main">
               <div className="mb-1.5 flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
-                  <img src={appMascot} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
+                  <img src={mascot.confused} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
                   <span className="font-semibold text-content-main">Agent</span>
                   <span
                     className="rounded bg-surface-strong/60 px-1.5 py-0.5 font-mono text-[10px] text-accent"

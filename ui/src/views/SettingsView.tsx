@@ -46,6 +46,7 @@ import {
   Package,
   FolderOpen,
 } from 'lucide-react';
+import { actionIcons, sectionIcons } from '../lib/toolIcons';
 
 /**
  * A mark per agent, so a list of four CLIs is readable at a glance instead of four identical rows.
@@ -491,7 +492,7 @@ export const SettingsView: React.FC = () => {
 
         {/* Search */}
         <div className="relative w-80">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-dim,#64748B)]" />
+          <img src={actionIcons.search} alt="" className="h-3.5 w-3.5 object-contain absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
@@ -515,7 +516,7 @@ export const SettingsView: React.FC = () => {
         {/* Left Nav Sidebar (~240px) */}
         <nav className="w-60 border-r border-[var(--border-subtle,#1E293B)] bg-[var(--bg-sidebar,#0A0E1A)] p-3 space-y-1 overflow-y-auto">
           {filteredCategories.map(cat => {
-            const Icon = cat.icon;
+            const sectionIcon = sectionIcons[cat.id] ?? sectionIcons.general;
             const isActive = activeCategory === cat.id;
             return (
               <button
@@ -527,7 +528,7 @@ export const SettingsView: React.FC = () => {
                     : 'text-[var(--text-muted,#94A3B8)] hover:bg-[var(--bg-card-hover,#111827)] hover:text-[var(--text-main,#F1F5F9)]'
                 }`}
               >
-                <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-accent' : 'text-[var(--text-dim,#64748B)]'}`} />
+                <img src={sectionIcon} alt="" className="h-4 w-4 flex-shrink-0 object-contain" />
                 <span className="truncate">{cat.label}</span>
               </button>
             );
@@ -1106,7 +1107,7 @@ export const SettingsView: React.FC = () => {
                     <Button
                       variant="secondary"
                       size="xs"
-                      leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${dependenciesLoading ? 'animate-spin' : ''}`} />}
+                      leftIcon={<img src={actionIcons.refresh} alt="" className={`h-3.5 w-3.5 object-contain ${dependenciesLoading ? 'animate-spin' : ''}`} />}
                       onClick={loadDependencies}
                     >
                       Recheck All
@@ -1136,7 +1137,7 @@ export const SettingsView: React.FC = () => {
                       </Button>
                     </div>
                     <Button variant="secondary" size="xs" onClick={() => loadEngineHealth()}>
-                      <RefreshCw className={`w-3.5 h-3.5 ${engineHealthLoading ? 'animate-spin' : ''}`} />
+                      <img src={actionIcons.refresh} alt="" className={`h-3.5 w-3.5 object-contain ${engineHealthLoading ? 'animate-spin' : ''}`} />
                     </Button>
                   </div>
 
@@ -1366,7 +1367,7 @@ export const SettingsView: React.FC = () => {
                   <Button
                     variant="primary"
                     size="xs"
-                    leftIcon={<Plus className="w-3.5 h-3.5" />}
+                    leftIcon={<img src={actionIcons.add} alt="" className="h-3.5 w-3.5 object-contain" />}
                     onClick={() => {
                       setNewCliName('');
                       setNewCliExe('');
@@ -1581,13 +1582,13 @@ export const SettingsView: React.FC = () => {
                     <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] text-xs font-mono">
                       <div>
                         <div className="text-[11px] text-[var(--text-dim,#64748B)] mb-1 flex items-center gap-1">
-                          <Lock className="w-3 h-3" /> Application ID:
+                          <img src={actionIcons.lock} alt="" className="h-3 w-3 object-contain inline-block align-[-2px]" /> Application ID:
                         </div>
                         <span className="text-accent text-[11px]">1562567704941174834</span>
                       </div>
                       <div>
                         <div className="text-[11px] text-[var(--text-dim,#64748B)] mb-1 flex items-center gap-1">
-                          <Lock className="w-3 h-3" /> Official Assets:
+                          <img src={actionIcons.lock} alt="" className="h-3 w-3 object-contain inline-block align-[-2px]" /> Official Assets:
                         </div>
                         <div className="flex gap-1.5">
                           <span className="px-1.5 py-0.2 rounded bg-white/5 border border-white/10 text-[10px] text-content-muted">app</span>
@@ -1981,7 +1982,7 @@ export const SettingsView: React.FC = () => {
                     <Button
                       variant="primary"
                       size="xs"
-                      leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${diagnosticsScanning ? 'animate-spin' : ''}`} />}
+                      leftIcon={<img src={actionIcons.refresh} alt="" className={`h-3.5 w-3.5 object-contain ${diagnosticsScanning ? 'animate-spin' : ''}`} />}
                       onClick={runDiagnostics}
                     >
                       Run Scan
@@ -2128,7 +2129,7 @@ export const SettingsView: React.FC = () => {
 
                   <div className="flex items-center gap-2">
                     <div className="relative">
-                      <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-dim,#64748B)]" />
+                      <img src={actionIcons.search} alt="" className="h-3 w-3 object-contain absolute left-2.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
                         value={logsSearch}
@@ -2265,7 +2266,7 @@ export const SettingsView: React.FC = () => {
                         variant="secondary"
                         size="xs"
                         disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
-                        leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />}
+                        leftIcon={<img src={actionIcons.refresh} alt="" className={`h-3.5 w-3.5 object-contain ${updateStatus === 'checking' ? 'animate-spin' : ''}`} />}
                         onClick={() => checkForUpdates(true)}
                       >
                         {updateStatus === 'checking' ? 'Checking...' : 'Check Now'}
@@ -2278,7 +2279,7 @@ export const SettingsView: React.FC = () => {
                           onClick={() => installUpdate(updateInfo?.downloadUrl)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-slate-950 transition-all shadow-md shadow-emerald-500/20 disabled:opacity-50 cursor-pointer"
                         >
-                          <Download className={`w-3.5 h-3.5 ${updateStatus === 'downloading' ? 'animate-bounce' : ''}`} />
+                          <img src={actionIcons.download} alt="" className={`h-3.5 w-3.5 object-contain ${updateStatus === 'downloading' ? 'animate-bounce' : ''}`} />
                           <span>{updateStatus === 'downloading' ? 'Downloading...' : 'Download & Install'}</span>
                         </button>
                       )}
@@ -2393,7 +2394,7 @@ export const SettingsView: React.FC = () => {
                             <div className="text-[11px] text-[var(--text-dim,#64748B)] truncate">{link.value}</div>
                           </div>
                         </div>
-                        <ExternalLink className="w-3.5 h-3.5 text-[var(--text-dim,#64748B)] group-hover:text-accent shrink-0 ml-2" />
+                        <img src={actionIcons.external} alt="" className="h-3.5 w-3.5 object-contain shrink-0 ml-2" />
                       </button>
                     );
                   })}
@@ -2641,7 +2642,7 @@ export const SettingsView: React.FC = () => {
           <div className="w-full max-w-lg p-6 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle,#1E293B)]">
               <div className="flex items-center gap-2.5">
-                <KeyRound className="w-5 h-5 text-accent" />
+                <img src={actionIcons.key} alt="" className="h-5 w-5 object-contain" />
                 <h3 className="text-sm font-bold text-[var(--text-main,#F1F5F9)]">
                   Configure Authentication: {authModalServer.name}
                 </h3>
@@ -2728,7 +2729,7 @@ export const SettingsView: React.FC = () => {
                     className="text-[11px] text-accent hover:text-accent transition inline-flex items-center gap-1.5 cursor-pointer"
                   >
                     <span>Generate Personal Access Token in Supabase Dashboard</span>
-                    <ExternalLink className="w-3 h-3" />
+                    <img src={actionIcons.external} alt="" className="h-3 w-3 object-contain" />
                   </button>
                 </div>
               )}

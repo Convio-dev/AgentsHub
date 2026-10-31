@@ -22,7 +22,6 @@ import {
   Server,
   X,
   Compass,
-  Wrench,
 } from 'lucide-react';
 import { useSidecarStore } from '../store/useSidecarStore';
 import { useGuideStore } from '../store/useGuideStore';
@@ -32,6 +31,7 @@ import { useProfileStore } from '../store/useProfileStore';
 import { useSessionStore } from '../store/useSessionStore';
 import { webviewBridge } from '../services/webviewBridge';
 import { Button } from '../components/common/Button';
+import { actionIcons, devToolIcon, objectIcons, sticker } from '../lib/toolIcons';
 
 export const DashboardView: React.FC = () => {
   const { health, setActiveView, setSettingsCategory } = useSidecarStore();
@@ -212,7 +212,7 @@ export const DashboardView: React.FC = () => {
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
-                <Globe className="w-4 h-4" />
+                <img src={objectIcons.browser} alt="" className="h-6 w-6 object-contain" />
               </div>
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-main,#F1F5F9)]">Web App Hosts & Running Ports</h3>
@@ -247,14 +247,14 @@ export const DashboardView: React.FC = () => {
                 className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-accent transition-colors"
                 title="Copy URL"
               >
-                {copiedUrl ? <Check className="w-3.5 h-3.5 text-state-success" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedUrl ? <Check className="w-3.5 h-3.5 text-state-success" /> : <img src={actionIcons.copy} alt="" className="h-3.5 w-3.5 object-contain" />}
               </button>
               <button
                 onClick={openInBrowser}
                 className="p-1.5 rounded text-[var(--text-dim,#64748B)] hover:text-accent transition-colors"
                 title="Open in Browser"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
+                <img src={actionIcons.external} alt="" className="h-3.5 w-3.5 object-contain" />
               </button>
             </div>
           </div>
@@ -287,7 +287,7 @@ export const DashboardView: React.FC = () => {
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
-                <Terminal className="w-4 h-4" />
+                <img src={sticker.terminal} alt="" className="h-6 w-6 object-contain" />
               </div>
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-main,#F1F5F9)]">Standalone Terminals</h3>
@@ -315,7 +315,7 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center justify-between gap-3">
               <span className="text-[var(--text-main,#F1F5F9)] font-medium">Antigravity Profile: {activeProfile?.name || 'None'}</span>
               <Button variant="secondary" size="xs" onClick={launchStandaloneCli}>
-                <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                <img src={actionIcons.external} alt="" className="h-3.5 w-3.5 object-contain mr-1.5" />
                 Pop Out
               </Button>
             </div>
@@ -347,7 +347,7 @@ export const DashboardView: React.FC = () => {
         <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
-              <Cpu className="w-4 h-4" />
+              <img src={sticker.braces} alt="" className="h-6 w-6 object-contain" />
             </div>
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-main,#F1F5F9)]">System Terminals & Shells</h3>
@@ -410,7 +410,7 @@ export const DashboardView: React.FC = () => {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
-              <Zap className="w-4 h-4" />
+              <img src={sticker.bolt} alt="" className="h-6 w-6 object-contain" />
             </div>
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-main,#F1F5F9)]">Programs & Quick Shortcuts</h3>
@@ -436,7 +436,7 @@ export const DashboardView: React.FC = () => {
               {maskPaths ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
             </button>
             <Button variant="primary" size="xs" onClick={() => setIsPickerOpen(open => !open)}>
-              <Plus className="w-3 h-3 mr-1" />
+              <img src={actionIcons.add} alt="" className="h-3 w-3 object-contain mr-1" />
               Add Shortcut
             </Button>
           </div>
@@ -502,7 +502,11 @@ export const DashboardView: React.FC = () => {
                     {tool.iconDataUrl ? (
                       <img src={tool.iconDataUrl} alt="" className="w-full h-full object-contain" />
                     ) : (
-                      <Wrench className="w-4 h-4" />
+                      <img
+                        src={devToolIcon(tool.id, tool.name)}
+                        alt=""
+                        className="h-6 w-6 object-contain"
+                      />
                     )}
                   </div>
                   <div className="truncate">
@@ -527,7 +531,7 @@ export const DashboardView: React.FC = () => {
       <div className="p-5 rounded-2xl bg-[var(--bg-card,#0F172A)] border border-[var(--border-subtle,#1E293B)] shadow-sm space-y-4">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
-            <Server className="w-4 h-4" />
+            <img src={sticker.chip} alt="" className="h-6 w-6 object-contain" />
           </div>
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-main,#F1F5F9)]">Core Engine & CLI Controllers</h3>

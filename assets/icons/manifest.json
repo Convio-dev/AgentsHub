@@ -1,0 +1,1362 @@
+[
+ {
+  "name": "terminal",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   45,
+   44,
+   303,
+   278
+  ],
+  "size": [
+   258,
+   234
+  ],
+  "file": "assets/icons/tools/terminal.png"
+ },
+ {
+  "name": "document",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   348,
+   44,
+   541,
+   288
+  ],
+  "size": [
+   193,
+   244
+  ],
+  "file": "assets/icons/tools/document.png"
+ },
+ {
+  "name": "braces",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   592,
+   44,
+   784,
+   288
+  ],
+  "size": [
+   192,
+   244
+  ],
+  "file": "assets/icons/tools/braces.png"
+ },
+ {
+  "name": "folder",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   828,
+   56,
+   1056,
+   273
+  ],
+  "size": [
+   228,
+   217
+  ],
+  "file": "assets/icons/tools/folder.png"
+ },
+ {
+  "name": "folders",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   1087,
+   53,
+   1331,
+   288
+  ],
+  "size": [
+   244,
+   235
+  ],
+  "file": "assets/icons/tools/folders.png"
+ },
+ {
+  "name": "git",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   51,
+   473,
+   297,
+   718
+  ],
+  "size": [
+   246,
+   245
+  ],
+  "file": "assets/icons/tools/git.png"
+ },
+ {
+  "name": "github",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   320,
+   482,
+   554,
+   715
+  ],
+  "size": [
+   234,
+   233
+  ],
+  "file": "assets/icons/tools/github.png"
+ },
+ {
+  "name": "wifi-off",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   572,
+   485,
+   811,
+   726
+  ],
+  "size": [
+   239,
+   241
+  ],
+  "file": "assets/icons/tools/wifi-off.png"
+ },
+ {
+  "name": "bolt",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   843,
+   486,
+   1057,
+   726
+  ],
+  "size": [
+   214,
+   240
+  ],
+  "file": "assets/icons/tools/bolt.png"
+ },
+ {
+  "name": "gear",
+  "group": "tools",
+  "sheet": "icons-tools-1.jpg",
+  "box": [
+   1086,
+   477,
+   1332,
+   726
+  ],
+  "size": [
+   246,
+   249
+  ],
+  "file": "assets/icons/tools/gear.png"
+ },
+ {
+  "name": "openai-knot",
+  "group": "ai",
+  "sheet": "icons-tools.jpg",
+  "box": [
+   50,
+   50,
+   408,
+   435
+  ],
+  "size": [
+   358,
+   385
+  ],
+  "file": "assets/icons/ai/openai-knot.png"
+ },
+ {
+  "name": "asterisk",
+  "group": "ai",
+  "sheet": "icons-tools.jpg",
+  "box": [
+   384,
+   52,
+   677,
+   346
+  ],
+  "size": [
+   293,
+   294
+  ],
+  "file": "assets/icons/ai/asterisk.png"
+ },
+ {
+  "name": "sparkle",
+  "group": "ai",
+  "sheet": "icons-tools.jpg",
+  "box": [
+   683,
+   64,
+   986,
+   468
+  ],
+  "size": [
+   303,
+   404
+  ],
+  "file": "assets/icons/ai/sparkle.png"
+ },
+ {
+  "name": "robot",
+  "group": "ai",
+  "sheet": "icons-tools.jpg",
+  "box": [
+   981,
+   44,
+   1329,
+   387
+  ],
+  "size": [
+   348,
+   343
+  ],
+  "file": "assets/icons/ai/robot.png"
+ },
+ {
+  "name": "brain",
+  "group": "ai",
+  "sheet": "icons-tools.jpg",
+  "box": [
+   45,
+   408,
+   350,
+   689
+  ],
+  "size": [
+   305,
+   281
+  ],
+  "file": "assets/icons/ai/brain.png"
+ },
+ {
+  "name": "chat",
+  "group": "ai",
+  "sheet": "icons-tools.jpg",
+  "box": [
+   340,
+   404,
+   678,
+   713
+  ],
+  "size": [
+   338,
+   309
+  ],
+  "file": "assets/icons/ai/chat.png"
+ },
+ {
+  "name": "wand",
+  "group": "ai",
+  "sheet": "icons-tools.jpg",
+  "box": [
+   977,
+   401,
+   1322,
+   716
+  ],
+  "size": [
+   345,
+   315
+  ],
+  "file": "assets/icons/ai/wand.png"
+ },
+ {
+  "name": "cat-confused",
+  "group": "mascot",
+  "sheet": "icons-1.jpg",
+  "box": [
+   171,
+   29,
+   627,
+   373
+  ],
+  "size": [
+   456,
+   344
+  ],
+  "file": "assets/icons/mascot/cat-confused.png"
+ },
+ {
+  "name": "cat-terminal",
+  "group": "mascot",
+  "sheet": "icons-1.jpg",
+  "box": [
+   757,
+   47,
+   1222,
+   344
+  ],
+  "size": [
+   465,
+   297
+  ],
+  "file": "assets/icons/mascot/cat-terminal.png"
+ },
+ {
+  "name": "cat-folder",
+  "group": "mascot",
+  "sheet": "icons-1.jpg",
+  "box": [
+   189,
+   396,
+   607,
+   740
+  ],
+  "size": [
+   418,
+   344
+  ],
+  "file": "assets/icons/mascot/cat-folder.png"
+ },
+ {
+  "name": "cat-database",
+  "group": "mascot",
+  "sheet": "icons-1.jpg",
+  "box": [
+   807,
+   398,
+   1238,
+   721
+  ],
+  "size": [
+   431,
+   323
+  ],
+  "file": "assets/icons/mascot/cat-database.png"
+ },
+ {
+  "name": "icons-2-01",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   375,
+   55,
+   538,
+   204
+  ],
+  "size": [
+   163,
+   149
+  ],
+  "file": "assets/icons/collage/icons-2-01.png"
+ },
+ {
+  "name": "icons-2-02",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   879,
+   66,
+   1063,
+   209
+  ],
+  "size": [
+   184,
+   143
+  ],
+  "file": "assets/icons/collage/icons-2-02.png"
+ },
+ {
+  "name": "icons-2-03",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   41,
+   37,
+   387,
+   467
+  ],
+  "size": [
+   346,
+   430
+  ],
+  "file": "assets/icons/collage/icons-2-03.png"
+ },
+ {
+  "name": "icons-2-04",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   532,
+   39,
+   853,
+   555
+  ],
+  "size": [
+   321,
+   516
+  ],
+  "file": "assets/icons/collage/icons-2-04.png"
+ },
+ {
+  "name": "icons-2-05",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   1068,
+   36,
+   1335,
+   453
+  ],
+  "size": [
+   267,
+   417
+  ],
+  "file": "assets/icons/collage/icons-2-05.png"
+ },
+ {
+  "name": "icons-2-06",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   358,
+   340,
+   542,
+   490
+  ],
+  "size": [
+   184,
+   150
+  ],
+  "file": "assets/icons/collage/icons-2-06.png"
+ },
+ {
+  "name": "icons-2-07",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   776,
+   237,
+   1083,
+   564
+  ],
+  "size": [
+   307,
+   327
+  ],
+  "file": "assets/icons/collage/icons-2-07.png"
+ },
+ {
+  "name": "icons-2-08",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   47,
+   474,
+   382,
+   729
+  ],
+  "size": [
+   335,
+   255
+  ],
+  "file": "assets/icons/collage/icons-2-08.png"
+ },
+ {
+  "name": "icons-2-09",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   1086,
+   424,
+   1345,
+   733
+  ],
+  "size": [
+   259,
+   309
+  ],
+  "file": "assets/icons/collage/icons-2-09.png"
+ },
+ {
+  "name": "icons-2-10",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   407,
+   543,
+   578,
+   732
+  ],
+  "size": [
+   171,
+   189
+  ],
+  "file": "assets/icons/collage/icons-2-10.png"
+ },
+ {
+  "name": "icons-2-11",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   615,
+   549,
+   780,
+   723
+  ],
+  "size": [
+   165,
+   174
+  ],
+  "file": "assets/icons/collage/icons-2-11.png"
+ },
+ {
+  "name": "icons-2-12",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   815,
+   558,
+   961,
+   730
+  ],
+  "size": [
+   146,
+   172
+  ],
+  "file": "assets/icons/collage/icons-2-12.png"
+ },
+ {
+  "name": "icons-2-13",
+  "group": "collage",
+  "sheet": "icons-2.jpg",
+  "box": [
+   988,
+   583,
+   1110,
+   731
+  ],
+  "size": [
+   122,
+   148
+  ],
+  "file": "assets/icons/collage/icons-2-13.png"
+ },
+ {
+  "name": "icons-3-01",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   263,
+   71,
+   428,
+   214
+  ],
+  "size": [
+   165,
+   143
+  ],
+  "file": "assets/icons/collage/icons-3-01.png"
+ },
+ {
+  "name": "icons-3-02",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   433,
+   55,
+   744,
+   408
+  ],
+  "size": [
+   311,
+   353
+  ],
+  "file": "assets/icons/collage/icons-3-02.png"
+ },
+ {
+  "name": "icons-3-03",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   25,
+   114,
+   369,
+   525
+  ],
+  "size": [
+   344,
+   411
+  ],
+  "file": "assets/icons/collage/icons-3-03.png"
+ },
+ {
+  "name": "icons-3-04",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   374,
+   309,
+   522,
+   438
+  ],
+  "size": [
+   148,
+   129
+  ],
+  "file": "assets/icons/collage/icons-3-04.png"
+ },
+ {
+  "name": "icons-3-05",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   396,
+   472,
+   529,
+   592
+  ],
+  "size": [
+   133,
+   120
+  ],
+  "file": "assets/icons/collage/icons-3-05.png"
+ },
+ {
+  "name": "icons-3-06",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   548,
+   405,
+   676,
+   496
+  ],
+  "size": [
+   128,
+   91
+  ],
+  "file": "assets/icons/collage/icons-3-06.png"
+ },
+ {
+  "name": "icons-3-07",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   24,
+   552,
+   313,
+   889
+  ],
+  "size": [
+   289,
+   337
+  ],
+  "file": "assets/icons/collage/icons-3-07.png"
+ },
+ {
+  "name": "icons-3-08",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   238,
+   501,
+   373,
+   667
+  ],
+  "size": [
+   135,
+   166
+  ],
+  "file": "assets/icons/collage/icons-3-08.png"
+ },
+ {
+  "name": "icons-3-09",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   428,
+   477,
+   760,
+   830
+  ],
+  "size": [
+   332,
+   353
+  ],
+  "file": "assets/icons/collage/icons-3-09.png"
+ },
+ {
+  "name": "icons-3-10",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   22,
+   889,
+   227,
+   1176
+  ],
+  "size": [
+   205,
+   287
+  ],
+  "file": "assets/icons/collage/icons-3-10.png"
+ },
+ {
+  "name": "icons-3-11",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   226,
+   929,
+   357,
+   1072
+  ],
+  "size": [
+   131,
+   143
+  ],
+  "file": "assets/icons/collage/icons-3-11.png"
+ },
+ {
+  "name": "icons-3-12",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   315,
+   747,
+   515,
+   947
+  ],
+  "size": [
+   200,
+   200
+  ],
+  "file": "assets/icons/collage/icons-3-12.png"
+ },
+ {
+  "name": "icons-3-13",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   401,
+   981,
+   512,
+   1123
+  ],
+  "size": [
+   111,
+   142
+  ],
+  "file": "assets/icons/collage/icons-3-13.png"
+ },
+ {
+  "name": "icons-3-14",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   520,
+   933,
+   644,
+   1018
+  ],
+  "size": [
+   124,
+   85
+  ],
+  "file": "assets/icons/collage/icons-3-14.png"
+ },
+ {
+  "name": "icons-3-15",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   619,
+   893,
+   742,
+   1022
+  ],
+  "size": [
+   123,
+   129
+  ],
+  "file": "assets/icons/collage/icons-3-15.png"
+ },
+ {
+  "name": "icons-3-16",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   345,
+   1224,
+   470,
+   1294
+  ],
+  "size": [
+   125,
+   70
+  ],
+  "file": "assets/icons/collage/icons-3-16.png"
+ },
+ {
+  "name": "icons-3-17",
+  "group": "collage",
+  "sheet": "Icons-3.jpg",
+  "box": [
+   508,
+   1053,
+   751,
+   1339
+  ],
+  "size": [
+   243,
+   286
+  ],
+  "file": "assets/icons/collage/icons-3-17.png"
+ },
+ {
+  "name": "caty-01",
+  "group": "pixel-mascot",
+  "sheet": "caty.jpg",
+  "box": [
+   19,
+   575,
+   197,
+   801
+  ],
+  "size": [
+   178,
+   226
+  ],
+  "file": "assets/icons/pixel-mascot/caty-01.png"
+ },
+ {
+  "name": "caty-02",
+  "group": "pixel-mascot",
+  "sheet": "caty.jpg",
+  "box": [
+   198,
+   575,
+   375,
+   801
+  ],
+  "size": [
+   177,
+   226
+  ],
+  "file": "assets/icons/pixel-mascot/caty-02.png"
+ },
+ {
+  "name": "caty-03",
+  "group": "pixel-mascot",
+  "sheet": "caty.jpg",
+  "box": [
+   387,
+   575,
+   553,
+   801
+  ],
+  "size": [
+   166,
+   226
+  ],
+  "file": "assets/icons/pixel-mascot/caty-03.png"
+ },
+ {
+  "name": "caty-04",
+  "group": "pixel-mascot",
+  "sheet": "caty.jpg",
+  "box": [
+   554,
+   623,
+   749,
+   781
+  ],
+  "size": [
+   195,
+   158
+  ],
+  "file": "assets/icons/pixel-mascot/caty-04.png"
+ },
+ {
+  "name": "2d-cat-01",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   21,
+   89,
+   156,
+   248
+  ],
+  "size": [
+   135,
+   159
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-01.png"
+ },
+ {
+  "name": "2d-cat-02",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   220,
+   89,
+   352,
+   236
+  ],
+  "size": [
+   132,
+   147
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-02.png"
+ },
+ {
+  "name": "2d-cat-03",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   398,
+   89,
+   535,
+   248
+  ],
+  "size": [
+   137,
+   159
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-03.png"
+ },
+ {
+  "name": "2d-cat-04",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   579,
+   89,
+   717,
+   248
+  ],
+  "size": [
+   138,
+   159
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-04.png"
+ },
+ {
+  "name": "2d-cat-05",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   22,
+   295,
+   202,
+   459
+  ],
+  "size": [
+   180,
+   164
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-05.png"
+ },
+ {
+  "name": "2d-cat-06",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   216,
+   295,
+   351,
+   440
+  ],
+  "size": [
+   135,
+   145
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-06.png"
+ },
+ {
+  "name": "2d-cat-07",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   398,
+   295,
+   535,
+   454
+  ],
+  "size": [
+   137,
+   159
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-07.png"
+ },
+ {
+  "name": "2d-cat-08",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   581,
+   295,
+   718,
+   454
+  ],
+  "size": [
+   137,
+   159
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-08.png"
+ },
+ {
+  "name": "2d-cat-09",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   22,
+   640,
+   199,
+   820
+  ],
+  "size": [
+   177,
+   180
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-09.png"
+ },
+ {
+  "name": "2d-cat-10",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   210,
+   641,
+   385,
+   820
+  ],
+  "size": [
+   175,
+   179
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-10.png"
+ },
+ {
+  "name": "2d-cat-11",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   393,
+   640,
+   751,
+   820
+  ],
+  "size": [
+   358,
+   180
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-11.png"
+ },
+ {
+  "name": "2d-cat-12",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   57,
+   1125,
+   230,
+   1308
+  ],
+  "size": [
+   173,
+   183
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-12.png"
+ },
+ {
+  "name": "2d-cat-13",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   320,
+   1039,
+   461,
+   1302
+  ],
+  "size": [
+   141,
+   263
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-13.png"
+ },
+ {
+  "name": "2d-cat-14",
+  "group": "sprite-cat",
+  "sheet": "2d-cat.jpg",
+  "box": [
+   535,
+   1095,
+   712,
+   1308
+  ],
+  "size": [
+   177,
+   213
+  ],
+  "file": "assets/icons/sprite-cat/2d-cat-14.png"
+ },
+ {
+  "name": "2d-animals-01",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   62,
+   121,
+   183,
+   269
+  ],
+  "size": [
+   121,
+   148
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-01.png"
+ },
+ {
+  "name": "2d-animals-02",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   240,
+   140,
+   381,
+   269
+  ],
+  "size": [
+   141,
+   129
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-02.png"
+ },
+ {
+  "name": "2d-animals-03",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   402,
+   112,
+   570,
+   269
+  ],
+  "size": [
+   168,
+   157
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-03.png"
+ },
+ {
+  "name": "2d-animals-04",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   605,
+   121,
+   716,
+   269
+  ],
+  "size": [
+   111,
+   148
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-04.png"
+ },
+ {
+  "name": "2d-animals-05",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   62,
+   433,
+   183,
+   596
+  ],
+  "size": [
+   121,
+   163
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-05.png"
+ },
+ {
+  "name": "2d-animals-06",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   236,
+   479,
+   376,
+   596
+  ],
+  "size": [
+   140,
+   117
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-06.png"
+ },
+ {
+  "name": "2d-animals-07",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   402,
+   417,
+   570,
+   596
+  ],
+  "size": [
+   168,
+   179
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-07.png"
+ },
+ {
+  "name": "2d-animals-08",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   605,
+   430,
+   727,
+   596
+  ],
+  "size": [
+   122,
+   166
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-08.png"
+ },
+ {
+  "name": "2d-animals-09",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   50,
+   731,
+   205,
+   918
+  ],
+  "size": [
+   155,
+   187
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-09.png"
+ },
+ {
+  "name": "2d-animals-10",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   226,
+   731,
+   393,
+   918
+  ],
+  "size": [
+   167,
+   187
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-10.png"
+ },
+ {
+  "name": "2d-animals-11",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   402,
+   731,
+   570,
+   918
+  ],
+  "size": [
+   168,
+   187
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-11.png"
+ },
+ {
+  "name": "2d-animals-12",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   590,
+   731,
+   727,
+   918
+  ],
+  "size": [
+   137,
+   187
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-12.png"
+ },
+ {
+  "name": "2d-animals-13",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   76,
+   1227,
+   181,
+   1333
+  ],
+  "size": [
+   105,
+   106
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-13.png"
+ },
+ {
+  "name": "2d-animals-14",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   226,
+   1224,
+   381,
+   1333
+  ],
+  "size": [
+   155,
+   109
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-14.png"
+ },
+ {
+  "name": "2d-animals-15",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   413,
+   1224,
+   558,
+   1333
+  ],
+  "size": [
+   145,
+   109
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-15.png"
+ },
+ {
+  "name": "2d-animals-16",
+  "group": "sprite-animals",
+  "sheet": "2d-animals.jpg",
+  "box": [
+   597,
+   1226,
+   735,
+   1333
+  ],
+  "size": [
+   138,
+   107
+  ],
+  "file": "assets/icons/sprite-animals/2d-animals-16.png"
+ }
+]

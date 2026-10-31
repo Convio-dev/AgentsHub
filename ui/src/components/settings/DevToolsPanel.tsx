@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { actionIcons, devToolIcon, sticker } from '../../lib/toolIcons';
 import {
   Wrench,
   Play,
@@ -129,7 +130,7 @@ export const DevToolsPanel: React.FC = () => {
           <div className="flex items-center justify-between pb-4 border-b border-[var(--border-subtle,#1E293B)] flex-wrap gap-3">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-accent">
-                <Wrench className="w-5 h-5" />
+                <img src={sticker.terminal} alt="" className="h-6 w-6 object-contain" />
               </div>
               <div>
                 <h2 className="text-sm font-bold tracking-wide uppercase text-[var(--text-main,#F1F5F9)]">
@@ -176,7 +177,7 @@ export const DevToolsPanel: React.FC = () => {
                 disabled={isLoading}
                 className="px-3 py-1.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] hover:border-sky-500 text-[var(--text-dim,#64748B)] hover:text-[var(--text-main,#F1F5F9)] text-xs font-medium transition flex items-center gap-1.5"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <img src={actionIcons.refresh} alt="" className={`h-3.5 w-3.5 object-contain ${isLoading ? 'animate-spin' : ''}`} />
                 <span>Recheck paths</span>
               </button>
 
@@ -187,12 +188,12 @@ export const DevToolsPanel: React.FC = () => {
                 className="px-3 py-1.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] hover:border-sky-500 text-[var(--text-dim,#64748B)] hover:text-[var(--text-main,#F1F5F9)] text-xs font-medium transition flex items-center gap-1.5"
                 title="Look through usual install folders for desktop AI clients"
               >
-                <Search className="w-3.5 h-3.5" />
+                <img src={actionIcons.search} alt="" className="h-3.5 w-3.5 object-contain" />
                 <span>Find installed tools</span>
               </button>
 
               <Button variant="primary" size="xs" onClick={() => setShowAddModal(true)}>
-                <Plus className="w-3.5 h-3.5 mr-1" />
+                <img src={actionIcons.add} alt="" className="h-3.5 w-3.5 object-contain mr-1" />
                 <span>Add Tool</span>
               </Button>
             </div>
@@ -218,10 +219,10 @@ export const DevToolsPanel: React.FC = () => {
                       ) : (
                         <ChevronRight className="w-4 h-4 text-[var(--text-dim,#64748B)] flex-shrink-0" />
                       )}
-                      <span
-                        className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                          tool.state === 'ready' ? 'bg-sky-400' : 'bg-amber-400'
-                        }`}
+                      <img
+                        src={devToolIcon(tool.id, tool.name)}
+                        alt=""
+                        className="h-5 w-5 flex-shrink-0 object-contain"
                       />
 
                       <div className="min-w-0">
@@ -274,7 +275,7 @@ export const DevToolsPanel: React.FC = () => {
 
                       {/* Edit button */}
                       <Button variant="secondary" size="xs" onClick={() => handleToggleExpand(tool)}>
-                        <Pencil className="w-3 h-3 mr-1" />
+                        <img src={actionIcons.pencil} alt="" className="h-3 w-3 object-contain mr-1" />
                         <span>{isExpanded ? 'Close' : 'Edit'}</span>
                       </Button>
                     </div>
@@ -302,7 +303,11 @@ export const DevToolsPanel: React.FC = () => {
                               {tool.iconDataUrl ? (
                                 <img src={tool.iconDataUrl} alt="" className="w-full h-full object-contain" />
                               ) : (
-                                <Wrench className="w-3.5 h-3.5 text-[var(--text-dim,#64748B)]" />
+                                <img
+                                  src={devToolIcon(tool.id, tool.name)}
+                                  alt=""
+                                  className="w-full h-full object-contain"
+                                />
                               )}
                             </span>
                             <label className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-input,#0D1322)] border border-[var(--border-subtle,#1E293B)] hover:border-sky-500 text-[11px] text-[var(--text-dim,#64748B)] hover:text-[var(--text-main,#F1F5F9)] cursor-pointer transition">
@@ -373,7 +378,7 @@ export const DevToolsPanel: React.FC = () => {
                           size="xs"
                           onClick={() => removeTool(tool.id)}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <img src={actionIcons.trash} alt="" className="h-3.5 w-3.5 object-contain" />
                         </Button>
                       </div>
                     </div>
