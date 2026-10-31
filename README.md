@@ -214,7 +214,7 @@ AgentsHub/
 ├── MainForm.cs                    # window, WebView2 host, hotkeys, tray
 ├── src/                           # sidecar source (TypeScript, compiled to AgentsEngine)
 ├── Services/
-│   ├── DashboardWebBridge.cs      # the entire JS <-> C# API surface
+│   ├── WebBridge/                 # JS <-> C# API surface: a router plus one partial per domain
 │   ├── CliManagerService.cs       # process lifecycle
 │   ├── Sidecar/                   # sidecar host, session transport
 │   ├── DeepSeek/                  # free web engine, tool layer, MCP client
